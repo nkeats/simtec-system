@@ -844,10 +844,16 @@ body { background: #eef1f8; color: var(--gt); min-height: 100vh; font-size: 14px
     <div class="modal-title">Complete confirmation call</div>
     <div class="modal-sub" id="call-modal-sub">Confirm the sale details with the customer before marking complete.</div>
     <div id="call-modal-details" style="margin-bottom:18px"></div>
+    <div class="checklist-wrap">
+      <div class="checklist-title">Confirmation checklist</div>
+      <div class="checklist-progress" id="modal-prog">Tick each point — <span id="modal-prog-count">0 of 8</span> completed</div>
+      <ul class="checklist" id="modal-chk">
+      </ul>
+    </div>
     <label class="flabel">Call notes (optional)</label>
     <textarea class="finput call-notes" id="call-modal-notes" rows="3" placeholder="e.g. Customer confirmed, happy to proceed. Asked about delivery timing..."></textarea>
     <div class="modal-actions">
-      <button class="btn-green" style="flex:1;padding:12px" onclick="completeCall()">✓ Mark call complete</button>
+      <button class="btn-green" style="flex:1;padding:12px" id="modal-complete-btn" disabled style="opacity:.5" onclick="completeCall()">✓ Mark call complete</button>
       <button class="btn-outline" onclick="closeCallModal()">Cancel</button>
     </div>
   </div>
@@ -864,6 +870,17 @@ const STORAGE_KEY_URL = 'simtec_sb_url';
 const STORAGE_KEY_KEY = 'simtec_sb_key';
 
 let sbClient = null;
+
+const CALL_CHECKLIST = [
+  "Confirmed customer's full name and address",
+  "Confirmed products ordered and total price",
+  "Confirmed weekly repayment amount",
+  "Confirmed weekly payment day",
+  "Confirmed customer understands payments are via Ezidebit direct debit",
+  "Confirmed customer understands delivery occurs after 10% of purchase price is paid",
+  "Confirmed customer is happy to proceed",
+  "Customer had the opportunity to ask questions"
+];
 let currentUser = null;
 let currentRole = null;
 let activeCallId = null;
@@ -1254,16 +1271,30 @@ async function loadCallerQueue() {
       <div style="font-size:12px;color:var(--gm);margin-bottom:12px;background:var(--gl);padding:8px 12px;border-radius:7px">
         <b style="color:var(--navy)">Products:</b> ${items || '—'}
       </div>
+      <div class="checklist-wrap">
+        <div class="checklist-title">Confirmation checklist</div>
+        <div class="checklist-progress" id="prog-${o.id}">Tick each point as you confirm it with the customer — <span>0 of 8</span> completed</div>
+        <ul class="checklist" id="chk-${o.id}">
+          ${CALL_CHECKLIST.map((item, i) => `
+            <li id="chk-${o.id}-${i}">
+              <input type="checkbox" id="cb-${o.id}-${i}" onchange="tickItem('${o.id}',${i},this)">
+              <label for="cb-${o.id}-${i}" style="cursor:pointer">${item}</label>
+            </li>`).join('')}
+        </ul>
+      </div>
       <div class="call-actions">
         <textarea class="call-notes" rows="2" placeholder="Call notes..." id="notes-${o.id}"></textarea>
-        <button class="btn-green" onclick="markCallComplete('${o.id}', '${o.fname} ${o.lname}')">✓ Call done</button>
+        <button class="btn-green" id="done-${o.id}" disabled style="opacity:.5" onclick="markCallComplete('${o.id}', '${o.fname} ${o.lname}')">✓ Call done</button>
       </div>
     </div>`;
   }).join('');
 }
 
 async function markCallComplete(id, name) {
-  const notes = document.getElementById('notes-' + id)?.value || '';
+  const callerCbs = document.querySelectorAll(`#chk-${id} input[type=checkbox]`);
+  const allChecked = [...callerCbs].every(c => c.checked);
+  const checklistLine = allChecked ? 'Checklist completed: all 8 confirmation points confirmed.\n' : '';
+  const notes = checklistLine + (document.getElementById('notes-' + id)?.value || '');
   const card = document.getElementById('card-' + id);
   if (card) { card.style.opacity = '0.4'; card.style.pointerEvents = 'none'; }
 
@@ -1294,15 +1325,58 @@ function openCallModal(id, name, consultant, total, phone) {
     <div class="modal-detail-row"><span class="modal-detail-label">Sale total</span><span class="modal-detail-val">$${Number(total).toLocaleString('en-AU')}</span></div>
   `;
   document.getElementById('call-modal-notes').value = '';
+  // Build checklist
+  const chkUl = document.getElementById('modal-chk');
+  chkUl.innerHTML = CALL_CHECKLIST.map((item, i) => `
+    <li>
+      <input type="checkbox" id="mcb-${i}" onchange="tickModalItem(${i},this)">
+      <label for="mcb-${i}" style="cursor:pointer">${item}</label>
+    </li>`).join('');
+  const btn = document.getElementById('modal-complete-btn');
+  if (btn) { btn.disabled = true; btn.style.opacity = '.5'; }
+  const span = document.getElementById('modal-prog-count');
+  if (span) span.textContent = '0 of 8';
   document.getElementById('call-modal').classList.add('open');
 }
+function tickItem(orderId, idx, cb) {
+  const li = document.getElementById(`chk-${orderId}-${idx}`);
+  if (li) li.classList.toggle('checked', cb.checked);
+  // Count checked
+  const allCbs = document.querySelectorAll(`#chk-${orderId} input[type=checkbox]`);
+  const checked = [...allCbs].filter(c => c.checked).length;
+  const prog = document.getElementById(`prog-${orderId}`);
+  if (prog) prog.querySelector('span').textContent = `${checked} of 8`;
+  // Enable button when all checked
+  const btn = document.getElementById(`done-${orderId}`);
+  if (btn) {
+    btn.disabled = checked < 8;
+    btn.style.opacity = checked < 8 ? '.5' : '1';
+  }
+}
+
+function tickModalItem(idx, cb) {
+  const li = cb.closest('li');
+  if (li) li.classList.toggle('checked', cb.checked);
+  const allCbs = document.querySelectorAll('#modal-chk input[type=checkbox]');
+  const checked = [...allCbs].filter(c => c.checked).length;
+  const span = document.getElementById('modal-prog-count');
+  if (span) span.textContent = `${checked} of 8`;
+  const btn = document.getElementById('modal-complete-btn');
+  if (btn) {
+    btn.disabled = checked < 8;
+    btn.style.opacity = checked < 8 ? '.5' : '1';
+  }
+}
+
 function closeCallModal() {
   document.getElementById('call-modal').classList.remove('open');
   activeCallId = null;
 }
 async function completeCall() {
   if (!activeCallId || !sbClient) return;
-  const notes = document.getElementById('call-modal-notes').value;
+  const allCbs = document.querySelectorAll('#modal-chk input[type=checkbox]');
+  const checklistSummary = 'Checklist completed: all 8 confirmation points confirmed.\n';
+  const notes = checklistSummary + (document.getElementById('call-modal-notes').value || '');
   const { error } = await sbClient
     .from('orders')
     .update({ call_status: 'complete', call_notes: notes, call_time: new Date().toISOString() })
