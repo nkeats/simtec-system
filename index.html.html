@@ -1,0 +1,1344 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Simtec Therapeutic — Business Operating System</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+/* ── FONTS ── */
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=DM+Mono:wght@400;500&display=swap');
+
+:root {
+  --navy:   #1e3a6e;
+  --navy2:  #2a4d8f;
+  --navy3:  #162d56;
+  --gold:   #c9a84c;
+  --goldl:  #e8c96a;
+  --goldp:  #fdf6e3;
+  --cream:  #fdf8f0;
+  --white:  #ffffff;
+  --gl:     #f4f6fa;
+  --gm:     #7a8fad;
+  --gt:     #3a4560;
+  --green:  #1faa5a;
+  --gbg:    #e8f8ef;
+  --amber:  #e08c10;
+  --abg:    #fef3e2;
+  --red:    #d63030;
+  --rbg:    #fdecea;
+  --border: #e0e6f0;
+  --shadow: 0 2px 12px rgba(30,58,110,.08);
+  --shadow2:0 4px 24px rgba(30,58,110,.14);
+  font-family: 'DM Sans', -apple-system, sans-serif;
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { scroll-behavior: smooth; }
+body { background: #eef1f8; color: var(--gt); min-height: 100vh; font-size: 14px; }
+
+/* ── LOGIN SCREEN ── */
+#login-screen {
+  min-height: 100vh;
+  background: linear-gradient(135deg, var(--navy3) 0%, var(--navy) 50%, var(--navy2) 100%);
+  display: flex; align-items: center; justify-content: center; padding: 24px;
+}
+.login-card {
+  background: white; border-radius: 20px; padding: 40px 44px;
+  width: 100%; max-width: 420px;
+  box-shadow: 0 24px 64px rgba(0,0,0,.28);
+}
+.login-logo {
+  display: flex; align-items: center; gap: 12px; margin-bottom: 32px;
+}
+.login-logo-badge {
+  width: 44px; height: 44px; border-radius: 11px; background: var(--navy);
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 700; font-size: 14px; color: var(--goldl); letter-spacing: .5px;
+}
+.login-logo-text { font-size: 17px; font-weight: 700; color: var(--navy); line-height: 1.2; }
+.login-logo-sub  { font-size: 11px; color: var(--gm); font-weight: 500; }
+.login-title { font-size: 22px; font-weight: 700; color: var(--navy); margin-bottom: 6px; }
+.login-sub   { font-size: 13px; color: var(--gm); margin-bottom: 28px; }
+.flabel { font-size: 11px; font-weight: 600; color: var(--gm); text-transform: uppercase; letter-spacing: .6px; display: block; margin-bottom: 5px; }
+.finput {
+  width: 100%; border: 1.5px solid var(--border); border-radius: 10px;
+  padding: 11px 14px; font-size: 14px; color: var(--navy);
+  background: #fff; font-family: inherit; transition: border-color .15s;
+  margin-bottom: 16px;
+}
+.finput:focus { outline: none; border-color: var(--navy); box-shadow: 0 0 0 3px rgba(30,58,110,.10); }
+.btn-primary {
+  width: 100%; background: var(--navy); color: #fff; border: none;
+  border-radius: 10px; padding: 13px; font-size: 15px; font-weight: 600;
+  cursor: pointer; font-family: inherit; transition: background .15s;
+  margin-top: 4px;
+}
+.btn-primary:hover { background: var(--navy2); }
+.login-error {
+  background: var(--rbg); border: 1px solid #f5baba; border-radius: 8px;
+  padding: 10px 14px; font-size: 13px; color: var(--red);
+  margin-bottom: 16px; display: none;
+}
+.login-setup-note {
+  margin-top: 24px; padding: 14px 16px; border-radius: 10px;
+  background: #f0f4fb; border: 1px solid var(--border);
+  font-size: 12px; color: var(--gm); line-height: 1.6;
+}
+.login-setup-note strong { color: var(--navy); }
+.login-setup-note code {
+  background: var(--navy); color: var(--goldl); padding: 2px 6px;
+  border-radius: 4px; font-family: 'DM Mono', monospace; font-size: 11px;
+}
+
+/* ── CALLER VIEW (stripped) ── */
+#caller-screen {
+  min-height: 100vh; background: #eef1f8;
+}
+.caller-topbar {
+  background: var(--navy); padding: 0 24px; height: 56px;
+  display: flex; align-items: center; justify-content: space-between;
+  border-bottom: 2px solid var(--gold); position: sticky; top: 0; z-index: 100;
+}
+.caller-topbar-left { display: flex; align-items: center; gap: 12px; }
+.topbar-badge {
+  width: 34px; height: 34px; border-radius: 8px; background: var(--gold);
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 700; font-size: 11px; color: var(--navy);
+}
+.topbar-title { font-weight: 600; font-size: 14px; color: #fff; }
+.topbar-role  { font-size: 11px; color: var(--gm); }
+.caller-body  { max-width: 700px; margin: 0 auto; padding: 28px 24px; }
+.caller-header { margin-bottom: 24px; }
+.caller-header h1 { font-size: 22px; font-weight: 700; color: var(--navy); }
+.caller-header p  { font-size: 13px; color: var(--gm); margin-top: 4px; }
+.live-badge {
+  display: inline-flex; align-items: center; gap: 5px;
+  background: var(--gbg); color: var(--green); border-radius: 20px;
+  padding: 3px 10px; font-size: 11px; font-weight: 600; margin-top: 8px;
+}
+.live-dot { width: 7px; height: 7px; background: var(--green); border-radius: 50%; animation: pulse 1.5s infinite; }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+
+/* ── MAIN NAV ── */
+#app-screen { display: none; min-height: 100vh; }
+.topnav {
+  position: sticky; top: 0; z-index: 100; background: var(--navy);
+  display: flex; align-items: center; gap: 0; padding: 0 20px;
+  height: 56px; border-bottom: 2px solid var(--gold);
+}
+.logo-area { display: flex; align-items: center; gap: 10px; margin-right: 20px; flex-shrink: 0; }
+.logo-badge {
+  width: 32px; height: 32px; border-radius: 8px; background: var(--gold);
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 700; font-size: 11px; color: var(--navy); flex-shrink: 0;
+}
+.nav-brand { font-weight: 700; font-size: 13px; color: #fff; white-space: nowrap; }
+.nav-links  { display: flex; gap: 2px; overflow-x: auto; flex: 1; }
+.nav-btn {
+  padding: 6px 12px; border-radius: 6px; border: none; background: transparent;
+  font-size: 12px; color: var(--gm); cursor: pointer; white-space: nowrap;
+  transition: all .15s; font-family: inherit; font-weight: 500;
+}
+.nav-btn:hover  { background: rgba(255,255,255,.08); color: #fff; }
+.nav-btn.active { background: #fff; color: var(--navy); font-weight: 600; }
+.nav-right { display: flex; align-items: center; gap: 10px; margin-left: 12px; flex-shrink: 0; }
+.nav-user  { font-size: 12px; color: var(--gm); }
+.btn-logout {
+  background: rgba(255,255,255,.1); color: var(--gm); border: none;
+  border-radius: 6px; padding: 5px 10px; font-size: 11px; cursor: pointer;
+  font-family: inherit; transition: all .15s;
+}
+.btn-logout:hover { background: rgba(255,255,255,.2); color: #fff; }
+
+/* ── SCREENS ── */
+.screen { display: none; padding: 28px 24px; max-width: 980px; margin: 0 auto; }
+.screen.active { display: block; }
+.page-header  { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 22px; }
+.page-title   { font-size: 20px; font-weight: 700; color: var(--navy); }
+.page-sub     { font-size: 13px; color: var(--gm); margin-top: 3px; }
+
+/* ── CARDS ── */
+.card { background: #fff; border-radius: 14px; border: 1px solid var(--border); padding: 20px 24px; margin-bottom: 16px; box-shadow: var(--shadow); }
+.card-title { font-size: 15px; font-weight: 600; color: var(--navy); margin-bottom: 4px; display: flex; align-items: center; gap: 8px; }
+.card-sub   { font-size: 13px; color: var(--gm); margin-bottom: 16px; }
+
+/* ── BADGES ── */
+.badge { display: inline-flex; align-items: center; padding: 3px 9px; border-radius: 20px; font-size: 11px; font-weight: 600; }
+.b-gold  { background: #eef2f8; color: var(--navy); }
+.b-navy  { background: var(--navy); color: var(--goldl); }
+.b-green { background: var(--gbg); color: #1a7a44; }
+.b-amber { background: var(--abg); color: #8a5500; }
+.b-red   { background: var(--rbg); color: #8a2222; }
+
+/* ── BUTTONS ── */
+.btn-gold    { background: var(--navy); color: #fff; border: none; border-radius: 9px; padding: 11px 22px; font-size: 14px; font-weight: 600; cursor: pointer; transition: background .12s; font-family: inherit; }
+.btn-gold:hover { background: var(--navy2); }
+.btn-outline { background: transparent; color: var(--navy); border: 1.5px solid var(--border); border-radius: 9px; padding: 8px 16px; font-size: 13px; cursor: pointer; font-family: inherit; transition: all .12s; font-weight: 500; }
+.btn-outline:hover { border-color: var(--navy); background: var(--gl); }
+.btn-green   { background: var(--green); color: #fff; border: none; border-radius: 9px; padding: 9px 18px; font-size: 13px; font-weight: 600; cursor: pointer; font-family: inherit; }
+.btn-red     { background: var(--red); color: #fff; border: none; border-radius: 9px; padding: 9px 18px; font-size: 13px; font-weight: 600; cursor: pointer; font-family: inherit; }
+.btn-sm      { padding: 6px 12px; font-size: 12px; border-radius: 7px; }
+
+/* ── METRICS ── */
+.metric-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px,1fr)); gap: 12px; margin-bottom: 18px; }
+.mcard { background: var(--gl); border-radius: 12px; padding: 14px 16px; border: 1px solid var(--border); }
+.mcard-label { font-size: 11px; color: var(--gm); margin-bottom: 4px; font-weight: 500; }
+.mcard-val   { font-size: 24px; font-weight: 700; color: var(--navy); }
+.mcard-sub   { font-size: 11px; color: var(--gm); margin-top: 3px; }
+
+/* ── TABLE ── */
+.dtable { width: 100%; border-collapse: collapse; font-size: 13px; }
+.dtable th { text-align: left; padding: 9px 12px; font-size: 11px; font-weight: 600; color: #fff; background: var(--navy); }
+.dtable th:first-child { border-radius: 8px 0 0 0; }
+.dtable th:last-child  { border-radius: 0 8px 0 0; }
+.dtable td { padding: 10px 12px; border-bottom: 1px solid var(--border); color: var(--gt); vertical-align: middle; }
+.dtable tr:nth-child(even) td { background: #f9fafc; }
+.dtable tr:last-child td { border-bottom: none; }
+.dtable tr:hover td { background: #f0f4fb; }
+
+/* ── CALL QUEUE SPECIFIC ── */
+.cq-row-urgent td { background: #fff8f0 !important; }
+.cq-row-urgent:hover td { background: #fef3e0 !important; }
+.call-timer { font-family: 'DM Mono', monospace; font-size: 12px; font-weight: 500; }
+.call-timer.urgent { color: var(--red); }
+.call-timer.normal { color: var(--amber); }
+.call-timer.ok     { color: var(--gm); }
+
+/* ── CONFIRMATION MODAL ── */
+.modal-overlay {
+  position: fixed; inset: 0; background: rgba(20,30,60,.55);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 1000; padding: 20px; opacity: 0; pointer-events: none;
+  transition: opacity .2s;
+}
+.modal-overlay.open { opacity: 1; pointer-events: all; }
+.modal-box {
+  background: #fff; border-radius: 18px; padding: 28px 32px;
+  width: 100%; max-width: 500px; box-shadow: var(--shadow2);
+  transform: translateY(10px); transition: transform .2s;
+}
+.modal-overlay.open .modal-box { transform: translateY(0); }
+.modal-title { font-size: 17px; font-weight: 700; color: var(--navy); margin-bottom: 6px; }
+.modal-sub   { font-size: 13px; color: var(--gm); margin-bottom: 20px; }
+.modal-field { margin-bottom: 14px; }
+.modal-detail-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+.modal-detail-row:last-child { border-bottom: none; }
+.modal-detail-label { color: var(--gm); }
+.modal-detail-val   { font-weight: 600; color: var(--navy); }
+.modal-actions { display: flex; gap: 10px; margin-top: 22px; }
+.modal-actions .btn-primary { margin-top: 0; }
+
+/* ── PRODUCT TILES ── */
+.prod-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(128px,1fr)); gap: 8px; margin-bottom: 18px; }
+.ptile {
+  border: 1.5px solid var(--border); border-radius: 10px; padding: 10px 12px;
+  cursor: pointer; transition: all .12s; background: #fff; user-select: none;
+}
+.ptile:hover { border-color: var(--navy); }
+.ptile.sel   { border-color: var(--navy); background: var(--navy); }
+.ptile.sel .pn { color: var(--goldl); }
+.ptile.sel .ps { color: var(--gm); }
+.ptile.sel .pp { color: var(--gold); }
+.pn { font-size: 13px; font-weight: 600; color: var(--navy); }
+.ps { font-size: 11px; color: var(--gm); margin-top: 2px; }
+.pp { font-size: 12px; color: var(--gm); margin-top: 6px; font-weight: 600; }
+.qty-row { display: flex; align-items: center; gap: 6px; margin-top: 8px; }
+.qty-btn { background: rgba(255,255,255,.2); border: 1px solid rgba(255,255,255,.3); color: #fff; width: 20px; height: 20px; border-radius: 5px; font-size: 13px; cursor: pointer; display: flex; align-items: center; justify-content: center; font-family: inherit; }
+.ptile:not(.sel) .qty-btn { background: var(--gl); border-color: var(--border); color: var(--navy); }
+.qty-num { font-size: 13px; font-weight: 600; color: #fff; min-width: 16px; text-align: center; }
+.ptile:not(.sel) .qty-num { color: var(--navy); }
+
+/* ── SUM BAR ── */
+.sum-bar { background: var(--navy); border-radius: 10px; padding: 14px 20px; display: flex; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-top: 14px; }
+.sl { font-size: 11px; color: var(--gm); margin-bottom: 2px; }
+.sv { font-size: 18px; font-weight: 700; color: #fff; }
+
+/* ── TRUST BAR ── */
+.trust-bar { background: var(--navy); border-radius: 10px; padding: 12px 16px; display: flex; gap: 12px; align-items: flex-start; margin-bottom: 16px; }
+.trust-bar p { font-size: 12px; color: var(--gm); line-height: 1.6; }
+.trust-bar strong { color: #fff; }
+
+/* ── FORM ── */
+.form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.fg-full { grid-column: 1/-1; }
+.sec-title { font-size: 11px; font-weight: 600; color: var(--gm); text-transform: uppercase; letter-spacing: .5px; padding-bottom: 8px; border-bottom: 1px solid var(--border); margin-bottom: 10px; }
+
+/* ── STEP FLOW ── */
+.step-flow { display: flex; flex-direction: column; }
+.step-row  { display: flex; gap: 14px; padding: 14px 0; border-bottom: 1px solid var(--border); }
+.step-row:last-child { border-bottom: none; }
+.step-num  { width: 28px; height: 28px; border-radius: 50%; background: var(--navy); color: #fff; font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-top: 2px; }
+.step-title { font-size: 14px; font-weight: 600; color: var(--navy); margin-bottom: 4px; }
+.step-desc  { font-size: 13px; color: var(--gm); line-height: 1.5; }
+.step-tags  { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
+.stag { background: var(--gl); border: 1px solid var(--border); color: var(--navy); border-radius: 5px; padding: 2px 7px; font-size: 11px; font-weight: 500; }
+
+/* ── SETUP GUIDE ── */
+.setup-card {
+  background: linear-gradient(135deg, var(--navy) 0%, var(--navy2) 100%);
+  border-radius: 14px; padding: 28px 32px; color: white; margin-bottom: 16px;
+}
+.setup-card h2 { font-size: 18px; font-weight: 700; margin-bottom: 8px; }
+.setup-card p  { font-size: 13px; color: rgba(255,255,255,.7); line-height: 1.6; }
+.setup-steps   { margin-top: 20px; display: flex; flex-direction: column; gap: 0; }
+.setup-step    { display: flex; gap: 14px; padding: 12px 0; border-bottom: 1px solid rgba(255,255,255,.1); }
+.setup-step:last-child { border-bottom: none; }
+.setup-num     { width: 26px; height: 26px; border-radius: 50%; background: var(--gold); color: var(--navy); font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-top: 1px; }
+.setup-text    { font-size: 13px; color: rgba(255,255,255,.85); line-height: 1.5; }
+.setup-text strong { color: white; }
+.setup-text code { background: rgba(255,255,255,.15); padding: 2px 6px; border-radius: 4px; font-family: 'DM Mono', monospace; font-size: 11px; color: var(--goldl); }
+
+/* ── CONFIRM CALL CARD (caller view) ── */
+.call-card {
+  background: white; border-radius: 16px; border: 2px solid var(--border);
+  padding: 20px 22px; margin-bottom: 12px; transition: border-color .15s;
+  box-shadow: var(--shadow);
+}
+.call-card.urgent { border-color: #f5a020; }
+.call-card.done   { opacity: .55; border-color: var(--border); }
+.call-card-top    { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px; }
+.call-customer    { font-size: 16px; font-weight: 700; color: var(--navy); }
+.call-meta        { font-size: 12px; color: var(--gm); margin-top: 3px; }
+.call-detail-row  { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 14px; }
+.call-detail-box  { background: var(--gl); border-radius: 8px; padding: 10px 12px; }
+.call-detail-box-label { font-size: 10px; color: var(--gm); text-transform: uppercase; letter-spacing: .5px; font-weight: 600; margin-bottom: 2px; }
+.call-detail-box-val   { font-size: 14px; font-weight: 600; color: var(--navy); }
+.call-actions     { display: flex; gap: 8px; align-items: center; }
+.call-notes       { flex: 1; border: 1.5px solid var(--border); border-radius: 8px; padding: 8px 12px; font-size: 13px; font-family: inherit; color: var(--navy); resize: none; }
+.call-notes:focus { outline: none; border-color: var(--navy); }
+.no-calls         { text-align: center; padding: 60px 20px; }
+.no-calls-icon    { font-size: 48px; margin-bottom: 12px; }
+.no-calls-title   { font-size: 16px; font-weight: 600; color: var(--navy); margin-bottom: 6px; }
+.no-calls-sub     { font-size: 13px; color: var(--gm); }
+
+/* ── ORDER CONFIRM PANEL ── */
+#order-confirm { display: none; }
+.confirm-panel { background: var(--gbg); border: 1.5px solid #a8e6c0; border-radius: 12px; padding: 16px 20px; }
+.confirm-panel-title { font-weight: 700; color: #1a5c35; margin-bottom: 6px; }
+.confirm-checklist { list-style: none; font-size: 13px; color: #1a5c35; line-height: 1.9; }
+.confirm-checklist li::before { content: '✓  '; font-weight: 700; }
+
+/* ── CANCEL MODAL ── */
+.confirm-input { width: 100%; border: 1.5px solid var(--border); border-radius: 8px; padding: 9px 12px; font-size: 14px; font-family: inherit; margin-bottom: 14px; transition: border-color .15s; }
+.confirm-input:focus { outline: none; border-color: var(--red); box-shadow: 0 0 0 3px rgba(214,48,48,.12); }
+
+/* ── TOAST ── */
+.toast {
+  position: fixed; bottom: 24px; right: 24px; z-index: 2000;
+  background: var(--navy); color: #fff; border-radius: 10px;
+  padding: 12px 18px; font-size: 13px; font-weight: 500;
+  box-shadow: var(--shadow2); transform: translateY(60px); opacity: 0;
+  transition: all .3s; pointer-events: none;
+}
+.toast.show { transform: translateY(0); opacity: 1; }
+.toast.success { background: var(--green); }
+.toast.error   { background: var(--red); }
+
+/* ── SUPABASE CONFIG SCREEN ── */
+#config-screen {
+  min-height: 100vh;
+  background: linear-gradient(135deg, var(--navy3) 0%, var(--navy) 100%);
+  display: none; align-items: center; justify-content: center; padding: 24px;
+}
+#config-screen.active { display: flex; }
+.config-card {
+  background: white; border-radius: 20px; padding: 36px 40px;
+  width: 100%; max-width: 580px; box-shadow: 0 24px 64px rgba(0,0,0,.28);
+}
+.config-card h2 { font-size: 20px; font-weight: 700; color: var(--navy); margin-bottom: 6px; }
+.config-card p  { font-size: 13px; color: var(--gm); margin-bottom: 24px; line-height: 1.6; }
+.sql-block {
+  background: #1a1f2e; border-radius: 10px; padding: 16px 18px;
+  font-family: 'DM Mono', monospace; font-size: 11.5px; color: #a8d8ff;
+  line-height: 1.7; overflow-x: auto; margin: 12px 0 20px;
+  white-space: pre; border: 1px solid #2a3448;
+}
+.sql-kw  { color: #c792ea; }
+.sql-str { color: #c3e88d; }
+.sql-cmt { color: #546e7a; }
+
+/* ── AWARDS & COMMISSIONS ── */
+.awards-tier { display: flex; align-items: center; gap: 14px; padding: 14px 0; border-bottom: 1px solid var(--border); }
+.awards-tier:last-child { border-bottom: none; }
+.tier-icon  { font-size: 26px; }
+.tier-name  { font-size: 14px; font-weight: 700; color: var(--navy); }
+.tier-range { font-size: 12px; color: var(--gm); }
+.tier-bonus { margin-left: auto; font-size: 14px; font-weight: 700; color: var(--green); }
+
+/* Responsive */
+@media (max-width: 600px) {
+  .form-grid { grid-template-columns: 1fr; }
+  .call-detail-row { grid-template-columns: 1fr; }
+  .login-card, .config-card { padding: 28px 24px; }
+  .topnav { padding: 0 12px; }
+}
+</style>
+</head>
+<body>
+
+<!-- ══════════════════════════════════════════════════════════
+     SUPABASE CONFIG SCREEN — shown until keys are entered
+══════════════════════════════════════════════════════════ -->
+<div id="config-screen">
+  <div class="config-card">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:24px">
+      <div class="login-logo-badge">ST</div>
+      <div>
+        <div style="font-size:15px;font-weight:700;color:var(--navy)">Simtec Therapeutic</div>
+        <div style="font-size:11px;color:var(--gm)">Business Operating System — Setup</div>
+      </div>
+    </div>
+    <h2>Connect your Supabase database</h2>
+    <p>This system uses <strong>Supabase</strong> (free) as its back end — a hosted database that keeps all data live and accessible from any device. You only need to do this setup once.</p>
+
+    <label class="flabel">Supabase Project URL</label>
+    <input class="finput" id="cfg-url" placeholder="https://xxxxxxxxxxxx.supabase.co" />
+
+    <label class="flabel">Supabase Anon Key</label>
+    <input class="finput" id="cfg-key" placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." />
+
+    <button class="btn-primary" onclick="saveConfig()">Save & Connect →</button>
+
+    <div style="margin-top:28px;border-top:1px solid var(--border);padding-top:24px">
+      <div style="font-size:13px;font-weight:600;color:var(--navy);margin-bottom:12px">How to set this up (takes ~10 minutes)</div>
+      <div class="step-flow">
+        <div class="setup-step" style="padding:10px 0;border-bottom:1px solid #eee">
+          <div class="setup-num" style="background:var(--navy);color:white">1</div>
+          <div style="font-size:13px;color:var(--gt)">Go to <strong>supabase.com</strong> → create a free account → New Project</div>
+        </div>
+        <div class="setup-step" style="padding:10px 0;border-bottom:1px solid #eee">
+          <div class="setup-num" style="background:var(--navy);color:white">2</div>
+          <div style="font-size:13px;color:var(--gt)">In your project: <strong>Settings → API</strong> → copy your Project URL and anon/public key into the fields above</div>
+        </div>
+        <div class="setup-step" style="padding:10px 0;border-bottom:1px solid #eee">
+          <div class="setup-num" style="background:var(--navy);color:white">3</div>
+          <div style="font-size:13px;color:var(--gt)">In Supabase: go to <strong>SQL Editor</strong> → paste and run the setup SQL shown inside the app after connecting</div>
+        </div>
+        <div class="setup-step" style="padding:10px 0">
+          <div class="setup-num" style="background:var(--navy);color:white">4</div>
+          <div style="font-size:13px;color:var(--gt)">Create user accounts in Supabase <strong>Authentication → Users</strong> — set role to <code>admin</code> or <code>caller</code> in user metadata</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════
+     LOGIN SCREEN
+══════════════════════════════════════════════════════════ -->
+<div id="login-screen" style="display:none">
+  <div class="login-card">
+    <div class="login-logo">
+      <div class="login-logo-badge">ST</div>
+      <div>
+        <div class="login-logo-text">Simtec Therapeutic</div>
+        <div class="login-logo-sub">Business Operating System</div>
+      </div>
+    </div>
+    <div class="login-title">Sign in</div>
+    <div class="login-sub">Access is restricted to authorised staff only.</div>
+    <div class="login-error" id="login-error"></div>
+    <label class="flabel">Email address</label>
+    <input class="finput" id="login-email" type="email" placeholder="you@simtec.com.au" />
+    <label class="flabel">Password</label>
+    <input class="finput" id="login-password" type="password" placeholder="••••••••" onkeydown="if(event.key==='Enter')doLogin()" />
+    <button class="btn-primary" onclick="doLogin()" id="login-btn">Sign in →</button>
+    <div class="login-setup-note">
+      <strong>Admin:</strong> access all screens — sales, dashboard, workflow, commissions, delivery, reports, and more.<br><br>
+      <strong>Caller role:</strong> sees only the confirmation call queue — new sales flagged for calls, customer details, and a button to mark each call complete. Nothing else.
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════
+     CALLER VIEW — stripped single-purpose interface
+══════════════════════════════════════════════════════════ -->
+<div id="caller-screen" style="display:none">
+  <div class="caller-topbar">
+    <div class="caller-topbar-left">
+      <div class="topbar-badge">ST</div>
+      <div>
+        <div class="topbar-title">Simtec Therapeutic</div>
+        <div class="topbar-role">Confirmation calls</div>
+      </div>
+    </div>
+    <button class="btn-logout" onclick="doLogout()">Sign out</button>
+  </div>
+
+  <div class="caller-body">
+    <div class="caller-header">
+      <h1>Confirmation call queue</h1>
+      <p>New sales requiring a confirmation call. Call while the consultant is still on-site.</p>
+      <div class="live-badge"><span class="live-dot"></span> Live — updates automatically</div>
+    </div>
+
+    <div id="caller-queue-container">
+      <div class="no-calls">
+        <div class="no-calls-icon">✅</div>
+        <div class="no-calls-title">Queue is clear</div>
+        <div class="no-calls-sub">No confirmation calls pending right now.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════
+     ADMIN APP SCREEN
+══════════════════════════════════════════════════════════ -->
+<div id="app-screen">
+  <nav class="topnav">
+    <div class="logo-area">
+      <div class="logo-badge">ST</div>
+      <div class="nav-brand">Simtec</div>
+    </div>
+    <div class="nav-links">
+      <button class="nav-btn active" onclick="nav('sales',this)">Sales form</button>
+      <button class="nav-btn" onclick="nav('dashboard',this)">Dashboard</button>
+      <button class="nav-btn" onclick="nav('workflow',this)">Workflow</button>
+      <button class="nav-btn" onclick="nav('commissions',this)">Commissions</button>
+      <button class="nav-btn" onclick="nav('awards',this)">Awards</button>
+      <button class="nav-btn" onclick="nav('credit',this)">Credit score</button>
+      <button class="nav-btn" onclick="nav('delivery',this)">Delivery</button>
+      <button class="nav-btn" onclick="nav('cancel',this)">Cancellation</button>
+      <button class="nav-btn" onclick="nav('stock',this)">Stock</button>
+      <button class="nav-btn" onclick="nav('reports',this)">Reports</button>
+      <button class="nav-btn" onclick="nav('setup',this)">DB Setup</button>
+    </div>
+    <div class="nav-right">
+      <div class="nav-user" id="nav-user-label"></div>
+      <button class="btn-logout" onclick="doLogout()">Sign out</button>
+    </div>
+  </nav>
+
+  <!-- ── SALES FORM ── -->
+  <div id="s-sales" class="screen active">
+    <div class="page-header">
+      <div><div class="page-title">New order — sleep consultant form</div><div class="page-sub">Filled on tablet in the customer's home</div></div>
+    </div>
+    <div class="trust-bar">
+      <div>💬</div>
+      <p><strong>Direct-to-home payment plan.</strong> The customer pays weekly over 156 weeks ($33.33 per $5,200). Products are delivered once 10% of the purchase price is paid and the credit score approves. All payments via Ezidebit direct debit.</p>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Customer details</div>
+      <div class="form-grid">
+        <div><label class="flabel">First name</label><input class="finput" id="f-fname" placeholder="Sarah" /></div>
+        <div><label class="flabel">Last name</label><input class="finput" id="f-lname" placeholder="Mitchell" /></div>
+        <div class="fg-full"><label class="flabel">Street address</label><input class="finput" id="f-address" placeholder="12 Example St, Darwin NT 0800" /></div>
+        <div><label class="flabel">Mobile</label><input class="finput" id="f-phone" placeholder="0400 000 000" /></div>
+        <div><label class="flabel">Email</label><input class="finput" id="f-email" type="email" placeholder="sarah@email.com" /></div>
+        <div><label class="flabel">Sleep consultant</label><input class="finput" id="f-consultant" placeholder="James Harrington" /></div>
+        <div><label class="flabel">Weekly payment day</label>
+          <select class="finput" id="f-payday">
+            <option>Monday</option><option>Tuesday</option><option>Wednesday</option>
+            <option>Thursday</option><option>Friday</option>
+          </select>
+        </div>
+        <div><label class="flabel">Payment type</label>
+          <select class="finput" id="f-paytype" onchange="payChange(this)">
+            <option value="dd">Weekly direct debit (Ezidebit)</option>
+            <option value="c">Cash — full amount upfront</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Products</div>
+      <div class="card-sub">Tap to select. Delivery fee added automatically.</div>
+
+      <div class="sec-title">Mattresses</div>
+      <div class="prod-grid">
+        <div class="ptile" data-price="4990" data-name="Mk II Single" onclick="toggleTile(this)"><div class="pn">Mk II Single</div><div class="ps">Single</div><div class="pp">$4,990</div><div class="qty-row"><button class="qty-btn" onclick="adjQty(event,this,-1)">−</button><div class="qty-num">1</div><button class="qty-btn" onclick="adjQty(event,this,1)">+</button></div></div>
+        <div class="ptile" data-price="5490" data-name="Mk II Double" onclick="toggleTile(this)"><div class="pn">Mk II Double</div><div class="ps">Double</div><div class="pp">$5,490</div><div class="qty-row"><button class="qty-btn" onclick="adjQty(event,this,-1)">−</button><div class="qty-num">1</div><button class="qty-btn" onclick="adjQty(event,this,1)">+</button></div></div>
+        <div class="ptile" data-price="5990" data-name="Mk II Queen" onclick="toggleTile(this)"><div class="pn">Mk II Queen</div><div class="ps">Queen</div><div class="pp">$5,990</div><div class="qty-row"><button class="qty-btn" onclick="adjQty(event,this,-1)">−</button><div class="qty-num">1</div><button class="qty-btn" onclick="adjQty(event,this,1)">+</button></div></div>
+        <div class="ptile" data-price="6990" data-name="Mk II King" onclick="toggleTile(this)"><div class="pn">Mk II King</div><div class="ps">King</div><div class="pp">$6,990</div><div class="qty-row"><button class="qty-btn" onclick="adjQty(event,this,-1)">−</button><div class="qty-num">1</div><button class="qty-btn" onclick="adjQty(event,this,1)">+</button></div></div>
+        <div class="ptile" data-price="7490" data-name="Mk II Super King" onclick="toggleTile(this)"><div class="pn">Mk II Super King</div><div class="ps">Super King</div><div class="pp">$7,490</div><div class="qty-row"><button class="qty-btn" onclick="adjQty(event,this,-1)">−</button><div class="qty-num">1</div><button class="qty-btn" onclick="adjQty(event,this,1)">+</button></div></div>
+      </div>
+
+      <div class="sec-title">Bases</div>
+      <div class="prod-grid">
+        <div class="ptile" data-price="1490" data-name="Base Single" onclick="toggleTile(this)"><div class="pn">Base Single</div><div class="ps">Single</div><div class="pp">$1,490</div><div class="qty-row"><button class="qty-btn" onclick="adjQty(event,this,-1)">−</button><div class="qty-num">1</div><button class="qty-btn" onclick="adjQty(event,this,1)">+</button></div></div>
+        <div class="ptile" data-price="1690" data-name="Base Double" onclick="toggleTile(this)"><div class="pn">Base Double</div><div class="ps">Double</div><div class="pp">$1,690</div><div class="qty-row"><button class="qty-btn" onclick="adjQty(event,this,-1)">−</button><div class="qty-num">1</div><button class="qty-btn" onclick="adjQty(event,this,1)">+</button></div></div>
+        <div class="ptile" data-price="1890" data-name="Base Queen" onclick="toggleTile(this)"><div class="pn">Base Queen</div><div class="ps">Queen</div><div class="pp">$1,890</div><div class="qty-row"><button class="qty-btn" onclick="adjQty(event,this,-1)">−</button><div class="qty-num">1</div><button class="qty-btn" onclick="adjQty(event,this,1)">+</button></div></div>
+        <div class="ptile" data-price="2190" data-name="Base King" onclick="toggleTile(this)"><div class="pn">Base King</div><div class="ps">King</div><div class="pp">$2,190</div><div class="qty-row"><button class="qty-btn" onclick="adjQty(event,this,-1)">−</button><div class="qty-num">1</div><button class="qty-btn" onclick="adjQty(event,this,1)">+</button></div></div>
+      </div>
+
+      <div class="sec-title">Accessories</div>
+      <div class="prod-grid">
+        <div class="ptile" data-price="290" data-name="Protector Single" onclick="toggleTile(this)"><div class="pn">Protector</div><div class="ps">Single</div><div class="pp">$290</div><div class="qty-row"><button class="qty-btn" onclick="adjQty(event,this,-1)">−</button><div class="qty-num">1</div><button class="qty-btn" onclick="adjQty(event,this,1)">+</button></div></div>
+        <div class="ptile" data-price="320" data-name="Protector Queen" onclick="toggleTile(this)"><div class="pn">Protector</div><div class="ps">Queen</div><div class="pp">$320</div><div class="qty-row"><button class="qty-btn" onclick="adjQty(event,this,-1)">−</button><div class="qty-num">1</div><button class="qty-btn" onclick="adjQty(event,this,1)">+</button></div></div>
+        <div class="ptile" data-price="350" data-name="Protector King" onclick="toggleTile(this)"><div class="pn">Protector</div><div class="ps">King/Super King</div><div class="pp">$350</div><div class="qty-row"><button class="qty-btn" onclick="adjQty(event,this,-1)">−</button><div class="qty-num">1</div><button class="qty-btn" onclick="adjQty(event,this,1)">+</button></div></div>
+        <div class="ptile" data-price="170" data-name="Delivery fee" onclick="toggleTile(this)"><div class="pn">Delivery fee</div><div class="ps">Standard</div><div class="pp">$170</div><div class="qty-row"><button class="qty-btn" onclick="adjQty(event,this,-1)">−</button><div class="qty-num">1</div><button class="qty-btn" onclick="adjQty(event,this,1)">+</button></div></div>
+      </div>
+
+      <div id="order-summary" style="display:none;margin-bottom:14px">
+        <div id="order-items"></div>
+      </div>
+
+      <div class="sum-bar">
+        <div><div class="sl">Items selected</div><div class="sv" id="item-count">0 items</div></div>
+        <div><div class="sl">Total sale</div><div class="sv" id="total-val">$0.00</div></div>
+        <div><div class="sl">Weekly repayment</div><div class="sv" id="weekly-val">—</div></div>
+      </div>
+
+      <div id="pay-note" style="margin-top:14px;font-size:12px;color:var(--gm);line-height:1.6">
+        Once submitted, the Ezidebit direct debit application opens on this tablet. The consultant guides the customer through completing their payment details before leaving the home. Weekly repayment = Total ÷ 156 weeks.
+      </div>
+    </div>
+
+    <button class="btn-gold" style="width:100%;padding:15px" onclick="submitOrder()">Submit order & open Ezidebit →</button>
+
+    <div id="order-confirm" style="margin-top:16px">
+      <div class="confirm-panel">
+        <div class="confirm-panel-title">✅ Order submitted</div>
+        <ul class="confirm-checklist">
+          <li>Ezidebit application opened on tablet — consultant completing with customer now</li>
+          <li>Confirmation call flagged — head office alerted immediately</li>
+          <li>Welcome email queued — sends once Ezidebit is signed</li>
+          <li>Stock levels updated</li>
+          <li>Motivational SMS queued for consultant (30 min)</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── DASHBOARD ── -->
+  <div id="s-dashboard" class="screen">
+    <div class="page-header">
+      <div><div class="page-title">Head office dashboard</div><div class="page-sub">Live overview</div></div>
+      <span class="badge b-green">● Live</span>
+    </div>
+
+    <div class="metric-grid">
+      <div class="mcard"><div class="mcard-label">Confirmation queue</div><div class="mcard-val" id="dash-queue-count" style="color:var(--red)">—</div><div class="mcard-sub">calls pending</div></div>
+      <div class="mcard"><div class="mcard-label">Sales this week</div><div class="mcard-val" id="dash-sales-week">—</div><div class="mcard-sub">orders submitted</div></div>
+      <div class="mcard"><div class="mcard-label">Total orders</div><div class="mcard-val" id="dash-total-orders">—</div><div class="mcard-sub">all time</div></div>
+      <div class="mcard"><div class="mcard-label">Calls completed</div><div class="mcard-val" id="dash-calls-done" style="color:var(--green)">—</div><div class="mcard-sub">this week</div></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Confirmation call queue</div>
+      <div class="card-sub">New orders — call while consultant is still on-site</div>
+      <div id="dash-queue-table">
+        <div style="text-align:center;padding:30px;color:var(--gm);font-size:13px">Loading queue...</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Recent orders</div>
+      <div id="dash-recent-orders">
+        <div style="text-align:center;padding:30px;color:var(--gm);font-size:13px">Loading...</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── WORKFLOW ── -->
+  <div id="s-workflow" class="screen">
+    <div class="page-header"><div><div class="page-title">Automated workflow</div><div class="page-sub">Every step that fires automatically from order submission to post-delivery</div></div></div>
+    <div class="card">
+      <div class="step-flow">
+        <div class="step-row"><div class="step-num">1</div><div><div class="step-title">Order submitted by sleep consultant</div><div class="step-desc">Customer details, products, total and payment day captured on tablet in the customer's home via this system.</div><div class="step-tags"><span class="stag">This system</span><span class="stag">Tablet / mobile</span></div></div></div>
+        <div class="step-row"><div class="step-num">2</div><div><div class="step-title">Record written to database</div><div class="step-desc">New order created in Supabase. Customer record created or updated. Confirmation call flag raised immediately.</div><div class="step-tags"><span class="stag">Supabase</span><span class="stag">Automatic</span></div></div></div>
+        <div class="step-row"><div class="step-num">3</div><div><div class="step-title">Confirmation call alert — head office</div><div class="step-desc">Call appears instantly on the dashboard and on the caller's dedicated screen. Call team contacts customer while consultant is still on-site. Notes recorded and call marked complete.</div><div class="step-tags"><span class="stag">Live queue</span><span class="stag">Caller role</span><span class="stag">Compliance</span></div></div></div>
+        <div class="step-row"><div class="step-num">4</div><div><div class="step-title">Ezidebit SMS → customer</div><div class="step-desc">Customer receives personalised SMS with direct debit setup link. Weekly amount and payment day pre-filled.</div><div class="step-tags"><span class="stag">Ezidebit API</span><span class="stag">SMS</span><span class="stag">Automatic</span></div></div></div>
+        <div class="step-row"><div class="step-num">5</div><div><div class="step-title">Welcome email / invoice → customer</div><div class="step-desc">Branded Simtec email with itemised product list, total, weekly repayment and personal welcome message. Invoice raised in Xero simultaneously.</div><div class="step-tags"><span class="stag">SendGrid</span><span class="stag">Xero invoice</span><span class="stag">Automatic</span></div></div></div>
+        <div class="step-row"><div class="step-num">6</div><div><div class="step-title">Motivational SMS → sleep consultant (30 min delay)</div><div class="step-desc">Personalised message: their award level, weekly sales count, how many to next milestone.</div><div class="step-tags"><span class="stag">Twilio SMS</span><span class="stag">30-min delay</span><span class="stag">Automatic</span></div></div></div>
+        <div class="step-row"><div class="step-num">7</div><div><div class="step-title">Delivery eligibility monitoring begins</div><div class="step-desc">Each Ezidebit payment updates the loan book. Once 10% of purchase price is paid, credit score is calculated. Auto-approved customers appear on the delivery team screen.</div><div class="step-tags"><span class="stag">Ezidebit webhook</span><span class="stag">Credit score</span><span class="stag">Delivery queue</span></div></div></div>
+        <div class="step-row"><div class="step-num">8</div><div><div class="step-title">Delivery booked — confirmation SMS → customer</div><div class="step-desc">Delivery team books a slot. Customer receives SMS confirmation with date, time window, and contact number.</div><div class="step-tags"><span class="stag">OptimoRoute</span><span class="stag">Twilio SMS</span><span class="stag">Automatic</span></div></div></div>
+        <div class="step-row"><div class="step-num">9</div><div><div class="step-title">Post-delivery email — warranty + referral</div><div class="step-desc">Branded email: 15-year warranty reminder, referral invitation. Referral leads route to original consultant or team leader.</div><div class="step-tags"><span class="stag">SendGrid</span><span class="stag">Referral system</span><span class="stag">Automatic</span></div></div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── COMMISSIONS ── -->
+  <div id="s-commissions" class="screen">
+    <div class="page-header"><div><div class="page-title">Commission structure</div><div class="page-sub">Rates, team leader override, clawback rules</div></div></div>
+    <div class="card">
+      <div class="card-title">Consultant commission</div>
+      <table class="dtable">
+        <tr><th>Sale type</th><th>Commission</th><th>Notes</th></tr>
+        <tr><td>Standard direct debit sale</td><td><b>$410</b></td><td>Paid week of sale</td></tr>
+        <tr><td>Cash sale</td><td><b>$510</b></td><td>$100 cash bonus</td></tr>
+        <tr><td>Referral sale</td><td><b>$460</b></td><td>$50 referral bonus</td></tr>
+      </table>
+    </div>
+    <div class="card">
+      <div class="card-title">Team leader override</div>
+      <table class="dtable">
+        <tr><th>Team sales this week</th><th>Override per sale</th></tr>
+        <tr><td>1–5 sales</td><td>$40</td></tr>
+        <tr><td>6–10 sales</td><td>$60</td></tr>
+        <tr><td>11+ sales</td><td>$80</td></tr>
+      </table>
+    </div>
+    <div class="card" style="border-left:3px solid var(--amber)">
+      <div class="card-title">⚠ Commission clawback</div>
+      <div class="card-sub">If a confirmed sale cancels before delivery, commission and TL bonus are reversed and recorded automatically against the next weekly payment run.</div>
+    </div>
+  </div>
+
+  <!-- ── AWARDS ── -->
+  <div id="s-awards" class="screen">
+    <div class="page-header"><div><div class="page-title">Awards program</div><div class="page-sub">Weekly sales targets and recognition tiers</div></div></div>
+    <div class="card">
+      <div class="awards-tier"><div class="tier-icon">🥉</div><div><div class="tier-name">Bronze</div><div class="tier-range">1–4 sales/week</div></div><div class="tier-bonus">$0 bonus</div></div>
+      <div class="awards-tier"><div class="tier-icon">🥈</div><div><div class="tier-name">Silver</div><div class="tier-range">5–7 sales/week</div></div><div class="tier-bonus">+$50/sale</div></div>
+      <div class="awards-tier"><div class="tier-icon">🥇</div><div><div class="tier-name">Gold</div><div class="tier-range">8–10 sales/week</div></div><div class="tier-bonus">+$100/sale</div></div>
+      <div class="awards-tier"><div class="tier-icon">💎</div><div><div class="tier-name">Diamond</div><div class="tier-range">11–14 sales/week</div></div><div class="tier-bonus">+$150/sale</div></div>
+      <div class="awards-tier"><div class="tier-icon">👑</div><div><div class="tier-name">Elite</div><div class="tier-range">15+ sales/week</div></div><div class="tier-bonus">+$200/sale</div></div>
+    </div>
+  </div>
+
+  <!-- ── CREDIT SCORE ── -->
+  <div id="s-credit" class="screen">
+    <div class="page-header"><div><div class="page-title">Credit score</div><div class="page-sub">AI-assisted delivery eligibility decisions</div></div></div>
+    <div class="card">
+      <div class="card-title">How scoring works</div>
+      <div class="card-sub">Score calculated automatically once 10% of purchase price is paid. Updated after every subsequent payment.</div>
+      <table class="dtable">
+        <tr><th>Factor</th><th>Weight</th></tr>
+        <tr><td>On-time payments</td><td>50%</td></tr>
+        <tr><td>Missed payments (recovered)</td><td>-10 pts each</td></tr>
+        <tr><td>Bank dishonours</td><td>-20 pts each</td></tr>
+        <tr><td>Consecutive on-time payments</td><td>+5 pts streak</td></tr>
+      </table>
+    </div>
+    <div class="card" style="border-left:3px solid var(--green)">
+      <div class="card-title">Example — Approved</div>
+      <div style="background:var(--gbg);border-radius:8px;padding:12px 14px;font-size:13px;color:#1a5c35;margin-top:8px">Mark's record is generally positive with one minor blip resolved promptly. 6 consecutive on-time payments since. <b>Delivery recommended.</b></div>
+    </div>
+    <div class="card" style="border-left:3px solid var(--red)">
+      <div class="card-title">Example — Not approved</div>
+      <div style="background:var(--rbg);border-radius:8px;padding:12px 14px;font-size:13px;color:#8a2222;margin-top:8px">3 missed payments, 2 dishonours, not yet caught up. <b>Delivery not recommended.</b> Contact customer before further action.</div>
+    </div>
+  </div>
+
+  <!-- ── DELIVERY ── -->
+  <div id="s-delivery" class="screen">
+    <div class="page-header"><div><div class="page-title">Delivery queue</div><div class="page-sub">Customers approved for delivery</div></div></div>
+    <div class="card">
+      <div class="card-title">Ready for delivery</div>
+      <table class="dtable">
+        <tr><th>Customer</th><th>Products</th><th>Address</th><th>Credit score</th><th>Status</th></tr>
+        <tr><td><b>Sarah Mitchell</b></td><td>Mk II Queen + Protector</td><td>12 Example St, Darwin</td><td><span class="badge b-green">86/100</span></td><td><span class="badge b-green">Approved ✓</span></td></tr>
+        <tr><td>Ben Okafor</td><td>Mk II King + Base King</td><td>5 Knuckey St, Darwin</td><td><span class="badge b-amber">71/100</span></td><td><span class="badge b-amber">Review</span></td></tr>
+      </table>
+    </div>
+  </div>
+
+  <!-- ── CANCELLATION ── -->
+  <div id="s-cancel" class="screen">
+    <div class="page-header"><div><div class="page-title">Order cancellation & commission clawback</div><div class="page-sub">Controlled process — requires confirmation before any reversal</div></div></div>
+    <div class="card">
+      <div class="step-flow">
+        <div class="step-row"><div class="step-num">1</div><div><div class="step-title">Cancellation request received</div><div class="step-desc">Customer or head office initiates cancellation. Only possible before delivery.</div></div></div>
+        <div class="step-row"><div class="step-num">2</div><div><div class="step-title">Ezidebit subscription cancelled</div><div class="step-desc">API call cancels direct debit immediately. No further payments taken.</div></div></div>
+        <div class="step-row"><div class="step-num">3</div><div><div class="step-title">Commission clawback applied</div><div class="step-desc">Consultant and team leader commission flagged as clawback — deducted from next weekly payment run. Both notified by SMS.</div></div></div>
+        <div class="step-row"><div class="step-num">4</div><div><div class="step-title">Xero credit note raised</div><div class="step-desc">Credit note created automatically against the original invoice.</div></div></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title">Process a cancellation</div>
+      <div class="form-grid">
+        <div><label class="flabel">Customer name</label><input class="finput" id="cancel-customer" placeholder="Sarah Mitchell" /></div>
+        <div><label class="flabel">Order total</label><input class="finput" id="cancel-total" placeholder="$5,990" /></div>
+        <div class="fg-full"><label class="flabel">Reason</label><input class="finput" id="cancel-reason" placeholder="Customer changed mind" /></div>
+        <div class="fg-full"><label class="flabel">Type CANCEL to confirm</label><input class="confirm-input" id="cancel-confirm-input" placeholder="Type CANCEL here" oninput="checkCancel(this)" /></div>
+      </div>
+      <button id="cancel-confirm-btn" class="btn-red" disabled onclick="doCancel()">Confirm cancellation</button>
+    </div>
+  </div>
+
+  <!-- ── STOCK ── -->
+  <div id="s-stock" class="screen">
+    <div class="page-header"><div><div class="page-title">Stock levels</div><div class="page-sub">On-hand vs 12-week demand</div></div></div>
+    <div class="card">
+      <table class="dtable">
+        <tr><th>SKU</th><th>On hand</th><th>12-wk demand</th><th>Status</th></tr>
+        <tr><td>Mk II Queen</td><td>18</td><td>22</td><td><span class="badge b-amber">Reorder</span></td></tr>
+        <tr><td>Mk II King</td><td>12</td><td>10</td><td><span class="badge b-green">OK</span></td></tr>
+        <tr><td>Mk II Super King</td><td>4</td><td>8</td><td><span class="badge b-red">Critical</span></td></tr>
+        <tr><td>Base Queen</td><td>15</td><td>12</td><td><span class="badge b-green">OK</span></td></tr>
+        <tr><td>Protector Queen</td><td>30</td><td>22</td><td><span class="badge b-green">OK</span></td></tr>
+      </table>
+    </div>
+  </div>
+
+  <!-- ── REPORTS ── -->
+  <div id="s-reports" class="screen">
+    <div class="page-header"><div><div class="page-title">Reports</div><div class="page-sub">Weekly and monthly business summaries</div></div></div>
+    <div class="card"><div class="card-title">📊 Weekly sales report</div><div class="card-sub">Sales by consultant, commission totals, award levels, weekly comparison.</div></div>
+    <div class="card"><div class="card-title">📒 Loan book</div><div class="card-sub">All active customers, balance, paid to date, 10% threshold status, credit score, delivery stage.</div></div>
+    <div class="card"><div class="card-title">💰 Commission run</div><div class="card-sub">Weekly payment totals per consultant, team leader override, clawback deductions, net payable.</div></div>
+    <div class="card"><div class="card-title">📦 Stock reorder report</div><div class="card-sub">SKUs below 12-week demand threshold, estimated reorder quantities, 12-week lead time tracking.</div></div>
+  </div>
+
+  <!-- ── DB SETUP ── -->
+  <div id="s-setup" class="screen">
+    <div class="page-header"><div><div class="page-title">Database setup</div><div class="page-sub">Run this SQL in your Supabase SQL Editor to create all required tables</div></div></div>
+    <div class="card">
+      <div class="card-title">Step 1 — Run setup SQL in Supabase</div>
+      <div class="card-sub">Go to your Supabase project → SQL Editor → paste and run the SQL below.</div>
+      <div class="sql-block"><span class="sql-cmt">-- Simtec Therapeutic — Database Setup SQL
+-- Run this once in Supabase SQL Editor</span>
+
+<span class="sql-kw">CREATE TABLE IF NOT</span> EXISTS orders (
+  id          uuid <span class="sql-kw">DEFAULT</span> gen_random_uuid() <span class="sql-kw">PRIMARY KEY</span>,
+  created_at  timestamptz <span class="sql-kw">DEFAULT</span> now(),
+  fname       text <span class="sql-kw">NOT NULL</span>,
+  lname       text <span class="sql-kw">NOT NULL</span>,
+  phone       text,
+  email       text,
+  address     text,
+  consultant  text,
+  pay_day     text,
+  pay_type    text <span class="sql-kw">DEFAULT</span> <span class="sql-str">'dd'</span>,
+  total       numeric,
+  weekly_rep  numeric,
+  items       jsonb,
+  call_status text <span class="sql-kw">DEFAULT</span> <span class="sql-str">'pending'</span>, <span class="sql-cmt">-- pending | complete</span>
+  call_notes  text,
+  call_time   timestamptz
+);
+
+<span class="sql-cmt">-- Enable real-time for instant queue updates</span>
+<span class="sql-kw">ALTER TABLE</span> orders <span class="sql-kw">REPLICA IDENTITY FULL</span>;
+<span class="sql-kw">ALTER PUBLICATION</span> supabase_realtime <span class="sql-kw">ADD TABLE</span> orders;
+
+<span class="sql-cmt">-- Row level security (open for now — tighten later)</span>
+<span class="sql-kw">ALTER TABLE</span> orders <span class="sql-kw">ENABLE ROW LEVEL SECURITY</span>;
+<span class="sql-kw">CREATE POLICY</span> <span class="sql-str">"Allow all authenticated"</span>
+  <span class="sql-kw">ON</span> orders <span class="sql-kw">FOR ALL</span>
+  <span class="sql-kw">USING</span> (auth.role() = <span class="sql-str">'authenticated'</span>)
+  <span class="sql-kw">WITH CHECK</span> (auth.role() = <span class="sql-str">'authenticated'</span>);</div>
+
+      <div class="card-title" style="margin-top:20px">Step 2 — Create user accounts</div>
+      <div class="card-sub">In Supabase → Authentication → Users → Invite user. After creating, edit the user's raw metadata to set their role:</div>
+      <div class="sql-block"><span class="sql-cmt">-- In user metadata (raw_user_meta_data), set:</span>
+{ <span class="sql-str">"role"</span>: <span class="sql-str">"admin"</span> }   <span class="sql-cmt">-- full system access</span>
+{ <span class="sql-str">"role"</span>: <span class="sql-str">"caller"</span> }  <span class="sql-cmt">-- confirmation calls only</span></div>
+
+      <div class="card-title" style="margin-top:20px">Step 3 — Share the URL</div>
+      <div class="card-sub">Once set up, share this HTML file (or host it) with any staff member. They log in with their Supabase credentials. Admins see everything. Callers see only their queue.</div>
+    </div>
+  </div>
+
+</div><!-- end app-screen -->
+
+<!-- ══════════════ CALL COMPLETE MODAL ══════════════ -->
+<div class="modal-overlay" id="call-modal">
+  <div class="modal-box">
+    <div class="modal-title">Complete confirmation call</div>
+    <div class="modal-sub" id="call-modal-sub">Confirm the sale details with the customer before marking complete.</div>
+    <div id="call-modal-details" style="margin-bottom:18px"></div>
+    <label class="flabel">Call notes (optional)</label>
+    <textarea class="finput call-notes" id="call-modal-notes" rows="3" placeholder="e.g. Customer confirmed, happy to proceed. Asked about delivery timing..."></textarea>
+    <div class="modal-actions">
+      <button class="btn-green" style="flex:1;padding:12px" onclick="completeCall()">✓ Mark call complete</button>
+      <button class="btn-outline" onclick="closeCallModal()">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════ TOAST ══════════════ -->
+<div class="toast" id="toast"></div>
+
+<script>
+// ══════════════════════════════════════════════════════
+// SUPABASE INIT
+// ══════════════════════════════════════════════════════
+const STORAGE_KEY_URL = 'simtec_sb_url';
+const STORAGE_KEY_KEY = 'simtec_sb_key';
+
+let sbClient = null;
+let currentUser = null;
+let currentRole = null;
+let activeCallId = null;
+let realtimeChannel = null;
+
+function getSavedConfig() {
+  return {
+    url: localStorage.getItem(STORAGE_KEY_URL) || '',
+    key: localStorage.getItem(STORAGE_KEY_KEY) || ''
+  };
+}
+
+function saveConfig() {
+  const url = document.getElementById('cfg-url').value.trim();
+  const key = document.getElementById('cfg-key').value.trim();
+  if (!url || !key) { alert('Please enter both the URL and key.'); return; }
+  localStorage.setItem(STORAGE_KEY_URL, url);
+  localStorage.setItem(STORAGE_KEY_KEY, key);
+  initSupabase(url, key);
+}
+
+function initSupabase(url, key) {
+  try {
+    const { createClient } = window.supabaseJs || window.supabase;
+    sbClient = createClient(url, key);
+    // Try to restore session
+    sbClient.auth.getSession().then(({ data }) => {
+      if (data.session) {
+        currentUser = data.session.user;
+        currentRole = currentUser.user_metadata?.role || 'caller';
+        showApp();
+      } else {
+        showLogin();
+      }
+    });
+  } catch (e) {
+    alert('Failed to connect to Supabase. Check your URL and key.');
+  }
+}
+
+// ══════════════════════════════════════════════════════
+// STARTUP
+// ══════════════════════════════════════════════════════
+window.addEventListener('DOMContentLoaded', () => {
+  // Import supabase-js
+  const script = document.createElement('script');
+  script.src = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2';
+  script.onload = () => {
+    window.supabaseJs = window.supabase; // cdn exposes as window.supabase
+    const cfg = getSavedConfig();
+    if (cfg.url && cfg.key) {
+      initSupabase(cfg.url, cfg.key);
+    } else {
+      document.getElementById('config-screen').classList.add('active');
+    }
+  };
+  document.head.appendChild(script);
+});
+
+// ══════════════════════════════════════════════════════
+// AUTH
+// ══════════════════════════════════════════════════════
+async function doLogin() {
+  const email = document.getElementById('login-email').value.trim();
+  const pass  = document.getElementById('login-password').value;
+  const btn   = document.getElementById('login-btn');
+  const errEl = document.getElementById('login-error');
+  errEl.style.display = 'none';
+  btn.textContent = 'Signing in...'; btn.disabled = true;
+
+  try {
+    const { data, error } = await sbClient.auth.signInWithPassword({ email, password: pass });
+    if (error) throw error;
+    currentUser = data.user;
+    currentRole = currentUser.user_metadata?.role || 'caller';
+    showApp();
+  } catch (e) {
+    errEl.textContent = e.message || 'Invalid email or password.';
+    errEl.style.display = 'block';
+  } finally {
+    btn.textContent = 'Sign in →'; btn.disabled = false;
+  }
+}
+
+async function doLogout() {
+  if (realtimeChannel) sbClient.removeChannel(realtimeChannel);
+  await sbClient.auth.signOut();
+  currentUser = null; currentRole = null;
+  showLogin();
+}
+
+// ══════════════════════════════════════════════════════
+// ROUTING
+// ══════════════════════════════════════════════════════
+function showLogin() {
+  document.getElementById('config-screen').classList.remove('active');
+  document.getElementById('login-screen').style.display = 'flex';
+  document.getElementById('app-screen').style.display = 'none';
+  document.getElementById('caller-screen').style.display = 'none';
+}
+
+function showApp() {
+  document.getElementById('config-screen').classList.remove('active');
+  document.getElementById('login-screen').style.display = 'none';
+
+  if (currentRole === 'caller') {
+    document.getElementById('caller-screen').style.display = 'block';
+    document.getElementById('app-screen').style.display = 'none';
+    startCallerQueue();
+  } else {
+    document.getElementById('caller-screen').style.display = 'none';
+    document.getElementById('app-screen').style.display = 'block';
+    document.getElementById('nav-user-label').textContent = currentUser?.email || '';
+    loadDashboard();
+    startRealtimeUpdates();
+  }
+}
+
+// ══════════════════════════════════════════════════════
+// NAVIGATION (admin)
+// ══════════════════════════════════════════════════════
+function nav(id, btn) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+  const el = document.getElementById('s-' + id);
+  if (el) el.classList.add('active');
+  if (btn) btn.classList.add('active');
+  window.scrollTo(0, 0);
+  if (id === 'dashboard') loadDashboard();
+}
+
+// ══════════════════════════════════════════════════════
+// REALTIME
+// ══════════════════════════════════════════════════════
+function startRealtimeUpdates() {
+  if (realtimeChannel) sbClient.removeChannel(realtimeChannel);
+  realtimeChannel = sbClient
+    .channel('orders-changes')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, () => {
+      // Refresh dashboard if visible
+      if (document.getElementById('s-dashboard').classList.contains('active')) {
+        loadDashboard();
+      }
+    })
+    .subscribe();
+}
+
+function startCallerQueue() {
+  loadCallerQueue();
+  // Subscribe to realtime updates
+  if (realtimeChannel) sbClient.removeChannel(realtimeChannel);
+  realtimeChannel = sbClient
+    .channel('orders-caller')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, () => {
+      loadCallerQueue();
+    })
+    .subscribe();
+}
+
+// ══════════════════════════════════════════════════════
+// SALES FORM
+// ══════════════════════════════════════════════════════
+function toggleTile(el) {
+  if (event.target.classList.contains('qty-btn')) return;
+  el.classList.toggle('sel');
+  if (!el.classList.contains('sel')) el.querySelector('.qty-num').textContent = '1';
+  recalc();
+}
+function adjQty(e, btn, delta) {
+  e.stopPropagation();
+  const t = btn.closest('.ptile');
+  const s = t.querySelector('.qty-num');
+  let q = parseInt(s.textContent) + delta;
+  if (q < 1) q = 1;
+  s.textContent = q;
+  if (!t.classList.contains('sel')) t.classList.add('sel');
+  recalc();
+}
+function recalc() {
+  const tiles = document.querySelectorAll('.ptile.sel');
+  let total = 0, count = 0;
+  const items = [];
+  tiles.forEach(t => {
+    const qty = parseInt(t.querySelector('.qty-num').textContent);
+    const price = parseInt(t.dataset.price);
+    total += price * qty;
+    count += qty;
+    items.push({ name: t.dataset.name, price, qty });
+  });
+  document.getElementById('total-val').textContent = '$' + total.toLocaleString('en-AU', { minimumFractionDigits: 2 });
+  document.getElementById('item-count').textContent = count + (count === 1 ? ' item' : ' items');
+  const weekly = total > 0 ? total / 156 : 0;
+  document.getElementById('weekly-val').textContent = weekly > 0 ? '$' + weekly.toFixed(2) + '/wk' : '—';
+  const summary = document.getElementById('order-summary');
+  document.getElementById('order-items').innerHTML = items.map(i =>
+    `<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--border);font-size:13px">
+      <span style="color:var(--navy)">${i.qty > 1 ? i.qty + ' × ' : ''}${i.name}</span>
+      <span style="color:var(--gm);font-weight:600">$${(i.price*i.qty).toLocaleString('en-AU',{minimumFractionDigits:2})}</span>
+    </div>`
+  ).join('');
+  summary.style.display = items.length ? 'block' : 'none';
+}
+function payChange(sel) {
+  document.getElementById('pay-note').textContent = sel.value === 'c'
+    ? 'Cash sale — full amount upfront. No Ezidebit required. Invoice emailed to customer. Delivery fee still applies. Cash sale bonus of $100 applies to consultant commission.'
+    : 'Once submitted, the Ezidebit direct debit application opens on this tablet. The consultant guides the customer through completing their payment details before leaving the home. Weekly repayment = Total ÷ 156 weeks.';
+}
+
+async function submitOrder() {
+  const fname = document.getElementById('f-fname').value.trim();
+  const lname = document.getElementById('f-lname').value.trim();
+  if (!fname || !lname) { showToast('Please enter the customer name', 'error'); return; }
+
+  const tiles = document.querySelectorAll('.ptile.sel');
+  if (!tiles.length) { showToast('Please select at least one product', 'error'); return; }
+
+  const items = [];
+  let total = 0;
+  tiles.forEach(t => {
+    const qty = parseInt(t.querySelector('.qty-num').textContent);
+    const price = parseInt(t.dataset.price);
+    total += price * qty;
+    items.push({ name: t.dataset.name, price, qty });
+  });
+
+  const order = {
+    fname, lname,
+    phone:      document.getElementById('f-phone').value.trim(),
+    email:      document.getElementById('f-email').value.trim(),
+    address:    document.getElementById('f-address').value.trim(),
+    consultant: document.getElementById('f-consultant').value.trim(),
+    pay_day:    document.getElementById('f-payday').value,
+    pay_type:   document.getElementById('f-paytype').value,
+    total,
+    weekly_rep: +(total / 156).toFixed(2),
+    items,
+    call_status: 'pending'
+  };
+
+  if (sbClient) {
+    const { error } = await sbClient.from('orders').insert([order]);
+    if (error) {
+      showToast('DB error: ' + error.message, 'error');
+      return;
+    }
+  }
+
+  document.getElementById('order-confirm').style.display = 'block';
+  document.getElementById('order-confirm').scrollIntoView({ behavior: 'smooth' });
+  showToast('Order submitted — call queue updated ✓', 'success');
+}
+
+// ══════════════════════════════════════════════════════
+// DASHBOARD
+// ══════════════════════════════════════════════════════
+async function loadDashboard() {
+  if (!sbClient) return renderDashboardDemo();
+
+  try {
+    const { data: orders, error } = await sbClient
+      .from('orders')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
+
+    const pending = orders.filter(o => o.call_status === 'pending');
+    const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    const thisWeek = orders.filter(o => new Date(o.created_at) > weekAgo);
+    const callsDone = orders.filter(o => o.call_status === 'complete' && new Date(o.call_time) > weekAgo);
+
+    document.getElementById('dash-queue-count').textContent = pending.length;
+    document.getElementById('dash-sales-week').textContent = thisWeek.length;
+    document.getElementById('dash-total-orders').textContent = orders.length;
+    document.getElementById('dash-calls-done').textContent = callsDone.length;
+
+    // Queue table
+    const qt = document.getElementById('dash-queue-table');
+    if (pending.length === 0) {
+      qt.innerHTML = `<div style="text-align:center;padding:24px;color:var(--gm);font-size:13px">✅ Queue clear — no pending calls</div>`;
+    } else {
+      qt.innerHTML = `<table class="dtable">
+        <tr><th>Customer</th><th>Consultant</th><th>Sale</th><th>Time</th><th>Status</th><th></th></tr>
+        ${pending.map(o => `
+          <tr class="cq-row-urgent">
+            <td><b>${o.fname} ${o.lname}</b><br><span style="font-size:11px;color:var(--gm)">${o.phone || ''}</span></td>
+            <td>${o.consultant || '—'}</td>
+            <td>$${(o.total||0).toLocaleString('en-AU')}</td>
+            <td><span class="call-timer urgent">${timeAgo(o.created_at)}</span></td>
+            <td><span class="badge b-red">Call now</span></td>
+            <td><button class="btn-green btn-sm" onclick="openCallModal('${o.id}','${o.fname} ${o.lname}','${o.consultant||''}','${o.total||0}','${o.phone||''}')">Complete call</button></td>
+          </tr>`).join('')}
+      </table>`;
+    }
+
+    // Recent orders
+    const ro = document.getElementById('dash-recent-orders');
+    ro.innerHTML = `<table class="dtable">
+      <tr><th>Customer</th><th>Consultant</th><th>Sale</th><th>Products</th><th>Submitted</th><th>Call</th></tr>
+      ${orders.slice(0, 15).map(o => `
+        <tr>
+          <td><b>${o.fname} ${o.lname}</b></td>
+          <td>${o.consultant||'—'}</td>
+          <td>$${(o.total||0).toLocaleString('en-AU')}</td>
+          <td style="font-size:12px;color:var(--gm)">${(o.items||[]).map(i=>i.name).join(', ').substring(0,40)||'—'}</td>
+          <td style="font-size:12px;color:var(--gm)">${formatDate(o.created_at)}</td>
+          <td>${o.call_status==='complete'
+            ? '<span class="badge b-green">Done ✓</span>'
+            : '<span class="badge b-red">Pending</span>'}</td>
+        </tr>`).join('')}
+    </table>`;
+
+  } catch (e) {
+    renderDashboardDemo();
+  }
+}
+
+function renderDashboardDemo() {
+  document.getElementById('dash-queue-count').textContent = '2';
+  document.getElementById('dash-sales-week').textContent = '12';
+  document.getElementById('dash-total-orders').textContent = '—';
+  document.getElementById('dash-calls-done').textContent = '10';
+  document.getElementById('dash-queue-table').innerHTML = `
+    <div style="padding:14px;background:var(--abg);border-radius:8px;font-size:13px;color:#8a5500;border:1px solid #f5c97a">
+      ⚠ Not connected to database — showing demo data. Go to <b>DB Setup</b> to connect.
+    </div>
+    <table class="dtable" style="margin-top:12px">
+      <tr><th>Customer</th><th>Consultant</th><th>Sale</th><th>Time</th><th>Status</th></tr>
+      <tr class="cq-row-urgent"><td><b>Sarah Mitchell</b></td><td>James Harrington</td><td>$7,460</td><td><span class="call-timer urgent">2 min ago</span></td><td><span class="badge b-red">Call now</span></td></tr>
+      <tr class="cq-row-urgent"><td>David Nguyen</td><td>Priya Nair</td><td>$4,990</td><td><span class="call-timer normal">18 min ago</span></td><td><span class="badge b-red">Call now</span></td></tr>
+    </table>`;
+  document.getElementById('dash-recent-orders').innerHTML = `<p style="color:var(--gm);font-size:13px;padding:12px 0">Connect the database to see live order history.</p>`;
+}
+
+// ══════════════════════════════════════════════════════
+// CALLER QUEUE
+// ══════════════════════════════════════════════════════
+async function loadCallerQueue() {
+  if (!sbClient) return;
+  const { data, error } = await sbClient
+    .from('orders')
+    .select('*')
+    .eq('call_status', 'pending')
+    .order('created_at', { ascending: true });
+
+  const container = document.getElementById('caller-queue-container');
+  if (error || !data || data.length === 0) {
+    container.innerHTML = `
+      <div class="no-calls">
+        <div class="no-calls-icon">✅</div>
+        <div class="no-calls-title">Queue is clear</div>
+        <div class="no-calls-sub">No confirmation calls pending right now.<br>New sales will appear here automatically.</div>
+      </div>`;
+    return;
+  }
+
+  container.innerHTML = data.map(o => {
+    const mins = Math.floor((Date.now() - new Date(o.created_at)) / 60000);
+    const urgency = mins < 10 ? 'urgent' : mins < 30 ? '' : '';
+    const items = (o.items || []).map(i => `${i.qty > 1 ? i.qty + '× ' : ''}${i.name}`).join(', ');
+    return `
+    <div class="call-card ${urgency}" id="card-${o.id}">
+      <div class="call-card-top">
+        <div>
+          <div class="call-customer">${o.fname} ${o.lname}</div>
+          <div class="call-meta">Consultant: ${o.consultant || '—'} · ${timeAgo(o.created_at)}</div>
+        </div>
+        <span class="badge b-red">Call now</span>
+      </div>
+      <div class="call-detail-row">
+        <div class="call-detail-box">
+          <div class="call-detail-box-label">Phone</div>
+          <div class="call-detail-box-val">${o.phone || '—'}</div>
+        </div>
+        <div class="call-detail-box">
+          <div class="call-detail-box-label">Sale total</div>
+          <div class="call-detail-box-val">$${(o.total||0).toLocaleString('en-AU')}</div>
+        </div>
+        <div class="call-detail-box">
+          <div class="call-detail-box-label">Weekly payment</div>
+          <div class="call-detail-box-val">$${(o.weekly_rep||0).toFixed(2)}/wk</div>
+        </div>
+        <div class="call-detail-box">
+          <div class="call-detail-box-label">Payment day</div>
+          <div class="call-detail-box-val">${o.pay_day || '—'}</div>
+        </div>
+      </div>
+      <div style="font-size:12px;color:var(--gm);margin-bottom:12px;background:var(--gl);padding:8px 12px;border-radius:7px">
+        <b style="color:var(--navy)">Products:</b> ${items || '—'}
+      </div>
+      <div class="call-actions">
+        <textarea class="call-notes" rows="2" placeholder="Call notes..." id="notes-${o.id}"></textarea>
+        <button class="btn-green" onclick="markCallComplete('${o.id}', '${o.fname} ${o.lname}')">✓ Call done</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function markCallComplete(id, name) {
+  const notes = document.getElementById('notes-' + id)?.value || '';
+  const card = document.getElementById('card-' + id);
+  if (card) { card.style.opacity = '0.4'; card.style.pointerEvents = 'none'; }
+
+  const { error } = await sbClient
+    .from('orders')
+    .update({ call_status: 'complete', call_notes: notes, call_time: new Date().toISOString() })
+    .eq('id', id);
+
+  if (error) {
+    showToast('Error: ' + error.message, 'error');
+    if (card) { card.style.opacity = '1'; card.style.pointerEvents = 'all'; }
+  } else {
+    showToast(`Call for ${name} marked complete ✓`, 'success');
+    setTimeout(loadCallerQueue, 600);
+  }
+}
+
+// ══════════════════════════════════════════════════════
+// CALL COMPLETE MODAL (admin dashboard)
+// ══════════════════════════════════════════════════════
+function openCallModal(id, name, consultant, total, phone) {
+  activeCallId = id;
+  document.getElementById('call-modal-sub').textContent = `Confirming sale for ${name}`;
+  document.getElementById('call-modal-details').innerHTML = `
+    <div class="modal-detail-row"><span class="modal-detail-label">Customer</span><span class="modal-detail-val">${name}</span></div>
+    <div class="modal-detail-row"><span class="modal-detail-label">Phone</span><span class="modal-detail-val">${phone||'—'}</span></div>
+    <div class="modal-detail-row"><span class="modal-detail-label">Consultant</span><span class="modal-detail-val">${consultant||'—'}</span></div>
+    <div class="modal-detail-row"><span class="modal-detail-label">Sale total</span><span class="modal-detail-val">$${Number(total).toLocaleString('en-AU')}</span></div>
+  `;
+  document.getElementById('call-modal-notes').value = '';
+  document.getElementById('call-modal').classList.add('open');
+}
+function closeCallModal() {
+  document.getElementById('call-modal').classList.remove('open');
+  activeCallId = null;
+}
+async function completeCall() {
+  if (!activeCallId || !sbClient) return;
+  const notes = document.getElementById('call-modal-notes').value;
+  const { error } = await sbClient
+    .from('orders')
+    .update({ call_status: 'complete', call_notes: notes, call_time: new Date().toISOString() })
+    .eq('id', activeCallId);
+  if (error) { showToast('Error: ' + error.message, 'error'); return; }
+  closeCallModal();
+  showToast('Call marked complete ✓', 'success');
+  loadDashboard();
+}
+
+// ══════════════════════════════════════════════════════
+// CANCELLATION
+// ══════════════════════════════════════════════════════
+function checkCancel(input) {
+  document.getElementById('cancel-confirm-btn').disabled = input.value.trim().toUpperCase() !== 'CANCEL';
+}
+function doCancel() {
+  showToast('Order cancelled. Commission clawback recorded.', 'success');
+  document.getElementById('cancel-confirm-input').value = '';
+  document.getElementById('cancel-confirm-btn').disabled = true;
+}
+
+// ══════════════════════════════════════════════════════
+// UTILITIES
+// ══════════════════════════════════════════════════════
+function timeAgo(iso) {
+  const mins = Math.floor((Date.now() - new Date(iso)) / 60000);
+  if (mins < 1) return 'Just now';
+  if (mins < 60) return `${mins} min ago`;
+  const hrs = Math.floor(mins / 60);
+  return hrs < 24 ? `${hrs} hr ago` : `${Math.floor(hrs/24)}d ago`;
+}
+function formatDate(iso) {
+  if (!iso) return '—';
+  return new Date(iso).toLocaleDateString('en-AU', { day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' });
+}
+
+let toastTimer;
+function showToast(msg, type = '') {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast' + (type ? ' ' + type : '') + ' show';
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove('show'), 3500);
+}
+
+recalc();
+</script>
+</body>
+</html>
