@@ -588,7 +588,7 @@ body { background: #eef1f8; color: var(--gt); min-height: 100vh; font-size: 14px
         <div class="ptile" data-price="130" data-name="Super King Protector" onclick="toggleTile(this)"><div class="pn">Super King Protector</div><div class="ps">Super King</div><div class="pp">$130</div><div class="qty-row"><button class="qty-btn" onclick="adjQty(event,this,-1)">−</button><div class="qty-num">1</div><button class="qty-btn" onclick="adjQty(event,this,1)">+</button></div></div>
         <div class="ptile" data-price="130" data-name="California King Protector" onclick="toggleTile(this)"><div class="pn">California King Protector</div><div class="ps">California King</div><div class="pp">$130</div><div class="qty-row"><button class="qty-btn" onclick="adjQty(event,this,-1)">−</button><div class="qty-num">1</div><button class="qty-btn" onclick="adjQty(event,this,1)">+</button></div></div>
         <div class="ptile" data-price="40" data-name="Pillow" onclick="toggleTile(this)"><div class="pn">Pillow</div><div class="ps">Standard</div><div class="pp">$40</div><div class="qty-row"><button class="qty-btn" onclick="adjQty(event,this,-1)">−</button><div class="qty-num">1</div><button class="qty-btn" onclick="adjQty(event,this,1)">+</button></div></div>
-        <div class="ptile" data-price="170" data-name="Delivery fee" onclick="toggleTile(this)"><div class="pn">Delivery fee</div><div class="ps">Standard</div><div class="pp">$170</div><div class="qty-row"><button class="qty-btn" onclick="adjQty(event,this,-1)">−</button><div class="qty-num">1</div><button class="qty-btn" onclick="adjQty(event,this,1)">+</button></div></div>
+
       </div>
 
       <div id="order-summary" style="display:none;margin-bottom:14px">
@@ -599,6 +599,15 @@ body { background: #eef1f8; color: var(--gt); min-height: 100vh; font-size: 14px
         <div><div class="sl">Items selected</div><div class="sv" id="item-count">0 items</div></div>
         <div><div class="sl">Total sale</div><div class="sv" id="total-val">$0.00</div></div>
         <div><div class="sl">Weekly repayment</div><div class="sv" id="weekly-val">—</div></div>
+      </div>
+
+      <!-- DELIVERY CHECKBOX -->
+      <div style="margin-top:14px;background:#f4f6fa;border-radius:10px;padding:14px 18px;border:1.5px solid var(--border);display:flex;align-items:center;gap:12px">
+        <input type="checkbox" id="f-delivery" checked onchange="deliveryChange(this)" style="width:18px;height:18px;cursor:pointer;accent-color:var(--navy)">
+        <label for="f-delivery" style="font-size:14px;font-weight:600;color:var(--navy);cursor:pointer">
+          Delivery required — $170
+        </label>
+        <span style="font-size:12px;color:var(--gm);margin-left:4px">(uncheck if customer is collecting)</span>
       </div>
 
       <div id="pay-note" style="margin-top:14px;font-size:12px;color:var(--gm);line-height:1.6">
@@ -1081,6 +1090,13 @@ function recalc() {
     count += qty;
     items.push({ name: t.dataset.name, price, qty });
   });
+  // Add delivery fee if checkbox is ticked
+  const deliveryCb = document.getElementById('f-delivery');
+  if (deliveryCb && deliveryCb.checked) {
+    total += 170;
+    count += 1;
+    items.push({ name: 'Delivery fee', price: 170, qty: 1 });
+  }
   document.getElementById('total-val').textContent = '$' + total.toLocaleString('en-AU', { minimumFractionDigits: 2 });
   document.getElementById('item-count').textContent = count + (count === 1 ? ' item' : ' items');
   const weekly = total > 0 ? total / 156 : 0;
@@ -1094,6 +1110,10 @@ function recalc() {
   ).join('');
   summary.style.display = items.length ? 'block' : 'none';
 }
+function deliveryChange(cb) {
+  recalc();
+}
+
 function payChange(sel) {
   document.getElementById('pay-note').textContent = sel.value === 'c'
     ? 'Cash sale — full amount upfront. No Ezidebit required. Invoice emailed to customer. Delivery fee still applies. Cash sale bonus of $100 applies to consultant commission.'
