@@ -442,7 +442,7 @@ body { background: #eef1f8; color: var(--gt); min-height: 100vh; font-size: 14px
     <input class="finput" id="login-email" type="email" placeholder="you@simtec.com.au" />
     <label class="flabel">Password</label>
     <input class="finput" id="login-password" type="password" placeholder="••••••••" onkeydown="if(event.key==='Enter')doLogin()" />
-    <button class="btn-primary" onclick="doLogin()" id="login-btn">Sign in →</button>
+    <button class="btn-primary" onclick="initAudio();doLogin()" id="login-btn">Sign in →</button>
     <div class="login-setup-note">
       <strong>Admin:</strong> access all screens — sales, dashboard, workflow, commissions, delivery, reports, and more.<br><br>
       <strong>Caller role:</strong> sees only the confirmation call queue — new sales flagged for calls, customer details, and a button to mark each call complete. Nothing else.
@@ -893,6 +893,55 @@ body { background: #eef1f8; color: var(--gt); min-height: 100vh; font-size: 14px
 
 <script>
 // ══════════════════════════════════════════════════════
+// AUDIO ALERT
+// ══════════════════════════════════════════════════════
+let audioCtx = null;
+let lastKnownPendingIds = new Set();
+
+function initAudio() {
+  // Called on login button click — user interaction unlocks audio
+  try {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  } catch(e) {
+    console.log('Audio not supported');
+  }
+}
+
+function playNewOrderAlert() {
+  if (!audioCtx) return;
+  try {
+    // Two-tone pleasant chime
+    const times = [[0, 880, 0.3], [0.2, 1100, 0.3], [0.4, 880, 0.2]];
+    times.forEach(([when, freq, vol]) => {
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+      osc.type = 'sine';
+      osc.frequency.value = freq;
+      gain.gain.setValueAtTime(0, audioCtx.currentTime + when);
+      gain.gain.linearRampToValueAtTime(vol, audioCtx.currentTime + when + 0.05);
+      gain.gain.linearRampToValueAtTime(0, audioCtx.currentTime + when + 0.4);
+      osc.start(audioCtx.currentTime + when);
+      osc.stop(audioCtx.currentTime + when + 0.5);
+    });
+  } catch(e) {
+    console.log('Audio play error:', e);
+  }
+}
+
+function checkForNewOrders(pendingOrders) {
+  // Compare current pending order IDs against last known set
+  const currentIds = new Set(pendingOrders.map(o => o.id));
+  let hasNew = false;
+  currentIds.forEach(id => {
+    if (!lastKnownPendingIds.has(id)) hasNew = true;
+  });
+  if (hasNew) playNewOrderAlert();
+  lastKnownPendingIds = currentIds;
+}
+
+// ══════════════════════════════════════════════════════
 // SUPABASE INIT
 // ══════════════════════════════════════════════════════
 const STORAGE_KEY_URL = 'simtec_sb_url';
@@ -1200,6 +1249,7 @@ async function loadDashboard() {
     const thisWeek = orders.filter(o => new Date(o.created_at) > weekAgo);
     const callsDone = orders.filter(o => o.call_status === 'complete' && new Date(o.call_time) > weekAgo);
 
+    checkForNewOrders(pending);
     document.getElementById('dash-queue-count').textContent = pending.length;
     document.getElementById('dash-sales-week').textContent = thisWeek.length;
     document.getElementById('dash-total-orders').textContent = orders.length;
@@ -1283,6 +1333,7 @@ async function loadCallerQueue() {
     return;
   }
 
+  checkForNewOrders(data);
   container.innerHTML = data.map(o => {
     const mins = Math.floor((Date.now() - new Date(o.created_at)) / 60000);
     const urgency = mins < 10 ? 'urgent' : '';
