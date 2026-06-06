@@ -445,7 +445,8 @@ body { background: #eef1f8; color: var(--gt); min-height: 100vh; font-size: 14px
     <button class="btn-primary" onclick="initAudio();doLogin()" id="login-btn">Sign in →</button>
     <div class="login-setup-note">
       <strong>Admin:</strong> access all screens — sales, dashboard, workflow, commissions, delivery, reports, and more.<br><br>
-      <strong>Caller role:</strong> sees only the confirmation call queue — new sales flagged for calls, customer details, and a button to mark each call complete. Nothing else.
+      <strong>Caller role:</strong> sees only the confirmation call queue — new sales flagged for calls, customer details, and a button to mark each call complete. Nothing else.<br><br>
+      <strong>Consultant role:</strong> sees only the sales order form. Nothing else.
     </div>
   </div>
 </div>
@@ -479,6 +480,25 @@ body { background: #eef1f8; color: var(--gt); min-height: 100vh; font-size: 14px
         <div class="no-calls-sub">No confirmation calls pending right now.</div>
       </div>
     </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════
+     CONSULTANT VIEW — sales form only
+══════════════════════════════════════════════════════════ -->
+<div id="consultant-screen" style="display:none">
+  <div class="caller-topbar">
+    <div class="caller-topbar-left">
+      <div class="topbar-badge">ST</div>
+      <div>
+        <div class="topbar-title">Simtec Therapeutic</div>
+        <div class="topbar-role">New order</div>
+      </div>
+    </div>
+    <button class="btn-logout" onclick="doLogout()">Sign out</button>
+  </div>
+  <div style="max-width:700px;margin:0 auto;padding:24px 16px" id="consultant-form-container">
+    <!-- Sales form injected here by JS -->
   </div>
 </div>
 
@@ -857,8 +877,9 @@ body { background: #eef1f8; color: var(--gt); min-height: 100vh; font-size: 14px
       <div class="card-title" style="margin-top:20px">Step 2 — Create user accounts</div>
       <div class="card-sub">In Supabase → Authentication → Users → Invite user. After creating, edit the user's raw metadata to set their role:</div>
       <div class="sql-block"><span class="sql-cmt">-- In user metadata (raw_user_meta_data), set:</span>
-{ <span class="sql-str">"role"</span>: <span class="sql-str">"admin"</span> }   <span class="sql-cmt">-- full system access</span>
-{ <span class="sql-str">"role"</span>: <span class="sql-str">"caller"</span> }  <span class="sql-cmt">-- confirmation calls only</span></div>
+{ <span class="sql-str">"role"</span>: <span class="sql-str">"admin"</span> }       <span class="sql-cmt">-- full system access</span>
+{ <span class="sql-str">"role"</span>: <span class="sql-str">"caller"</span> }      <span class="sql-cmt">-- confirmation calls only</span>
+{ <span class="sql-str">"role"</span>: <span class="sql-str">"consultant"</span> }  <span class="sql-cmt">-- sales order form only</span></div>
 
       <div class="card-title" style="margin-top:20px">Step 3 — Share the URL</div>
       <div class="card-sub">Once set up, share this HTML file (or host it) with any staff member. They log in with their Supabase credentials. Admins see everything. Callers see only their queue.</div>
@@ -1061,9 +1082,16 @@ function showApp() {
   if (currentRole === 'caller') {
     document.getElementById('caller-screen').style.display = 'block';
     document.getElementById('app-screen').style.display = 'none';
+    document.getElementById('consultant-screen').style.display = 'none';
     startCallerQueue();
+  } else if (currentRole === 'consultant') {
+    document.getElementById('caller-screen').style.display = 'none';
+    document.getElementById('app-screen').style.display = 'none';
+    document.getElementById('consultant-screen').style.display = 'block';
+    buildConsultantForm();
   } else {
     document.getElementById('caller-screen').style.display = 'none';
+    document.getElementById('consultant-screen').style.display = 'none';
     document.getElementById('app-screen').style.display = 'block';
     document.getElementById('nav-user-label').textContent = currentUser?.email || '';
     loadDashboard();
@@ -1114,6 +1142,24 @@ function startCallerQueue() {
 // ══════════════════════════════════════════════════════
 // SALES FORM
 // ══════════════════════════════════════════════════════
+
+// ══════════════════════════════════════════════════════
+// CONSULTANT FORM (stripped view)
+// ══════════════════════════════════════════════════════
+function buildConsultantForm() {
+  const container = document.getElementById('consultant-form-container');
+  if (!container) return;
+
+  // Clone the sales form content from the admin screen
+  const salesScreen = document.getElementById('s-sales');
+  if (!salesScreen) return;
+
+  // Copy the inner HTML of the sales screen into the consultant container
+  container.innerHTML = salesScreen.innerHTML;
+
+  // Re-attach event listeners by re-running recalc
+  recalc();
+}
 
 // CONSULTANTS -- update names and phone numbers here when in NZ
 function consultantChange(sel) {
