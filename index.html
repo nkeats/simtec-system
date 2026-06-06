@@ -1006,12 +1006,8 @@ window.addEventListener('DOMContentLoaded', () => {
   script.src = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2';
   script.onload = () => {
     window.supabaseJs = window.supabase;
-    const cfg = getSavedConfig();
-    if (cfg.url && cfg.key) {
-      initSupabase(cfg.url, cfg.key);
-    } else {
-      document.getElementById('config-screen').classList.add('active');
-    }
+    // Credentials hardcoded — no setup screen needed on new devices
+    initSupabase("https://jvqjoenaungubpoegyvf.supabase.co", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imp2cWpvZW5hdW5ndWJwb2VneXZmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA1MzQyMjYsImV4cCI6MjA5NjExMDIyNn0.ypVt8578XTdNwBH6TRDn30s1cF_rHTu67qCWYv5XHcQ");
   };
   document.head.appendChild(script);
 });
@@ -1267,8 +1263,8 @@ async function loadDashboard() {
             <td>${o.consultant || '—'}</td>
             <td>$${(o.total||0).toLocaleString('en-AU')}</td>
             <td><span class="call-timer urgent">${timeAgo(o.created_at)}</span></td>
-            <td><span class="badge b-red">Call now</span></td>
-            <td><button class="btn-green btn-sm" onclick="openCallModal('${o.id}','${o.fname} ${o.lname}','${o.consultant||''}','${o.total||0}','${o.phone||''}')">Complete call</button></td>
+            <td>${getAICallBadge(o)}</td>
+            <td><button class="btn-green btn-sm" onclick="openCallModal('${o.id}','${o.fname} ${o.lname}','${o.consultant||''}','${o.total||0}','${o.phone||''}','${o.ai_call_status||''}','${(o.ai_call_notes||'').replace(/'/g,'')}')">Complete call</button></td>
           </tr>`).join('')}
       </table>`;
     }
@@ -1345,7 +1341,7 @@ async function loadCallerQueue() {
           <div class="call-customer">${o.fname} ${o.lname}</div>
           <div class="call-meta">Consultant: ${o.consultant || '—'} · ${timeAgo(o.created_at)}</div>
         </div>
-        <span class="badge b-red">Call now</span>
+        ${getAICallBadge(o)}
       </div>
       <div class="call-detail-row">
         <div class="call-detail-box">
@@ -1412,7 +1408,7 @@ async function markCallComplete(id, name) {
 // ══════════════════════════════════════════════════════
 // CALL COMPLETE MODAL (admin dashboard)
 // ══════════════════════════════════════════════════════
-function openCallModal(id, name, consultant, total, phone) {
+function openCallModal(id, name, consultant, total, phone, aiStatus, aiNotes) {
   activeCallId = id;
   document.getElementById('call-modal-sub').textContent = `Confirming sale for ${name}`;
   document.getElementById('call-modal-details').innerHTML = `
@@ -1420,6 +1416,8 @@ function openCallModal(id, name, consultant, total, phone) {
     <div class="modal-detail-row"><span class="modal-detail-label">Phone</span><span class="modal-detail-val">${phone||'—'}</span></div>
     <div class="modal-detail-row"><span class="modal-detail-label">Consultant</span><span class="modal-detail-val">${consultant||'—'}</span></div>
     <div class="modal-detail-row"><span class="modal-detail-label">Sale total</span><span class="modal-detail-val">$${Number(total).toLocaleString('en-AU')}</span></div>
+    ${aiStatus ? `<div class="modal-detail-row"><span class="modal-detail-label">AI call</span><span class="modal-detail-val">${aiStatus}</span></div>` : ''}
+    ${aiNotes ? `<div style="background:var(--abg);border-radius:8px;padding:10px 14px;font-size:12px;color:#8a5500;margin-top:8px">${aiNotes}</div>` : ''}
   `;
   document.getElementById('call-modal-notes').value = '';
   const chkUl = document.getElementById('modal-chk');
@@ -1497,6 +1495,25 @@ function doCancel() {
 // ══════════════════════════════════════════════════════
 // UTILITIES
 // ══════════════════════════════════════════════════════
+function getAICallBadge(order) {
+  const status = order.ai_call_status;
+  const notes = order.ai_call_notes || '';
+  switch(status) {
+    case 'confirmed':
+      return '<span class="badge b-green">AI confirmed ✓</span>';
+    case 'calling':
+      return '<span class="badge b-amber">AI calling...</span>';
+    case 'human_requested':
+      return '<span style="background:#fdecea;color:#8a2222;padding:3px 9px;border-radius:20px;font-size:11px;font-weight:600">Human requested</span>';
+    case 'failed':
+      return `<span style="background:#fdecea;color:#8a2222;padding:3px 9px;border-radius:20px;font-size:11px;font-weight:600" title="${notes}">AI failed — call now</span>`;
+    case 'no_answer':
+      return `<span style="background:#fef3e2;color:#8a5500;padding:3px 9px;border-radius:20px;font-size:11px;font-weight:600" title="${notes}">No answer — call now</span>`;
+    default:
+      return '<span class="badge b-red">Call now</span>';
+  }
+}
+
 function timeAgo(iso) {
   const mins = Math.floor((Date.now() - new Date(iso)) / 60000);
   if (mins < 1) return 'Just now';
