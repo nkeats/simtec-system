@@ -365,6 +365,31 @@ body { background: #eef1f8; color: var(--gt); min-height: 100vh; font-size: 14px
 .tier-range { font-size: 12px; color: var(--gm); }
 .tier-bonus { margin-left: auto; font-size: 14px; font-weight: 700; color: var(--green); }
 
+/* ── CONFIG TABS ── */
+.config-tab {
+  padding: 8px 16px; border-radius: 8px; border: 1.5px solid var(--border);
+  background: #fff; font-size: 13px; font-weight: 500; color: var(--gm);
+  cursor: pointer; font-family: inherit; transition: all .12s;
+}
+.config-tab:hover { border-color: var(--navy); color: var(--navy); }
+.config-tab.active { background: var(--navy); color: #fff; border-color: var(--navy); font-weight: 600; }
+.config-row {
+  display: flex; align-items: center; gap: 12px; padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+}
+.config-row:last-child { border-bottom: none; }
+.config-label { font-size: 13px; font-weight: 600; color: var(--navy); flex: 1; }
+.config-sub { font-size: 11px; color: var(--gm); margin-top: 2px; }
+.config-input {
+  border: 1.5px solid var(--border); border-radius: 8px; padding: 7px 10px;
+  font-size: 13px; font-family: inherit; color: var(--navy); width: 120px;
+  transition: border-color .15s;
+}
+.config-input:focus { outline: none; border-color: var(--navy); }
+.config-input.wide { width: 200px; }
+.toggle-active { background: var(--gbg); color: #1a7a44; border: none; border-radius: 6px; padding: 5px 12px; font-size: 12px; font-weight: 600; cursor: pointer; font-family: inherit; }
+.toggle-inactive { background: var(--rbg); color: #8a2222; border: none; border-radius: 6px; padding: 5px 12px; font-size: 12px; font-weight: 600; cursor: pointer; font-family: inherit; }
+
 /* Responsive */
 @media (max-width: 600px) {
   .form-grid { grid-template-columns: 1fr; }
@@ -519,6 +544,7 @@ body { background: #eef1f8; color: var(--gt); min-height: 100vh; font-size: 14px
       <button class="nav-btn" onclick="nav('stock',this)">Stock</button>
       <button class="nav-btn" onclick="nav('reports',this)">Reports</button>
       <button class="nav-btn" onclick="nav('setup',this)">DB Setup</button>
+      <button class="nav-btn" onclick="nav('config',this)">Config</button>
     </div>
     <div class="nav-right">
       <div class="nav-user" id="nav-user-label"></div>
@@ -882,6 +908,150 @@ body { background: #eef1f8; color: var(--gt); min-height: 100vh; font-size: 14px
       <div class="card-title" style="margin-top:20px">Step 3 — Share the URL</div>
       <div class="card-sub">Once set up, share this HTML file (or host it) with any staff member. They log in with their Supabase credentials. Admins see everything. Callers see only their queue.</div>
     </div>
+  </div>
+
+  <!-- ── CONFIG ── -->
+  <div id="s-config" class="screen">
+    <div class="page-header">
+      <div><div class="page-title">System configuration</div><div class="page-sub">Manage products, staff, commission rules, awards and report settings</div></div>
+      <div style="display:flex;gap:8px">
+        <span id="config-save-status" style="font-size:12px;color:var(--green);align-self:center;display:none">✓ Saved</span>
+      </div>
+    </div>
+
+    <!-- CONFIG TABS -->
+    <div style="display:flex;gap:4px;margin-bottom:20px;flex-wrap:wrap">
+      <button class="config-tab active" onclick="switchConfigTab('products',this)">Products</button>
+      <button class="config-tab" onclick="switchConfigTab('commission',this)">Commission</button>
+      <button class="config-tab" onclick="switchConfigTab('awards',this)">Awards</button>
+      <button class="config-tab" onclick="switchConfigTab('delivery',this)">Delivery & Credit</button>
+      <button class="config-tab" onclick="switchConfigTab('reports',this)">Reports</button>
+      <button class="config-tab" onclick="switchConfigTab('staff',this)">Staff</button>
+    </div>
+
+    <!-- PRODUCTS TAB -->
+    <div id="config-products" class="config-tab-content">
+      <div class="card">
+        <div class="card-title">Products & prices</div>
+        <div class="card-sub">Changes take effect immediately on all devices. Inactive products are hidden from the sales form but kept in order history.</div>
+        <div id="products-list">
+          <div style="text-align:center;padding:30px;color:var(--gm);font-size:13px">Loading...</div>
+        </div>
+        <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border)">
+          <div style="font-size:13px;font-weight:600;color:var(--navy);margin-bottom:10px">Add new product</div>
+          <div class="form-grid">
+            <div><label class="flabel">Product name</label><input class="finput" id="new-product-name" placeholder="Mk IV Queen" /></div>
+            <div><label class="flabel">Retail price ($)</label><input class="finput" id="new-product-retail" type="number" placeholder="5990" /></div>
+            <div><label class="flabel">Cost price ($)</label><input class="finput" id="new-product-cost" type="number" placeholder="800" /></div>
+            <div style="display:flex;align-items:flex-end">
+              <button class="btn-gold" onclick="addProduct()" style="width:100%">Add product</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- COMMISSION TAB -->
+    <div id="config-commission" class="config-tab-content" style="display:none">
+      <div class="card">
+        <div class="card-title">Commission tiers</div>
+        <div class="card-sub">Weekly sales totals determine the base commission rate for all sales that week.</div>
+        <div id="commission-tiers-list">
+          <div style="text-align:center;padding:30px;color:var(--gm);font-size:13px">Loading...</div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title">Bonuses & overrides</div>
+        <div id="commission-bonuses-list">
+          <div style="text-align:center;padding:30px;color:var(--gm);font-size:13px">Loading...</div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title">Zero commission products</div>
+        <div class="card-sub">These products earn no commission, no cash bonus, and no TL override — but count toward the weekly sales total.</div>
+        <div id="zero-commission-list">
+          <div style="text-align:center;padding:30px;color:var(--gm);font-size:13px">Loading...</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- AWARDS TAB -->
+    <div id="config-awards" class="config-tab-content" style="display:none">
+      <div class="card">
+        <div class="card-title">Awards criteria</div>
+        <div class="card-sub">Awards must be earned in order. Changing criteria only affects future assessments — existing award levels are not changed.</div>
+        <div id="awards-config-list">
+          <div style="text-align:center;padding:30px;color:var(--gm);font-size:13px">Loading...</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- DELIVERY & CREDIT TAB -->
+    <div id="config-delivery" class="config-tab-content" style="display:none">
+      <div class="card">
+        <div class="card-title">Delivery settings</div>
+        <div id="delivery-settings-form">
+          <div style="text-align:center;padding:30px;color:var(--gm);font-size:13px">Loading...</div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title">Credit score bands</div>
+        <div class="card-sub">Scores at or above the auto-approve threshold are approved automatically. Scores below the manual review threshold are recommended for cancellation.</div>
+        <div id="credit-bands-form">
+          <div style="text-align:center;padding:30px;color:var(--gm);font-size:13px">Loading...</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- REPORTS TAB -->
+    <div id="config-reports" class="config-tab-content" style="display:none">
+      <div class="card">
+        <div class="card-title">Report recipients</div>
+        <div class="card-sub">Email addresses that receive the daily sales report and weekly commission report.</div>
+        <div id="reports-config-form">
+          <div style="text-align:center;padding:30px;color:var(--gm);font-size:13px">Loading...</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- STAFF TAB -->
+    <div id="config-staff" class="config-tab-content" style="display:none">
+      <div class="card">
+        <div class="card-title">Staff management</div>
+        <div class="card-sub">Manage consultant and staff details. Changes to the consultant list update the sales form dropdown immediately on all devices.</div>
+        <div style="background:var(--abg);border:1px solid #f5d080;border-radius:8px;padding:12px 16px;font-size:13px;color:#8a5500;margin-bottom:16px">
+          ⚠ Staff records are stored in Airtable. Changes here update Airtable directly. Phone numbers are used for the automated SMS — make sure they are correct NZ mobile numbers in format 02XXXXXXXX.
+        </div>
+        <div id="staff-list">
+          <div style="text-align:center;padding:30px;color:var(--gm);font-size:13px">Loading...</div>
+        </div>
+        <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border)">
+          <div style="font-size:13px;font-weight:600;color:var(--navy);margin-bottom:10px">Add new staff member</div>
+          <div class="form-grid">
+            <div><label class="flabel">Full name</label><input class="finput" id="new-staff-name" placeholder="Jane Smith" /></div>
+            <div><label class="flabel">Mobile</label><input class="finput" id="new-staff-phone" placeholder="0210000000" /></div>
+            <div><label class="flabel">Email</label><input class="finput" id="new-staff-email" type="email" placeholder="jane@email.com" /></div>
+            <div><label class="flabel">Role</label>
+              <select class="finput" id="new-staff-role">
+                <option value="Sleep Consultant">Sleep Consultant</option>
+                <option value="Team Leader">Team Leader</option>
+                <option value="Admin">Admin</option>
+                <option value="Driver">Driver</option>
+              </select>
+            </div>
+            <div><label class="flabel">Team leader</label>
+              <select class="finput" id="new-staff-tl">
+                <option value="">— None —</option>
+              </select>
+            </div>
+            <div style="display:flex;align-items:flex-end">
+              <button class="btn-gold" onclick="addStaff()" style="width:100%">Add staff member</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
   </div>
 
 </div><!-- end app-screen -->
@@ -1849,6 +2019,298 @@ async function cancelFromDelivery(orderId, customerName) {
     showToast(`Order for ${customerName} cancelled`, 'success');
     loadDeliveryQueue();
   }
+}
+
+// ══════════════════════════════════════════════════════
+// CONFIGURATION PANEL
+// ══════════════════════════════════════════════════════
+
+let configCache = {};
+
+function switchConfigTab(tab, btn) {
+  document.querySelectorAll('.config-tab').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.config-tab-content').forEach(c => c.style.display = 'none');
+  if (btn) btn.classList.add('active');
+  document.getElementById('config-' + tab).style.display = 'block';
+}
+
+async function loadConfig() {
+  if (!sbClient) return;
+  const { data, error } = await sbClient.from('config').select('*').order('category').order('key');
+  if (error) { showToast('Error loading config: ' + error.message, 'error'); return; }
+
+  configCache = {};
+  for (const row of data) {
+    if (!configCache[row.category]) configCache[row.category] = {};
+    configCache[row.category][row.key] = { ...row.value, _id: row.id, _label: row.label };
+  }
+
+  renderProducts();
+  renderCommission();
+  renderAwards();
+  renderDelivery();
+  renderReports();
+}
+
+async function saveConfigVal(category, key, value) {
+  if (!sbClient) return;
+  const { error } = await sbClient.from('config')
+    .update({ value, updated_at: new Date().toISOString() })
+    .eq('category', category).eq('key', key);
+  if (error) { showToast('Save error: ' + error.message, 'error'); return; }
+  const status = document.getElementById('config-save-status');
+  if (status) { status.style.display = 'inline'; setTimeout(() => status.style.display = 'none', 2000); }
+  await loadConfig();
+}
+
+async function addConfigRow(category, key, value, label) {
+  if (!sbClient) return;
+  const { error } = await sbClient.from('config').insert([{ category, key, value, label }]);
+  if (error) { showToast('Error: ' + error.message, 'error'); return; }
+  showToast('Added successfully ✓', 'success');
+  await loadConfig();
+}
+
+async function deleteConfigRow(category, key, label) {
+  if (!confirm('Delete ' + label + '? This cannot be undone.')) return;
+  if (!sbClient) return;
+  const { error } = await sbClient.from('config').delete().eq('category', category).eq('key', key);
+  if (error) { showToast('Error: ' + error.message, 'error'); return; }
+  showToast('Deleted ✓', 'success');
+  await loadConfig();
+}
+
+function renderProducts() {
+  const products = configCache['products'] || {};
+  const container = document.getElementById('products-list');
+  if (!container) return;
+  const rows = Object.entries(products).map(([key, p]) => {
+    const safeP = JSON.stringify({name:p.name,cost:p.cost,active:p.active}).replace(/"/g,'&quot;');
+    const safePA = JSON.stringify({name:p.name,retail:p.retail,cost:p.cost,active:!p.active}).replace(/"/g,'&quot;');
+    return `<div class="config-row">
+      <div style="flex:2"><div class="config-label">${p.name||key}</div></div>
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <div><div style="font-size:10px;color:var(--gm);margin-bottom:3px">Retail ($)</div>
+          <input class="config-input" type="number" value="${p.retail||0}" onblur="updateProductRetail('${key}',this.value,${JSON.stringify(p.name)},${p.cost||0},${p.active})" /></div>
+        <div><div style="font-size:10px;color:var(--gm);margin-bottom:3px">Cost ($)</div>
+          <input class="config-input" type="number" value="${p.cost||0}" onblur="updateProductCost('${key}',this.value,${JSON.stringify(p.name)},${p.retail||0},${p.active})" /></div>
+        <div style="margin-top:14px">
+          <button class="${p.active?'toggle-active':'toggle-inactive'}" onclick="saveConfigVal('products','${key}',{name:${JSON.stringify(p.name)},retail:${p.retail},cost:${p.cost},active:${!p.active}})">${p.active?'Active':'Inactive'}</button>
+        </div>
+        <div style="margin-top:14px">
+          <button class="btn-red btn-sm" onclick="deleteConfigRow('products','${key}',${JSON.stringify(p.name)})">Delete</button>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+  container.innerHTML = rows || '<div style="color:var(--gm);font-size:13px;padding:12px 0">No products found.</div>';
+}
+
+function updateProductRetail(key, retail, name, cost, active) {
+  saveConfigVal('products', key, {name, retail: Number(retail), cost: Number(cost), active});
+}
+function updateProductCost(key, cost, name, retail, active) {
+  saveConfigVal('products', key, {name, retail: Number(retail), cost: Number(cost), active});
+}
+
+async function addProduct() {
+  const name = document.getElementById('new-product-name').value.trim();
+  const retail = parseFloat(document.getElementById('new-product-retail').value);
+  const cost = parseFloat(document.getElementById('new-product-cost').value);
+  if (!name || !retail) { showToast('Please enter product name and retail price', 'error'); return; }
+  const key = name.toLowerCase().replace(/[^a-z0-9]/g, '_');
+  await addConfigRow('products', key, { name, retail, cost: cost||0, active: true }, name);
+  document.getElementById('new-product-name').value = '';
+  document.getElementById('new-product-retail').value = '';
+  document.getElementById('new-product-cost').value = '';
+}
+
+function renderCommission() {
+  const commission = configCache['commission'] || {};
+  const tiersContainer = document.getElementById('commission-tiers-list');
+  if (tiersContainer) {
+    const tiers = ['tier1','tier2','tier3'].map(key => {
+      const t = commission[key]; if (!t) return '';
+      const range = t.max_sales>=999 ? `${t.min_sales}+ sales` : `${t.min_sales}–${t.max_sales} sales`;
+      return `<div class="config-row">
+        <div style="flex:1"><div class="config-label">${range}</div></div>
+        <div><div style="font-size:10px;color:var(--gm);margin-bottom:3px">Rate ($)</div>
+          <input class="config-input" type="number" value="${t.rate}" onblur="saveConfigVal('commission','${key}',{min_sales:${t.min_sales},max_sales:${t.max_sales},rate:Number(this.value)})" /></div>
+      </div>`;
+    }).join('');
+    tiersContainer.innerHTML = tiers;
+  }
+  const bonusContainer = document.getElementById('commission-bonuses-list');
+  if (bonusContainer) {
+    const cb = commission['cash_bonus'] || {amount:100};
+    const tl = commission['tl_override'] || {amount:60};
+    bonusContainer.innerHTML = `
+      <div class="config-row">
+        <div style="flex:1"><div class="config-label">Cash sale bonus</div><div class="config-sub">Added on top of base commission for cash sales</div></div>
+        <div><div style="font-size:10px;color:var(--gm);margin-bottom:3px">Amount ($)</div>
+          <input class="config-input" type="number" value="${cb.amount}" onblur="saveConfigVal('commission','cash_bonus',{amount:Number(this.value)})" /></div>
+      </div>
+      <div class="config-row">
+        <div style="flex:1"><div class="config-label">Team leader override per sale</div><div class="config-sub">Paid to TL on every commissionable sale across their team including their own</div></div>
+        <div><div style="font-size:10px;color:var(--gm);margin-bottom:3px">Amount ($)</div>
+          <input class="config-input" type="number" value="${tl.amount}" onblur="saveConfigVal('commission','tl_override',{amount:Number(this.value)})" /></div>
+      </div>`;
+  }
+  const zeroContainer = document.getElementById('zero-commission-list');
+  if (zeroContainer) {
+    const zeroProducts = commission['zero_commission_products']?.products || [];
+    zeroContainer.innerHTML = `
+      <div style="margin-bottom:12px">${zeroProducts.map(p=>`
+        <div style="display:inline-flex;align-items:center;gap:6px;background:var(--rbg);border-radius:6px;padding:5px 10px;margin:3px;font-size:13px;color:#8a2222">
+          ${p}<button onclick="removeZeroCommissionProduct('${p}')" style="background:none;border:none;cursor:pointer;color:#8a2222;font-size:14px;padding:0">×</button>
+        </div>`).join('')}</div>
+      <div style="display:flex;gap:8px">
+        <input class="finput" id="new-zero-product" placeholder="Product name (must match exactly)" style="flex:1;margin-bottom:0" />
+        <button class="btn-outline" onclick="addZeroCommissionProduct()">Add</button>
+      </div>`;
+  }
+}
+
+async function addZeroCommissionProduct() {
+  const name = document.getElementById('new-zero-product').value.trim();
+  if (!name) return;
+  const current = configCache['commission']['zero_commission_products']?.products || [];
+  if (current.includes(name)) { showToast('Already in list', 'error'); return; }
+  await saveConfigVal('commission', 'zero_commission_products', { products: [...current, name] });
+  document.getElementById('new-zero-product').value = '';
+}
+async function removeZeroCommissionProduct(name) {
+  const current = configCache['commission']['zero_commission_products']?.products || [];
+  await saveConfigVal('commission', 'zero_commission_products', { products: current.filter(p=>p!==name) });
+}
+
+function renderAwards() {
+  const awards = configCache['awards'] || {};
+  const container = document.getElementById('awards-config-list');
+  if (!container) return;
+  const order = ['initial','pearl','ruby','emerald','sapphire','grand_diamond'];
+  const rows = order.map(key => {
+    const a = awards[key]; if (!a) return '';
+    return `<div class="config-row">
+      <div style="flex:1"><div class="config-label">${a.name}</div><div class="config-sub">${a.criteria}</div></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <div><div style="font-size:10px;color:var(--gm);margin-bottom:3px">Sales threshold</div>
+          <input class="config-input" type="number" value="${a.threshold}" onblur="updateAward('${key}','threshold',Number(this.value))" /></div>
+        ${a.weeks?`<div><div style="font-size:10px;color:var(--gm);margin-bottom:3px">Weeks required</div>
+          <input class="config-input" type="number" value="${a.weeks}" onblur="updateAward('${key}','weeks',Number(this.value))" /></div>`:''}
+      </div>
+    </div>`;
+  }).join('');
+  container.innerHTML = rows;
+}
+
+async function updateAward(key, field, value) {
+  const a = configCache['awards'][key];
+  if (!a) return;
+  await saveConfigVal('awards', key, {...a, [field]: value});
+}
+
+function renderDelivery() {
+  const delivery = configCache['delivery'] || {};
+  const s = delivery['settings'] || {fee:170,threshold_pct:10,payment_weeks:156};
+  const b = delivery['credit_bands'] || {auto_approve:80,manual_review:50};
+  const sc = document.getElementById('delivery-settings-form');
+  if (sc) sc.innerHTML = `
+    <div class="config-row">
+      <div style="flex:1"><div class="config-label">Delivery fee</div><div class="config-sub">Charged on all delivered orders</div></div>
+      <div><div style="font-size:10px;color:var(--gm);margin-bottom:3px">Amount ($)</div>
+        <input class="config-input" type="number" value="${s.fee}" onblur="saveConfigVal('delivery','settings',{...${JSON.stringify(s)},fee:Number(this.value)})" /></div>
+    </div>
+    <div class="config-row">
+      <div style="flex:1"><div class="config-label">Delivery threshold</div><div class="config-sub">% of purchase price paid before delivery</div></div>
+      <div><div style="font-size:10px;color:var(--gm);margin-bottom:3px">Percentage (%)</div>
+        <input class="config-input" type="number" value="${s.threshold_pct}" onblur="saveConfigVal('delivery','settings',{...${JSON.stringify(s)},threshold_pct:Number(this.value)})" /></div>
+    </div>
+    <div class="config-row">
+      <div style="flex:1"><div class="config-label">Payment plan weeks</div><div class="config-sub">Total number of weekly payments</div></div>
+      <div><div style="font-size:10px;color:var(--gm);margin-bottom:3px">Weeks</div>
+        <input class="config-input" type="number" value="${s.payment_weeks}" onblur="saveConfigVal('delivery','settings',{...${JSON.stringify(s)},payment_weeks:Number(this.value)})" /></div>
+    </div>`;
+  const bc = document.getElementById('credit-bands-form');
+  if (bc) bc.innerHTML = `
+    <div class="config-row">
+      <div style="flex:1"><div class="config-label" style="color:var(--green)">Auto approve — minimum score</div><div class="config-sub">Scores at or above this are approved automatically</div></div>
+      <div><input class="config-input" type="number" value="${b.auto_approve}" onblur="saveConfigVal('delivery','credit_bands',{...${JSON.stringify(b)},auto_approve:Number(this.value)})" /></div>
+    </div>
+    <div class="config-row">
+      <div style="flex:1"><div class="config-label" style="color:var(--amber)">Manual review — minimum score</div><div class="config-sub">Scores below this are recommended for cancellation</div></div>
+      <div><input class="config-input" type="number" value="${b.manual_review}" onblur="saveConfigVal('delivery','credit_bands',{...${JSON.stringify(b)},manual_review:Number(this.value)})" /></div>
+    </div>`;
+}
+
+function renderReports() {
+  const reports = configCache['reports'] || {};
+  const recipients = reports['recipients'] || {daily_sales:[],weekly_commission:[]};
+  const container = document.getElementById('reports-config-form');
+  if (!container) return;
+  const dailyList = (recipients.daily_sales||[]).map(e=>`
+    <div style="display:inline-flex;align-items:center;gap:6px;background:var(--gl);border-radius:6px;padding:5px 10px;margin:3px;font-size:13px;color:var(--navy)">
+      ${e}<button onclick="removeReportRecipient('daily_sales','${e}')" style="background:none;border:none;cursor:pointer;color:var(--gm);font-size:14px;padding:0">×</button>
+    </div>`).join('');
+  const commissionList = (recipients.weekly_commission||[]).map(e=>`
+    <div style="display:inline-flex;align-items:center;gap:6px;background:var(--gl);border-radius:6px;padding:5px 10px;margin:3px;font-size:13px;color:var(--navy)">
+      ${e}<button onclick="removeReportRecipient('weekly_commission','${e}')" style="background:none;border:none;cursor:pointer;color:var(--gm);font-size:14px;padding:0">×</button>
+    </div>`).join('');
+  container.innerHTML = `
+    <div class="config-row" style="flex-direction:column;align-items:flex-start;gap:8px">
+      <div class="config-label">Daily sales report recipients</div>
+      <div>${dailyList||'<span style="color:var(--gm);font-size:13px">No recipients</span>'}</div>
+      <div style="display:flex;gap:8px;width:100%">
+        <input class="finput" id="new-daily-email" type="email" placeholder="email@example.com" style="flex:1;margin-bottom:0" />
+        <button class="btn-outline" onclick="addReportRecipient('daily_sales')">Add</button>
+      </div>
+    </div>
+    <div class="config-row" style="flex-direction:column;align-items:flex-start;gap:8px">
+      <div class="config-label">Weekly commission report recipients</div>
+      <div>${commissionList||'<span style="color:var(--gm);font-size:13px">No recipients</span>'}</div>
+      <div style="display:flex;gap:8px;width:100%">
+        <input class="finput" id="new-commission-email" type="email" placeholder="email@example.com" style="flex:1;margin-bottom:0" />
+        <button class="btn-outline" onclick="addReportRecipient('weekly_commission')">Add</button>
+      </div>
+    </div>`;
+}
+
+async function addReportRecipient(type) {
+  const inputId = type==='daily_sales'?'new-daily-email':'new-commission-email';
+  const email = document.getElementById(inputId).value.trim();
+  if (!email) return;
+  const recipients = configCache['reports']['recipients']||{daily_sales:[],weekly_commission:[]};
+  const list = recipients[type]||[];
+  if (list.includes(email)) { showToast('Already in list','error'); return; }
+  const updated = {...recipients,[type]:[...list,email]};
+  await saveConfigVal('reports','recipients',updated);
+  document.getElementById(inputId).value='';
+}
+
+async function removeReportRecipient(type,email) {
+  const recipients = configCache['reports']['recipients']||{daily_sales:[],weekly_commission:[]};
+  const updated = {...recipients,[type]:(recipients[type]||[]).filter(e=>e!==email)};
+  await saveConfigVal('reports','recipients',updated);
+}
+
+async function addStaff() {
+  const name = document.getElementById('new-staff-name').value.trim();
+  const phone = document.getElementById('new-staff-phone').value.trim();
+  const email = document.getElementById('new-staff-email').value.trim();
+  const role = document.getElementById('new-staff-role').value;
+  if (!name||!phone) { showToast('Please enter name and phone number','error'); return; }
+  await addConfigRow('pending_staff', Date.now().toString(), {name,phone,email,role,status:'pending_airtable'}, name);
+  showToast(`${name} added — also add to Airtable Consultants table and create their Supabase login`,'success');
+  document.getElementById('new-staff-name').value='';
+  document.getElementById('new-staff-phone').value='';
+  document.getElementById('new-staff-email').value='';
+}
+
+// Override nav to load config when navigating to config screen
+const _origNav = nav;
+function nav(id, btn) {
+  _origNav(id, btn);
+  if (id==='config') loadConfig();
 }
 </script>
 </body>
