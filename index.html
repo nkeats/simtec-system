@@ -2060,7 +2060,13 @@ async function saveConfigVal(category, key, value) {
     .eq('category', category).eq('key', key);
   if (error) { showToast('Save error: ' + error.message, 'error'); return; }
   const status = document.getElementById('config-save-status');
-  if (status) { status.style.display = 'inline'; setTimeout(() => status.style.display = 'none', 2000); }
+  if (status) {
+    status.style.display = 'inline';
+    status.style.fontWeight = '600';
+    status.style.fontSize = '13px';
+    setTimeout(() => status.style.display = 'none', 4000);
+  }
+  showToast('Saved ✓', 'success');
   await loadConfig();
 }
 
