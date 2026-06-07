@@ -669,6 +669,7 @@ body { background: #eef1f8; color: var(--gt); min-height: 100vh; font-size: 14px
       <button class="nav-btn" onclick="nav('config',this)">Config</button>
       <button class="nav-btn" onclick="nav('manual',this)">Manual form</button>
       <button class="nav-btn" onclick="nav('appointments',this)">Appointments</button>
+      <button class="nav-btn" onclick="nav('nosale',this)">No sale contacts</button>
     </div>
     <div class="nav-right">
       <div class="nav-user" id="nav-user-label"></div>
@@ -1299,6 +1300,46 @@ body { background: #eef1f8; color: var(--gt); min-height: 100vh; font-size: 14px
     </div>
   </div>
 
+  <!-- ── NO SALE CONTACTS ── -->
+  <div id="s-nosale" class="screen">
+    <div class="page-header">
+      <div>
+        <div class="page-title">No sale contacts</div>
+        <div class="page-sub">Customers who were presented to but didn't buy — available for future marketing</div>
+      </div>
+      <button class="btn-outline btn-sm" onclick="exportNoSaleContacts()">Export CSV</button>
+    </div>
+
+    <!-- FILTERS -->
+    <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">
+      <select class="finput" id="nosale-filter-reason" style="margin-bottom:0;width:180px" onchange="loadNoSaleContacts()">
+        <option value="">All reasons</option>
+        <option value="cant_afford">Can't afford</option>
+        <option value="didnt_like">Didn't like</option>
+        <option value="other">Other</option>
+      </select>
+      <select class="finput" id="nosale-filter-consultant" style="margin-bottom:0;width:180px" onchange="loadNoSaleContacts()">
+        <option value="">All consultants</option>
+      </select>
+      <input class="finput" id="nosale-search" type="text" placeholder="Search by name..." style="margin-bottom:0;width:200px" oninput="loadNoSaleContacts()" />
+    </div>
+
+    <!-- METRICS -->
+    <div class="metric-grid" style="margin-bottom:16px">
+      <div class="mcard"><div class="mcard-label">Total no-sale contacts</div><div class="mcard-val" id="nosale-total">—</div></div>
+      <div class="mcard"><div class="mcard-label">Can't afford</div><div class="mcard-val" id="nosale-cant-afford">—</div></div>
+      <div class="mcard"><div class="mcard-label">Didn't like</div><div class="mcard-val" id="nosale-didnt-like">—</div></div>
+      <div class="mcard"><div class="mcard-label">Other reason</div><div class="mcard-val" id="nosale-other">—</div></div>
+    </div>
+
+    <!-- CONTACTS TABLE -->
+    <div class="card">
+      <div id="nosale-list">
+        <div style="text-align:center;padding:30px;color:var(--gm);font-size:13px">Loading...</div>
+      </div>
+    </div>
+  </div>
+
 </div><!-- end app-screen -->
 
 <!-- ══════════════ CALL COMPLETE MODAL ══════════════ -->
@@ -1538,6 +1579,7 @@ function nav(id, btn) {
     if (dateFilter && !dateFilter.value) dateFilter.value = today;
     loadAdminAppointments();
   }
+  if (id === 'nosale') loadNoSaleContacts();
 }
 
 // ══════════════════════════════════════════════════════
@@ -1581,6 +1623,7 @@ function buildConsultantForm() {
   if (!salesScreen) return;
 
   // Clone sales screen but exclude the signature card and order confirm panel
+  // (signature card is re-added fresh below to avoid duplicate canvas ID issues)
   const clone = salesScreen.cloneNode(true);
   const sigCard = clone.querySelector('#signature-card');
   if (sigCard) sigCard.remove();
@@ -1588,7 +1631,74 @@ function buildConsultantForm() {
   if (confirmPanel) confirmPanel.remove();
 
   container.innerHTML = clone.innerHTML;
+
+  // Add a fresh signature card with a unique canvas ID for the consultant view
+  const sigHtml = `<div class="card" id="consultant-signature-card">
+    <div class="card-title">Customer signature</div>
+    <div class="card-sub">Have the customer sign below before submitting.</div>
+    <canvas id="consultant-signature-pad" style="width:100%;height:160px;border:1.5px solid var(--border);border-radius:10px;cursor:crosshair;touch-action:none;background:#fafafa"></canvas>
+    <div style="display:flex;gap:8px;margin-top:8px">
+      <button class="btn-outline btn-sm" onclick="clearConsultantSignature()">Clear signature</button>
+      <span id="consultant-sig-status" style="font-size:12px;color:var(--gm);align-self:center"></span>
+    </div>
+  </div>`;
+  container.insertAdjacentHTML('beforeend', sigHtml);
+
   recalc();
+  setTimeout(initConsultantSignaturePad, 100);
+}
+
+let consultantSignatureData = null;
+
+function initConsultantSignaturePad() {
+  const canvas = document.getElementById('consultant-signature-pad');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * window.devicePixelRatio;
+  canvas.height = rect.height * window.devicePixelRatio;
+  ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+  ctx.strokeStyle = '#1e3a6e';
+  ctx.lineWidth = 2;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+
+  let drawing = false;
+  let lastX = 0, lastY = 0;
+
+  function getPos(e) {
+    const r = canvas.getBoundingClientRect();
+    if (e.touches) return { x: e.touches[0].clientX - r.left, y: e.touches[0].clientY - r.top };
+    return { x: e.clientX - r.left, y: e.clientY - r.top };
+  }
+  function startDraw(e) { e.preventDefault(); drawing = true; const p = getPos(e); lastX = p.x; lastY = p.y; }
+  function draw(e) {
+    if (!drawing) return; e.preventDefault();
+    const p = getPos(e);
+    ctx.beginPath(); ctx.moveTo(lastX, lastY); ctx.lineTo(p.x, p.y); ctx.stroke();
+    lastX = p.x; lastY = p.y;
+    consultantSignatureData = canvas.toDataURL();
+    const status = document.getElementById('consultant-sig-status');
+    if (status) status.textContent = '✓ Signature captured';
+  }
+  function stopDraw() { drawing = false; }
+
+  canvas.addEventListener('mousedown', startDraw);
+  canvas.addEventListener('mousemove', draw);
+  canvas.addEventListener('mouseup', stopDraw);
+  canvas.addEventListener('touchstart', startDraw, { passive: false });
+  canvas.addEventListener('touchmove', draw, { passive: false });
+  canvas.addEventListener('touchend', stopDraw);
+}
+
+function clearConsultantSignature() {
+  const canvas = document.getElementById('consultant-signature-pad');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  consultantSignatureData = null;
+  const status = document.getElementById('consultant-sig-status');
+  if (status) status.textContent = '';
 }
 
 // ══════════════════════════════════════════════════════
@@ -1808,7 +1918,8 @@ async function submitOrder() {
     total,
     weekly_rep: +(total / 156).toFixed(2),
     items,
-    call_status: 'pending'
+    call_status: 'pending',
+    signature_data: (document.getElementById('consultant-signature-pad') ? consultantSignatureData : signatureData) || null
   };
 
   if (sbClient) {
@@ -3636,6 +3747,129 @@ async function loadAdminAppointments() {
 
 
 // Load admin appointments when navigating to appointments screen
+
+// ══════════════════════════════════════════════════════
+// NO SALE CONTACTS
+// ══════════════════════════════════════════════════════
+
+let noSaleData = [];
+
+async function loadNoSaleContacts() {
+  if (!sbClient) return;
+
+  const reasonFilter = document.getElementById('nosale-filter-reason')?.value || '';
+  const consultantFilter = document.getElementById('nosale-filter-consultant')?.value || '';
+  const searchVal = document.getElementById('nosale-search')?.value.toLowerCase() || '';
+
+  let query = sbClient
+    .from('appointments')
+    .select('*')
+    .eq('outcome', 'no_sale')
+    .order('created_at', { ascending: false });
+
+  if (reasonFilter) query = query.eq('no_sale_reason', reasonFilter);
+  if (consultantFilter) query = query.eq('consultant', consultantFilter);
+
+  const { data, error } = await query;
+  if (error) return;
+
+  // Filter by search
+  noSaleData = (data || []).filter(a => {
+    if (!searchVal) return true;
+    return (a.customer_name || '').toLowerCase().includes(searchVal) ||
+           (a.address || '').toLowerCase().includes(searchVal) ||
+           (a.phone || '').toLowerCase().includes(searchVal);
+  });
+
+  // Metrics
+  const total = data?.length || 0;
+  const cantAfford = (data || []).filter(a => a.no_sale_reason === 'cant_afford').length;
+  const didntLike = (data || []).filter(a => a.no_sale_reason === 'didnt_like').length;
+  const other = (data || []).filter(a => a.no_sale_reason === 'other').length;
+
+  const m = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
+  m('nosale-total', total);
+  m('nosale-cant-afford', cantAfford);
+  m('nosale-didnt-like', didntLike);
+  m('nosale-other', other);
+
+  // Populate consultant filter
+  const consultantSelect = document.getElementById('nosale-filter-consultant');
+  if (consultantSelect && consultantSelect.options.length <= 1) {
+    const consultants = [...new Set((data || []).map(a => a.consultant).filter(Boolean))].sort();
+    consultants.forEach(name => {
+      const opt = document.createElement('option');
+      opt.value = name; opt.textContent = name;
+      consultantSelect.appendChild(opt);
+    });
+  }
+
+  // Render table
+  const container = document.getElementById('nosale-list');
+  if (!container) return;
+
+  if (noSaleData.length === 0) {
+    container.innerHTML = '<div style="text-align:center;padding:30px;color:var(--gm);font-size:13px">No no-sale contacts found.</div>';
+    return;
+  }
+
+  const reasonLabel = { cant_afford: "Can't afford", didnt_like: "Didn't like", other: "Other" };
+
+  container.innerHTML = `
+    <table class="dtable">
+      <tr>
+        <th>Date</th>
+        <th>Customer</th>
+        <th>Phone</th>
+        <th>Address</th>
+        <th>Consultant</th>
+        <th>Reason</th>
+        <th>Notes</th>
+      </tr>
+      ${noSaleData.map(a => {
+        const dateStr = a.appt_date ? new Date(a.appt_date + 'T00:00:00').toLocaleDateString('en-NZ', { day:'numeric', month:'short', year:'numeric' }) : '—';
+        const reason = reasonLabel[a.no_sale_reason] || a.no_sale_reason || '—';
+        const reasonColour = a.no_sale_reason === 'cant_afford' ? 'color:#8a5500' : a.no_sale_reason === 'didnt_like' ? 'color:#8a2222' : '';
+        return `<tr>
+          <td style="font-size:12px;color:var(--gm)">${dateStr}</td>
+          <td><b>${a.customer_name || '—'}</b></td>
+          <td style="font-size:12px">${a.phone || '—'}</td>
+          <td style="font-size:12px;color:var(--gm)">${a.address || '—'}</td>
+          <td style="font-size:12px">${a.consultant || '—'}</td>
+          <td style="font-size:12px;font-weight:600;${reasonColour}">${reason}</td>
+          <td style="font-size:12px;color:var(--gm)">${a.no_sale_notes || '—'}</td>
+        </tr>`;
+      }).join('')}
+    </table>`;
+}
+
+function exportNoSaleContacts() {
+  if (!noSaleData || noSaleData.length === 0) {
+    showToast('No contacts to export', 'error');
+    return;
+  }
+
+  const headers = ['Date', 'Customer Name', 'Phone', 'Address', 'Consultant', 'Reason', 'Notes'];
+  const rows = noSaleData.map(a => [
+    a.appt_date || '',
+    a.customer_name || '',
+    a.phone || '',
+    a.address || '',
+    a.consultant || '',
+    a.no_sale_reason || '',
+    (a.no_sale_notes || '').replace(/,/g, ' ')
+  ]);
+
+    const csv = [headers, ...rows].map(function(r){ return r.map(function(v){ return '"' + String(v).replace(/"/g,'""') + '"'; }).join(','); }).join('\n');
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `simtec_nosale_contacts_${new Date().toISOString().split('T')[0]}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+  showToast(`Exported ${noSaleData.length} contacts ✓`, 'success');
+}
 </script>
 </body>
 </html>
