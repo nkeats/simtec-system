@@ -799,6 +799,13 @@ body { background: #eef1f8; color: var(--gt); min-height: 100vh; font-size: 14px
       </div>
     </div>
 
+    <!-- PAYMENT FOLLOW-UP SECTION -->
+    <div class="card" id="dash-payment-section" style="display:none">
+      <div style="font-size:15px;font-weight:700;color:#8a5500;margin-bottom:4px">⚠ Payment follow-up needed</div>
+      <div style="font-size:13px;color:var(--gm);margin-bottom:14px">These customers were contacted about a failed payment but haven't responded. Please call them.</div>
+      <div id="dash-payment-list"></div>
+    </div>
+
     <div class="card">
       <div class="card-title">Recent orders</div>
       <div id="dash-recent-orders">
@@ -1839,8 +1846,34 @@ async function loadDashboard() {
     checkForNewOrders(pending);
     document.getElementById('dash-queue-count').textContent = pending.length;
     document.getElementById('dash-sales-week').textContent = thisWeek.length;
+
+    // Payment follow-up
+    const paymentFollowUp = orders.filter(o => o.payment_follow_up_status === 'call_needed');
+    const paymentCard = document.getElementById('dash-payment-card');
+    const paymentCount = document.getElementById('dash-payment-count');
+    if (paymentCard && paymentCount) {
+      paymentCount.textContent = paymentFollowUp.length;
+      paymentCard.style.display = paymentFollowUp.length > 0 ? 'block' : 'none';
+    }
     document.getElementById('dash-total-orders').textContent = orders.length;
     document.getElementById('dash-calls-done').textContent = callsDone.length;
+
+    // Render payment follow-up list
+    const paymentFollowUpOrders = orders.filter(o => o.payment_follow_up_status === 'call_needed');
+    const paymentSection = document.getElementById('dash-payment-section');
+    const paymentList = document.getElementById('dash-payment-list');
+    if (paymentSection && paymentList) {
+      paymentSection.style.display = paymentFollowUpOrders.length > 0 ? 'block' : 'none';
+      paymentList.innerHTML = paymentFollowUpOrders.map(o => `
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 0;border-bottom:1px solid var(--border)">
+          <div>
+            <div style="font-weight:600;color:var(--navy)">${o.fname} ${o.lname}</div>
+            <div style="font-size:12px;color:var(--gm)">${o.phone || '—'} · ${o.email || '—'}</div>
+            <div style="font-size:11px;color:var(--amber);margin-top:2px">Failed: ${o.payment_failure_reason || 'Payment dishonoured'} · Contacted ${o.payment_follow_up_sent_at ? timeAgo(o.payment_follow_up_sent_at) : '—'}</div>
+          </div>
+          <button class="btn-outline btn-sm" onclick="markPaymentFollowUpDone('${o.id}')">Mark resolved</button>
+        </div>`).join('') || '<div style="color:var(--gm);font-size:13px;padding:12px 0">No follow-ups needed.</div>';
+    }
 
     const qt = document.getElementById('dash-queue-table');
     if (pending.length === 0) {
@@ -2103,6 +2136,16 @@ function getAICallBadge(order) {
     default:
       return '<span class="badge b-red">Call now</span>';
   }
+}
+
+async function markPaymentFollowUpDone(orderId) {
+  if (!sbClient) return;
+  await sbClient.from('orders').update({
+    payment_follow_up_status: 'resolved',
+    updated_at: new Date().toISOString()
+  }).eq('id', orderId);
+  showToast('Marked as resolved ✓', 'success');
+  loadDashboard();
 }
 
 function timeAgo(iso) {
