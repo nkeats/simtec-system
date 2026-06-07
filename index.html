@@ -2093,35 +2093,30 @@ function renderProducts() {
   if (!container) return;
 
   const rows = Object.entries(products).map(([key, p]) => {
-    return `<div class="config-row" data-pkey="${key}">
-      <div style="flex:2"><div class="config-label">${p.name||key}</div></div>
-      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+    return `<div class="config-row" data-pkey="${key}" style="flex-wrap:wrap;gap:10px">
+      <div style="flex:2;min-width:160px"><div class="config-label">${p.name||key}</div></div>
+      <div style="display:flex;align-items:flex-end;gap:8px;flex-wrap:wrap">
         <div><div style="font-size:10px;color:var(--gm);margin-bottom:3px">Retail ($)</div>
           <input class="config-input prod-retail" type="number" data-key="${key}" value="${p.retail||0}" /></div>
         <div><div style="font-size:10px;color:var(--gm);margin-bottom:3px">Cost ($)</div>
           <input class="config-input prod-cost" type="number" data-key="${key}" value="${p.cost||0}" /></div>
-        <div style="margin-top:14px">
-          <button class="${p.active?'toggle-active':'toggle-inactive'}" onclick="toggleProductActive('${key}',${!p.active})">${p.active?'Active':'Inactive'}</button>
-        </div>
-        <div style="margin-top:14px">
-          <button class="btn-red btn-sm" onclick="deleteConfigRow('products','${key}','${(p.name||key)}')">Delete</button>
-        </div>
+        <button class="btn-gold btn-sm" onclick="saveProduct('${key}')">Save</button>
+        <button class="${p.active?'toggle-active':'toggle-inactive'}" onclick="toggleProductActive('${key}',${!p.active})">${p.active?'Active':'Inactive'}</button>
+        <button class="btn-red btn-sm" onclick="deleteConfigRow('products','${key}','${(p.name||key)}')">Delete</button>
       </div>
     </div>`;
   }).join('');
 
   container.innerHTML = rows || '<div style="color:var(--gm);font-size:13px;padding:12px 0">No products found.</div>';
+}
 
-  container.querySelectorAll('.prod-retail, .prod-cost').forEach(input => {
-    input.addEventListener('change', async function() {
-      const key = this.dataset.key;
-      const row = container.querySelector('[data-pkey="' + key + '"]');
-      const retail = parseFloat(row.querySelector('.prod-retail').value) || 0;
-      const cost = parseFloat(row.querySelector('.prod-cost').value) || 0;
-      const p = configCache['products'][key];
-      if (p) await saveConfigVal('products', key, {name: p.name, retail, cost, active: p.active});
-    });
-  });
+async function saveProduct(key) {
+  const container = document.getElementById('products-list');
+  const row = container.querySelector('[data-pkey="' + key + '"]');
+  const retail = parseFloat(row.querySelector('.prod-retail').value) || 0;
+  const cost = parseFloat(row.querySelector('.prod-cost').value) || 0;
+  const p = configCache['products'][key];
+  if (p) await saveConfigVal('products', key, {name: p.name, retail, cost, active: p.active});
 }
 
 async function toggleProductActive(key, newActive) {
@@ -2149,10 +2144,13 @@ function renderCommission() {
     const tiers = ['tier1','tier2','tier3'].map(key => {
       const t = commission[key]; if (!t) return '';
       const range = t.max_sales>=999 ? `${t.min_sales}+ sales` : `${t.min_sales}–${t.max_sales} sales`;
-      return `<div class="config-row">
+      return `<div class="config-row" data-tkey="${key}">
         <div style="flex:1"><div class="config-label">${range}</div></div>
-        <div><div style="font-size:10px;color:var(--gm);margin-bottom:3px">Rate ($)</div>
-          <input class="config-input" type="number" value="${t.rate}" onblur="saveConfigVal('commission','${key}',{min_sales:${t.min_sales},max_sales:${t.max_sales},rate:Number(this.value)})" /></div>
+        <div style="display:flex;align-items:flex-end;gap:8px">
+          <div><div style="font-size:10px;color:var(--gm);margin-bottom:3px">Rate ($)</div>
+          <input class="config-input tier-rate" type="number" data-key="${key}" data-min="${t.min_sales}" data-max="${t.max_sales}" value="${t.rate}" /></div>
+          <button class="btn-gold btn-sm" onclick="saveTier('${key}')">Save</button>
+        </div>
       </div>`;
     }).join('');
     tiersContainer.innerHTML = tiers;
@@ -2164,13 +2162,19 @@ function renderCommission() {
     bonusContainer.innerHTML = `
       <div class="config-row">
         <div style="flex:1"><div class="config-label">Cash sale bonus</div><div class="config-sub">Added on top of base commission for cash sales</div></div>
-        <div><div style="font-size:10px;color:var(--gm);margin-bottom:3px">Amount ($)</div>
-          <input class="config-input" type="number" value="${cb.amount}" onblur="saveConfigVal('commission','cash_bonus',{amount:Number(this.value)})" /></div>
+        <div style="display:flex;align-items:flex-end;gap:8px">
+          <div><div style="font-size:10px;color:var(--gm);margin-bottom:3px">Amount ($)</div>
+          <input class="config-input" id="cash-bonus-input" type="number" value="${cb.amount}" /></div>
+          <button class="btn-gold btn-sm" onclick="saveConfigVal('commission','cash_bonus',{amount:Number(document.getElementById('cash-bonus-input').value)})">Save</button>
+        </div>
       </div>
       <div class="config-row">
         <div style="flex:1"><div class="config-label">Team leader override per sale</div><div class="config-sub">Paid to TL on every commissionable sale across their team including their own</div></div>
-        <div><div style="font-size:10px;color:var(--gm);margin-bottom:3px">Amount ($)</div>
-          <input class="config-input" type="number" value="${tl.amount}" onblur="saveConfigVal('commission','tl_override',{amount:Number(this.value)})" /></div>
+        <div style="display:flex;align-items:flex-end;gap:8px">
+          <div><div style="font-size:10px;color:var(--gm);margin-bottom:3px">Amount ($)</div>
+          <input class="config-input" id="tl-override-input" type="number" value="${tl.amount}" /></div>
+          <button class="btn-gold btn-sm" onclick="saveConfigVal('commission','tl_override',{amount:Number(document.getElementById('tl-override-input').value)})">Save</button>
+        </div>
       </div>`;
   }
   const zeroContainer = document.getElementById('zero-commission-list');
@@ -2227,6 +2231,35 @@ async function updateAward(key, field, value) {
   await saveConfigVal('awards', key, {...a, [field]: value});
 }
 
+async function saveTier(key) {
+  const input = document.querySelector('.tier-rate[data-key="' + key + '"]');
+  const t = configCache['commission'][key];
+  if (input && t) await saveConfigVal('commission', key, {min_sales: t.min_sales, max_sales: t.max_sales, rate: Number(input.value)});
+}
+
+async function saveAward(key) {
+  const a = configCache['awards'][key];
+  if (!a) return;
+  const thresholdInput = document.querySelector('.award-threshold[data-key="' + key + '"]');
+  const weeksInput = document.querySelector('.award-weeks[data-key="' + key + '"]');
+  const updated = {...a, threshold: Number(thresholdInput?.value || a.threshold)};
+  if (weeksInput) updated.weeks = Number(weeksInput.value);
+  await saveConfigVal('awards', key, updated);
+}
+
+async function saveDeliverySettings() {
+  const fee = Number(document.getElementById('delivery-fee-input')?.value || 170);
+  const threshold_pct = Number(document.getElementById('delivery-threshold-input')?.value || 10);
+  const payment_weeks = Number(document.getElementById('delivery-weeks-input')?.value || 156);
+  await saveConfigVal('delivery', 'settings', {fee, threshold_pct, payment_weeks});
+}
+
+async function saveCreditBands() {
+  const auto_approve = Number(document.getElementById('credit-approve-input')?.value || 80);
+  const manual_review = Number(document.getElementById('credit-review-input')?.value || 50);
+  await saveConfigVal('delivery', 'credit_bands', {auto_approve, manual_review});
+}
+
 function renderDelivery() {
   const delivery = configCache['delivery'] || {};
   const s = delivery['settings'] || {fee:170,threshold_pct:10,payment_weeks:156};
@@ -2235,28 +2268,43 @@ function renderDelivery() {
   if (sc) sc.innerHTML = `
     <div class="config-row">
       <div style="flex:1"><div class="config-label">Delivery fee</div><div class="config-sub">Charged on all delivered orders</div></div>
-      <div><div style="font-size:10px;color:var(--gm);margin-bottom:3px">Amount ($)</div>
-        <input class="config-input" type="number" value="${s.fee}" onblur="saveConfigVal('delivery','settings',{...${JSON.stringify(s)},fee:Number(this.value)})" /></div>
+      <div style="display:flex;align-items:flex-end;gap:8px">
+        <div><div style="font-size:10px;color:var(--gm);margin-bottom:3px">Amount ($)</div>
+        <input class="config-input" id="delivery-fee-input" type="number" value="${s.fee}" /></div>
+        <button class="btn-gold btn-sm" onclick="saveDeliverySettings()">Save</button>
+      </div>
     </div>
     <div class="config-row">
       <div style="flex:1"><div class="config-label">Delivery threshold</div><div class="config-sub">% of purchase price paid before delivery</div></div>
-      <div><div style="font-size:10px;color:var(--gm);margin-bottom:3px">Percentage (%)</div>
-        <input class="config-input" type="number" value="${s.threshold_pct}" onblur="saveConfigVal('delivery','settings',{...${JSON.stringify(s)},threshold_pct:Number(this.value)})" /></div>
+      <div style="display:flex;align-items:flex-end;gap:8px">
+        <div><div style="font-size:10px;color:var(--gm);margin-bottom:3px">Percentage (%)</div>
+        <input class="config-input" id="delivery-threshold-input" type="number" value="${s.threshold_pct}" /></div>
+        <button class="btn-gold btn-sm" onclick="saveDeliverySettings()">Save</button>
+      </div>
     </div>
     <div class="config-row">
       <div style="flex:1"><div class="config-label">Payment plan weeks</div><div class="config-sub">Total number of weekly payments</div></div>
-      <div><div style="font-size:10px;color:var(--gm);margin-bottom:3px">Weeks</div>
-        <input class="config-input" type="number" value="${s.payment_weeks}" onblur="saveConfigVal('delivery','settings',{...${JSON.stringify(s)},payment_weeks:Number(this.value)})" /></div>
+      <div style="display:flex;align-items:flex-end;gap:8px">
+        <div><div style="font-size:10px;color:var(--gm);margin-bottom:3px">Weeks</div>
+        <input class="config-input" id="delivery-weeks-input" type="number" value="${s.payment_weeks}" /></div>
+        <button class="btn-gold btn-sm" onclick="saveDeliverySettings()">Save</button>
+      </div>
     </div>`;
   const bc = document.getElementById('credit-bands-form');
   if (bc) bc.innerHTML = `
     <div class="config-row">
       <div style="flex:1"><div class="config-label" style="color:var(--green)">Auto approve — minimum score</div><div class="config-sub">Scores at or above this are approved automatically</div></div>
-      <div><input class="config-input" type="number" value="${b.auto_approve}" onblur="saveConfigVal('delivery','credit_bands',{...${JSON.stringify(b)},auto_approve:Number(this.value)})" /></div>
+      <div style="display:flex;align-items:flex-end;gap:8px">
+        <input class="config-input" id="credit-approve-input" type="number" value="${b.auto_approve}" />
+        <button class="btn-gold btn-sm" onclick="saveCreditBands()">Save</button>
+      </div>
     </div>
     <div class="config-row">
       <div style="flex:1"><div class="config-label" style="color:var(--amber)">Manual review — minimum score</div><div class="config-sub">Scores below this are recommended for cancellation</div></div>
-      <div><input class="config-input" type="number" value="${b.manual_review}" onblur="saveConfigVal('delivery','credit_bands',{...${JSON.stringify(b)},manual_review:Number(this.value)})" /></div>
+      <div style="display:flex;align-items:flex-end;gap:8px">
+        <input class="config-input" id="credit-review-input" type="number" value="${b.manual_review}" />
+        <button class="btn-gold btn-sm" onclick="saveCreditBands()">Save</button>
+      </div>
     </div>`;
 }
 
