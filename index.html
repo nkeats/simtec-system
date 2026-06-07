@@ -3008,23 +3008,29 @@ function resetManualForm() {
 function consultantShowTab(tab) {
   const salesTab = document.getElementById('consultant-sales-tab');
   const manualTab = document.getElementById('consultant-manual-tab');
+  const apptsTab = document.getElementById('consultant-appts-tab');
   const salesBtn = document.getElementById('consultant-tab-sales');
   const manualBtn = document.getElementById('consultant-tab-manual');
+  const apptsBtn = document.getElementById('consultant-tab-appts');
 
-  if (tab === 'sales') {
+  // Hide all tabs
+  [salesTab, manualTab, apptsTab].forEach(t => { if (t) t.style.display = 'none'; });
+  // Reset all buttons
+  [salesBtn, manualBtn, apptsBtn].forEach(b => {
+    if (b) { b.style.background = 'transparent'; b.style.color = 'var(--gm)'; }
+  });
+
+  // Show selected tab
+  if (tab === 'sales' && salesTab) {
     salesTab.style.display = 'block';
-    manualTab.style.display = 'none';
-    salesBtn.style.background = 'rgba(255,255,255,0.2)';
-    salesBtn.style.color = '#fff';
-    manualBtn.style.background = 'transparent';
-    manualBtn.style.color = 'var(--gm)';
-  } else {
-    salesTab.style.display = 'none';
+    if (salesBtn) { salesBtn.style.background = 'rgba(255,255,255,0.2)'; salesBtn.style.color = '#fff'; }
+  } else if (tab === 'manual' && manualTab) {
     manualTab.style.display = 'block';
-    manualBtn.style.background = 'rgba(255,255,255,0.2)';
-    manualBtn.style.color = '#fff';
-    salesBtn.style.background = 'transparent';
-    salesBtn.style.color = 'var(--gm)';
+    if (manualBtn) { manualBtn.style.background = 'rgba(255,255,255,0.2)'; manualBtn.style.color = '#fff'; }
+  } else if (tab === 'appts' && apptsTab) {
+    apptsTab.style.display = 'block';
+    if (apptsBtn) { apptsBtn.style.background = 'rgba(255,255,255,0.2)'; apptsBtn.style.color = '#fff'; }
+    loadConsultantAppointments();
   }
 }
 
@@ -3473,34 +3479,7 @@ async function loadAdminAppointments() {
   }
 }
 
-// ── EXTEND CONSULTANT TAB SWITCHER ──
-const _origConsultantShowTab = consultantShowTab;
-function consultantShowTab(tab) {
-  // Handle existing tabs
-  const salesTab = document.getElementById('consultant-sales-tab');
-  const manualTab = document.getElementById('consultant-manual-tab');
-  const apptsTab = document.getElementById('consultant-appts-tab');
-  const salesBtn = document.getElementById('consultant-tab-sales');
-  const manualBtn = document.getElementById('consultant-tab-manual');
-  const apptsBtn = document.getElementById('consultant-tab-appts');
 
-  [salesTab, manualTab, apptsTab].forEach(t => { if (t) t.style.display = 'none'; });
-  [salesBtn, manualBtn, apptsBtn].forEach(b => {
-    if (b) { b.style.background = 'transparent'; b.style.color = 'var(--gm)'; }
-  });
-
-  if (tab === 'sales' && salesTab) {
-    salesTab.style.display = 'block';
-    if (salesBtn) { salesBtn.style.background = 'rgba(255,255,255,0.2)'; salesBtn.style.color = '#fff'; }
-  } else if (tab === 'manual' && manualTab) {
-    manualTab.style.display = 'block';
-    if (manualBtn) { manualBtn.style.background = 'rgba(255,255,255,0.2)'; manualBtn.style.color = '#fff'; }
-  } else if (tab === 'appts' && apptsTab) {
-    apptsTab.style.display = 'block';
-    if (apptsBtn) { apptsBtn.style.background = 'rgba(255,255,255,0.2)'; apptsBtn.style.color = '#fff'; }
-    loadConsultantAppointments();
-  }
-}
 
 // Load admin appointments when navigating to appointments screen
 </script>
