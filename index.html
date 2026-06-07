@@ -513,13 +513,82 @@ body { background: #eef1f8; color: var(--gt); min-height: 100vh; font-size: 14px
       <div class="topbar-badge">ST</div>
       <div>
         <div class="topbar-title">Simtec Therapeutic</div>
-        <div class="topbar-role">New order</div>
+        <div class="topbar-role" id="consultant-role-label">New order</div>
       </div>
     </div>
-    <button class="btn-logout" onclick="doLogout()">Sign out</button>
+    <div style="display:flex;gap:8px;align-items:center">
+      <button class="nav-btn" id="consultant-tab-sales" style="color:#fff;background:rgba(255,255,255,0.2)" onclick="consultantShowTab('sales')">New order</button>
+      <button class="nav-btn" id="consultant-tab-manual" style="color:var(--gm)" onclick="consultantShowTab('manual')">Manual form</button>
+      <button class="btn-logout" onclick="doLogout()">Sign out</button>
+    </div>
   </div>
-  <div style="max-width:700px;margin:0 auto;padding:24px 16px" id="consultant-form-container">
-    <!-- Sales form injected here by JS -->
+  <div id="consultant-sales-tab" style="max-width:700px;margin:0 auto;padding:24px 16px">
+    <div id="consultant-form-container">
+      <!-- Sales form injected here by JS -->
+    </div>
+  </div>
+  <div id="consultant-manual-tab" style="max-width:700px;margin:0 auto;padding:24px 16px;display:none">
+    <!-- Manual form upload for consultant -->
+    <div class="card">
+      <div class="card-title">Upload completed paper form</div>
+      <div class="card-sub">Take a photo of the completed sales form — we'll read the details automatically.</div>
+      <div id="c-upload-zone" style="border:2px dashed var(--border);border-radius:12px;padding:40px;text-align:center;cursor:pointer;background:var(--gl)"
+        onclick="document.getElementById('c-form-file-input').click()">
+        <div style="font-size:36px;margin-bottom:10px">📄</div>
+        <div style="font-size:15px;font-weight:600;color:var(--navy);margin-bottom:6px">Tap to take photo or upload file</div>
+        <div style="font-size:12px;color:var(--gm)">JPG or PNG — max 10MB</div>
+      </div>
+      <input type="file" id="c-form-file-input" accept="image/*" capture="environment" style="display:none" onchange="handleConsultantFormUpload(this)" />
+      <div id="c-upload-preview" style="display:none;margin-top:16px">
+        <img id="c-upload-preview-img" style="max-width:100%;border-radius:10px;border:1px solid var(--border)" />
+        <div style="margin-top:10px;display:flex;gap:8px">
+          <button class="btn-gold" onclick="extractConsultantFormData()">Read form →</button>
+          <button class="btn-outline" onclick="resetConsultantForm()">Take another photo</button>
+        </div>
+      </div>
+      <div id="c-extract-loading" style="display:none;text-align:center;padding:20px">
+        <div style="font-size:13px;color:var(--gm)">Reading form... this takes a few seconds</div>
+        <div style="width:100%;height:4px;background:var(--gl);border-radius:2px;margin-top:12px;overflow:hidden">
+          <div id="c-extract-progress" style="height:100%;background:var(--navy);border-radius:2px;width:0%;transition:width 2s"></div>
+        </div>
+      </div>
+    </div>
+
+    <div id="c-review-card" class="card" style="display:none">
+      <div class="card-title">Review extracted details</div>
+      <div class="card-sub">Check all fields carefully before submitting.</div>
+      <div id="c-extraction-warning" style="display:none;background:var(--abg);border:1px solid #f5d080;border-radius:8px;padding:12px 16px;font-size:13px;color:#8a5500;margin-bottom:16px">
+        ⚠ Some fields could not be read clearly. Please check and correct any missing information.
+      </div>
+      <div class="form-grid">
+        <div><label class="flabel">First name</label><input class="finput" id="cm-fname" /></div>
+        <div><label class="flabel">Last name</label><input class="finput" id="cm-lname" /></div>
+        <div class="fg-full"><label class="flabel">Street address</label><input class="finput" id="cm-address" /></div>
+        <div><label class="flabel">Mobile</label><input class="finput" id="cm-phone" /></div>
+        <div><label class="flabel">Email</label><input class="finput" id="cm-email" type="email" /></div>
+        <div><label class="flabel">Weekly payment day</label>
+          <select class="finput" id="cm-payday">
+            <option>Monday</option><option>Tuesday</option><option>Wednesday</option>
+            <option>Thursday</option><option>Friday</option>
+          </select>
+        </div>
+        <div><label class="flabel">Payment type</label>
+          <select class="finput" id="cm-paytype">
+            <option value="dd">Weekly direct debit</option>
+            <option value="c">Cash</option>
+          </select>
+        </div>
+      </div>
+      <div style="margin-top:12px">
+        <div class="sec-title">Products</div>
+        <div id="cm-products-list"></div>
+      </div>
+      <div class="sum-bar" style="margin-top:12px">
+        <div><div class="sl">Total</div><div class="sv" id="cm-total-display">$0.00</div></div>
+        <div><div class="sl">Weekly</div><div class="sv" id="cm-weekly-display">—</div></div>
+      </div>
+      <button class="btn-gold" style="width:100%;padding:13px;margin-top:14px" onclick="submitConsultantManualOrder()">Submit order →</button>
+    </div>
   </div>
 </div>
 
@@ -1339,6 +1408,7 @@ function showApp() {
     document.getElementById('consultant-screen').style.display = 'block';
     buildConsultantForm();
     loadProducts();
+    loadConfig();
   } else {
     document.getElementById('caller-screen').style.display = 'none';
     document.getElementById('consultant-screen').style.display = 'none';
@@ -2853,6 +2923,162 @@ function resetManualForm() {
   document.getElementById('extraction-warning').style.display = 'none';
   document.getElementById('form-file-input').value = '';
   document.getElementById('extract-progress').style.width = '0%';
+}
+
+// ══════════════════════════════════════════════════════
+// CONSULTANT TAB SWITCHING & MANUAL FORM
+// ══════════════════════════════════════════════════════
+
+function consultantShowTab(tab) {
+  const salesTab = document.getElementById('consultant-sales-tab');
+  const manualTab = document.getElementById('consultant-manual-tab');
+  const salesBtn = document.getElementById('consultant-tab-sales');
+  const manualBtn = document.getElementById('consultant-tab-manual');
+
+  if (tab === 'sales') {
+    salesTab.style.display = 'block';
+    manualTab.style.display = 'none';
+    salesBtn.style.background = 'rgba(255,255,255,0.2)';
+    salesBtn.style.color = '#fff';
+    manualBtn.style.background = 'transparent';
+    manualBtn.style.color = 'var(--gm)';
+  } else {
+    salesTab.style.display = 'none';
+    manualTab.style.display = 'block';
+    manualBtn.style.background = 'rgba(255,255,255,0.2)';
+    manualBtn.style.color = '#fff';
+    salesBtn.style.background = 'transparent';
+    salesBtn.style.color = 'var(--gm)';
+  }
+}
+
+let consultantFormImageBase64 = null;
+let consultantFormItems = [];
+
+function handleConsultantFormUpload(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    consultantFormImageBase64 = e.target.result.split(',')[1];
+    const img = document.getElementById('c-upload-preview-img');
+    img.src = e.target.result;
+    document.getElementById('c-upload-preview').style.display = 'block';
+  };
+  reader.readAsDataURL(file);
+}
+
+async function extractConsultantFormData() {
+  if (!consultantFormImageBase64) return;
+  document.getElementById('c-extract-loading').style.display = 'block';
+  document.getElementById('c-upload-preview').style.display = 'none';
+  const progress = document.getElementById('c-extract-progress');
+  let pct = 0;
+  const interval = setInterval(() => { pct = Math.min(pct + 10, 90); progress.style.width = pct + '%'; }, 200);
+
+  try {
+    const response = await fetch(
+      'https://jvqjoenaungubpoegyvf.supabase.co/functions/v1/ocr-extract',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imp2cWpvZW5hdW5ndWJwb2VneXZmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA1MzQyMjYsImV4cCI6MjA5NjExMDIyNn0.ypVt8578XTdNwBH6TRDn30s1cF_rHTu67qCWYv5XHcQ'
+        },
+        body: JSON.stringify({ image: consultantFormImageBase64, mimeType: 'image/jpeg' })
+      }
+    );
+    clearInterval(interval);
+    progress.style.width = '100%';
+    const result = await response.json();
+    document.getElementById('c-extract-loading').style.display = 'none';
+
+    if (!result.success) {
+      showToast('Could not read form: ' + (result.error || 'Unknown error'), 'error');
+      document.getElementById('c-upload-preview').style.display = 'block';
+      return;
+    }
+    populateConsultantManualForm(result.data);
+  } catch(e) {
+    clearInterval(interval);
+    document.getElementById('c-extract-loading').style.display = 'none';
+    showToast('Error: ' + e.message, 'error');
+    document.getElementById('c-upload-preview').style.display = 'block';
+  }
+}
+
+function populateConsultantManualForm(data) {
+  document.getElementById('cm-fname').value = data.fname || '';
+  document.getElementById('cm-lname').value = data.lname || '';
+  document.getElementById('cm-address').value = data.address || '';
+  document.getElementById('cm-phone').value = data.phone || '';
+  document.getElementById('cm-email').value = data.email || '';
+  document.getElementById('cm-payday').value = data.pay_day || 'Monday';
+  document.getElementById('cm-paytype').value = data.pay_type || 'dd';
+  consultantFormItems = data.items || [];
+  renderConsultantProducts();
+  if (!data.fname || !data.lname || data.items.length === 0) {
+    document.getElementById('c-extraction-warning').style.display = 'block';
+  }
+  document.getElementById('c-review-card').style.display = 'block';
+}
+
+function renderConsultantProducts() {
+  const container = document.getElementById('cm-products-list');
+  if (!container) return;
+  if (consultantFormItems.length === 0) {
+    container.innerHTML = '<div style="color:var(--gm);font-size:13px;padding:8px 0">No products detected.</div>';
+  } else {
+    container.innerHTML = consultantFormItems.map((item, i) => `
+      <div style="display:flex;justify-content:space-between;padding:8px 12px;background:var(--gl);border-radius:8px;margin-bottom:6px;font-size:13px">
+        <span style="color:var(--navy)">${item.qty > 1 ? item.qty + ' × ' : ''}${item.name}</span>
+        <span style="color:var(--gm)">$${(item.price * item.qty).toLocaleString('en-AU', {minimumFractionDigits:2})}</span>
+      </div>`).join('');
+  }
+  const total = consultantFormItems.reduce((s, i) => s + i.price * i.qty, 0);
+  const weekly = total > 0 ? (total / 156).toFixed(2) : 0;
+  const td = document.getElementById('cm-total-display');
+  const wd = document.getElementById('cm-weekly-display');
+  if (td) td.textContent = '$' + total.toLocaleString('en-AU', {minimumFractionDigits:2});
+  if (wd) wd.textContent = weekly > 0 ? '$' + weekly + '/wk' : '—';
+}
+
+async function submitConsultantManualOrder() {
+  const fname = document.getElementById('cm-fname').value.trim();
+  const lname = document.getElementById('cm-lname').value.trim();
+  if (!fname || !lname) { showToast('Please enter customer name', 'error'); return; }
+  if (consultantFormItems.length === 0) { showToast('Please add at least one product', 'error'); return; }
+  const total = consultantFormItems.reduce((s, i) => s + i.price * i.qty, 0);
+  const order = {
+    fname, lname,
+    phone: document.getElementById('cm-phone').value.trim(),
+    email: document.getElementById('cm-email').value.trim(),
+    address: document.getElementById('cm-address').value.trim(),
+    consultant: currentUser?.email || '',
+    pay_day: document.getElementById('cm-payday').value,
+    pay_type: document.getElementById('cm-paytype').value,
+    total,
+    weekly_rep: +(total / 156).toFixed(2),
+    items: consultantFormItems,
+    call_status: 'pending',
+    manual_form: true
+  };
+  if (sbClient) {
+    const { error } = await sbClient.from('orders').insert([order]);
+    if (error) { showToast('Error: ' + error.message, 'error'); return; }
+  }
+  showToast('Order submitted — confirmation call queued ✓', 'success');
+  resetConsultantForm();
+}
+
+function resetConsultantForm() {
+  consultantFormImageBase64 = null;
+  consultantFormItems = [];
+  document.getElementById('c-upload-preview').style.display = 'none';
+  document.getElementById('c-review-card').style.display = 'none';
+  document.getElementById('c-extraction-warning').style.display = 'none';
+  document.getElementById('c-form-file-input').value = '';
+  document.getElementById('c-extract-progress').style.width = '0%';
 }
 </script>
 </body>
