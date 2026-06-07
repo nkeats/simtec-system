@@ -604,16 +604,7 @@ body { background: #eef1f8; color: var(--gt); min-height: 100vh; font-size: 14px
     <div id="add-appt-form" class="card" style="display:none">
       <div class="card-title">Book new appointment</div>
       <div class="form-grid">
-        <div><label class="flabel">Your name (consultant)</label>
-          <select class="finput" id="appt-consultant-name">
-            <option value="">-- Select your name --</option>
-            <option value="James Harrington">James Harrington</option>
-            <option value="Priya Nair">Priya Nair</option>
-            <option value="Marcus Webb">Marcus Webb</option>
-            <option value="Aisha Patel">Aisha Patel</option>
-            <option value="Fred Bloggs">Fred Bloggs</option>
-          </select>
-        </div>
+
         <div><label class="flabel">Phone</label><input class="finput" id="appt-phone" placeholder="021 000 0000" /></div>
         <div class="fg-full"><label class="flabel">Customer name</label><input class="finput" id="appt-customer-name" placeholder="Sarah Mitchell" /></div>
         <div class="fg-full"><label class="flabel">Address</label><input class="finput" id="appt-address" placeholder="12 Example St, Auckland" /></div>
@@ -708,10 +699,6 @@ body { background: #eef1f8; color: var(--gt); min-height: 100vh; font-size: 14px
         <div><label class="flabel">Sleep consultant</label>
           <select class="finput" id="f-consultant" onchange="consultantChange(this)">
             <option value="">-- Select consultant --</option>
-            <option value="James Harrington" data-phone="0400111222">James Harrington</option>
-            <option value="Priya Nair" data-phone="0400333444">Priya Nair</option>
-            <option value="Marcus Webb" data-phone="0400555666">Marcus Webb</option>
-            <option value="Aisha Patel" data-phone="0400777888">Aisha Patel</option>
           </select>
           <input type="hidden" id="f-consultant-phone" value="" />
         </div>
@@ -1509,6 +1496,7 @@ function showApp() {
     document.getElementById('consultant-screen').style.display = 'block';
     buildConsultantForm();
     loadProducts();
+    loadConsultants();
     loadConfig();
   } else {
     document.getElementById('caller-screen').style.display = 'none';
@@ -1517,6 +1505,7 @@ function showApp() {
     document.getElementById('nav-user-label').textContent = currentUser?.email || '';
     loadDashboard();
     loadProducts();
+    loadConsultants();
     startRealtimeUpdates();
   }
 }
@@ -1684,10 +1673,43 @@ async function loadProducts() {
   recalc();
 }
 
-// CONSULTANTS -- update names and phone numbers here when in NZ
+// Load consultants dynamically from config table
+async function loadConsultants() {
+  if (!sbClient) return;
+  const { data, error } = await sbClient
+    .from('config')
+    .select('*')
+    .eq('category', 'staff')
+    .order('label');
+  if (error || !data) return;
+
+  const staff = data.filter(r => r.value?.active !== false);
+  const selects = ['f-consultant', 'm-consultant', 'appt-consultant-name'].map(id => document.getElementById(id)).filter(Boolean);
+
+  selects.forEach(sel => {
+    const currentVal = sel.value;
+    sel.innerHTML = '<option value="">-- Select consultant --</option>';
+    staff.forEach(s => {
+      const opt = document.createElement('option');
+      opt.value = s.value.name;
+      opt.dataset.phone = s.value.phone || '';
+      opt.textContent = s.value.name;
+      sel.appendChild(opt);
+    });
+    if (currentVal) sel.value = currentVal;
+  });
+}
+
 function consultantChange(sel) {
   const opt = sel.options[sel.selectedIndex];
-  document.getElementById('f-consultant-phone').value = opt.dataset.phone || '';
+  // Update phone for whichever form this is in
+  const phoneField = sel.closest('form, .card, .screen')?.querySelector('[id$="-consultant-phone"], #f-consultant-phone, #m-consultant-phone');
+  if (phoneField) phoneField.value = opt.dataset.phone || '';
+  // Always update the main hidden field if it exists
+  const mainPhone = document.getElementById('f-consultant-phone');
+  if (mainPhone && sel.id === 'f-consultant') mainPhone.value = opt.dataset.phone || '';
+  const mPhone = document.getElementById('m-consultant-phone');
+  if (mPhone && sel.id === 'm-consultant') mPhone.value = opt.dataset.phone || '';
 }
 
 function toggleTile(el) {
@@ -2717,12 +2739,52 @@ async function addStaff() {
   const phone = document.getElementById('new-staff-phone').value.trim();
   const email = document.getElementById('new-staff-email').value.trim();
   const role = document.getElementById('new-staff-role').value;
-  if (!name||!phone) { showToast('Please enter name and phone number','error'); return; }
-  await addConfigRow('pending_staff', Date.now().toString(), {name,phone,email,role,status:'pending_airtable'}, name);
-  showToast(`${name} added — also add to Airtable Consultants table and create their Supabase login`,'success');
-  document.getElementById('new-staff-name').value='';
-  document.getElementById('new-staff-phone').value='';
-  document.getElementById('new-staff-email').value='';
+  if (!name || !phone) { showToast('Please enter name and phone number', 'error'); return; }
+
+  // Save to config table as staff record
+  const key = name.toLowerCase().replace(/[^a-z0-9]/g, '_');
+  await addConfigRow('staff', key, { name, phone, email, role, active: true }, name);
+
+  // Reload consultant dropdowns immediately
+  await loadConsultants();
+
+  showToast(`${name} added ✓ — also create their Supabase login and add to Airtable`, 'success');
+  document.getElementById('new-staff-name').value = '';
+  document.getElementById('new-staff-phone').value = '';
+  document.getElementById('new-staff-email').value = '';
+}
+
+// Render staff list in config panel
+async function renderStaffConfig() {
+  const container = document.getElementById('staff-list');
+  if (!container || !sbClient) return;
+
+  const { data, error } = await sbClient.from('config').select('*').eq('category', 'staff').order('label');
+  if (error || !data || data.length === 0) {
+    container.innerHTML = '<div style="color:var(--gm);font-size:13px;padding:12px 0">No staff records found.</div>';
+    return;
+  }
+
+  container.innerHTML = data.map(s => `
+    <div class="config-row" style="flex-wrap:wrap;gap:8px">
+      <div style="flex:2;min-width:150px">
+        <div class="config-label">${s.value.name}</div>
+        <div class="config-sub">${s.value.role} · ${s.value.phone || 'No phone'}</div>
+      </div>
+      <div style="display:flex;gap:6px;align-items:center">
+        <button class="${s.value.active !== false ? 'toggle-active' : 'toggle-inactive'}"
+          onclick="toggleStaffActive('${s.key}', ${!(s.value.active !== false)}, ${JSON.stringify(s.value).replace(/"/g, '&quot;')})">
+          ${s.value.active !== false ? 'Active' : 'Inactive'}
+        </button>
+        <button class="btn-red btn-sm" onclick="deleteConfigRow('staff','${s.key}','${s.value.name}')">Remove</button>
+      </div>
+    </div>`).join('');
+}
+
+async function toggleStaffActive(key, newActive, valueObj) {
+  await saveConfigVal('staff', key, { ...valueObj, active: newActive });
+  await loadConsultants();
+  renderStaffConfig();
 }
 
 // Load config when navigating to config screen — handled in existing nav function
@@ -3221,12 +3283,10 @@ async function saveAppointment(editId) {
   const name = document.getElementById('appt-customer-name').value.trim();
   const date = document.getElementById('appt-date').value;
   const time = document.getElementById('appt-time').value;
-  const consultantName = document.getElementById('appt-consultant-name')?.value;
-  if (!consultantName) { showToast('Please select your name', 'error'); return; }
   if (!name || !date || !time) { showToast('Please enter customer name, date and time', 'error'); return; }
 
   const appt = {
-    consultant: document.getElementById('appt-consultant-name')?.value || currentUser?.user_metadata?.name || currentUser?.email || '',
+    consultant: currentUser?.user_metadata?.name || currentUser?.email || '',
     consultant_phone: '',
     customer_name: name,
     address: document.getElementById('appt-address').value.trim(),
@@ -3261,6 +3321,7 @@ async function loadConsultantAppointments() {
   if (!container || !sbClient) return;
 
   const consultantName = currentUser?.user_metadata?.name || currentUser?.email || '';
+  // Debug: console.log('Loading appointments for:', consultantName);
   const today = new Date().toISOString().split('T')[0];
 
   const { data, error } = await sbClient
@@ -3513,15 +3574,19 @@ async function loadAdminAppointments() {
     }
   }
 
-  // Populate consultant filter
+  // Populate consultant filter from all appointments (not just today)
   const filterEl = document.getElementById('appt-filter-consultant');
-  if (filterEl && filterEl.options.length <= 1) {
-    const consultants = [...new Set(appts.map(a => a.consultant))];
+  if (filterEl) {
+    const { data: allAppts } = await sbClient.from('appointments').select('consultant').order('consultant');
+    const consultants = [...new Set((allAppts || []).map(a => a.consultant).filter(Boolean))];
+    const currentVal = filterEl.value;
+    filterEl.innerHTML = '<option value="">All consultants</option>';
     consultants.forEach(name => {
       const opt = document.createElement('option');
       opt.value = name; opt.textContent = name;
       filterEl.appendChild(opt);
     });
+    filterEl.value = currentVal;
   }
 }
 
