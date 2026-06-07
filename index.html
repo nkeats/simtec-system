@@ -2058,7 +2058,7 @@ async function saveConfigVal(category, key, value) {
   const { error } = await sbClient.from('config')
     .update({ value, updated_at: new Date().toISOString() })
     .eq('category', category).eq('key', key);
-  if (error) { showToast('Save error: ' + error.message, 'error'); return; }
+  if (error) { showToast('Save error: ' + error.message, 'error'); console.error('Config save error:', error); return; }
   const status = document.getElementById('config-save-status');
   if (status) {
     status.style.display = 'inline';
@@ -2091,34 +2091,44 @@ function renderProducts() {
   const products = configCache['products'] || {};
   const container = document.getElementById('products-list');
   if (!container) return;
+
   const rows = Object.entries(products).map(([key, p]) => {
-    const safeP = JSON.stringify({name:p.name,cost:p.cost,active:p.active}).replace(/"/g,'&quot;');
-    const safePA = JSON.stringify({name:p.name,retail:p.retail,cost:p.cost,active:!p.active}).replace(/"/g,'&quot;');
-    return `<div class="config-row">
+    return `<div class="config-row" data-pkey="${key}">
       <div style="flex:2"><div class="config-label">${p.name||key}</div></div>
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
         <div><div style="font-size:10px;color:var(--gm);margin-bottom:3px">Retail ($)</div>
-          <input class="config-input" type="number" value="${p.retail||0}" onblur="updateProductRetail('${key}',this.value,${JSON.stringify(p.name)},${p.cost||0},${p.active})" /></div>
+          <input class="config-input prod-retail" type="number" data-key="${key}" value="${p.retail||0}" /></div>
         <div><div style="font-size:10px;color:var(--gm);margin-bottom:3px">Cost ($)</div>
-          <input class="config-input" type="number" value="${p.cost||0}" onblur="updateProductCost('${key}',this.value,${JSON.stringify(p.name)},${p.retail||0},${p.active})" /></div>
+          <input class="config-input prod-cost" type="number" data-key="${key}" value="${p.cost||0}" /></div>
         <div style="margin-top:14px">
-          <button class="${p.active?'toggle-active':'toggle-inactive'}" onclick="saveConfigVal('products','${key}',{name:${JSON.stringify(p.name)},retail:${p.retail},cost:${p.cost},active:${!p.active}})">${p.active?'Active':'Inactive'}</button>
+          <button class="${p.active?'toggle-active':'toggle-inactive'}" onclick="toggleProductActive('${key}',${!p.active})">${p.active?'Active':'Inactive'}</button>
         </div>
         <div style="margin-top:14px">
-          <button class="btn-red btn-sm" onclick="deleteConfigRow('products','${key}',${JSON.stringify(p.name)})">Delete</button>
+          <button class="btn-red btn-sm" onclick="deleteConfigRow('products','${key}','${(p.name||key)}')">Delete</button>
         </div>
       </div>
     </div>`;
   }).join('');
+
   container.innerHTML = rows || '<div style="color:var(--gm);font-size:13px;padding:12px 0">No products found.</div>';
+
+  container.querySelectorAll('.prod-retail, .prod-cost').forEach(input => {
+    input.addEventListener('change', async function() {
+      const key = this.dataset.key;
+      const row = container.querySelector('[data-pkey="' + key + '"]');
+      const retail = parseFloat(row.querySelector('.prod-retail').value) || 0;
+      const cost = parseFloat(row.querySelector('.prod-cost').value) || 0;
+      const p = configCache['products'][key];
+      if (p) await saveConfigVal('products', key, {name: p.name, retail, cost, active: p.active});
+    });
+  });
 }
 
-function updateProductRetail(key, retail, name, cost, active) {
-  saveConfigVal('products', key, {name, retail: Number(retail), cost: Number(cost), active});
+async function toggleProductActive(key, newActive) {
+  const p = configCache['products'][key];
+  if (p) await saveConfigVal('products', key, {name: p.name, retail: p.retail, cost: p.cost, active: newActive});
 }
-function updateProductCost(key, cost, name, retail, active) {
-  saveConfigVal('products', key, {name, retail: Number(retail), cost: Number(cost), active});
-}
+
 
 async function addProduct() {
   const name = document.getElementById('new-product-name').value.trim();
