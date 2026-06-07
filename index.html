@@ -604,9 +604,19 @@ body { background: #eef1f8; color: var(--gt); min-height: 100vh; font-size: 14px
     <div id="add-appt-form" class="card" style="display:none">
       <div class="card-title">Book new appointment</div>
       <div class="form-grid">
+        <div><label class="flabel">Your name (consultant)</label>
+          <select class="finput" id="appt-consultant-name">
+            <option value="">-- Select your name --</option>
+            <option value="James Harrington">James Harrington</option>
+            <option value="Priya Nair">Priya Nair</option>
+            <option value="Marcus Webb">Marcus Webb</option>
+            <option value="Aisha Patel">Aisha Patel</option>
+            <option value="Fred Bloggs">Fred Bloggs</option>
+          </select>
+        </div>
+        <div><label class="flabel">Phone</label><input class="finput" id="appt-phone" placeholder="021 000 0000" /></div>
         <div class="fg-full"><label class="flabel">Customer name</label><input class="finput" id="appt-customer-name" placeholder="Sarah Mitchell" /></div>
         <div class="fg-full"><label class="flabel">Address</label><input class="finput" id="appt-address" placeholder="12 Example St, Auckland" /></div>
-        <div><label class="flabel">Phone</label><input class="finput" id="appt-phone" placeholder="021 000 0000" /></div>
         <div><label class="flabel">Date</label><input class="finput" id="appt-date" type="date" /></div>
         <div><label class="flabel">Time</label><input class="finput" id="appt-time" type="time" /></div>
       </div>
@@ -619,6 +629,26 @@ body { background: #eef1f8; color: var(--gt); min-height: 100vh; font-size: 14px
     <!-- APPOINTMENT LIST -->
     <div id="consultant-appt-list">
       <div style="text-align:center;padding:30px;color:var(--gm);font-size:13px">Loading appointments...</div>
+    </div>
+
+    <!-- REAPPOINTMENT MODAL -->
+    <div id="reappt-modal" style="display:none;position:fixed;inset:0;background:rgba(20,30,60,.55);z-index:1000;display:none;align-items:center;justify-content:center;padding:20px">
+      <div style="background:#fff;border-radius:18px;padding:28px;width:100%;max-width:420px;box-shadow:0 4px 24px rgba(30,58,110,.14)">
+        <div style="font-size:17px;font-weight:700;color:var(--navy);margin-bottom:6px">Reappoint customer</div>
+        <div style="font-size:13px;color:var(--gm);margin-bottom:20px">Select what happened</div>
+        <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:20px">
+          <button class="btn-gold" style="padding:13px" onclick="showReapptFields()">New time agreed →</button>
+          <button class="btn-outline" style="padding:13px" onclick="confirmCallBack()">Need to call to rebook</button>
+        </div>
+        <div id="reappt-fields" style="display:none">
+          <div class="form-grid">
+            <div><label class="flabel">New date</label><input class="finput" id="reappt-new-date" type="date" /></div>
+            <div><label class="flabel">New time</label><input class="finput" id="reappt-new-time" type="time" /></div>
+          </div>
+          <button class="btn-green" style="width:100%;padding:13px;margin-top:8px" onclick="confirmNewTime()">Confirm reappointment</button>
+        </div>
+        <button class="btn-outline" style="width:100%;margin-top:10px" onclick="closeReapptModal()">Cancel</button>
+      </div>
     </div>
   </div>
 
@@ -3191,10 +3221,12 @@ async function saveAppointment(editId) {
   const name = document.getElementById('appt-customer-name').value.trim();
   const date = document.getElementById('appt-date').value;
   const time = document.getElementById('appt-time').value;
+  const consultantName = document.getElementById('appt-consultant-name')?.value;
+  if (!consultantName) { showToast('Please select your name', 'error'); return; }
   if (!name || !date || !time) { showToast('Please enter customer name, date and time', 'error'); return; }
 
   const appt = {
-    consultant: currentUser?.user_metadata?.name || currentUser?.email || '',
+    consultant: document.getElementById('appt-consultant-name')?.value || currentUser?.user_metadata?.name || currentUser?.email || '',
     consultant_phone: '',
     customer_name: name,
     address: document.getElementById('appt-address').value.trim(),
@@ -3345,29 +3377,50 @@ function markNoSale(id) {
   });
 }
 
+let currentReapptId = null;
+
 function markReappointed(id) {
-  const choice = confirm("Has a new time been agreed? Click OK for yes, Cancel to flag for call back.");
-  if (choice) {
-    const newDate = prompt('New appointment date (YYYY-MM-DD):');
-    const newTime = prompt('New appointment time (HH:MM):');
-    if (!newDate || !newTime) return;
-    sbClient.from('appointments').update({
-      status: 'reappointed', outcome: 'reappointed_new_time',
-      reappt_date: newDate, reappt_time: newTime,
-      updated_at: new Date().toISOString()
-    }).eq('id', id).then(() => {
-      showToast('Reappointment saved ✓', 'success');
-      loadConsultantAppointments();
-    });
-  } else {
-    sbClient.from('appointments').update({
-      status: 'reappointed', outcome: 'reappointed_call_back',
-      updated_at: new Date().toISOString()
-    }).eq('id', id).then(() => {
-      showToast('Flagged for call back', 'success');
-      loadConsultantAppointments();
-    });
-  }
+  currentReapptId = id;
+  const today = new Date().toISOString().split('T')[0];
+  document.getElementById('reappt-new-date').value = today;
+  document.getElementById('reappt-new-time').value = '';
+  document.getElementById('reappt-fields').style.display = 'none';
+  const modal = document.getElementById('reappt-modal');
+  if (modal) { modal.style.display = 'flex'; }
+}
+
+function showReapptFields() {
+  document.getElementById('reappt-fields').style.display = 'block';
+}
+
+function closeReapptModal() {
+  const modal = document.getElementById('reappt-modal');
+  if (modal) modal.style.display = 'none';
+  currentReapptId = null;
+}
+
+async function confirmNewTime() {
+  const newDate = document.getElementById('reappt-new-date').value;
+  const newTime = document.getElementById('reappt-new-time').value;
+  if (!newDate || !newTime) { showToast('Please enter date and time', 'error'); return; }
+  await sbClient.from('appointments').update({
+    status: 'reappointed', outcome: 'reappointed_new_time',
+    reappt_date: newDate, reappt_time: newTime,
+    updated_at: new Date().toISOString()
+  }).eq('id', currentReapptId);
+  closeReapptModal();
+  showToast('Reappointment saved ✓', 'success');
+  loadConsultantAppointments();
+}
+
+async function confirmCallBack() {
+  await sbClient.from('appointments').update({
+    status: 'reappointed', outcome: 'reappointed_call_back',
+    updated_at: new Date().toISOString()
+  }).eq('id', currentReapptId);
+  closeReapptModal();
+  showToast('Flagged for call back', 'success');
+  loadConsultantAppointments();
 }
 
 
