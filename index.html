@@ -1347,6 +1347,7 @@ function showApp() {
     loadDashboard();
     loadProducts();
     startRealtimeUpdates();
+    setTimeout(initSignaturePad, 300);
   }
 }
 
@@ -1363,7 +1364,8 @@ function nav(id, btn) {
   if (id === 'dashboard') loadDashboard();
   if (id === 'delivery') loadDeliveryQueue();
   if (id === 'config') loadConfig();
-  if (id === 'sales') loadProducts();
+  if (id === 'sales') { loadProducts(); setTimeout(initSignaturePad, 200); }
+  if (id === 'manual') { if (typeof loadConfig === 'function') loadConfig(); }
 }
 
 // ══════════════════════════════════════════════════════
@@ -2621,12 +2623,7 @@ function clearSignature() {
   if (status) status.textContent = '';
 }
 
-// Init signature pad when sales form is shown
-const _origShowApp = showApp;
-function showApp() {
-  _origShowApp();
-  setTimeout(initSignaturePad, 100);
-}
+// Init signature pad when sales form loads
 
 // ══════════════════════════════════════════════════════
 // MANUAL FORM OCR
