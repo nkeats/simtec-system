@@ -1645,7 +1645,8 @@ function buildConsultantForm() {
   container.insertAdjacentHTML('beforeend', sigHtml);
 
   recalc();
-  setTimeout(initConsultantSignaturePad, 100);
+  // Delay signature pad init until DOM is visible
+  setTimeout(initConsultantSignaturePad, 500);
 }
 
 let consultantSignatureData = null;
@@ -1655,6 +1656,11 @@ function initConsultantSignaturePad() {
   if (!canvas) return;
   const ctx = canvas.getContext('2d');
   const rect = canvas.getBoundingClientRect();
+  // If canvas has no dimensions yet (parent hidden), try again later
+  if (rect.width === 0) { setTimeout(initConsultantSignaturePad, 200); return; }
+  // Only init once
+  if (canvas.dataset.initialized === 'true') return;
+  canvas.dataset.initialized = 'true';
   canvas.width = rect.width * window.devicePixelRatio;
   canvas.height = rect.height * window.devicePixelRatio;
   ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
@@ -3271,6 +3277,7 @@ function consultantShowTab(tab) {
   if (tab === 'sales' && salesTab) {
     salesTab.style.display = 'block';
     if (salesBtn) { salesBtn.style.background = 'rgba(255,255,255,0.2)'; salesBtn.style.color = '#fff'; }
+    setTimeout(initConsultantSignaturePad, 100);
   } else if (tab === 'manual' && manualTab) {
     manualTab.style.display = 'block';
     if (manualBtn) { manualBtn.style.background = 'rgba(255,255,255,0.2)'; manualBtn.style.color = '#fff'; }
