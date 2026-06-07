@@ -755,7 +755,7 @@ body { background: #eef1f8; color: var(--gt); min-height: 100vh; font-size: 14px
     <div class="card" id="signature-card">
       <div class="card-title">Customer signature</div>
       <div class="card-sub">Have the customer sign below before submitting.</div>
-      <canvas id="signature-pad" style="width:100%;height:160px;border:1.5px solid var(--border);border-radius:10px;cursor:crosshair;touch-action:none;background:#fafafa"></canvas>
+      <canvas id="signature-pad" style="width:100%;height:180px;border:1.5px solid var(--border);border-radius:10px;cursor:crosshair;touch-action:none;background:#fafafa;display:block"></canvas>
       <div style="display:flex;gap:8px;margin-top:8px">
         <button class="btn-outline btn-sm" onclick="clearSignature()">Clear signature</button>
         <span id="sig-status" style="font-size:12px;color:var(--gm);align-self:center"></span>
@@ -1635,14 +1635,20 @@ function buildConsultantForm() {
   // Add a fresh signature card with a unique canvas ID for the consultant view
   const sigHtml = `<div class="card" id="consultant-signature-card">
     <div class="card-title">Customer signature</div>
-    <div class="card-sub">Have the customer sign below before submitting.</div>
-    <canvas id="consultant-signature-pad" style="width:100%;height:160px;border:1.5px solid var(--border);border-radius:10px;cursor:crosshair;touch-action:none;background:#fafafa"></canvas>
-    <div style="display:flex;gap:8px;margin-top:8px">
-      <button class="btn-outline btn-sm" onclick="clearConsultantSignature()">Clear signature</button>
-      <span id="consultant-sig-status" style="font-size:12px;color:var(--gm);align-self:center"></span>
+    <div class="card-sub">Have the customer sign in the box below using their finger.</div>
+    <canvas id="consultant-signature-pad" style="width:100%;height:200px;border:2px solid var(--navy);border-radius:10px;cursor:crosshair;touch-action:none;background:#fafafa;display:block"></canvas>
+    <div style="display:flex;gap:8px;margin-top:10px;align-items:center">
+      <button class="btn-outline btn-sm" onclick="clearConsultantSignature()">Clear & redo</button>
+      <span id="consultant-sig-status" style="font-size:13px;color:var(--green);font-weight:600;align-self:center"></span>
     </div>
   </div>`;
-  container.insertAdjacentHTML('beforeend', sigHtml);
+  // Insert signature card BEFORE the submit button
+  const submitBtn = container.querySelector('.btn-gold');
+  if (submitBtn) {
+    submitBtn.insertAdjacentHTML('beforebegin', sigHtml);
+  } else {
+    container.insertAdjacentHTML('beforeend', sigHtml);
+  }
 
   recalc();
   // Delay signature pad init until DOM is visible
