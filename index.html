@@ -528,7 +528,7 @@ body { background: #eef1f8; color: var(--gt); min-height: 100vh; font-size: 14px
       <!-- Sales form injected here by JS -->
     </div>
   </div>
-  <div id="consultant-manual-tab" style="max-width:700px;margin:0 auto;padding:24px 16px;display:none">
+  <div id="consultant-manual-tab" style="display:none;max-width:700px;margin:0 auto;padding:24px 16px;display:none">
     <!-- Manual form upload for consultant -->
     <div class="card">
       <div class="card-title">Upload completed paper form</div>
@@ -593,7 +593,7 @@ body { background: #eef1f8; color: var(--gt); min-height: 100vh; font-size: 14px
   </div>
 
   <!-- CONSULTANT APPOINTMENTS TAB -->
-  <div id="consultant-appts-tab" style="max-width:700px;margin:0 auto;padding:24px 16px;display:none">
+  <div id="consultant-appts-tab" style="display:none;max-width:700px;margin:0 auto;padding:24px 16px;display:none">
     <div class="page-header">
       <div><div class="page-title">My appointments</div><div class="page-sub">Your diary for today and upcoming visits</div></div>
       <button class="btn-gold btn-sm" onclick="showAddApptForm()">+ Book appointment</button>
@@ -3447,7 +3447,7 @@ async function loadAdminAppointments() {
         ${appts.map(a => {
           const timeStr = a.appt_time ? a.appt_time.substring(0,5) : '—';
           const outcomeLabel = {
-            sold: '🏆 Sold', no_sale: `No sale${a.no_sale_reason ? ' — ' + a.no_sale_reason.replace('_',' ') : ''}`,
+            sold: '🏆 Sold', no_sale: 'No sale' + (a.no_sale_reason ? ' — ' + a.no_sale_reason.replace('_',' ') : ''),
             reappointed_new_time: 'Reappointed', reappointed_call_back: 'Call to rebook'
           }[a.outcome] || '—';
           const statusBadge = {
