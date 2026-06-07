@@ -545,6 +545,7 @@ body { background: #eef1f8; color: var(--gt); min-height: 100vh; font-size: 14px
       <button class="nav-btn" onclick="nav('reports',this)">Reports</button>
       <button class="nav-btn" onclick="nav('setup',this)">DB Setup</button>
       <button class="nav-btn" onclick="nav('config',this)">Config</button>
+      <button class="nav-btn" onclick="nav('manual',this)">Manual form</button>
     </div>
     <div class="nav-right">
       <div class="nav-user" id="nav-user-label"></div>
@@ -627,6 +628,17 @@ body { background: #eef1f8; color: var(--gt); min-height: 100vh; font-size: 14px
 
       <div id="pay-note" style="margin-top:14px;font-size:12px;color:var(--gm);line-height:1.6">
         Once submitted, the Ezidebit direct debit application opens on this tablet. The consultant guides the customer through completing their payment details before leaving the home. Weekly repayment = Total ÷ 156 weeks.
+      </div>
+    </div>
+
+    <!-- SIGNATURE CAPTURE -->
+    <div class="card" id="signature-card">
+      <div class="card-title">Customer signature</div>
+      <div class="card-sub">Have the customer sign below before submitting.</div>
+      <canvas id="signature-pad" style="width:100%;height:160px;border:1.5px solid var(--border);border-radius:10px;cursor:crosshair;touch-action:none;background:#fafafa"></canvas>
+      <div style="display:flex;gap:8px;margin-top:8px">
+        <button class="btn-outline btn-sm" onclick="clearSignature()">Clear signature</button>
+        <span id="sig-status" style="font-size:12px;color:var(--gm);align-self:center"></span>
       </div>
     </div>
 
@@ -1025,6 +1037,102 @@ body { background: #eef1f8; color: var(--gt); min-height: 100vh; font-size: 14px
       </div>
     </div>
 
+  </div>
+
+  <!-- ── MANUAL FORM ── -->
+  <div id="s-manual" class="screen">
+    <div class="page-header">
+      <div><div class="page-title">Manual form upload</div><div class="page-sub">Upload a photo or scan of a completed paper sales form — we'll extract the details automatically</div></div>
+    </div>
+
+    <!-- STEP 1: UPLOAD -->
+    <div id="manual-step-upload" class="card">
+      <div class="card-title">Step 1 — Upload the completed form</div>
+      <div class="card-sub">Take a photo of the form or upload a scan. Make sure the form is flat, well lit and all text is clearly visible.</div>
+      <div id="upload-zone" style="border:2px dashed var(--border);border-radius:12px;padding:40px;text-align:center;cursor:pointer;transition:border-color .15s;background:var(--gl)"
+        onclick="document.getElementById('form-file-input').click()"
+        ondragover="event.preventDefault();this.style.borderColor='var(--navy)'"
+        ondragleave="this.style.borderColor='var(--border)'"
+        ondrop="handleFormDrop(event)">
+        <div style="font-size:36px;margin-bottom:10px">📄</div>
+        <div style="font-size:15px;font-weight:600;color:var(--navy);margin-bottom:6px">Tap to take photo or upload file</div>
+        <div style="font-size:12px;color:var(--gm)">JPG, PNG or PDF — max 10MB</div>
+      </div>
+      <input type="file" id="form-file-input" accept="image/*,application/pdf" capture="environment" style="display:none" onchange="handleFormUpload(this)" />
+      <div id="upload-preview" style="display:none;margin-top:16px">
+        <img id="upload-preview-img" style="max-width:100%;border-radius:10px;border:1px solid var(--border)" />
+        <div style="margin-top:10px;display:flex;gap:8px">
+          <button class="btn-gold" onclick="extractFormData()">Extract details →</button>
+          <button class="btn-outline" onclick="resetManualForm()">Upload different photo</button>
+        </div>
+      </div>
+      <div id="extract-loading" style="display:none;text-align:center;padding:20px">
+        <div style="font-size:13px;color:var(--gm)">Reading form... this takes a few seconds</div>
+        <div style="width:100%;height:4px;background:var(--gl);border-radius:2px;margin-top:12px;overflow:hidden">
+          <div id="extract-progress" style="height:100%;background:var(--navy);border-radius:2px;width:0%;transition:width 2s"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- STEP 2: REVIEW -->
+    <div id="manual-step-review" class="card" style="display:none">
+      <div class="card-title">Step 2 — Review and correct extracted details</div>
+      <div class="card-sub">Check all fields carefully. Correct anything that wasn't read accurately before submitting.</div>
+      <div id="extraction-warning" style="display:none;background:var(--abg);border:1px solid #f5d080;border-radius:8px;padding:12px 16px;font-size:13px;color:#8a5500;margin-bottom:16px">
+        ⚠ Some fields could not be read clearly. Please check and fill in any missing information.
+      </div>
+      <div class="form-grid">
+        <div><label class="flabel">First name</label><input class="finput" id="m-fname" /></div>
+        <div><label class="flabel">Last name</label><input class="finput" id="m-lname" /></div>
+        <div class="fg-full"><label class="flabel">Street address</label><input class="finput" id="m-address" /></div>
+        <div><label class="flabel">Mobile</label><input class="finput" id="m-phone" /></div>
+        <div><label class="flabel">Email</label><input class="finput" id="m-email" type="email" /></div>
+        <div><label class="flabel">Sleep consultant</label>
+          <select class="finput" id="m-consultant" onchange="consultantChange(this)">
+            <option value="">-- Select consultant --</option>
+            <option value="James Harrington" data-phone="0400111222">James Harrington</option>
+            <option value="Priya Nair" data-phone="0400333444">Priya Nair</option>
+            <option value="Marcus Webb" data-phone="0400555666">Marcus Webb</option>
+            <option value="Aisha Patel" data-phone="0400777888">Aisha Patel</option>
+          </select>
+          <input type="hidden" id="m-consultant-phone" value="" />
+        </div>
+        <div><label class="flabel">Weekly payment day</label>
+          <select class="finput" id="m-payday">
+            <option>Monday</option><option>Tuesday</option><option>Wednesday</option>
+            <option>Thursday</option><option>Friday</option>
+          </select>
+        </div>
+        <div><label class="flabel">Payment type</label>
+          <select class="finput" id="m-paytype">
+            <option value="dd">Weekly direct debit (Ezidebit)</option>
+            <option value="c">Cash — full amount upfront</option>
+          </select>
+        </div>
+      </div>
+
+      <div style="margin-top:16px">
+        <div class="sec-title">Products ordered</div>
+        <div id="m-products-list" style="margin-bottom:12px"></div>
+        <div style="font-size:13px;color:var(--gm);margin-bottom:8px">Add missing product:</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <select class="finput" id="m-add-product" style="flex:2;margin-bottom:0">
+            <option value="">-- Select product --</option>
+          </select>
+          <button class="btn-outline" onclick="addManualProduct()">Add</button>
+        </div>
+      </div>
+
+      <div class="sum-bar" style="margin-top:14px">
+        <div><div class="sl">Total sale</div><div class="sv" id="m-total-display">$0.00</div></div>
+        <div><div class="sl">Weekly repayment</div><div class="sv" id="m-weekly-display">—</div></div>
+      </div>
+
+      <div style="margin-top:16px;display:flex;gap:10px">
+        <button class="btn-gold" style="flex:1;padding:13px" onclick="submitManualOrder()">Submit order →</button>
+        <button class="btn-outline" onclick="resetManualForm()">Start over</button>
+      </div>
+    </div>
   </div>
 
 </div><!-- end app-screen -->
@@ -2437,6 +2545,316 @@ async function addStaff() {
 }
 
 // Load config when navigating to config screen — handled in existing nav function
+
+// ══════════════════════════════════════════════════════
+// SIGNATURE CAPTURE
+// ══════════════════════════════════════════════════════
+let signatureData = null;
+
+function initSignaturePad() {
+  const canvas = document.getElementById('signature-pad');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+
+  // Set canvas resolution
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * window.devicePixelRatio;
+  canvas.height = rect.height * window.devicePixelRatio;
+  ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+  ctx.strokeStyle = '#1e3a6e';
+  ctx.lineWidth = 2;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+
+  let drawing = false;
+  let lastX = 0, lastY = 0;
+
+  function getPos(e) {
+    const r = canvas.getBoundingClientRect();
+    if (e.touches) {
+      return { x: e.touches[0].clientX - r.left, y: e.touches[0].clientY - r.top };
+    }
+    return { x: e.clientX - r.left, y: e.clientY - r.top };
+  }
+
+  function startDraw(e) {
+    e.preventDefault();
+    drawing = true;
+    const pos = getPos(e);
+    lastX = pos.x; lastY = pos.y;
+    ctx.beginPath();
+    ctx.arc(lastX, lastY, 1, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  function draw(e) {
+    if (!drawing) return;
+    e.preventDefault();
+    const pos = getPos(e);
+    ctx.beginPath();
+    ctx.moveTo(lastX, lastY);
+    ctx.lineTo(pos.x, pos.y);
+    ctx.stroke();
+    lastX = pos.x; lastY = pos.y;
+    signatureData = canvas.toDataURL();
+    const status = document.getElementById('sig-status');
+    if (status) status.textContent = '✓ Signature captured';
+  }
+
+  function stopDraw() { drawing = false; }
+
+  canvas.addEventListener('mousedown', startDraw);
+  canvas.addEventListener('mousemove', draw);
+  canvas.addEventListener('mouseup', stopDraw);
+  canvas.addEventListener('touchstart', startDraw, { passive: false });
+  canvas.addEventListener('touchmove', draw, { passive: false });
+  canvas.addEventListener('touchend', stopDraw);
+}
+
+function clearSignature() {
+  const canvas = document.getElementById('signature-pad');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  signatureData = null;
+  const status = document.getElementById('sig-status');
+  if (status) status.textContent = '';
+}
+
+// Init signature pad when sales form is shown
+const _origShowApp = showApp;
+function showApp() {
+  _origShowApp();
+  setTimeout(initSignaturePad, 100);
+}
+
+// ══════════════════════════════════════════════════════
+// MANUAL FORM OCR
+// ══════════════════════════════════════════════════════
+let manualFormImageBase64 = null;
+let manualFormItems = [];
+
+function handleFormDrop(e) {
+  e.preventDefault();
+  document.getElementById('upload-zone').style.borderColor = 'var(--border)';
+  const file = e.dataTransfer.files[0];
+  if (file) processFormFile(file);
+}
+
+function handleFormUpload(input) {
+  const file = input.files[0];
+  if (file) processFormFile(file);
+}
+
+function processFormFile(file) {
+  if (file.size > 10 * 1024 * 1024) {
+    showToast('File too large — max 10MB', 'error');
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    const dataUrl = e.target.result;
+    manualFormImageBase64 = dataUrl.split(',')[1];
+
+    // Show preview
+    const preview = document.getElementById('upload-preview');
+    const img = document.getElementById('upload-preview-img');
+    if (file.type.startsWith('image/')) {
+      img.src = dataUrl;
+      preview.style.display = 'block';
+    } else {
+      // PDF — just show a placeholder
+      img.src = '';
+      img.alt = 'PDF uploaded — ' + file.name;
+      preview.style.display = 'block';
+    }
+  };
+  reader.readAsDataURL(file);
+}
+
+async function extractFormData() {
+  if (!manualFormImageBase64) { showToast('Please upload a form first', 'error'); return; }
+
+  // Show loading
+  document.getElementById('extract-loading').style.display = 'block';
+  document.getElementById('upload-preview').style.display = 'none';
+  const progress = document.getElementById('extract-progress');
+  let pct = 0;
+  const interval = setInterval(() => {
+    pct = Math.min(pct + 10, 90);
+    progress.style.width = pct + '%';
+  }, 200);
+
+  try {
+    const response = await fetch(
+      'https://jvqjoenaungubpoegyvf.supabase.co/functions/v1/ocr-extract',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imp2cWpvZW5hdW5ndWJwb2VneXZmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA1MzQyMjYsImV4cCI6MjA5NjExMDIyNn0.ypVt8578XTdNwBH6TRDn30s1cF_rHTu67qCWYv5XHcQ'
+        },
+        body: JSON.stringify({ image: manualFormImageBase64, mimeType: 'image/jpeg' })
+      }
+    );
+
+    clearInterval(interval);
+    progress.style.width = '100%';
+
+    const result = await response.json();
+    document.getElementById('extract-loading').style.display = 'none';
+
+    if (!result.success) {
+      showToast('Extraction failed: ' + (result.error || 'Unknown error'), 'error');
+      document.getElementById('upload-preview').style.display = 'block';
+      return;
+    }
+
+    populateManualForm(result.data);
+
+  } catch(e) {
+    clearInterval(interval);
+    document.getElementById('extract-loading').style.display = 'none';
+    showToast('Error: ' + e.message, 'error');
+    document.getElementById('upload-preview').style.display = 'block';
+  }
+}
+
+function populateManualForm(data) {
+  // Fill in fields
+  document.getElementById('m-fname').value = data.fname || '';
+  document.getElementById('m-lname').value = data.lname || '';
+  document.getElementById('m-address').value = data.address || '';
+  document.getElementById('m-phone').value = data.phone || '';
+  document.getElementById('m-email').value = data.email || '';
+  document.getElementById('m-payday').value = data.pay_day || 'Monday';
+  document.getElementById('m-paytype').value = data.pay_type || 'dd';
+
+  // Try to match consultant name
+  const consultantSelect = document.getElementById('m-consultant');
+  for (let i = 0; i < consultantSelect.options.length; i++) {
+    if (consultantSelect.options[i].value.toLowerCase() === (data.consultant || '').toLowerCase()) {
+      consultantSelect.selectedIndex = i;
+      break;
+    }
+  }
+
+  // Set items
+  manualFormItems = data.items || [];
+  renderManualProducts();
+
+  // Check for missing fields
+  const missing = ['fname','lname','address','phone'].filter(f => !data[f]);
+  if (missing.length > 0 || data.items.length === 0) {
+    document.getElementById('extraction-warning').style.display = 'block';
+  }
+
+  // Show review step
+  document.getElementById('manual-step-upload').style.display = 'none';
+  document.getElementById('manual-step-review').style.display = 'block';
+
+  // Populate product dropdown
+  populateProductDropdown();
+  updateManualTotals();
+}
+
+function renderManualProducts() {
+  const container = document.getElementById('m-products-list');
+  if (!container) return;
+  if (manualFormItems.length === 0) {
+    container.innerHTML = '<div style="color:var(--gm);font-size:13px;padding:8px 0">No products detected — add them manually below.</div>';
+    return;
+  }
+  container.innerHTML = manualFormItems.map((item, i) => `
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:var(--gl);border-radius:8px;margin-bottom:6px;font-size:13px">
+      <span style="color:var(--navy);font-weight:500">${item.qty > 1 ? item.qty + ' × ' : ''}${item.name}</span>
+      <div style="display:flex;align-items:center;gap:10px">
+        <span style="color:var(--gm)">$${(item.price * item.qty).toLocaleString('en-AU', {minimumFractionDigits:2})}</span>
+        <button onclick="removeManualProduct(${i})" style="background:none;border:none;cursor:pointer;color:var(--red);font-size:16px;padding:0">×</button>
+      </div>
+    </div>`).join('');
+  updateManualTotals();
+}
+
+function removeManualProduct(i) {
+  manualFormItems.splice(i, 1);
+  renderManualProducts();
+}
+
+function populateProductDropdown() {
+  const select = document.getElementById('m-add-product');
+  if (!select) return;
+  const products = configCache['products'] || {};
+  select.innerHTML = '<option value="">-- Select product --</option>' +
+    Object.values(products)
+      .filter((p) => p.active && p.name !== 'Delivery fee')
+      .map((p) => `<option value="${p.name}" data-price="${p.retail}">${p.name} — $${p.retail}</option>`)
+      .join('');
+}
+
+function addManualProduct() {
+  const select = document.getElementById('m-add-product');
+  const opt = select.options[select.selectedIndex];
+  if (!opt.value) return;
+  manualFormItems.push({ name: opt.value, price: Number(opt.dataset.price), qty: 1 });
+  select.selectedIndex = 0;
+  renderManualProducts();
+}
+
+function updateManualTotals() {
+  const total = manualFormItems.reduce((sum, i) => sum + i.price * i.qty, 0);
+  const weekly = total > 0 ? (total / 156).toFixed(2) : 0;
+  const td = document.getElementById('m-total-display');
+  const wd = document.getElementById('m-weekly-display');
+  if (td) td.textContent = '$' + total.toLocaleString('en-AU', {minimumFractionDigits:2});
+  if (wd) wd.textContent = weekly > 0 ? '$' + weekly + '/wk' : '—';
+}
+
+async function submitManualOrder() {
+  const fname = document.getElementById('m-fname').value.trim();
+  const lname = document.getElementById('m-lname').value.trim();
+  if (!fname || !lname) { showToast('Please enter the customer name', 'error'); return; }
+  if (manualFormItems.length === 0) { showToast('Please add at least one product', 'error'); return; }
+
+  const total = manualFormItems.reduce((sum, i) => sum + i.price * i.qty, 0);
+  const consultantVal = document.getElementById('m-consultant').value;
+  const consultantPhone = document.getElementById('m-consultant-phone')?.value || '';
+
+  const order = {
+    fname, lname,
+    phone: document.getElementById('m-phone').value.trim(),
+    email: document.getElementById('m-email').value.trim(),
+    address: document.getElementById('m-address').value.trim(),
+    consultant: consultantVal,
+    consultant_phone: consultantPhone,
+    pay_day: document.getElementById('m-payday').value,
+    pay_type: document.getElementById('m-paytype').value,
+    total,
+    weekly_rep: +(total / 156).toFixed(2),
+    items: manualFormItems,
+    call_status: 'pending',
+    manual_form: true
+  };
+
+  if (sbClient) {
+    const { error } = await sbClient.from('orders').insert([order]);
+    if (error) { showToast('DB error: ' + error.message, 'error'); return; }
+  }
+
+  showToast('Manual order submitted — confirmation call queued ✓', 'success');
+  resetManualForm();
+}
+
+function resetManualForm() {
+  manualFormImageBase64 = null;
+  manualFormItems = [];
+  document.getElementById('manual-step-upload').style.display = 'block';
+  document.getElementById('manual-step-review').style.display = 'none';
+  document.getElementById('upload-preview').style.display = 'none';
+  document.getElementById('extraction-warning').style.display = 'none';
+  document.getElementById('form-file-input').value = '';
+  document.getElementById('extract-progress').style.width = '0%';
+}
 </script>
 </body>
 </html>
