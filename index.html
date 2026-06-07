@@ -509,20 +509,18 @@ body { background: #eef1f8; color: var(--gt); min-height: 100vh; font-size: 14px
      CONSULTANT VIEW — sales form only
 ══════════════════════════════════════════════════════════ -->
 <div id="consultant-screen" style="display:none">
-  <div class="caller-topbar" style="flex-direction:column;height:auto;padding:10px 16px;gap:8px">
-    <div style="display:flex;justify-content:space-between;align-items:center;width:100%">
-      <div class="caller-topbar-left">
-        <div class="topbar-badge">ST</div>
-        <div>
-          <div class="topbar-title">Simtec Therapeutic</div>
-        </div>
+  <div id="consultant-topbar" style="background:#1e3a6e;border-bottom:2px solid #c9a84c;position:sticky;top:0;z-index:100;padding:10px 16px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+      <div style="display:flex;align-items:center;gap:10px">
+        <div style="background:#c9a84c;color:#1e3a6e;font-weight:800;font-size:13px;width:32px;height:32px;border-radius:8px;display:flex;align-items:center;justify-content:center">ST</div>
+        <div style="color:#fff;font-weight:700;font-size:15px">Simtec Therapeutic</div>
       </div>
-      <button class="btn-logout" onclick="doLogout()">Sign out</button>
+      <button onclick="doLogout()" style="background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.3);color:#fff;border-radius:8px;padding:6px 14px;font-size:13px;cursor:pointer;font-family:inherit">Sign out</button>
     </div>
-    <div style="display:flex;gap:6px;width:100%">
-      <button class="nav-btn" id="consultant-tab-sales" style="color:#fff;background:rgba(255,255,255,0.2);flex:1;text-align:center" onclick="consultantShowTab('sales')">New order</button>
-      <button class="nav-btn" id="consultant-tab-manual" style="color:var(--gm);flex:1;text-align:center" onclick="consultantShowTab('manual')">Manual form</button>
-      <button class="nav-btn" id="consultant-tab-appts" style="color:var(--gm);flex:1;text-align:center" onclick="consultantShowTab('appts')">Diary</button>
+    <div style="display:flex;gap:6px">
+      <button id="consultant-tab-sales" onclick="consultantShowTab('sales')" style="flex:1;padding:8px 4px;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;background:rgba(255,255,255,0.2);color:#fff">New order</button>
+      <button id="consultant-tab-manual" onclick="consultantShowTab('manual')" style="flex:1;padding:8px 4px;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;background:transparent;color:rgba(255,255,255,0.5)">Manual form</button>
+      <button id="consultant-tab-appts" onclick="consultantShowTab('appts')" style="flex:1;padding:8px 4px;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;background:transparent;color:rgba(255,255,255,0.5)">Diary</button>
     </div>
   </div>
   <div id="consultant-sales-tab" style="max-width:700px;margin:0 auto;padding:24px 16px">
@@ -3298,14 +3296,11 @@ function consultantShowTab(tab) {
   const manualBtn = document.getElementById('consultant-tab-manual');
   const apptsBtn = document.getElementById('consultant-tab-appts');
 
-  // Hide all tabs
   [salesTab, manualTab, apptsTab].forEach(t => { if (t) t.style.display = 'none'; });
-  // Reset all buttons
   [salesBtn, manualBtn, apptsBtn].forEach(b => {
-    if (b) { b.style.background = 'transparent'; b.style.color = 'var(--gm)'; }
+    if (b) { b.style.background = 'transparent'; b.style.color = 'rgba(255,255,255,0.5)'; }
   });
 
-  // Show selected tab
   if (tab === 'sales' && salesTab) {
     salesTab.style.display = 'block';
     if (salesBtn) { salesBtn.style.background = 'rgba(255,255,255,0.2)'; salesBtn.style.color = '#fff'; }
