@@ -451,7 +451,7 @@ body { background: #eef1f8; color: var(--gt); min-height: 100vh; font-size: 14px
 <!-- ══════════════════════════════════════════════════════════
      LOGIN SCREEN
 ══════════════════════════════════════════════════════════ -->
-<div id="login-screen" style="display:none">
+<div id="login-screen" style="display:none;position:fixed;inset:0;background:#f4f6fa;z-index:9999;overflow-y:auto">
   <div class="login-card">
     <div class="login-logo">
       <div class="login-logo-badge">ST</div>
@@ -1516,8 +1516,10 @@ async function doLogout() {
   if (realtimeChannel) sbClient.removeChannel(realtimeChannel);
   await sbClient.auth.signOut();
   currentUser = null; currentRole = null;
-  // Reset consultant signature
   consultantSignatureData = null;
+  // Clear consultant form to prevent scroll-down access
+  const cfc = document.getElementById('consultant-form-container');
+  if (cfc) cfc.innerHTML = '';
   showLogin();
 }
 
