@@ -3330,12 +3330,7 @@ function markSold(id) {
 }
 
 function markNoSale(id) {
-  const reason = prompt('Reason for no sale:
-1. Can't afford
-2. Didn't like
-3. Other
-
-Enter 1, 2 or 3:');
+  const reason = prompt("Select reason: 1=Can't afford  2=Didn't like  3=Other");
   const reasons = { '1': 'cant_afford', '2': 'didnt_like', '3': 'other' };
   const reasonKey = reasons[reason] || 'other';
   const reasonLabel = { cant_afford: "Can't afford", didnt_like: "Didn't like", other: "Other" }[reasonKey];
@@ -3350,11 +3345,8 @@ Enter 1, 2 or 3:');
 }
 
 function markReappointed(id) {
-  const choice = confirm('Has a new time been agreed?
-OK = Yes, new time agreed
-Cancel = No, need to call to rebook');
+  const choice = confirm("Has a new time been agreed? Click OK for yes, Cancel to flag for call back.");
   if (choice) {
-    // New time agreed
     const newDate = prompt('New appointment date (YYYY-MM-DD):');
     const newTime = prompt('New appointment time (HH:MM):');
     if (!newDate || !newTime) return;
@@ -3367,7 +3359,6 @@ Cancel = No, need to call to rebook');
       loadConsultantAppointments();
     });
   } else {
-    // Call to rebook
     sbClient.from('appointments').update({
       status: 'reappointed', outcome: 'reappointed_call_back',
       updated_at: new Date().toISOString()
@@ -3377,6 +3368,7 @@ Cancel = No, need to call to rebook');
     });
   }
 }
+
 
 // ── ADMIN APPOINTMENTS ──
 async function loadAdminAppointments() {
