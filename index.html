@@ -1347,7 +1347,6 @@ function showApp() {
     loadDashboard();
     loadProducts();
     startRealtimeUpdates();
-    setTimeout(initSignaturePad, 300);
   }
 }
 
@@ -1405,14 +1404,17 @@ function buildConsultantForm() {
   const container = document.getElementById('consultant-form-container');
   if (!container) return;
 
-  // Clone the sales form content from the admin screen
   const salesScreen = document.getElementById('s-sales');
   if (!salesScreen) return;
 
-  // Copy the inner HTML of the sales screen into the consultant container
-  container.innerHTML = salesScreen.innerHTML;
+  // Clone sales screen but exclude the signature card and order confirm panel
+  const clone = salesScreen.cloneNode(true);
+  const sigCard = clone.querySelector('#signature-card');
+  if (sigCard) sigCard.remove();
+  const confirmPanel = clone.querySelector('#order-confirm');
+  if (confirmPanel) confirmPanel.remove();
 
-  // Re-attach event listeners by re-running recalc
+  container.innerHTML = clone.innerHTML;
   recalc();
 }
 
