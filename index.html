@@ -508,19 +508,20 @@ body { background: #eef1f8; color: var(--gt); min-height: 100vh; font-size: 14px
      CONSULTANT VIEW — sales form only
 ══════════════════════════════════════════════════════════ -->
 <div id="consultant-screen" style="display:none">
-  <div class="caller-topbar">
-    <div class="caller-topbar-left">
-      <div class="topbar-badge">ST</div>
-      <div>
-        <div class="topbar-title">Simtec Therapeutic</div>
-        <div class="topbar-role" id="consultant-role-label">New order</div>
+  <div class="caller-topbar" style="flex-direction:column;height:auto;padding:10px 16px;gap:8px">
+    <div style="display:flex;justify-content:space-between;align-items:center;width:100%">
+      <div class="caller-topbar-left">
+        <div class="topbar-badge">ST</div>
+        <div>
+          <div class="topbar-title">Simtec Therapeutic</div>
+        </div>
       </div>
-    </div>
-    <div style="display:flex;gap:8px;align-items:center">
-      <button class="nav-btn" id="consultant-tab-sales" style="color:#fff;background:rgba(255,255,255,0.2)" onclick="consultantShowTab('sales')">New order</button>
-      <button class="nav-btn" id="consultant-tab-manual" style="color:var(--gm)" onclick="consultantShowTab('manual')">Manual form</button>
-      <button class="nav-btn" id="consultant-tab-appts" style="color:var(--gm)" onclick="consultantShowTab('appts')">Appointments</button>
       <button class="btn-logout" onclick="doLogout()">Sign out</button>
+    </div>
+    <div style="display:flex;gap:6px;width:100%">
+      <button class="nav-btn" id="consultant-tab-sales" style="color:#fff;background:rgba(255,255,255,0.2);flex:1;text-align:center" onclick="consultantShowTab('sales')">New order</button>
+      <button class="nav-btn" id="consultant-tab-manual" style="color:var(--gm);flex:1;text-align:center" onclick="consultantShowTab('manual')">Manual form</button>
+      <button class="nav-btn" id="consultant-tab-appts" style="color:var(--gm);flex:1;text-align:center" onclick="consultantShowTab('appts')">Diary</button>
     </div>
   </div>
   <div id="consultant-sales-tab" style="max-width:700px;margin:0 auto;padding:24px 16px">
