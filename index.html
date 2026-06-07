@@ -1376,7 +1376,7 @@ let audioCtx = null;
 let lastKnownPendingIds = new Set();
 
 function initAudio() {
-  // Called on login button click — user interaction unlocks audio
+  // Called on login button click - user interaction unlocks audio
   try {
     audioCtx = new (window.AudioContext || window.webkitAudioContext)();
   } catch(e) {
@@ -1483,7 +1483,7 @@ window.addEventListener('DOMContentLoaded', () => {
   script.src = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2';
   script.onload = () => {
     window.supabaseJs = window.supabase;
-    // Credentials hardcoded — no setup screen needed on new devices
+    // Credentials hardcoded - no setup screen needed on new devices
     initSupabase("https://jvqjoenaungubpoegyvf.supabase.co", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imp2cWpvZW5hdW5ndWJwb2VneXZmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA1MzQyMjYsImV4cCI6MjA5NjExMDIyNn0.ypVt8578XTdNwBH6TRDn30s1cF_rHTu67qCWYv5XHcQ");
   };
   document.head.appendChild(script);
@@ -1741,7 +1741,7 @@ function clearConsultantSignature() {
 }
 
 // ══════════════════════════════════════════════════════
-// DYNAMIC PRODUCTS — loaded from config table
+// DYNAMIC PRODUCTS - loaded from config table
 // ══════════════════════════════════════════════════════
 
 function categorizProduct(name) {
@@ -1905,7 +1905,7 @@ function recalc() {
   document.getElementById('total-val').textContent = '$' + total.toLocaleString('en-AU', { minimumFractionDigits: 2 });
   document.getElementById('item-count').textContent = count + (count === 1 ? ' item' : ' items');
   const weekly = total > 0 ? total / 156 : 0;
-  document.getElementById('weekly-val').textContent = weekly > 0 ? '$' + weekly.toFixed(2) + '/wk' : '—';
+  document.getElementById('weekly-val').textContent = weekly > 0 ? '$' + weekly.toFixed(2) + '/wk' : '-';
   const summary = document.getElementById('order-summary');
   document.getElementById('order-items').innerHTML = items.map(i =>
     `<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--border);font-size:13px">
@@ -1921,7 +1921,7 @@ function deliveryChange(cb) {
 
 function payChange(sel) {
   document.getElementById('pay-note').textContent = sel.value === 'c'
-    ? 'Cash sale — full amount upfront. No Ezidebit required. Invoice emailed to customer. Delivery fee still applies. Cash sale bonus of $100 applies to consultant commission.'
+    ? 'Cash sale - full amount upfront. No Ezidebit required. Invoice emailed to customer. Delivery fee still applies. Cash sale bonus of $100 applies to consultant commission.'
     : 'Once submitted, the Ezidebit direct debit application opens on this tablet. The consultant guides the customer through completing their payment details before leaving the home. Weekly repayment = Total ÷ 156 weeks.';
 }
 
@@ -1971,7 +1971,7 @@ async function submitOrder() {
 
   document.getElementById('order-confirm').style.display = 'block';
   document.getElementById('order-confirm').scrollIntoView({ behavior: 'smooth' });
-  showToast('Order submitted — call queue updated ✓', 'success');
+  showToast('Order submitted - call queue updated ✓', 'success');
 }
 
 // ══════════════════════════════════════════════════════
@@ -2018,8 +2018,8 @@ async function loadDashboard() {
         <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 0;border-bottom:1px solid var(--border)">
           <div>
             <div style="font-weight:600;color:var(--navy)">${o.fname} ${o.lname}</div>
-            <div style="font-size:12px;color:var(--gm)">${o.phone || '—'} · ${o.email || '—'}</div>
-            <div style="font-size:11px;color:var(--amber);margin-top:2px">Failed: ${o.payment_failure_reason || 'Payment dishonoured'} · Contacted ${o.payment_follow_up_sent_at ? timeAgo(o.payment_follow_up_sent_at) : '—'}</div>
+            <div style="font-size:12px;color:var(--gm)">${o.phone || '-'} · ${o.email || '-'}</div>
+            <div style="font-size:11px;color:var(--amber);margin-top:2px">Failed: ${o.payment_failure_reason || 'Payment dishonoured'} · Contacted ${o.payment_follow_up_sent_at ? timeAgo(o.payment_follow_up_sent_at) : '-'}</div>
           </div>
           <button class="btn-outline btn-sm" onclick="markPaymentFollowUpDone('${o.id}')">Mark resolved</button>
         </div>`).join('') || '<div style="color:var(--gm);font-size:13px;padding:12px 0">No follow-ups needed.</div>';
@@ -2027,14 +2027,14 @@ async function loadDashboard() {
 
     const qt = document.getElementById('dash-queue-table');
     if (pending.length === 0) {
-      qt.innerHTML = `<div style="text-align:center;padding:24px;color:var(--gm);font-size:13px">✅ Queue clear — no pending calls</div>`;
+      qt.innerHTML = `<div style="text-align:center;padding:24px;color:var(--gm);font-size:13px">✅ Queue clear - no pending calls</div>`;
     } else {
       qt.innerHTML = `<table class="dtable">
         <tr><th>Customer</th><th>Consultant</th><th>Sale</th><th>Time</th><th>Status</th><th></th></tr>
         ${pending.map(o => `
           <tr class="cq-row-urgent">
             <td><b>${o.fname} ${o.lname}</b><br><span style="font-size:11px;color:var(--gm)">${o.phone || ''}</span></td>
-            <td>${o.consultant || '—'}</td>
+            <td>${o.consultant || '-'}</td>
             <td>$${(o.total||0).toLocaleString('en-AU')}</td>
             <td><span class="call-timer urgent">${timeAgo(o.created_at)}</span></td>
             <td>${getAICallBadge(o)}</td>
@@ -2045,18 +2045,32 @@ async function loadDashboard() {
 
     const ro = document.getElementById('dash-recent-orders');
     ro.innerHTML = `<table class="dtable">
-      <tr><th>Customer</th><th>Consultant</th><th>Sale</th><th>Products</th><th>Submitted</th><th>Call</th></tr>
-      ${orders.slice(0, 15).map(o => `
-        <tr>
+      <tr><th>Customer</th><th>Consultant</th><th>Sale</th><th>Products</th><th>Submitted</th><th>Call</th><th>Action</th></tr>
+      ${orders.slice(0, 15).map(o => {
+        const daysSince = (Date.now() - new Date(o.created_at).getTime()) / (1000 * 60 * 60 * 24);
+        const inCoolingOff = daysSince <= 5 && !o.cancelled_at && !o.delivered_at;
+        const isCancelled = !!o.cancelled_at;
+        const coolingOffBtn = inCoolingOff && currentRole === 'admin'
+          ? `<button class="btn-outline btn-sm" style="font-size:11px;color:#8a5500;border-color:#c9a84c" onclick="showCoolingOffModal('${o.id}','${o.fname} ${o.lname}')">5-day cancel</button>`
+          : '';
+        const cancelledBadge = isCancelled
+          ? o.cooling_off_cancel
+            ? '<span class="badge b-amber">Cooling off</span>'
+            : '<span class="badge b-red">Cancelled</span>'
+          : '';
+        return `
+        <tr style="${isCancelled ? 'opacity:0.5' : ''}">
           <td><b>${o.fname} ${o.lname}</b></td>
-          <td>${o.consultant||'—'}</td>
+          <td>${o.consultant||'-'}</td>
           <td>$${(o.total||0).toLocaleString('en-AU')}</td>
-          <td style="font-size:12px;color:var(--gm)">${(o.items||[]).map(i=>i.name).join(', ').substring(0,40)||'—'}</td>
+          <td style="font-size:12px;color:var(--gm)">${(o.items||[]).map(i=>i.name).join(', ').substring(0,40)||'-'}</td>
           <td style="font-size:12px;color:var(--gm)">${formatDate(o.created_at)}</td>
           <td>${o.call_status==='complete'
             ? '<span class="badge b-green">Done ✓</span>'
             : '<span class="badge b-red">Pending</span>'}</td>
-        </tr>`).join('')}
+          <td>${cancelledBadge || coolingOffBtn || '-'}</td>
+        </tr>`;
+      }).join('')}
     </table>`;
 
   } catch (e) {
@@ -2067,11 +2081,11 @@ async function loadDashboard() {
 function renderDashboardDemo() {
   document.getElementById('dash-queue-count').textContent = '2';
   document.getElementById('dash-sales-week').textContent = '12';
-  document.getElementById('dash-total-orders').textContent = '—';
+  document.getElementById('dash-total-orders').textContent = '-';
   document.getElementById('dash-calls-done').textContent = '10';
   document.getElementById('dash-queue-table').innerHTML = `
     <div style="padding:14px;background:var(--abg);border-radius:8px;font-size:13px;color:#8a5500;border:1px solid #f5c97a">
-      ⚠ Not connected to database — showing demo data. Go to <b>DB Setup</b> to connect.
+      ⚠ Not connected to database - showing demo data. Go to <b>DB Setup</b> to connect.
     </div>
     <table class="dtable" style="margin-top:12px">
       <tr><th>Customer</th><th>Consultant</th><th>Sale</th><th>Time</th><th>Status</th></tr>
@@ -2113,14 +2127,14 @@ async function loadCallerQueue() {
       <div class="call-card-top">
         <div>
           <div class="call-customer">${o.fname} ${o.lname}</div>
-          <div class="call-meta">Consultant: ${o.consultant || '—'} · ${timeAgo(o.created_at)}</div>
+          <div class="call-meta">Consultant: ${o.consultant || '-'} · ${timeAgo(o.created_at)}</div>
         </div>
         ${getAICallBadge(o)}
       </div>
       <div class="call-detail-row">
         <div class="call-detail-box">
           <div class="call-detail-box-label">Phone</div>
-          <div class="call-detail-box-val">${o.phone || '—'}</div>
+          <div class="call-detail-box-val">${o.phone || '-'}</div>
         </div>
         <div class="call-detail-box">
           <div class="call-detail-box-label">Sale total</div>
@@ -2132,15 +2146,15 @@ async function loadCallerQueue() {
         </div>
         <div class="call-detail-box">
           <div class="call-detail-box-label">Payment day</div>
-          <div class="call-detail-box-val">${o.pay_day || '—'}</div>
+          <div class="call-detail-box-val">${o.pay_day || '-'}</div>
         </div>
       </div>
       <div style="font-size:12px;color:var(--gm);margin-bottom:12px;background:var(--gl);padding:8px 12px;border-radius:7px">
-        <b style="color:var(--navy)">Products:</b> ${items || '—'}
+        <b style="color:var(--navy)">Products:</b> ${items || '-'}
       </div>
       <div class="checklist-wrap">
         <div class="checklist-title">Confirmation checklist</div>
-        <div class="checklist-progress" id="prog-${o.id}">Tick each point as you confirm it with the customer — <span>0 of 8</span> completed</div>
+        <div class="checklist-progress" id="prog-${o.id}">Tick each point as you confirm it with the customer - <span>0 of 8</span> completed</div>
         <ul class="checklist" id="chk-${o.id}">
           ${CALL_CHECKLIST.map((item, i) => `
             <li id="chk-${o.id}-${i}">
@@ -2187,8 +2201,8 @@ function openCallModal(id, name, consultant, total, phone, aiStatus, aiNotes) {
   document.getElementById('call-modal-sub').textContent = `Confirming sale for ${name}`;
   document.getElementById('call-modal-details').innerHTML = `
     <div class="modal-detail-row"><span class="modal-detail-label">Customer</span><span class="modal-detail-val">${name}</span></div>
-    <div class="modal-detail-row"><span class="modal-detail-label">Phone</span><span class="modal-detail-val">${phone||'—'}</span></div>
-    <div class="modal-detail-row"><span class="modal-detail-label">Consultant</span><span class="modal-detail-val">${consultant||'—'}</span></div>
+    <div class="modal-detail-row"><span class="modal-detail-label">Phone</span><span class="modal-detail-val">${phone||'-'}</span></div>
+    <div class="modal-detail-row"><span class="modal-detail-label">Consultant</span><span class="modal-detail-val">${consultant||'-'}</span></div>
     <div class="modal-detail-row"><span class="modal-detail-label">Sale total</span><span class="modal-detail-val">$${Number(total).toLocaleString('en-AU')}</span></div>
     ${aiStatus ? `<div class="modal-detail-row"><span class="modal-detail-label">AI call</span><span class="modal-detail-val">${aiStatus}</span></div>` : ''}
     ${aiNotes ? `<div style="background:var(--abg);border-radius:8px;padding:10px 14px;font-size:12px;color:#8a5500;margin-top:8px">${aiNotes}</div>` : ''}
@@ -2280,12 +2294,94 @@ function getAICallBadge(order) {
     case 'human_requested':
       return '<span style="background:#fdecea;color:#8a2222;padding:3px 9px;border-radius:20px;font-size:11px;font-weight:600">Human requested</span>';
     case 'failed':
-      return `<span style="background:#fdecea;color:#8a2222;padding:3px 9px;border-radius:20px;font-size:11px;font-weight:600" title="${notes}">AI failed — call now</span>`;
+      return `<span style="background:#fdecea;color:#8a2222;padding:3px 9px;border-radius:20px;font-size:11px;font-weight:600" title="${notes}">AI failed - call now</span>`;
     case 'no_answer':
-      return `<span style="background:#fef3e2;color:#8a5500;padding:3px 9px;border-radius:20px;font-size:11px;font-weight:600" title="${notes}">No answer — call now</span>`;
+      return `<span style="background:#fef3e2;color:#8a5500;padding:3px 9px;border-radius:20px;font-size:11px;font-weight:600" title="${notes}">No answer - call now</span>`;
     default:
       return '<span class="badge b-red">Call now</span>';
   }
+}
+
+// ══════════════════════════════════════════════════════
+// COOLING OFF CANCELLATION
+// ══════════════════════════════════════════════════════
+
+function showCoolingOffModal(orderId, customerName) {
+  const existing = document.getElementById('cooling-off-modal');
+  if (existing) existing.remove();
+
+  const modal = document.createElement('div');
+  modal.id = 'cooling-off-modal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(20,30,60,.6);z-index:2000;display:flex;align-items:center;justify-content:center;padding:20px';
+  modal.innerHTML = `
+    <div style="background:#fff;border-radius:18px;padding:28px;width:100%;max-width:500px;box-shadow:0 4px 32px rgba(30,58,110,.18)">
+      <div style="font-size:18px;font-weight:700;color:#1e3a6e;margin-bottom:6px">5-Day Cooling Off Cancellation</div>
+      <div style="font-size:13px;color:#7a8fad;margin-bottom:16px">
+        <b>${customerName}</b> is within their 5-day cooling off period and is entitled to cancel at no cost.
+      </div>
+
+      <div style="background:#fdf6e3;border-left:4px solid #c9a84c;padding:14px 16px;border-radius:8px;margin-bottom:20px;font-size:13px;color:#554400;line-height:1.6">
+        <strong>Email preview:</strong> The customer will receive a brief, friendly confirmation that their cancellation has been processed and their full refund will be returned within 3–5 business days. No questions asked - it is their legal right.
+      </div>
+
+      <div style="margin-bottom:20px">
+        <label style="font-size:12px;font-weight:600;color:#333;text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:6px">Reason (internal note)</label>
+        <select id="cooling-off-reason" style="width:100%;padding:10px 12px;border:1.5px solid #dde3f0;border-radius:8px;font-size:13px;font-family:inherit;color:#1e3a6e">
+          <option value="changed_mind">Customer changed their mind</option>
+          <option value="cant_afford">Financial circumstances changed</option>
+          <option value="found_alternative">Found an alternative</option>
+          <option value="partner_disagreed">Partner/family disagreed</option>
+          <option value="other">Other</option>
+        </select>
+      </div>
+
+      <div style="display:flex;gap:10px">
+        <button onclick="confirmCoolingOffCancel('${orderId}','${customerName}')"
+          style="flex:1;padding:13px;background:#8a5500;color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;font-family:inherit">
+          Confirm cancellation & send email
+        </button>
+        <button onclick="document.getElementById('cooling-off-modal').remove()"
+          style="padding:13px 20px;background:#f4f6fa;color:#1e3a6e;border:none;border-radius:10px;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit">
+          Go back
+        </button>
+      </div>
+    </div>`;
+  document.body.appendChild(modal);
+}
+
+async function confirmCoolingOffCancel(orderId, customerName) {
+  if (!sbClient) return;
+  const reason = document.getElementById('cooling-off-reason')?.value || 'other';
+
+  const { data: orders } = await sbClient.from('orders').select('*').eq('id', orderId).limit(1);
+  const order = orders?.[0];
+
+  // Cancel with cooling_off flag
+  const { error } = await sbClient.from('orders').update({
+    cancelled_at: new Date().toISOString(),
+    cooling_off_cancel: true,
+    call_notes: (order?.call_notes || '') + ' | Cooling-off cancellation. Reason: ' + reason + '.'
+  }).eq('id', orderId);
+
+  if (error) { showToast('Error: ' + error.message, 'error'); return; }
+
+  // Send cooling-off email
+  if (order?.email) {
+    try {
+      await fetch('https://jvqjoenaungubpoegyvf.supabase.co/functions/v1/cooling-off-email', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imp2cWpvZW5hdW5ndWJwb2VneXZmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA1MzQyMjYsImV4cCI6MjA5NjExMDIyNn0.ypVt8578XTdNwBH6TRDn30s1cF_rHTu67qCWYv5XHcQ'
+        },
+        body: JSON.stringify({ order })
+      });
+    } catch(e) { console.log('Email error:', e); }
+  }
+
+  document.getElementById('cooling-off-modal')?.remove();
+  showToast(`Cooling-off cancellation confirmed - email sent to ${customerName}`, 'success');
+  loadDashboard();
 }
 
 async function markPaymentFollowUpDone(orderId) {
@@ -2306,7 +2402,7 @@ function timeAgo(iso) {
   return hrs < 24 ? `${hrs} hr ago` : `${Math.floor(hrs/24)}d ago`;
 }
 function formatDate(iso) {
-  if (!iso) return '—';
+  if (!iso) return '-';
   return new Date(iso).toLocaleDateString('en-AU', { day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' });
 }
 
@@ -2354,7 +2450,7 @@ function calculateCreditScore(payments) {
       consecutiveOnTime++;
       if (consecutiveOnTime > maxStreak) maxStreak = consecutiveOnTime;
     } else if (p.status === 'late') {
-      // Late but paid — treated as recovered missed
+      // Late but paid - treated as recovered missed
       missedRecovered++;
       consecutiveOnTime = 0;
       score -= 5;
@@ -2376,7 +2472,7 @@ function calculateCreditScore(payments) {
   // Bonus: perfect record
   if (dishonours === 0 && missedUnrecovered === 0 && missedRecovered === 0) {
     score += 10;
-    flags.push({ type: 'positive', text: 'Perfect payment record — no missed or late payments.' });
+    flags.push({ type: 'positive', text: 'Perfect payment record - no missed or late payments.' });
   }
 
   // Bonus: recovery streak (consecutive on-time after a miss)
@@ -2384,20 +2480,20 @@ function calculateCreditScore(payments) {
     if (consecutiveOnTime >= 4) {
       const streakBonus = consecutiveOnTime * 3;
       score += streakBonus;
-      flags.push({ type: 'positive', text: `Strong recovery — ${consecutiveOnTime} consecutive on-time payments since last issue (+${streakBonus} pts).` });
+      flags.push({ type: 'positive', text: `Strong recovery - ${consecutiveOnTime} consecutive on-time payments since last issue (+${streakBonus} pts).` });
     }
   }
 
-  // Recency cap — recent issue prevents auto-approval
+  // Recency cap - recent issue prevents auto-approval
   if (recentIssue) {
     score = Math.min(score, 60);
-    flags.push({ type: 'warning', text: 'Issue detected in the last 14 days — auto-approval blocked regardless of overall history.' });
+    flags.push({ type: 'warning', text: 'Issue detected in the last 14 days - auto-approval blocked regardless of overall history.' });
   }
 
   // Unrecovered missed payments cap
   if (missedUnrecovered > 0) {
     score = Math.min(score, 55);
-    flags.push({ type: 'danger', text: `${missedUnrecovered} missed payment(s) not yet recovered — customer has outstanding obligations.` });
+    flags.push({ type: 'danger', text: `${missedUnrecovered} missed payment(s) not yet recovered - customer has outstanding obligations.` });
   }
 
   // Clamp score to 0-100
@@ -2405,7 +2501,7 @@ function calculateCreditScore(payments) {
 
   // Build assessment flags
   if (dishonours > 0) {
-    flags.push({ type: 'danger', text: `${dishonours} bank dishonour(s) — funds were not available on payment day. Significant risk indicator.` });
+    flags.push({ type: 'danger', text: `${dishonours} bank dishonour(s) - funds were not available on payment day. Significant risk indicator.` });
   }
   if (missedRecovered > 0) {
     flags.push({ type: 'warning', text: `${missedRecovered} late/missed payment(s) subsequently recovered. Customer has shown willingness to pay.` });
@@ -2421,7 +2517,7 @@ function calculateCreditScore(payments) {
     recommendation = 'Auto-approved for delivery. Payment history supports low risk.';
   } else if (score >= 50) {
     band = 'review';
-    recommendation = 'Manual review recommended. Some payment concerns — weigh history before approving.';
+    recommendation = 'Manual review recommended. Some payment concerns - weigh history before approving.';
   } else {
     band = 'cancel';
     recommendation = 'Cancellation recommended. Payment history indicates significant default risk.';
@@ -2460,7 +2556,7 @@ function renderScoreCard(order, scoreResult) {
     <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px;flex-wrap:wrap;gap:10px">
       <div>
         <div style="font-size:16px;font-weight:700;color:var(--navy)">${order.fname} ${order.lname}</div>
-        <div style="font-size:12px;color:var(--gm);margin-top:2px">${order.address || '—'} · Consultant: ${order.consultant || '—'}</div>
+        <div style="font-size:12px;color:var(--gm);margin-top:2px">${order.address || '-'} · Consultant: ${order.consultant || '-'}</div>
       </div>
       <div style="display:flex;align-items:center;gap:12px">
         <div style="text-align:center">
@@ -2505,7 +2601,7 @@ function renderScoreCard(order, scoreResult) {
 
     <!-- PRODUCTS -->
     <div style="font-size:12px;color:var(--gm);margin-bottom:14px">
-      <b style="color:var(--navy)">Products:</b> ${(order.items || []).map(i => i.name).join(', ') || '—'} · 
+      <b style="color:var(--navy)">Products:</b> ${(order.items || []).map(i => i.name).join(', ') || '-'} · 
       <b style="color:var(--navy)">Total:</b> $${(order.total || 0).toLocaleString('en-AU')} · 
       <b style="color:var(--navy)">Weekly:</b> $${(order.weekly_rep || 0).toFixed(2)}
     </div>
@@ -2577,18 +2673,97 @@ async function approveDelivery(orderId, customerName) {
 }
 
 async function cancelFromDelivery(orderId, customerName) {
-  if (!confirm(`Cancel order for ${customerName}? This cannot be undone.`)) return;
+  // Admin only check
+  if (currentRole !== 'admin') {
+    showToast('Only administrators can cancel orders', 'error');
+    return;
+  }
+
+  // Show cancellation confirmation modal
+  showCancellationModal(orderId, customerName);
+}
+
+function showCancellationModal(orderId, customerName) {
+  const existing = document.getElementById('cancel-delivery-modal');
+  if (existing) existing.remove();
+
+  const modal = document.createElement('div');
+  modal.id = 'cancel-delivery-modal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(20,30,60,.6);z-index:2000;display:flex;align-items:center;justify-content:center;padding:20px';
+  modal.innerHTML = `
+    <div style="background:#fff;border-radius:18px;padding:28px;width:100%;max-width:480px;box-shadow:0 4px 32px rgba(30,58,110,.18)">
+      <div style="font-size:18px;font-weight:700;color:#1e3a6e;margin-bottom:6px">Cancel order</div>
+      <div style="font-size:13px;color:#7a8fad;margin-bottom:20px">This will cancel the order for <strong>${customerName}</strong> and send them a warm, supportive email. This cannot be undone.</div>
+
+      <div style="background:#fdf6e3;border-left:4px solid #c9a84c;padding:14px 16px;border-radius:8px;margin-bottom:20px;font-size:13px;color:#554400;line-height:1.6">
+        <strong>Email preview:</strong> The customer will receive a friendly message explaining that we're cancelling their order, that we're refunding all payments within 3–5 business days, that we understand financial situations change, and that they're welcome to come back to us in the future.
+      </div>
+
+      <div style="margin-bottom:16px">
+        <label style="font-size:12px;font-weight:600;color:#333;text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:6px">Reason for cancellation (internal note)</label>
+        <select id="cancel-reason-select" style="width:100%;padding:10px 12px;border:1.5px solid #dde3f0;border-radius:8px;font-size:13px;font-family:inherit;color:#1e3a6e">
+          <option value="cant_afford">Customer can't afford to continue</option>
+          <option value="customer_request">Customer requested cancellation</option>
+          <option value="credit_score">Failed credit assessment</option>
+          <option value="payment_default">Persistent payment default</option>
+          <option value="other">Other</option>
+        </select>
+      </div>
+
+      <div style="display:flex;gap:10px">
+        <button onclick="confirmCancellationFromDelivery('${orderId}', '${customerName}')"
+          style="flex:1;padding:13px;background:#d63030;color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;font-family:inherit">
+          Cancel order & send email
+        </button>
+        <button onclick="document.getElementById('cancel-delivery-modal').remove()"
+          style="padding:13px 20px;background:#f4f6fa;color:#1e3a6e;border:none;border-radius:10px;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit">
+          Go back
+        </button>
+      </div>
+    </div>`;
+  document.body.appendChild(modal);
+}
+
+async function confirmCancellationFromDelivery(orderId, customerName) {
   if (!sbClient) return;
-  const { error } = await sbClient
-    .from('orders')
-    .update({ cancelled_at: new Date().toISOString() })
-    .eq('id', orderId);
+
+  const reason = document.getElementById('cancel-reason-select')?.value || 'other';
+
+  // Get the full order details for the email
+  const { data: orders } = await sbClient.from('orders').select('*').eq('id', orderId).limit(1);
+  const order = orders?.[0];
+
+  // Cancel the order
+  const { error } = await sbClient.from('orders').update({
+    cancelled_at: new Date().toISOString(),
+    call_notes: (order?.call_notes || '') + `
+Cancelled by admin. Reason: ${reason}.`
+  }).eq('id', orderId);
+
   if (error) {
     showToast('Error cancelling order: ' + error.message, 'error');
-  } else {
-    showToast(`Order for ${customerName} cancelled`, 'success');
-    loadDeliveryQueue();
+    return;
   }
+
+  // Send cancellation email via Edge Function
+  if (order?.email) {
+    try {
+      await fetch('https://jvqjoenaungubpoegyvf.supabase.co/functions/v1/cancellation-email', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imp2cWpvZW5hdW5ndWJwb2VneXZmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA1MzQyMjYsImV4cCI6MjA5NjExMDIyNn0.ypVt8578XTdNwBH6TRDn30s1cF_rHTu67qCWYv5XHcQ'
+        },
+        body: JSON.stringify({ order })
+      });
+    } catch(e) {
+      console.log('Email send error:', e);
+    }
+  }
+
+  document.getElementById('cancel-delivery-modal')?.remove();
+  showToast(`Order for ${customerName} cancelled - cancellation email sent`, 'success');
+  loadDeliveryQueue();
 }
 
 // ══════════════════════════════════════════════════════
@@ -2862,14 +3037,14 @@ function renderDelivery() {
   const bc = document.getElementById('credit-bands-form');
   if (bc) bc.innerHTML = `
     <div class="config-row">
-      <div style="flex:1"><div class="config-label" style="color:var(--green)">Auto approve — minimum score</div><div class="config-sub">Scores at or above this are approved automatically</div></div>
+      <div style="flex:1"><div class="config-label" style="color:var(--green)">Auto approve - minimum score</div><div class="config-sub">Scores at or above this are approved automatically</div></div>
       <div style="display:flex;align-items:flex-end;gap:8px">
         <input class="config-input" id="credit-approve-input" type="number" value="${b.auto_approve}" />
         <button class="btn-gold btn-sm" onclick="saveCreditBands()">Save</button>
       </div>
     </div>
     <div class="config-row">
-      <div style="flex:1"><div class="config-label" style="color:var(--amber)">Manual review — minimum score</div><div class="config-sub">Scores below this are recommended for cancellation</div></div>
+      <div style="flex:1"><div class="config-label" style="color:var(--amber)">Manual review - minimum score</div><div class="config-sub">Scores below this are recommended for cancellation</div></div>
       <div style="display:flex;align-items:flex-end;gap:8px">
         <input class="config-input" id="credit-review-input" type="number" value="${b.manual_review}" />
         <button class="btn-gold btn-sm" onclick="saveCreditBands()">Save</button>
@@ -2941,7 +3116,7 @@ async function addStaff() {
   // Reload consultant dropdowns immediately
   await loadConsultants();
 
-  showToast(`${name} added ✓ — also create their Supabase login and add to Airtable`, 'success');
+  showToast(`${name} added ✓ - also create their Supabase login and add to Airtable`, 'success');
   document.getElementById('new-staff-name').value = '';
   document.getElementById('new-staff-phone').value = '';
   document.getElementById('new-staff-email').value = '';
@@ -2980,7 +3155,7 @@ async function toggleStaffActive(key, newActive, valueObj) {
   renderStaffConfig();
 }
 
-// Load config when navigating to config screen — handled in existing nav function
+// Load config when navigating to config screen - handled in existing nav function
 
 // ══════════════════════════════════════════════════════
 // SIGNATURE CAPTURE
@@ -3079,7 +3254,7 @@ function handleFormUpload(input) {
 
 function processFormFile(file) {
   if (file.size > 10 * 1024 * 1024) {
-    showToast('File too large — max 10MB', 'error');
+    showToast('File too large - max 10MB', 'error');
     return;
   }
   const reader = new FileReader();
@@ -3094,9 +3269,9 @@ function processFormFile(file) {
       img.src = dataUrl;
       preview.style.display = 'block';
     } else {
-      // PDF — just show a placeholder
+      // PDF - just show a placeholder
       img.src = '';
-      img.alt = 'PDF uploaded — ' + file.name;
+      img.alt = 'PDF uploaded - ' + file.name;
       preview.style.display = 'block';
     }
   };
@@ -3193,7 +3368,7 @@ function renderManualProducts() {
   const container = document.getElementById('m-products-list');
   if (!container) return;
   if (manualFormItems.length === 0) {
-    container.innerHTML = '<div style="color:var(--gm);font-size:13px;padding:8px 0">No products detected — add them manually below.</div>';
+    container.innerHTML = '<div style="color:var(--gm);font-size:13px;padding:8px 0">No products detected - add them manually below.</div>';
     return;
   }
   container.innerHTML = manualFormItems.map((item, i) => `
@@ -3219,7 +3394,7 @@ function populateProductDropdown() {
   select.innerHTML = '<option value="">-- Select product --</option>' +
     Object.values(products)
       .filter((p) => p.active && p.name !== 'Delivery fee')
-      .map((p) => `<option value="${p.name}" data-price="${p.retail}">${p.name} — $${p.retail}</option>`)
+      .map((p) => `<option value="${p.name}" data-price="${p.retail}">${p.name} - $${p.retail}</option>`)
       .join('');
 }
 
@@ -3238,7 +3413,7 @@ function updateManualTotals() {
   const td = document.getElementById('m-total-display');
   const wd = document.getElementById('m-weekly-display');
   if (td) td.textContent = '$' + total.toLocaleString('en-AU', {minimumFractionDigits:2});
-  if (wd) wd.textContent = weekly > 0 ? '$' + weekly + '/wk' : '—';
+  if (wd) wd.textContent = weekly > 0 ? '$' + weekly + '/wk' : '-';
 }
 
 async function submitManualOrder() {
@@ -3272,7 +3447,7 @@ async function submitManualOrder() {
     if (error) { showToast('DB error: ' + error.message, 'error'); return; }
   }
 
-  showToast('Manual order submitted — confirmation call queued ✓', 'success');
+  showToast('Manual order submitted - confirmation call queued ✓', 'success');
   resetManualForm();
 }
 
@@ -3406,7 +3581,7 @@ function renderConsultantProducts() {
   const td = document.getElementById('cm-total-display');
   const wd = document.getElementById('cm-weekly-display');
   if (td) td.textContent = '$' + total.toLocaleString('en-AU', {minimumFractionDigits:2});
-  if (wd) wd.textContent = weekly > 0 ? '$' + weekly + '/wk' : '—';
+  if (wd) wd.textContent = weekly > 0 ? '$' + weekly + '/wk' : '-';
 }
 
 async function submitConsultantManualOrder() {
@@ -3433,7 +3608,7 @@ async function submitConsultantManualOrder() {
     const { error } = await sbClient.from('orders').insert([order]);
     if (error) { showToast('Error: ' + error.message, 'error'); return; }
   }
-  showToast('Order submitted — confirmation call queued ✓', 'success');
+  showToast('Order submitted - confirmation call queued ✓', 'success');
   resetConsultantForm();
 }
 
@@ -3572,7 +3747,7 @@ function renderApptCard(a) {
 
   let outcomeTag = '';
   if (a.outcome === 'sold') outcomeTag = '<span style="background:var(--gbg);color:#1a7a44;padding:3px 8px;border-radius:12px;font-size:11px;font-weight:600">Sold ✓</span>';
-  else if (a.outcome === 'no_sale') outcomeTag = `<span style="background:var(--rbg);color:#8a2222;padding:3px 8px;border-radius:12px;font-size:11px;font-weight:600">No sale — ${a.no_sale_reason || ''}</span>`;
+  else if (a.outcome === 'no_sale') outcomeTag = `<span style="background:var(--rbg);color:#8a2222;padding:3px 8px;border-radius:12px;font-size:11px;font-weight:600">No sale - ${a.no_sale_reason || ''}</span>`;
   else if (a.outcome === 'reappointed_new_time') outcomeTag = '<span style="background:var(--abg);color:#8a5500;padding:3px 8px;border-radius:12px;font-size:11px;font-weight:600">Reappointed</span>';
 
   return `
@@ -3580,7 +3755,7 @@ function renderApptCard(a) {
     <div style="display:flex;justify-content:space-between;align-items:flex-start">
       <div>
         <div style="font-size:16px;font-weight:700;color:var(--navy)">${a.customer_name}</div>
-        <div style="font-size:12px;color:var(--gm);margin-top:2px">${a.address || '—'} · ${a.phone || '—'}</div>
+        <div style="font-size:12px;color:var(--gm);margin-top:2px">${a.address || '-'} · ${a.phone || '-'}</div>
         <div style="font-size:13px;font-weight:600;color:var(--navy);margin-top:6px">${dateStr} at ${timeStr}</div>
       </div>
       <div style="text-align:right">
@@ -3611,7 +3786,7 @@ function markSold(id) {
   // Switch to sales form with appointment pre-noted
   currentApptId = id;
   consultantShowTab('sales');
-  showToast('Complete the order form — appointment will be marked sold automatically', 'success');
+  showToast('Complete the order form - appointment will be marked sold automatically', 'success');
 }
 
 function markNoSale(id) {
@@ -3624,7 +3799,7 @@ function markNoSale(id) {
     outcome: 'no_sale', no_sale_reason: reasonKey,
     no_sale_notes: notes, updated_at: new Date().toISOString()
   }).eq('id', id).then(() => {
-    showToast(`No sale recorded — ${reasonLabel}`, 'success');
+    showToast(`No sale recorded - ${reasonLabel}`, 'success');
     loadConsultantAppointments();
   });
 }
@@ -3695,8 +3870,8 @@ async function loadAdminAppointments() {
   const booked = appts.length;
   const presented = appts.filter(a => ['presented'].includes(a.status) || a.outcome).length;
   const sold = appts.filter(a => a.outcome === 'sold').length;
-  const bookRate = booked > 0 ? Math.round(presented / booked * 100) + '%' : '—';
-  const saleRate = presented > 0 ? Math.round(sold / presented * 100) + '%' : '—';
+  const bookRate = booked > 0 ? Math.round(presented / booked * 100) + '%' : '-';
+  const saleRate = presented > 0 ? Math.round(sold / presented * 100) + '%' : '-';
 
   const m = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
   m('appt-m-booked', booked);
@@ -3727,8 +3902,8 @@ async function loadAdminAppointments() {
             <td>${s.booked}</td>
             <td>${s.presented}</td>
             <td style="color:var(--green);font-weight:600">${s.sold}</td>
-            <td>${s.booked > 0 ? Math.round(s.presented/s.booked*100) + '%' : '—'}</td>
-            <td>${s.presented > 0 ? Math.round(s.sold/s.presented*100) + '%' : '—'}</td>
+            <td>${s.booked > 0 ? Math.round(s.presented/s.booked*100) + '%' : '-'}</td>
+            <td>${s.presented > 0 ? Math.round(s.sold/s.presented*100) + '%' : '-'}</td>
           </tr>`).join('')}
       </table>`;
     }
@@ -3743,11 +3918,11 @@ async function loadAdminAppointments() {
       list.innerHTML = `<table class="dtable">
         <tr><th>Time</th><th>Consultant</th><th>Customer</th><th>Address</th><th>Phone</th><th>Status</th><th>Outcome</th></tr>
         ${appts.map(a => {
-          const timeStr = a.appt_time ? a.appt_time.substring(0,5) : '—';
+          const timeStr = a.appt_time ? a.appt_time.substring(0,5) : '-';
           const outcomeLabel = {
-            sold: '🏆 Sold', no_sale: 'No sale' + (a.no_sale_reason ? ' — ' + a.no_sale_reason.replace('_',' ') : ''),
+            sold: '🏆 Sold', no_sale: 'No sale' + (a.no_sale_reason ? ' - ' + a.no_sale_reason.replace('_',' ') : ''),
             reappointed_new_time: 'Reappointed', reappointed_call_back: 'Call to rebook'
-          }[a.outcome] || '—';
+          }[a.outcome] || '-';
           const statusBadge = {
             booked: 'b-gold', presented: 'b-amber', reappointed: 'b-amber', cancelled: 'b-red'
           }[a.status] || 'b-gold';
@@ -3755,8 +3930,8 @@ async function loadAdminAppointments() {
             <td style="font-weight:600">${timeStr}</td>
             <td>${a.consultant}</td>
             <td><b>${a.customer_name}</b></td>
-            <td style="font-size:12px;color:var(--gm)">${a.address || '—'}</td>
-            <td style="font-size:12px">${a.phone || '—'}</td>
+            <td style="font-size:12px;color:var(--gm)">${a.address || '-'}</td>
+            <td style="font-size:12px">${a.phone || '-'}</td>
             <td><span class="badge ${statusBadge}">${a.status}</span></td>
             <td style="font-size:12px">${outcomeLabel}</td>
           </tr>`;
@@ -3852,32 +4027,21 @@ async function loadNoSaleContacts() {
 
   const reasonLabel = { cant_afford: "Can't afford", didnt_like: "Didn't like", other: "Other" };
 
-  container.innerHTML = `
-    <table class="dtable">
-      <tr>
-        <th>Date</th>
-        <th>Customer</th>
-        <th>Phone</th>
-        <th>Address</th>
-        <th>Consultant</th>
-        <th>Reason</th>
-        <th>Notes</th>
-      </tr>
-      ${noSaleData.map(a => {
-        const dateStr = a.appt_date ? new Date(a.appt_date + 'T00:00:00').toLocaleDateString('en-NZ', { day:'numeric', month:'short', year:'numeric' }) : '—';
-        const reason = reasonLabel[a.no_sale_reason] || a.no_sale_reason || '—';
-        const reasonColour = a.no_sale_reason === 'cant_afford' ? 'color:#8a5500' : a.no_sale_reason === 'didnt_like' ? 'color:#8a2222' : '';
-        return `<tr>
-          <td style="font-size:12px;color:var(--gm)">${dateStr}</td>
-          <td><b>${a.customer_name || '—'}</b></td>
-          <td style="font-size:12px">${a.phone || '—'}</td>
-          <td style="font-size:12px;color:var(--gm)">${a.address || '—'}</td>
-          <td style="font-size:12px">${a.consultant || '—'}</td>
-          <td style="font-size:12px;font-weight:600;${reasonColour}">${reason}</td>
-          <td style="font-size:12px;color:var(--gm)">${a.no_sale_notes || '—'}</td>
-        </tr>`;
-      }).join('')}
-    </table>`;
+  const rows = noSaleData.map(function(a) {
+    const dateStr = a.appt_date ? new Date(a.appt_date + 'T00:00:00').toLocaleDateString('en-NZ', { day:'numeric', month:'short', year:'numeric' }) : '-';
+    const reason = reasonLabel[a.no_sale_reason] || a.no_sale_reason || '-';
+    const rc = a.no_sale_reason === 'cant_afford' ? 'color:#8a5500' : a.no_sale_reason === 'didnt_like' ? 'color:#8a2222' : '';
+    return '<tr>' +
+      '<td style="font-size:12px;color:var(--gm)">' + dateStr + '</td>' +
+      '<td><b>' + (a.customer_name || '-') + '</b></td>' +
+      '<td style="font-size:12px">' + (a.phone || '-') + '</td>' +
+      '<td style="font-size:12px;color:var(--gm)">' + (a.address || '-') + '</td>' +
+      '<td style="font-size:12px">' + (a.consultant || '-') + '</td>' +
+      '<td style="font-size:12px;font-weight:600;' + rc + '">' + reason + '</td>' +
+      '<td style="font-size:12px;color:var(--gm)">' + (a.no_sale_notes || '-') + '</td>' +
+      '</tr>';
+  }).join('');
+  container.innerHTML = '<table class="dtable"><tr><th>Date</th><th>Customer</th><th>Phone</th><th>Address</th><th>Consultant</th><th>Reason</th><th>Notes</th></tr>' + rows + '</table>';
 }
 
 function exportNoSaleContacts() {
