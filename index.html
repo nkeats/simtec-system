@@ -519,6 +519,7 @@ body { background: #eef1f8; color: var(--gt); min-height: 100vh; font-size: 14px
     <div style="display:flex;gap:8px;align-items:center">
       <button class="nav-btn" id="consultant-tab-sales" style="color:#fff;background:rgba(255,255,255,0.2)" onclick="consultantShowTab('sales')">New order</button>
       <button class="nav-btn" id="consultant-tab-manual" style="color:var(--gm)" onclick="consultantShowTab('manual')">Manual form</button>
+      <button class="nav-btn" id="consultant-tab-appts" style="color:var(--gm)" onclick="consultantShowTab('appts')">Appointments</button>
       <button class="btn-logout" onclick="doLogout()">Sign out</button>
     </div>
   </div>
@@ -590,6 +591,36 @@ body { background: #eef1f8; color: var(--gt); min-height: 100vh; font-size: 14px
       <button class="btn-gold" style="width:100%;padding:13px;margin-top:14px" onclick="submitConsultantManualOrder()">Submit order →</button>
     </div>
   </div>
+
+  <!-- CONSULTANT APPOINTMENTS TAB -->
+  <div id="consultant-appts-tab" style="max-width:700px;margin:0 auto;padding:24px 16px;display:none">
+    <div class="page-header">
+      <div><div class="page-title">My appointments</div><div class="page-sub">Your diary for today and upcoming visits</div></div>
+      <button class="btn-gold btn-sm" onclick="showAddApptForm()">+ Book appointment</button>
+    </div>
+
+    <!-- ADD APPOINTMENT FORM -->
+    <div id="add-appt-form" class="card" style="display:none">
+      <div class="card-title">Book new appointment</div>
+      <div class="form-grid">
+        <div class="fg-full"><label class="flabel">Customer name</label><input class="finput" id="appt-customer-name" placeholder="Sarah Mitchell" /></div>
+        <div class="fg-full"><label class="flabel">Address</label><input class="finput" id="appt-address" placeholder="12 Example St, Auckland" /></div>
+        <div><label class="flabel">Phone</label><input class="finput" id="appt-phone" placeholder="021 000 0000" /></div>
+        <div><label class="flabel">Date</label><input class="finput" id="appt-date" type="date" /></div>
+        <div><label class="flabel">Time</label><input class="finput" id="appt-time" type="time" /></div>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:8px">
+        <button class="btn-gold" onclick="saveAppointment()">Save appointment</button>
+        <button class="btn-outline" onclick="hideAddApptForm()">Cancel</button>
+      </div>
+    </div>
+
+    <!-- APPOINTMENT LIST -->
+    <div id="consultant-appt-list">
+      <div style="text-align:center;padding:30px;color:var(--gm);font-size:13px">Loading appointments...</div>
+    </div>
+  </div>
+
 </div>
 
 <!-- ══════════════════════════════════════════════════════════
@@ -615,6 +646,7 @@ body { background: #eef1f8; color: var(--gt); min-height: 100vh; font-size: 14px
       <button class="nav-btn" onclick="nav('setup',this)">DB Setup</button>
       <button class="nav-btn" onclick="nav('config',this)">Config</button>
       <button class="nav-btn" onclick="nav('manual',this)">Manual form</button>
+      <button class="nav-btn" onclick="nav('appointments',this)">Appointments</button>
     </div>
     <div class="nav-right">
       <div class="nav-user" id="nav-user-label"></div>
@@ -1204,6 +1236,44 @@ body { background: #eef1f8; color: var(--gt); min-height: 100vh; font-size: 14px
     </div>
   </div>
 
+  <!-- ── APPOINTMENTS ── -->
+  <div id="s-appointments" class="screen">
+    <div class="page-header">
+      <div><div class="page-title">Appointments</div><div class="page-sub">All consultant appointments and outcomes</div></div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <select class="finput" id="appt-filter-consultant" style="margin-bottom:0;width:180px" onchange="loadAdminAppointments()">
+          <option value="">All consultants</option>
+        </select>
+        <input class="finput" id="appt-filter-date" type="date" style="margin-bottom:0;width:150px" onchange="loadAdminAppointments()" />
+      </div>
+    </div>
+
+    <!-- METRICS -->
+    <div class="metric-grid" id="appt-metrics">
+      <div class="mcard"><div class="mcard-label">Booked today</div><div class="mcard-val" id="appt-m-booked">—</div></div>
+      <div class="mcard"><div class="mcard-label">Presented</div><div class="mcard-val" id="appt-m-presented">—</div></div>
+      <div class="mcard"><div class="mcard-label">Sold</div><div class="mcard-val" id="appt-m-sold" style="color:var(--green)">—</div></div>
+      <div class="mcard"><div class="mcard-label">Booking → Presentation</div><div class="mcard-val" id="appt-m-book-rate">—</div></div>
+      <div class="mcard"><div class="mcard-label">Presentation → Sale</div><div class="mcard-val" id="appt-m-sale-rate">—</div></div>
+    </div>
+
+    <!-- CONSULTANT BREAKDOWN -->
+    <div class="card">
+      <div class="card-title">Consultant performance</div>
+      <div id="appt-consultant-breakdown">
+        <div style="text-align:center;padding:20px;color:var(--gm);font-size:13px">Loading...</div>
+      </div>
+    </div>
+
+    <!-- FULL APPOINTMENT LIST -->
+    <div class="card">
+      <div class="card-title">Appointment details</div>
+      <div id="admin-appt-list">
+        <div style="text-align:center;padding:20px;color:var(--gm);font-size:13px">Loading...</div>
+      </div>
+    </div>
+  </div>
+
 </div><!-- end app-screen -->
 
 <!-- ══════════════ CALL COMPLETE MODAL ══════════════ -->
@@ -1435,6 +1505,12 @@ function nav(id, btn) {
   if (id === 'config') loadConfig();
   if (id === 'sales') { loadProducts(); setTimeout(initSignaturePad, 200); }
   if (id === 'manual') { if (typeof loadConfig === 'function') loadConfig(); }
+  if (id === 'appointments') {
+    const today = new Date().toISOString().split('T')[0];
+    const dateFilter = document.getElementById('appt-filter-date');
+    if (dateFilter && !dateFilter.value) dateFilter.value = today;
+    loadAdminAppointments();
+  }
 }
 
 // ══════════════════════════════════════════════════════
@@ -3080,6 +3156,353 @@ function resetConsultantForm() {
   document.getElementById('c-form-file-input').value = '';
   document.getElementById('c-extract-progress').style.width = '0%';
 }
+
+// ══════════════════════════════════════════════════════
+// APPOINTMENTS SYSTEM
+// ══════════════════════════════════════════════════════
+
+let currentApptId = null;
+
+// ── CONSULTANT TAB: show/hide add form ──
+function showAddApptForm() {
+  const form = document.getElementById('add-appt-form');
+  if (!form) return;
+  // Default to today
+  const today = new Date().toISOString().split('T')[0];
+  document.getElementById('appt-date').value = today;
+  form.style.display = 'block';
+  form.scrollIntoView({ behavior: 'smooth' });
+}
+
+function hideAddApptForm() {
+  const form = document.getElementById('add-appt-form');
+  if (form) form.style.display = 'none';
+}
+
+// ── SAVE NEW APPOINTMENT ──
+async function saveAppointment(editId) {
+  const name = document.getElementById('appt-customer-name').value.trim();
+  const date = document.getElementById('appt-date').value;
+  const time = document.getElementById('appt-time').value;
+  if (!name || !date || !time) { showToast('Please enter customer name, date and time', 'error'); return; }
+
+  const appt = {
+    consultant: currentUser?.user_metadata?.name || currentUser?.email || '',
+    consultant_phone: '',
+    customer_name: name,
+    address: document.getElementById('appt-address').value.trim(),
+    phone: document.getElementById('appt-phone').value.trim(),
+    appt_date: date,
+    appt_time: time,
+    status: 'booked',
+    updated_at: new Date().toISOString()
+  };
+
+  if (!sbClient) return;
+  let error;
+  if (editId) {
+    ({ error } = await sbClient.from('appointments').update(appt).eq('id', editId));
+  } else {
+    ({ error } = await sbClient.from('appointments').insert([appt]));
+  }
+
+  if (error) { showToast('Error: ' + error.message, 'error'); return; }
+  showToast(editId ? 'Appointment updated ✓' : 'Appointment booked ✓', 'success');
+  hideAddApptForm();
+  document.getElementById('appt-customer-name').value = '';
+  document.getElementById('appt-address').value = '';
+  document.getElementById('appt-phone').value = '';
+  document.getElementById('appt-time').value = '';
+  loadConsultantAppointments();
+}
+
+// ── LOAD CONSULTANT APPOINTMENTS ──
+async function loadConsultantAppointments() {
+  const container = document.getElementById('consultant-appt-list');
+  if (!container || !sbClient) return;
+
+  const consultantName = currentUser?.user_metadata?.name || currentUser?.email || '';
+  const today = new Date().toISOString().split('T')[0];
+
+  const { data, error } = await sbClient
+    .from('appointments')
+    .select('*')
+    .eq('consultant', consultantName)
+    .gte('appt_date', today)
+    .order('appt_date', { ascending: true })
+    .order('appt_time', { ascending: true });
+
+  if (error || !data || data.length === 0) {
+    container.innerHTML = `<div style="text-align:center;padding:40px;color:var(--gm);font-size:13px">
+      No appointments booked yet.<br>Tap <strong>+ Book appointment</strong> to add one.
+    </div>`;
+    return;
+  }
+
+  container.innerHTML = data.map(a => renderApptCard(a)).join('');
+}
+
+// ── RENDER APPOINTMENT CARD ──
+function renderApptCard(a) {
+  const statusColour = {
+    booked: 'var(--navy)', presented: 'var(--amber)',
+    reappointed: 'var(--gm)', cancelled: 'var(--red)'
+  }[a.status] || 'var(--navy)';
+
+  const statusLabel = {
+    booked: 'Booked', presented: 'Presented',
+    reappointed: 'Reappointed', cancelled: 'Cancelled'
+  }[a.status] || a.status;
+
+  const timeStr = a.appt_time ? a.appt_time.substring(0, 5) : '';
+  const dateStr = a.appt_date ? new Date(a.appt_date + 'T00:00:00').toLocaleDateString('en-NZ', { weekday:'short', day:'numeric', month:'short' }) : '';
+
+  let actionButtons = '';
+  if (a.status === 'booked') {
+    actionButtons = `
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:12px">
+        <button class="btn-green btn-sm" onclick="markPresented('${a.id}')">✓ Presented</button>
+        <button class="btn-outline btn-sm" onclick="markReappointed('${a.id}')">↻ Reappoint</button>
+        <button class="btn-red btn-sm" onclick="markCancelled('${a.id}')">✗ Cancelled</button>
+      </div>`;
+  } else if (a.status === 'presented' && !a.outcome) {
+    actionButtons = `
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:12px">
+        <button class="btn-green btn-sm" onclick="markSold('${a.id}')">🏆 Sold!</button>
+        <button class="btn-outline btn-sm" onclick="markNoSale('${a.id}')">No sale</button>
+      </div>`;
+  } else if (a.status === 'reappointed' && a.outcome === 'reappointed_call_back') {
+    actionButtons = `
+      <div style="margin-top:10px">
+        <span style="background:var(--abg);color:#8a5500;padding:4px 10px;border-radius:6px;font-size:12px;font-weight:600">📞 Call to rebook</span>
+        <button class="btn-outline btn-sm" style="margin-left:8px" onclick="editReappt('${a.id}')">Update</button>
+      </div>`;
+  }
+
+  let outcomeTag = '';
+  if (a.outcome === 'sold') outcomeTag = '<span style="background:var(--gbg);color:#1a7a44;padding:3px 8px;border-radius:12px;font-size:11px;font-weight:600">Sold ✓</span>';
+  else if (a.outcome === 'no_sale') outcomeTag = `<span style="background:var(--rbg);color:#8a2222;padding:3px 8px;border-radius:12px;font-size:11px;font-weight:600">No sale — ${a.no_sale_reason || ''}</span>`;
+  else if (a.outcome === 'reappointed_new_time') outcomeTag = '<span style="background:var(--abg);color:#8a5500;padding:3px 8px;border-radius:12px;font-size:11px;font-weight:600">Reappointed</span>';
+
+  return `
+  <div class="card" style="border-left:4px solid ${statusColour};margin-bottom:12px">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start">
+      <div>
+        <div style="font-size:16px;font-weight:700;color:var(--navy)">${a.customer_name}</div>
+        <div style="font-size:12px;color:var(--gm);margin-top:2px">${a.address || '—'} · ${a.phone || '—'}</div>
+        <div style="font-size:13px;font-weight:600;color:var(--navy);margin-top:6px">${dateStr} at ${timeStr}</div>
+      </div>
+      <div style="text-align:right">
+        <span style="background:var(--gl);color:${statusColour};padding:4px 10px;border-radius:12px;font-size:12px;font-weight:600">${statusLabel}</span>
+        ${outcomeTag ? '<br><span style="margin-top:4px;display:inline-block">' + outcomeTag + '</span>' : ''}
+      </div>
+    </div>
+    ${a.no_sale_notes ? `<div style="margin-top:8px;font-size:12px;color:var(--gm);background:var(--gl);padding:6px 10px;border-radius:6px">${a.no_sale_notes}</div>` : ''}
+    ${actionButtons}
+  </div>`;
+}
+
+// ── OUTCOME ACTIONS ──
+async function markPresented(id) {
+  await sbClient.from('appointments').update({ status: 'presented', updated_at: new Date().toISOString() }).eq('id', id);
+  showToast('Marked as presented', 'success');
+  loadConsultantAppointments();
+}
+
+async function markCancelled(id) {
+  if (!confirm('Mark this appointment as cancelled?')) return;
+  await sbClient.from('appointments').update({ status: 'cancelled', updated_at: new Date().toISOString() }).eq('id', id);
+  showToast('Appointment cancelled', 'success');
+  loadConsultantAppointments();
+}
+
+function markSold(id) {
+  // Switch to sales form with appointment pre-noted
+  currentApptId = id;
+  consultantShowTab('sales');
+  showToast('Complete the order form — appointment will be marked sold automatically', 'success');
+}
+
+function markNoSale(id) {
+  const reason = prompt('Reason for no sale:
+1. Can't afford
+2. Didn't like
+3. Other
+
+Enter 1, 2 or 3:');
+  const reasons = { '1': 'cant_afford', '2': 'didnt_like', '3': 'other' };
+  const reasonKey = reasons[reason] || 'other';
+  const reasonLabel = { cant_afford: "Can't afford", didnt_like: "Didn't like", other: "Other" }[reasonKey];
+  const notes = reasonKey === 'other' ? prompt('Please describe the reason:') || '' : '';
+  sbClient.from('appointments').update({
+    outcome: 'no_sale', no_sale_reason: reasonKey,
+    no_sale_notes: notes, updated_at: new Date().toISOString()
+  }).eq('id', id).then(() => {
+    showToast(`No sale recorded — ${reasonLabel}`, 'success');
+    loadConsultantAppointments();
+  });
+}
+
+function markReappointed(id) {
+  const choice = confirm('Has a new time been agreed?
+OK = Yes, new time agreed
+Cancel = No, need to call to rebook');
+  if (choice) {
+    // New time agreed
+    const newDate = prompt('New appointment date (YYYY-MM-DD):');
+    const newTime = prompt('New appointment time (HH:MM):');
+    if (!newDate || !newTime) return;
+    sbClient.from('appointments').update({
+      status: 'reappointed', outcome: 'reappointed_new_time',
+      reappt_date: newDate, reappt_time: newTime,
+      updated_at: new Date().toISOString()
+    }).eq('id', id).then(() => {
+      showToast('Reappointment saved ✓', 'success');
+      loadConsultantAppointments();
+    });
+  } else {
+    // Call to rebook
+    sbClient.from('appointments').update({
+      status: 'reappointed', outcome: 'reappointed_call_back',
+      updated_at: new Date().toISOString()
+    }).eq('id', id).then(() => {
+      showToast('Flagged for call back', 'success');
+      loadConsultantAppointments();
+    });
+  }
+}
+
+// ── ADMIN APPOINTMENTS ──
+async function loadAdminAppointments() {
+  if (!sbClient) return;
+
+  const filterConsultant = document.getElementById('appt-filter-consultant')?.value || '';
+  const filterDate = document.getElementById('appt-filter-date')?.value || new Date().toISOString().split('T')[0];
+
+  let query = sbClient.from('appointments').select('*').eq('appt_date', filterDate).order('appt_time');
+  if (filterConsultant) query = query.eq('consultant', filterConsultant);
+
+  const { data, error } = await query;
+  if (error) return;
+
+  const appts = data || [];
+
+  // Metrics
+  const booked = appts.length;
+  const presented = appts.filter(a => ['presented'].includes(a.status) || a.outcome).length;
+  const sold = appts.filter(a => a.outcome === 'sold').length;
+  const bookRate = booked > 0 ? Math.round(presented / booked * 100) + '%' : '—';
+  const saleRate = presented > 0 ? Math.round(sold / presented * 100) + '%' : '—';
+
+  const m = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
+  m('appt-m-booked', booked);
+  m('appt-m-presented', presented);
+  m('appt-m-sold', sold);
+  m('appt-m-book-rate', bookRate);
+  m('appt-m-sale-rate', saleRate);
+
+  // Consultant breakdown
+  const byConsultant = {};
+  for (const a of appts) {
+    if (!byConsultant[a.consultant]) byConsultant[a.consultant] = { booked:0, presented:0, sold:0 };
+    byConsultant[a.consultant].booked++;
+    if (['presented'].includes(a.status) || a.outcome) byConsultant[a.consultant].presented++;
+    if (a.outcome === 'sold') byConsultant[a.consultant].sold++;
+  }
+
+  const breakdown = document.getElementById('appt-consultant-breakdown');
+  if (breakdown) {
+    if (Object.keys(byConsultant).length === 0) {
+      breakdown.innerHTML = '<div style="color:var(--gm);font-size:13px;padding:12px 0">No appointments for this date.</div>';
+    } else {
+      breakdown.innerHTML = `<table class="dtable">
+        <tr><th>Consultant</th><th>Booked</th><th>Presented</th><th>Sold</th><th>Book→Present</th><th>Present→Sale</th></tr>
+        ${Object.entries(byConsultant).map(([name, s]) => `
+          <tr>
+            <td><b>${name}</b></td>
+            <td>${s.booked}</td>
+            <td>${s.presented}</td>
+            <td style="color:var(--green);font-weight:600">${s.sold}</td>
+            <td>${s.booked > 0 ? Math.round(s.presented/s.booked*100) + '%' : '—'}</td>
+            <td>${s.presented > 0 ? Math.round(s.sold/s.presented*100) + '%' : '—'}</td>
+          </tr>`).join('')}
+      </table>`;
+    }
+  }
+
+  // Full list
+  const list = document.getElementById('admin-appt-list');
+  if (list) {
+    if (appts.length === 0) {
+      list.innerHTML = '<div style="color:var(--gm);font-size:13px;padding:12px 0">No appointments found.</div>';
+    } else {
+      list.innerHTML = `<table class="dtable">
+        <tr><th>Time</th><th>Consultant</th><th>Customer</th><th>Address</th><th>Phone</th><th>Status</th><th>Outcome</th></tr>
+        ${appts.map(a => {
+          const timeStr = a.appt_time ? a.appt_time.substring(0,5) : '—';
+          const outcomeLabel = {
+            sold: '🏆 Sold', no_sale: `No sale${a.no_sale_reason ? ' — ' + a.no_sale_reason.replace('_',' ') : ''}`,
+            reappointed_new_time: 'Reappointed', reappointed_call_back: 'Call to rebook'
+          }[a.outcome] || '—';
+          const statusBadge = {
+            booked: 'b-gold', presented: 'b-amber', reappointed: 'b-amber', cancelled: 'b-red'
+          }[a.status] || 'b-gold';
+          return `<tr>
+            <td style="font-weight:600">${timeStr}</td>
+            <td>${a.consultant}</td>
+            <td><b>${a.customer_name}</b></td>
+            <td style="font-size:12px;color:var(--gm)">${a.address || '—'}</td>
+            <td style="font-size:12px">${a.phone || '—'}</td>
+            <td><span class="badge ${statusBadge}">${a.status}</span></td>
+            <td style="font-size:12px">${outcomeLabel}</td>
+          </tr>`;
+        }).join('')}
+      </table>`;
+    }
+  }
+
+  // Populate consultant filter
+  const filterEl = document.getElementById('appt-filter-consultant');
+  if (filterEl && filterEl.options.length <= 1) {
+    const consultants = [...new Set(appts.map(a => a.consultant))];
+    consultants.forEach(name => {
+      const opt = document.createElement('option');
+      opt.value = name; opt.textContent = name;
+      filterEl.appendChild(opt);
+    });
+  }
+}
+
+// ── EXTEND CONSULTANT TAB SWITCHER ──
+const _origConsultantShowTab = consultantShowTab;
+function consultantShowTab(tab) {
+  // Handle existing tabs
+  const salesTab = document.getElementById('consultant-sales-tab');
+  const manualTab = document.getElementById('consultant-manual-tab');
+  const apptsTab = document.getElementById('consultant-appts-tab');
+  const salesBtn = document.getElementById('consultant-tab-sales');
+  const manualBtn = document.getElementById('consultant-tab-manual');
+  const apptsBtn = document.getElementById('consultant-tab-appts');
+
+  [salesTab, manualTab, apptsTab].forEach(t => { if (t) t.style.display = 'none'; });
+  [salesBtn, manualBtn, apptsBtn].forEach(b => {
+    if (b) { b.style.background = 'transparent'; b.style.color = 'var(--gm)'; }
+  });
+
+  if (tab === 'sales' && salesTab) {
+    salesTab.style.display = 'block';
+    if (salesBtn) { salesBtn.style.background = 'rgba(255,255,255,0.2)'; salesBtn.style.color = '#fff'; }
+  } else if (tab === 'manual' && manualTab) {
+    manualTab.style.display = 'block';
+    if (manualBtn) { manualBtn.style.background = 'rgba(255,255,255,0.2)'; manualBtn.style.color = '#fff'; }
+  } else if (tab === 'appts' && apptsTab) {
+    apptsTab.style.display = 'block';
+    if (apptsBtn) { apptsBtn.style.background = 'rgba(255,255,255,0.2)'; apptsBtn.style.color = '#fff'; }
+    loadConsultantAppointments();
+  }
+}
+
+// Load admin appointments when navigating to appointments screen
 </script>
 </body>
 </html>
