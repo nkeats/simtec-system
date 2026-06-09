@@ -962,11 +962,60 @@ body { background: #eef1f8; color: var(--gt); min-height: 100vh; font-size: 14px
 
   <!-- ── REPORTS ── -->
   <div id="s-reports" class="screen">
-    <div class="page-header"><div><div class="page-title">Reports</div><div class="page-sub">Weekly and monthly business summaries</div></div></div>
-    <div class="card"><div class="card-title">📊 Weekly sales report</div><div class="card-sub">Sales by consultant, commission totals, award levels, weekly comparison.</div></div>
-    <div class="card"><div class="card-title">📒 Loan book</div><div class="card-sub">All active customers, balance, paid to date, 10% threshold status, credit score, delivery stage.</div></div>
-    <div class="card"><div class="card-title">💰 Commission run</div><div class="card-sub">Weekly payment totals per consultant, team leader override, clawback deductions, net payable.</div></div>
-    <div class="card"><div class="card-title">📦 Stock reorder report</div><div class="card-sub">SKUs below 12-week demand threshold, estimated reorder quantities, 12-week lead time tracking.</div></div>
+    <div class="page-header">
+      <div><div class="page-title">Reports</div><div class="page-sub">Live business summary — updates in real time</div></div>
+      <button class="btn-outline btn-sm" onclick="loadReports()">↻ Refresh</button>
+    </div>
+
+    <!-- THIS WEEK SO FAR -->
+    <div class="card">
+      <div class="card-title">This week so far</div>
+      <div class="card-sub" id="reports-week-label">Loading...</div>
+      <div class="metric-grid" style="margin-top:12px">
+        <div class="mcard"><div class="mcard-label">Sales</div><div class="mcard-val" id="rep-week-sales">—</div></div>
+        <div class="mcard"><div class="mcard-label">Total value</div><div class="mcard-val" id="rep-week-value">—</div></div>
+        <div class="mcard"><div class="mcard-label">Average sale</div><div class="mcard-val" id="rep-week-avg">—</div></div>
+        <div class="mcard"><div class="mcard-label">Cash sales</div><div class="mcard-val" id="rep-week-cash">—</div></div>
+      </div>
+      <div style="margin-top:14px">
+        <div class="card-sub" style="margin-bottom:8px">Consultant breakdown this week</div>
+        <div id="rep-consultant-breakdown">
+          <div style="text-align:center;padding:20px;color:var(--gm);font-size:13px">Loading...</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- LOAN BOOK SUMMARY -->
+    <div class="card">
+      <div class="card-title">Loan book summary</div>
+      <div class="metric-grid" style="margin-top:8px">
+        <div class="mcard"><div class="mcard-label">Active orders</div><div class="mcard-val" id="rep-book-active">—</div></div>
+        <div class="mcard"><div class="mcard-label">Total book value</div><div class="mcard-val" id="rep-book-value">—</div></div>
+        <div class="mcard"><div class="mcard-label">Delivery eligible</div><div class="mcard-val" id="rep-book-eligible" style="color:var(--green)">—</div></div>
+        <div class="mcard"><div class="mcard-label">Pending delivery</div><div class="mcard-val" id="rep-book-pending" style="color:var(--amber)">—</div></div>
+      </div>
+    </div>
+
+    <!-- REPORT RECIPIENTS -->
+    <div class="card">
+      <div class="card-title">Automated reports</div>
+      <div class="card-sub">These reports are sent automatically by email. Manage recipients in Config → Reports.</div>
+      <div style="display:flex;gap:12px;margin-top:12px;flex-wrap:wrap">
+        <div style="flex:1;min-width:200px;background:var(--gl);border-radius:10px;padding:14px 16px">
+          <div style="font-size:13px;font-weight:700;color:var(--navy);margin-bottom:4px">📊 Daily sales report</div>
+          <div style="font-size:12px;color:var(--gm)">Sent 7am NZ time, Mon–Fri</div>
+          <div style="font-size:12px;color:var(--gm)">Monday covers Fri+Sat+Sun</div>
+          <div style="margin-top:8px;font-size:12px;font-weight:600;color:var(--navy)" id="rep-daily-recipients">Loading...</div>
+        </div>
+        <div style="flex:1;min-width:200px;background:var(--gl);border-radius:10px;padding:14px 16px">
+          <div style="font-size:13px;font-weight:700;color:var(--navy);margin-bottom:4px">💰 Weekly commission report</div>
+          <div style="font-size:12px;color:var(--gm)">Sent Monday 7am NZ time</div>
+          <div style="font-size:12px;color:var(--gm)">Includes commission, awards, SMS to consultants</div>
+          <div style="margin-top:8px;font-size:12px;font-weight:600;color:var(--navy)" id="rep-weekly-recipients">Loading...</div>
+        </div>
+      </div>
+      <button class="btn-outline btn-sm" style="margin-top:12px" onclick="nav('config',document.querySelector('.nav-btn:last-child'));setTimeout(()=>switchConfigTab('reports',null),100)">Manage recipients →</button>
+    </div>
   </div>
 
   <!-- ── DB SETUP ── -->
@@ -1129,13 +1178,52 @@ body { background: #eef1f8; color: var(--gt); min-height: 100vh; font-size: 14px
     <div id="config-staff" class="config-tab-content" style="display:none">
       <div class="card">
         <div class="card-title">Staff management</div>
-        <div class="card-sub">Manage consultant and staff details. Changes to the consultant list update the sales form dropdown immediately on all devices.</div>
-        <div style="background:var(--abg);border:1px solid #f5d080;border-radius:8px;padding:12px 16px;font-size:13px;color:#8a5500;margin-bottom:16px">
-          ⚠ Staff records are stored in Airtable. Changes here update Airtable directly. Phone numbers are used for the automated SMS — make sure they are correct NZ mobile numbers in format 02
+        <div class="card-sub">Changes take effect immediately — consultant dropdown updates across all devices. Phone numbers are used for automated commission SMS.</div>
+
+        <!-- INLINE EDIT PANEL -->
+        <div id="staff-edit-modal" style="display:none;background:var(--gl);border:1.5px solid var(--border);border-radius:12px;padding:18px;margin-bottom:16px">
+          <div style="font-size:13px;font-weight:700;color:var(--navy);margin-bottom:12px">Edit staff member</div>
+          <input type="hidden" id="edit-staff-key" />
+          <div class="form-grid">
+            <div><label class="flabel">Full name</label><input class="finput" id="edit-staff-name" /></div>
+            <div><label class="flabel">Mobile</label><input class="finput" id="edit-staff-phone" /></div>
+            <div><label class="flabel">Email</label><input class="finput" id="edit-staff-email" type="email" /></div>
+            <div><label class="flabel">Role</label>
+              <select class="finput" id="edit-staff-role">
+                <option value="Trainee">Trainee</option>
+                <option value="Sleep Consultant">Sleep Consultant</option>
+                <option value="Team Leader">Team Leader</option>
+                <option value="Admin">Admin</option>
+                <option value="Driver">Driver</option>
+              </select>
+            </div>
+            <div><label class="flabel">Team leader</label>
+              <select class="finput" id="edit-staff-tl">
+                <option value="">— None —</option>
+              </select>
+            </div>
+            <div><label class="flabel">Award level</label>
+              <select class="finput" id="edit-staff-award">
+                <option value="">None</option>
+                <option value="Initial">Initial</option>
+                <option value="Pearl">Pearl</option>
+                <option value="Ruby">Ruby</option>
+                <option value="Emerald">Emerald</option>
+                <option value="Sapphire">Sapphire</option>
+                <option value="Grand Diamond">Grand Diamond</option>
+              </select>
+            </div>
+          </div>
+          <div style="display:flex;gap:8px;margin-top:10px">
+            <button class="btn-gold" onclick="saveStaffEdit()">Save changes</button>
+            <button class="btn-outline" onclick="closeStaffEdit()">Cancel</button>
+          </div>
         </div>
+
         <div id="staff-list">
           <div style="text-align:center;padding:30px;color:var(--gm);font-size:13px">Loading...</div>
         </div>
+
         <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border)">
           <div style="font-size:13px;font-weight:600;color:var(--navy);margin-bottom:10px">Add new staff member</div>
           <div class="form-grid">
@@ -1144,6 +1232,7 @@ body { background: #eef1f8; color: var(--gt); min-height: 100vh; font-size: 14px
             <div><label class="flabel">Email</label><input class="finput" id="new-staff-email" type="email" placeholder="jane@email.com" /></div>
             <div><label class="flabel">Role</label>
               <select class="finput" id="new-staff-role">
+                <option value="Trainee">Trainee</option>
                 <option value="Sleep Consultant">Sleep Consultant</option>
                 <option value="Team Leader">Team Leader</option>
                 <option value="Admin">Admin</option>
@@ -1151,115 +1240,18 @@ body { background: #eef1f8; color: var(--gt); min-height: 100vh; font-size: 14px
               </select>
             </div>
             <div><label class="flabel">Team leader</label>
-              <select class="finput" id="new-staff-tl">
-                <option value="">— None —</option>
-              </select>
+              <select class="finput" id="new-staff-tl"><option value="">— None —</option></select>
             </div>
             <div style="display:flex;align-items:flex-end">
               <button class="btn-gold" onclick="addStaff()" style="width:100%">Add staff member</button>
             </div>
           </div>
+          <div style="background:var(--abg);border:1px solid #f5d080;border-radius:8px;padding:10px 14px;font-size:12px;color:#8a5500;margin-top:10px">
+            After adding, create their Supabase login: Authentication → Users → Invite user, then set metadata role and name.
+          </div>
         </div>
       </div>
     </div>
-
-  </div>
-
-  <!-- ── MANUAL FORM ── -->
-  <div id="s-manual" class="screen">
-    <div class="page-header">
-      <div><div class="page-title">Manual form upload</div><div class="page-sub">Upload a photo or scan of a completed paper sales form — we'll extract the details automatically</div></div>
-    </div>
-
-    <!-- STEP 1: UPLOAD -->
-    <div id="manual-step-upload" class="card">
-      <div class="card-title">Step 1 — Upload the completed form</div>
-      <div class="card-sub">Take a photo of the form or upload a scan. Make sure the form is flat, well lit and all text is clearly visible.</div>
-      <div id="upload-zone" style="border:2px dashed var(--border);border-radius:12px;padding:40px;text-align:center;cursor:pointer;transition:border-color .15s;background:var(--gl)"
-        onclick="document.getElementById('form-file-input').click()"
-        ondragover="event.preventDefault();this.style.borderColor='var(--navy)'"
-        ondragleave="this.style.borderColor='var(--border)'"
-        ondrop="handleFormDrop(event)">
-        <div style="font-size:36px;margin-bottom:10px">📄</div>
-        <div style="font-size:15px;font-weight:600;color:var(--navy);margin-bottom:6px">Tap to take photo or upload file</div>
-        <div style="font-size:12px;color:var(--gm)">JPG, PNG or PDF — max 10MB</div>
-      </div>
-      <input type="file" id="form-file-input" accept="image/*,application/pdf" capture="environment" style="display:none" onchange="handleFormUpload(this)" />
-      <div id="upload-preview" style="display:none;margin-top:16px">
-        <img id="upload-preview-img" style="max-width:100%;border-radius:10px;border:1px solid var(--border)" />
-        <div style="margin-top:10px;display:flex;gap:8px">
-          <button class="btn-gold" onclick="extractFormData()">Extract details →</button>
-          <button class="btn-outline" onclick="resetManualForm()">Upload different photo</button>
-        </div>
-      </div>
-      <div id="extract-loading" style="display:none;text-align:center;padding:20px">
-        <div style="font-size:13px;color:var(--gm)">Reading form... this takes a few seconds</div>
-        <div style="width:100%;height:4px;background:var(--gl);border-radius:2px;margin-top:12px;overflow:hidden">
-          <div id="extract-progress" style="height:100%;background:var(--navy);border-radius:2px;width:0%;transition:width 2s"></div>
-        </div>
-      </div>
-    </div>
-
-    <!-- STEP 2: REVIEW -->
-    <div id="manual-step-review" class="card" style="display:none">
-      <div class="card-title">Step 2 — Review and correct extracted details</div>
-      <div class="card-sub">Check all fields carefully. Correct anything that wasn't read accurately before submitting.</div>
-      <div id="extraction-warning" style="display:none;background:var(--abg);border:1px solid #f5d080;border-radius:8px;padding:12px 16px;font-size:13px;color:#8a5500;margin-bottom:16px">
-        ⚠ Some fields could not be read clearly. Please check and fill in any missing information.
-      </div>
-      <div class="form-grid">
-        <div><label class="flabel">First name</label><input class="finput" id="m-fname" /></div>
-        <div><label class="flabel">Last name</label><input class="finput" id="m-lname" /></div>
-        <div class="fg-full"><label class="flabel">Street address</label><input class="finput" id="m-address" /></div>
-        <div><label class="flabel">Mobile</label><input class="finput" id="m-phone" /></div>
-        <div><label class="flabel">Email</label><input class="finput" id="m-email" type="email" /></div>
-        <div><label class="flabel">Sleep consultant</label>
-          <select class="finput" id="m-consultant" onchange="consultantChange(this)">
-            <option value="">-- Select consultant --</option>
-            <option value="James Harrington" data-phone="0400111222">James Harrington</option>
-            <option value="Priya Nair" data-phone="0400333444">Priya Nair</option>
-            <option value="Marcus Webb" data-phone="0400555666">Marcus Webb</option>
-            <option value="Aisha Patel" data-phone="0400777888">Aisha Patel</option>
-          </select>
-          <input type="hidden" id="m-consultant-phone" value="" />
-        </div>
-        <div><label class="flabel">Weekly payment day</label>
-          <select class="finput" id="m-payday">
-            <option>Monday</option><option>Tuesday</option><option>Wednesday</option>
-            <option>Thursday</option><option>Friday</option>
-          </select>
-        </div>
-        <div><label class="flabel">Payment type</label>
-          <select class="finput" id="m-paytype">
-            <option value="dd">Weekly direct debit (Ezidebit)</option>
-            <option value="c">Cash — full amount upfront</option>
-          </select>
-        </div>
-      </div>
-
-      <div style="margin-top:16px">
-        <div class="sec-title">Products ordered</div>
-        <div id="m-products-list" style="margin-bottom:12px"></div>
-        <div style="font-size:13px;color:var(--gm);margin-bottom:8px">Add missing product:</div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap">
-          <select class="finput" id="m-add-product" style="flex:2;margin-bottom:0">
-            <option value="">-- Select product --</option>
-          </select>
-          <button class="btn-outline" onclick="addManualProduct()">Add</button>
-        </div>
-      </div>
-
-      <div class="sum-bar" style="margin-top:14px">
-        <div><div class="sl">Total sale</div><div class="sv" id="m-total-display">$0.00</div></div>
-        <div><div class="sl">Weekly repayment</div><div class="sv" id="m-weekly-display">—</div></div>
-      </div>
-
-      <div style="margin-top:16px;display:flex;gap:10px">
-        <button class="btn-gold" style="flex:1;padding:13px" onclick="submitManualOrder()">Submit order →</button>
-        <button class="btn-outline" onclick="resetManualForm()">Start over</button>
-      </div>
-    </div>
-  </div>
 
   <!-- ── APPOINTMENTS ── -->
   <div id="s-appointments" class="screen">
@@ -1588,6 +1580,7 @@ function nav(id, btn) {
     loadAdminAppointments();
   }
   if (id === 'nosale') loadNoSaleContacts();
+  if (id === 'reports') { loadConfig().then(loadReports); }
 }
 
 // ══════════════════════════════════════════════════════
@@ -3182,24 +3175,47 @@ async function renderStaffConfig() {
     return;
   }
 
-  container.innerHTML = data.map(s => `
-    <div class="config-row" style="flex-wrap:wrap;gap:8px">
-      <div style="flex:2;min-width:150px">
-        <div class="config-label">${s.value.name}</div>
-        <div class="config-sub">${s.value.role} · ${s.value.phone || 'No phone'}</div>
+  // Populate TL dropdown for new staff form
+  const tlSelect = document.getElementById('new-staff-tl');
+  if (tlSelect) {
+    tlSelect.innerHTML = '<option value="">— None —</option>';
+    data.filter(s => s.value.role === 'Team Leader' && s.value.active !== false).forEach(s => {
+      const opt = document.createElement('option');
+      opt.value = s.value.name; opt.textContent = s.value.name;
+      tlSelect.appendChild(opt);
+    });
+  }
+
+  const roleColour = { 'Team Leader': '#1a7a44', 'Sleep Consultant': 'var(--navy)', 'Trainee': '#8a5500', 'Admin': '#8a2222', 'Driver': 'var(--gm)' };
+  const awardIcons = { 'Initial': '🎖', 'Pearl': '🦪', 'Ruby': '❤️', 'Emerald': '💚', 'Sapphire': '💙', 'Grand Diamond': '💎' };
+
+  const rows = data.map(s => {
+    const v = s.value;
+    const rc = roleColour[v.role] || 'var(--gm)';
+    const awardIcon = awardIcons[v.award_level] || '';
+    const tlText = v.team_leader ? ' · TL: ' + v.team_leader : '';
+    const isActive = v.active !== false;
+    return `<div class="config-row" style="flex-wrap:wrap;gap:8px">
+      <div style="flex:2;min-width:160px">
+        <div class="config-label">${v.name}${awardIcon ? ' ' + awardIcon : ''}</div>
+        <div class="config-sub"><span style="color:${rc};font-weight:600">${v.role}</span>${tlText} · ${v.phone || 'No phone'}</div>
+        ${v.award_level ? '<div style="font-size:11px;color:var(--gm);margin-top:2px">Award: ' + v.award_level + '</div>' : ''}
       </div>
-      <div style="display:flex;gap:6px;align-items:center">
-        <button class="${s.value.active !== false ? 'toggle-active' : 'toggle-inactive'}"
-          onclick="toggleStaffActive('${s.key}', ${!(s.value.active !== false)}, ${JSON.stringify(s.value).replace(/"/g, '&quot;')})">
-          ${s.value.active !== false ? 'Active' : 'Inactive'}
-        </button>
-        <button class="btn-red btn-sm" onclick="deleteConfigRow('staff','${s.key}','${s.value.name}')">Remove</button>
+      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+        <button class="btn-outline btn-sm" onclick="openStaffEdit('${s.key}')">Edit</button>
+        <button class="${isActive ? 'toggle-active' : 'toggle-inactive'}" onclick="toggleStaffActive('${s.key}',${!isActive})">${isActive ? 'Active' : 'Inactive'}</button>
+        <button class="btn-red btn-sm" onclick="deleteConfigRow('staff','${s.key}','${v.name}')">Remove</button>
       </div>
-    </div>`).join('');
+    </div>`;
+  }).join('');
+  container.innerHTML = rows;
 }
 
-async function toggleStaffActive(key, newActive, valueObj) {
-  await saveConfigVal('staff', key, { ...valueObj, active: newActive });
+
+async function toggleStaffActive(key, newActive) {
+  const existing = configCache['staff'] && configCache['staff'][key];
+  if (!existing) return;
+  await saveConfigVal('staff', key, { ...existing, active: newActive });
   await loadConsultants();
   renderStaffConfig();
 }
@@ -4010,6 +4026,157 @@ async function loadAdminAppointments() {
 
 
 // Load admin appointments when navigating to appointments screen
+
+// ══════════════════════════════════════════════════════
+// REPORTS SCREEN
+// ══════════════════════════════════════════════════════
+
+async function loadReports() {
+  if (!sbClient) return;
+
+  // ── THIS WEEK SO FAR ──
+  const now = new Date();
+  // NZ is UTC+12 — get start of current NZ week (Monday)
+  const nzNow = new Date(now.getTime() + 12 * 60 * 60 * 1000);
+  const dayOfWeek = nzNow.getUTCDay(); // 0=Sun
+  const daysFromMon = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+  const weekStart = new Date(nzNow);
+  weekStart.setUTCDate(nzNow.getUTCDate() - daysFromMon);
+  weekStart.setUTCHours(0, 0, 0, 0);
+  const weekStartUTC = new Date(weekStart.getTime() - 12 * 60 * 60 * 1000);
+
+  const weekLabel = weekStart.toLocaleDateString('en-NZ', { weekday:'long', day:'numeric', month:'long' });
+  const weekLabelEl = document.getElementById('reports-week-label');
+  if (weekLabelEl) weekLabelEl.textContent = 'Week starting ' + weekLabel;
+
+  const { data: weekOrders } = await sbClient
+    .from('orders')
+    .select('*')
+    .gte('created_at', weekStartUTC.toISOString())
+    .is('cancelled_at', null);
+
+  const orders = weekOrders || [];
+  const totalSales = orders.length;
+  const totalValue = orders.reduce((s, o) => s + (o.total || 0), 0);
+  const avgSale = totalSales > 0 ? Math.round(totalValue / totalSales) : 0;
+  const cashSales = orders.filter(o => o.pay_type === 'c').length;
+
+  const m = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
+  m('rep-week-sales', totalSales);
+  m('rep-week-value', '$' + totalValue.toLocaleString('en-NZ'));
+  m('rep-week-avg', avgSale > 0 ? '$' + avgSale.toLocaleString('en-NZ') : '—');
+  m('rep-week-cash', cashSales);
+
+  // Consultant breakdown
+  const byConsultant = {};
+  for (const o of orders) {
+    const name = o.consultant || 'Unknown';
+    if (!byConsultant[name]) byConsultant[name] = { sales: 0, value: 0 };
+    byConsultant[name].sales++;
+    byConsultant[name].value += (o.total || 0);
+  }
+
+  const breakdown = document.getElementById('rep-consultant-breakdown');
+  if (breakdown) {
+    if (Object.keys(byConsultant).length === 0) {
+      breakdown.innerHTML = '<div style="color:var(--gm);font-size:13px;padding:8px 0">No sales recorded yet this week.</div>';
+    } else {
+      breakdown.innerHTML = '<table class="dtable"><tr><th>Consultant</th><th>Sales</th><th>Total value</th><th>Avg sale</th></tr>' +
+        Object.entries(byConsultant)
+          .sort((a, b) => b[1].value - a[1].value)
+          .map(([name, s]) => '<tr><td><b>' + name + '</b></td><td>' + s.sales + '</td><td>$' + s.value.toLocaleString('en-NZ') + '</td><td>$' + (s.sales > 0 ? Math.round(s.value/s.sales).toLocaleString('en-NZ') : '—') + '</td></tr>')
+          .join('') +
+        '</table>';
+    }
+  }
+
+  // ── LOAN BOOK SUMMARY ──
+  const { data: allOrders } = await sbClient
+    .from('orders')
+    .select('id, total, delivered_at, cancelled_at')
+    .is('cancelled_at', null);
+
+  const activeOrders = (allOrders || []);
+  const bookValue = activeOrders.reduce((s, o) => s + (o.total || 0), 0);
+  const delivered = activeOrders.filter(o => o.delivered_at).length;
+  const pendingDelivery = activeOrders.filter(o => !o.delivered_at).length;
+
+  m('rep-book-active', activeOrders.length);
+  m('rep-book-value', '$' + bookValue.toLocaleString('en-NZ'));
+  m('rep-book-eligible', delivered);
+  m('rep-book-pending', pendingDelivery);
+
+  // ── REPORT RECIPIENTS ──
+  if (configCache['reports'] && configCache['reports']['recipients']) {
+    const r = configCache['reports']['recipients'];
+    const daily = (r.daily_sales || []).join(', ') || 'None configured';
+    const weekly = (r.weekly_commission || []).join(', ') || 'None configured';
+    m('rep-daily-recipients', '📧 ' + daily);
+    m('rep-weekly-recipients', '📧 ' + weekly);
+  } else {
+    m('rep-daily-recipients', 'Go to Config → Reports to set recipients');
+    m('rep-weekly-recipients', 'Go to Config → Reports to set recipients');
+  }
+}
+
+// ══════════════════════════════════════════════════════
+// STAFF EDIT FUNCTIONS
+// ══════════════════════════════════════════════════════
+
+function openStaffEdit(key) {
+  const staff = configCache['staff'] && configCache['staff'][key];
+  if (!staff) return;
+
+  document.getElementById('edit-staff-key').value = key;
+  document.getElementById('edit-staff-name').value = staff.name || '';
+  document.getElementById('edit-staff-phone').value = staff.phone || '';
+  document.getElementById('edit-staff-email').value = staff.email || '';
+  document.getElementById('edit-staff-role').value = staff.role || 'Sleep Consultant';
+  document.getElementById('edit-staff-award').value = staff.award_level || '';
+
+  // Populate TL dropdown from staff list
+  const tlSelect = document.getElementById('edit-staff-tl');
+  tlSelect.innerHTML = '<option value="">— None —</option>';
+  const allStaff = configCache['staff'] || {};
+  Object.values(allStaff).forEach(s => {
+    if (s.name !== staff.name && s.role === 'Team Leader' && s.active !== false) {
+      const opt = document.createElement('option');
+      opt.value = s.name;
+      opt.textContent = s.name;
+      if (s.name === staff.team_leader) opt.selected = true;
+      tlSelect.appendChild(opt);
+    }
+  });
+  tlSelect.value = staff.team_leader || '';
+
+  document.getElementById('staff-edit-modal').style.display = 'block';
+  document.getElementById('staff-edit-modal').scrollIntoView({ behavior: 'smooth' });
+}
+
+function closeStaffEdit() {
+  document.getElementById('staff-edit-modal').style.display = 'none';
+}
+
+async function saveStaffEdit() {
+  const key = document.getElementById('edit-staff-key').value;
+  const existing = configCache['staff'] && configCache['staff'][key];
+  if (!key || !existing) return;
+
+  const updated = {
+    ...existing,
+    name: document.getElementById('edit-staff-name').value.trim(),
+    phone: document.getElementById('edit-staff-phone').value.trim(),
+    email: document.getElementById('edit-staff-email').value.trim(),
+    role: document.getElementById('edit-staff-role').value,
+    team_leader: document.getElementById('edit-staff-tl').value || null,
+    award_level: document.getElementById('edit-staff-award').value || null,
+  };
+
+  await saveConfigVal('staff', key, updated);
+  await loadConsultants();
+  closeStaffEdit();
+  showToast(updated.name + ' updated ✓', 'success');
+}
 
 // ══════════════════════════════════════════════════════
 // NO SALE CONTACTS
