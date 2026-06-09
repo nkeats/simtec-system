@@ -3066,7 +3066,8 @@ async function saveDeliverySettings() {
   const fee = Number(document.getElementById('delivery-fee-input')?.value || 170);
   const threshold_pct = Number(document.getElementById('delivery-threshold-input')?.value || 10);
   const payment_weeks = Number(document.getElementById('delivery-weeks-input')?.value || 156);
-  await saveConfigVal('delivery', 'settings', {fee, threshold_pct, payment_weeks});
+  const consecutive_payments = Number(document.getElementById('delivery-consecutive-input')?.value || 5);
+  await saveConfigVal('delivery', 'settings', {fee, threshold_pct, payment_weeks, consecutive_payments});
 }
 
 async function saveCreditBands() {
@@ -3090,10 +3091,18 @@ function renderDelivery() {
       </div>
     </div>
     <div class="config-row">
-      <div style="flex:1"><div class="config-label">Delivery threshold</div><div class="config-sub">% of purchase price paid before delivery</div></div>
+      <div style="flex:1"><div class="config-label">Deposit threshold</div><div class="config-sub">% of purchase price that must be paid before delivery is approved</div></div>
       <div style="display:flex;align-items:flex-end;gap:8px">
         <div><div style="font-size:10px;color:var(--gm);margin-bottom:3px">Percentage (%)</div>
         <input class="config-input" id="delivery-threshold-input" type="number" value="${s.threshold_pct}" /></div>
+        <button class="btn-gold btn-sm" onclick="saveDeliverySettings()">Save</button>
+      </div>
+    </div>
+    <div class="config-row">
+      <div style="flex:1"><div class="config-label">Consecutive payments required</div><div class="config-sub">Customer must have made this many consecutive on-time payments before delivery is approved</div></div>
+      <div style="display:flex;align-items:flex-end;gap:8px">
+        <div><div style="font-size:10px;color:var(--gm);margin-bottom:3px">Payments</div>
+        <input class="config-input" id="delivery-consecutive-input" type="number" value="${s.consecutive_payments || 5}" /></div>
         <button class="btn-gold btn-sm" onclick="saveDeliverySettings()">Save</button>
       </div>
     </div>
