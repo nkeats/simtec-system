@@ -139,12 +139,21 @@ body { background: #eef1f8; color: var(--gt); min-height: 100vh; font-size: 14px
 .nav-brand { font-weight: 700; font-size: 13px; color: #fff; white-space: nowrap; }
 .nav-links  { display: flex; gap: 2px; overflow-x: auto; flex: 1; }
 .nav-btn {
-  padding: 6px 12px; border-radius: 6px; border: none; background: transparent;
-  font-size: 12px; color: var(--gm); cursor: pointer; white-space: nowrap;
-  transition: all .15s; font-family: inherit; font-weight: 500;
+  padding: 8px 10px; border-radius: 8px; border: none; background: transparent;
+  font-size: 10px; color: rgba(255,255,255,0.6); cursor: pointer; white-space: nowrap;
+  transition: all .15s; font-family: inherit; font-weight: 600;
+  display: flex; flex-direction: column; align-items: center; gap: 3px; min-width: 54px;
 }
-.nav-btn:hover  { background: rgba(255,255,255,.08); color: #fff; }
-.nav-btn.active { background: #fff; color: var(--navy); font-weight: 600; }
+.nav-btn:hover { background: rgba(255,255,255,0.12); color: #fff; }
+.nav-icon { font-size: 18px; line-height: 1; }
+.nav-label { font-size: 10px; font-weight: 600; letter-spacing: 0.2px; }
+.more-menu-item {
+  display: block; width: 100%; padding: 10px 14px; text-align: left;
+  background: none; border: none; cursor: pointer; font-family: inherit;
+  font-size: 13px; color: var(--navy); border-radius: 8px; font-weight: 500;
+}
+.more-menu-item:hover { background: var(--gl); }
+.nav-btn.active { background: rgba(255,255,255,0.22); color: #fff; font-weight: 700; border-bottom: 2.5px solid var(--gold); }
 .nav-right { display: flex; align-items: center; gap: 10px; margin-left: 12px; flex-shrink: 0; }
 .nav-user  { font-size: 12px; color: var(--gm); }
 .btn-logout {
@@ -656,22 +665,42 @@ body { background: #eef1f8; color: var(--gt); min-height: 100vh; font-size: 14px
       <div class="logo-badge">ST</div>
       <div class="nav-brand">Simtec</div>
     </div>
-    <div class="nav-links">
-      <button class="nav-btn active" onclick="nav('sales',this)">Sales form</button>
-      <button class="nav-btn" onclick="nav('dashboard',this)">Dashboard</button>
-      <button class="nav-btn" onclick="nav('workflow',this)">Workflow</button>
-      <button class="nav-btn" onclick="nav('commissions',this)">Commissions</button>
-      <button class="nav-btn" onclick="nav('awards',this)">Awards</button>
-      <button class="nav-btn" onclick="nav('credit',this)">Credit score</button>
-      <button class="nav-btn" onclick="nav('delivery',this)">Delivery</button>
-      <button class="nav-btn" onclick="nav('cancel',this)">Cancellation</button>
-      <button class="nav-btn" onclick="nav('stock',this)">Stock</button>
-      <button class="nav-btn" onclick="nav('reports',this)">Reports</button>
-      <button class="nav-btn" onclick="nav('setup',this)">DB Setup</button>
-      <button class="nav-btn" onclick="nav('config',this)">Config</button>
-      <button class="nav-btn" onclick="nav('manual',this)">Manual form</button>
-      <button class="nav-btn" onclick="nav('appointments',this)">Appointments</button>
-      <button class="nav-btn" onclick="nav('nosale',this)">No sale contacts</button>
+    <div class="nav-links" id="main-nav-links">
+      <button class="nav-btn active" onclick="nav('dashboard',this)">
+        <span class="nav-icon">📊</span><span class="nav-label">Dashboard</span>
+      </button>
+      <button class="nav-btn" onclick="nav('sales',this)">
+        <span class="nav-icon">📝</span><span class="nav-label">New order</span>
+      </button>
+      <button class="nav-btn" onclick="nav('appointments',this)">
+        <span class="nav-icon">📅</span><span class="nav-label">Diary</span>
+      </button>
+      <button class="nav-btn" onclick="nav('delivery',this)">
+        <span class="nav-icon">🚚</span><span class="nav-label">Delivery</span>
+      </button>
+      <button class="nav-btn" onclick="nav('nosale',this)">
+        <span class="nav-icon">👥</span><span class="nav-label">No sale</span>
+      </button>
+      <button class="nav-btn" onclick="nav('reports',this)">
+        <span class="nav-icon">📈</span><span class="nav-label">Reports</span>
+      </button>
+      <button class="nav-btn" onclick="nav('config',this)">
+        <span class="nav-icon">⚙️</span><span class="nav-label">Config</span>
+      </button>
+      <div style="position:relative">
+        <button class="nav-btn" onclick="toggleMoreMenu()" id="more-menu-btn">
+          <span class="nav-icon">☰</span><span class="nav-label">More</span>
+        </button>
+        <div id="more-menu" style="display:none;position:fixed;top:70px;right:12px;background:#fff;border:1.5px solid var(--border);border-radius:12px;box-shadow:0 4px 24px rgba(30,58,110,.15);z-index:9000;min-width:200px;padding:6px">
+          <button class="more-menu-item" onclick="nav('manual',null);toggleMoreMenu()">📄 &nbsp;Manual form</button>
+          <button class="more-menu-item" onclick="nav('commissions',null);toggleMoreMenu()">💰 &nbsp;Commissions</button>
+          <button class="more-menu-item" onclick="nav('awards',null);toggleMoreMenu()">🏆 &nbsp;Awards</button>
+          <button class="more-menu-item" onclick="nav('credit',null);toggleMoreMenu()">📋 &nbsp;Credit score</button>
+          <button class="more-menu-item" onclick="nav('workflow',null);toggleMoreMenu()">⚡ &nbsp;Workflow</button>
+          <div style="border-top:1px solid var(--border);margin:4px 0"></div>
+          <button class="more-menu-item" onclick="nav('setup',null);toggleMoreMenu()">🗄️ &nbsp;DB Setup</button>
+        </div>
+      </div>
     </div>
     <div class="nav-right">
       <div class="nav-user" id="nav-user-label"></div>
@@ -1555,6 +1584,7 @@ function showApp() {
     loadProducts();
     loadConsultants();
     loadConfig();
+    startSessionTimer();
   } else {
     document.getElementById('caller-screen').style.display = 'none';
     document.getElementById('consultant-screen').style.display = 'none';
@@ -1564,6 +1594,7 @@ function showApp() {
     loadProducts();
     loadConsultants();
     startRealtimeUpdates();
+    startSessionTimer();
   }
 }
 
@@ -2393,6 +2424,46 @@ async function markPaymentFollowUpDone(orderId) {
   showToast('Marked as resolved ✓', 'success');
   loadDashboard();
 }
+
+// ── MORE MENU ──
+function toggleMoreMenu() {
+  const menu = document.getElementById('more-menu');
+  if (!menu) return;
+  menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
+}
+// Close more menu when clicking outside
+document.addEventListener('click', function(e) {
+  const menu = document.getElementById('more-menu');
+  const btn = document.getElementById('more-menu-btn');
+  if (menu && !menu.contains(e.target) && btn && !btn.contains(e.target)) {
+    menu.style.display = 'none';
+  }
+});
+
+// ── SESSION TIMEOUT (30 min for consultant, 2 hours for admin) ──
+let lastActivity = Date.now();
+let sessionTimer = null;
+
+function resetActivityTimer() {
+  lastActivity = Date.now();
+}
+
+function startSessionTimer() {
+  if (sessionTimer) clearInterval(sessionTimer);
+  const timeoutMs = currentRole === 'consultant' ? 30 * 60 * 1000 : 2 * 60 * 60 * 1000;
+  sessionTimer = setInterval(() => {
+    if (Date.now() - lastActivity > timeoutMs) {
+      clearInterval(sessionTimer);
+      showToast('Session expired — please log in again', 'error');
+      setTimeout(doLogout, 2000);
+    }
+  }, 60000); // check every minute
+}
+
+// Track user activity
+['click', 'touchstart', 'keydown', 'scroll'].forEach(evt => {
+  document.addEventListener(evt, resetActivityTimer, { passive: true });
+});
 
 function timeAgo(iso) {
   const mins = Math.floor((Date.now() - new Date(iso)) / 60000);
