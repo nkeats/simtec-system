@@ -1,3 +1,5 @@
+let configCache = {};
+
 
 // ══════════════════════════════════════════════════════
 // AUDIO ALERT
@@ -1465,8 +1467,6 @@ async function confirmCancellationFromDelivery(orderId, customerName) {
 // CONFIGURATION PANEL
 // ══════════════════════════════════════════════════════
 
-let configCache = {};
-
 function switchConfigTab(tab, btn) {
   document.querySelectorAll('.config-tab').forEach(b => b.classList.remove('active'));
   document.querySelectorAll('.config-tab-content').forEach(c => c.style.display = 'none');
@@ -1841,6 +1841,10 @@ async function addStaff() {
 }
 
 // Render staff list in config panel
+async function renderStaff() {
+  await renderStaffConfig();
+}
+
 async function renderStaffConfig() {
   const container = document.getElementById('staff-list');
   if (!container || !sbClient) return;
