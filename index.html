@@ -694,6 +694,7 @@ body { background: #eef1f8; color: var(--gt); min-height: 100vh; font-size: 14px
         <div id="more-menu" style="display:none;position:fixed;top:70px;right:12px;background:#fff;border:1.5px solid var(--border);border-radius:12px;box-shadow:0 4px 24px rgba(30,58,110,.15);z-index:9000;min-width:200px;padding:6px">
           <button class="more-menu-item" onclick="nav('customers',null);toggleMoreMenu()">🔍 &nbsp;Customer search</button>
           <button class="more-menu-item" onclick="nav('scorecard',null);toggleMoreMenu()">📊 &nbsp;Consultant scorecards</button>
+          <button class="more-menu-item" onclick="nav('clawbacks',null);toggleMoreMenu()">↩ &nbsp;Clawbacks</button>
           <button class="more-menu-item" onclick="nav('manual',null);toggleMoreMenu()">📄 &nbsp;Manual form</button>
           <button class="more-menu-item" onclick="nav('commissions',null);toggleMoreMenu()">💰 &nbsp;Commissions</button>
           <button class="more-menu-item" onclick="nav('awards',null);toggleMoreMenu()">🏆 &nbsp;Awards</button>
@@ -1302,6 +1303,39 @@ body { background: #eef1f8; color: var(--gt); min-height: 100vh; font-size: 14px
     </div>
   </div>
 
+  <!-- ── CLAWBACKS ── -->
+  <div id="s-clawbacks" class="screen">
+    <div class="page-header">
+      <div><div class="page-title">Clawbacks</div><div class="page-sub">Pre-delivery cancellations pending commission deduction</div></div>
+      <button class="btn-outline btn-sm" onclick="loadClawbacks()">↻ Refresh</button>
+    </div>
+
+    <!-- SUMMARY CARDS -->
+    <div class="metric-grid" style="margin-bottom:16px">
+      <div class="mcard"><div class="mcard-label">Pending clawbacks</div><div class="mcard-val" id="claw-pending" style="color:#8a2222">—</div></div>
+      <div class="mcard"><div class="mcard-label">Applied this week</div><div class="mcard-val" id="claw-applied-week">—</div></div>
+      <div class="mcard"><div class="mcard-label">Total value pending</div><div class="mcard-val" id="claw-pending-value" style="color:#8a2222">—</div></div>
+      <div class="mcard"><div class="mcard-label">All time clawbacks</div><div class="mcard-val" id="claw-total">—</div></div>
+    </div>
+
+    <!-- PENDING CLAWBACKS -->
+    <div class="card">
+      <div class="card-title">Pending clawbacks</div>
+      <div class="card-sub">These will be automatically deducted from the consultant's next commission run. Mark as applied once the deduction has been processed.</div>
+      <div id="claw-pending-list">
+        <div style="text-align:center;padding:30px;color:var(--gm);font-size:13px">Loading...</div>
+      </div>
+    </div>
+
+    <!-- APPLIED CLAWBACKS -->
+    <div class="card" style="margin-top:14px">
+      <div class="card-title">Applied clawbacks</div>
+      <div id="claw-applied-list">
+        <div style="text-align:center;padding:20px;color:var(--gm);font-size:13px">Loading...</div>
+      </div>
+    </div>
+  </div>
+
   <!-- ── CONSULTANT SCORECARDS ── -->
   <div id="s-scorecard" class="screen">
     <div class="page-header">
@@ -1663,6 +1697,7 @@ function nav(id, btn) {
   if (id === 'nosale') loadNoSaleContacts();
   if (id === 'customers') { document.getElementById('customer-search-input').value = ''; searchCustomers(''); }
   if (id === 'scorecard') loadScorecards();
+  if (id === 'clawbacks') loadClawbacks();
   if (id === 'reports') { loadConfig().then(loadReports); }
 }
 
@@ -2449,6 +2484,7 @@ async function confirmCoolingOffCancel(orderId, customerName) {
   const { error } = await sbClient.from('orders').update({
     cancelled_at: new Date().toISOString(),
     cooling_off_cancel: true,
+    clawback_status: 'pending',
     call_notes: (order?.call_notes || '') + ' | Cooling-off cancellation. Reason: ' + reason + '.'
   }).eq('id', orderId);
 
@@ -2868,41 +2904,36 @@ async function confirmCancellationFromDelivery(orderId, customerName) {
 
   const reason = document.getElementById('cancel-reason-select')?.value || 'other';
 
-  // Get the full order details for the email
+  // Get the full order details
   const { data: orders } = await sbClient.from('orders').select('*').eq('id', orderId).limit(1);
   const order = orders?.[0];
 
-  // Cancel the order
+  // Cancel the order and flag for clawback
   const { error } = await sbClient.from('orders').update({
     cancelled_at: new Date().toISOString(),
-    call_notes: (order?.call_notes || '') + `
-Cancelled by admin. Reason: ${reason}.`
+    clawback_status: 'pending',
+    call_notes: (order?.call_notes || '') + ' | Cancelled by admin. Reason: ' + reason + '.'
   }).eq('id', orderId);
 
-  if (error) {
-    showToast('Error cancelling order: ' + error.message, 'error');
-    return;
-  }
+  if (error) { showToast('Error cancelling order: ' + error.message, 'error'); return; }
 
-  // Send cancellation email via Edge Function
+  // Send cancellation email
   if (order?.email) {
     try {
       await fetch('https://jvqjoenaungubpoegyvf.supabase.co/functions/v1/cancellation-email', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imp2cWpvZW5hdW5ndWJwb2VneXZmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA1MzQyMjYsImV4cCI6MjA5NjExMDIyNn0.ypVt8578XTdNwBH6TRDn30s1cF_rHTu67qCWYv5XHcQ'
-        },
+        headers: { 'Content-Type': 'application/json',
+          'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imp2cWpvZW5hdW5ndWJwb2VneXZmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA1MzQyMjYsImV4cCI6MjA5NjExMDIyNn0.ypVt8578XTdNwBH6TRDn30s1cF_rHTu67qCWYv5XHcQ' },
         body: JSON.stringify({ order })
       });
-    } catch(e) {
-    // email notification failed
-    }
+    } catch(e) { /* email failed silently */ }
   }
 
   document.getElementById('cancel-delivery-modal')?.remove();
-  showToast(`Order for ${customerName} cancelled - cancellation email sent`, 'success');
+  showToast('Order for ' + customerName + ' cancelled — clawback flagged for next commission run', 'success');
   loadDeliveryQueue();
+  // Refresh clawback dashboard if visible
+  if (document.getElementById('s-clawbacks')?.style.display !== 'none') loadClawbacks();
 }
 
 // ══════════════════════════════════════════════════════
@@ -4530,6 +4561,115 @@ async function saveStaffEdit() {
   await loadConsultants();
   closeStaffEdit();
   showToast(updated.name + ' updated ✓', 'success');
+}
+
+// ══════════════════════════════════════════════════════
+// CLAWBACK MANAGEMENT
+// ══════════════════════════════════════════════════════
+
+async function loadClawbacks() {
+  if (!sbClient) return;
+
+  // Fetch all cancelled orders with clawback status
+  const { data: clawbacks } = await sbClient
+    .from('orders')
+    .select('*')
+    .not('clawback_status', 'is', null)
+    .order('cancelled_at', { ascending: false });
+
+  const all = clawbacks || [];
+  const pending = all.filter(o => o.clawback_status === 'pending');
+  const applied = all.filter(o => o.clawback_status === 'applied');
+
+  // Week start
+  const now = new Date();
+  const weekAgo = new Date(now.getTime() - 7*24*60*60*1000);
+  const appliedThisWeek = applied.filter(o => new Date(o.clawback_applied_at || 0) > weekAgo);
+
+  const pendingValue = pending.reduce((s, o) => s + getClawbackAmount(o), 0);
+
+  const m = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
+  m('claw-pending', pending.length);
+  m('claw-applied-week', appliedThisWeek.length);
+  m('claw-pending-value', '$' + pendingValue.toLocaleString('en-NZ'));
+  m('claw-total', all.length);
+
+  // Render pending list
+  const pendingList = document.getElementById('claw-pending-list');
+  if (pendingList) {
+    if (pending.length === 0) {
+      pendingList.innerHTML = '<div style="color:var(--green);font-size:13px;padding:12px 0">No pending clawbacks ✓</div>';
+    } else {
+      pendingList.innerHTML = '<table class="dtable">' +
+        '<tr><th>Customer</th><th>Consultant</th><th>Sale value</th><th>Commission paid</th><th>Clawback</th><th>Cancelled</th><th>Reason</th><th></th></tr>' +
+        pending.map(o => {
+          const claw = getClawbackAmount(o);
+          const commPaid = getCommissionPaid(o);
+          return '<tr>' +
+            '<td><b>' + o.fname + ' ' + o.lname + '</b></td>' +
+            '<td>' + (o.consultant || '-') + '</td>' +
+            '<td>$' + (o.total || 0).toLocaleString('en-NZ') + '</td>' +
+            '<td style="color:var(--gm)">$' + commPaid.toLocaleString('en-NZ') + '</td>' +
+            '<td style="font-weight:700;color:#8a2222">-$' + claw.toLocaleString('en-NZ') + '</td>' +
+            '<td style="font-size:12px;color:var(--gm)">' + formatDate(o.cancelled_at) + '</td>' +
+            '<td style="font-size:12px;color:var(--gm)">' + (o.cooling_off_cancel ? 'Cooling-off' : 'Pre-delivery') + '</td>' +
+            '<td><button class="btn-outline btn-sm" onclick="applyClawback(\'' + o.id + '\',\'' + o.consultant + '\',' + claw + ')">Mark applied</button></td>' +
+            '</tr>';
+        }).join('') + '</table>';
+    }
+  }
+
+  // Render applied list
+  const appliedList = document.getElementById('claw-applied-list');
+  if (appliedList) {
+    if (applied.length === 0) {
+      appliedList.innerHTML = '<div style="color:var(--gm);font-size:13px;padding:12px 0">No applied clawbacks yet.</div>';
+    } else {
+      appliedList.innerHTML = '<table class="dtable">' +
+        '<tr><th>Customer</th><th>Consultant</th><th>Clawback</th><th>Applied</th></tr>' +
+        applied.slice(0, 20).map(o => '<tr>' +
+          '<td><b>' + o.fname + ' ' + o.lname + '</b></td>' +
+          '<td>' + (o.consultant || '-') + '</td>' +
+          '<td style="color:var(--gm)">-$' + getClawbackAmount(o).toLocaleString('en-NZ') + '</td>' +
+          '<td style="font-size:12px;color:var(--gm)">' + (o.clawback_applied_at ? formatDate(o.clawback_applied_at) : '-') + '</td>' +
+          '</tr>').join('') + '</table>';
+    }
+  }
+}
+
+function getClawbackAmount(order) {
+  // Clawback = commission that was paid on this sale
+  // Uses same logic as weekly commission calculation
+  const sales = 1; // This was one sale
+  const total = order.total || 0;
+  const isMkIKS = (order.items || []).some(i => (i.name || '').includes('Mk I') && (i.name || '').includes('King Single'));
+  if (isMkIKS) return 0; // No commission on Mk I King Single
+  const isCash = order.pay_type === 'c';
+  // Use config commission tiers
+  const tiers = configCache['commission'] && configCache['commission']['tiers']
+    ? configCache['commission']['tiers']
+    : { 1: 200, 5: 300, 10: 400 };
+  // Single sale = lowest tier
+  const baseComm = tiers[1] || 200;
+  const cashBonus = isCash ? (configCache['commission']?.settings?.cash_bonus || 100) : 0;
+  return baseComm + cashBonus;
+}
+
+function getCommissionPaid(order) {
+  return getClawbackAmount(order);
+}
+
+async function applyClawback(orderId, consultantName, amount) {
+  if (!sbClient) return;
+  if (!confirm('Mark this clawback of $' + amount + ' as applied against ' + consultantName + "'s next commission run?")) return;
+
+  await sbClient.from('orders').update({
+    clawback_status: 'applied',
+    clawback_applied_at: new Date().toISOString()
+  }).eq('id', orderId);
+
+  showToast('Clawback of $' + amount + ' applied ✓', 'success');
+  loadClawbacks();
 }
 
 // ══════════════════════════════════════════════════════
