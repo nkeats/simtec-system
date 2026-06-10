@@ -1484,7 +1484,15 @@ function switchConfigTab(tab, btn) {
 async function loadConfig() {
   if (!sbClient) return;
   const { data, error } = await sbClient.from('config').select('*').order('category').order('key');
-  if (error) { showToast('Error loading config: ' + error.message, 'error'); return; }
+  if (error) {
+    console.error('Config load error:', error.message, error.code);
+    showToast('Config error: ' + error.message, 'error');
+    return;
+  }
+  if (!data || data.length === 0) {
+    showToast('Config table appears empty — check Supabase RLS policies', 'error');
+    return;
+  }
 
   configCache = {};
   for (const row of data) {
@@ -2731,7 +2739,11 @@ const DEFAULT_TEMPLATES = {
     subject:"A special message for you from Simtec Therapeutic",
     body:"<p>Hi {{fname}},</p><p>We wanted to reach out with something we think you will find interesting.</p><p>[Edit this section with your current offer or message]</p><p>Warm regards,<br><strong>The Simtec Therapeutic Team</strong><br>09 886 9897</p>" },
   marketing_sms: { label:"Marketing / re-engagement SMS", type:"sms",
-    body:"Hi {{fname}}, this is Simtec Therapeutic with a message we think you will like. [Edit with your current offer]. Call 09 886 9897." }
+    body:"Hi {{fname}}, this is Simtec Therapeutic with a message we think you will like. [Edit with your current offer]. Call 09 886 9897." },
+  commission_sms: { label:"Weekly commission SMS (to consultant)", type:"sms",
+    body:"Hi {{fname}}, great week! {{sales}} sales this week, commission of ${{commission}}. {{award_message}} Keep it up! - Simtec" },
+  award_notification_sms: { label:"Award achievement SMS (to consultant)", type:"sms",
+    body:"Congratulations {{fname}}! You have just achieved your {{award_level}} Award. Well done - the whole team is proud of you! - Simtec" }
 };
 let currentTemplateKey = null;
 
