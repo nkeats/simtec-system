@@ -542,9 +542,15 @@ function recalc() {
   }
   document.getElementById('total-val').textContent = '$' + total.toLocaleString('en-AU', { minimumFractionDigits: 2 });
   document.getElementById('item-count').textContent = count + (count === 1 ? ' item' : ' items');
+  const payTypeEl = document.getElementById('f-paytype');
+  const payTypeVal = payTypeEl ? payTypeEl.value : 'dd_weekly';
+  const isFortnightly = payTypeVal === 'dd_fortnightly';
   const payWeeks = (configCache['delivery'] && configCache['delivery']['settings'] && configCache['delivery']['settings'].payment_weeks) || 156;
-  const weekly = total > 0 ? total / payWeeks : 0;
-  document.getElementById('weekly-val').textContent = weekly > 0 ? '$' + weekly.toFixed(2) + '/wk' : '-';
+  const payPeriods = isFortnightly ? Math.ceil(payWeeks / 2) : payWeeks;
+  const weekly = total > 0 ? total / payPeriods : 0;
+  const repLabel = document.getElementById('repayment-label');
+  if (repLabel) repLabel.textContent = isFortnightly ? 'Fortnightly repayment' : 'Weekly repayment';
+  document.getElementById('weekly-val').textContent = weekly > 0 ? '$' + weekly.toFixed(2) + (isFortnightly ? '/fn' : '/wk') : '-';
   const summary = document.getElementById('order-summary');
   document.getElementById('order-items').innerHTML = items.map(i =>
     `<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--border);font-size:13px">
@@ -559,9 +565,18 @@ function deliveryChange(cb) {
 }
 
 function payChange(sel) {
-  document.getElementById('pay-note').textContent = sel.value === 'c'
-    ? 'Cash sale - full amount upfront. No Ezidebit required. Invoice emailed to customer. Delivery fee still applies. Cash sale bonus of $100 applies to consultant commission.'
-    : 'Once submitted, the Ezidebit direct debit application opens on this tablet. The consultant guides the customer through completing their payment details before leaving the home. Weekly repayment = Total ÷ 156 weeks.';
+  const val = sel.value;
+  const isDD = val === 'dd_weekly' || val === 'dd_fortnightly' || val === 'deposit_50';
+  const payDayRow = document.getElementById('f-payday-row');
+  if (payDayRow) payDayRow.style.display = isDD ? '' : 'none';
+  const payNote = document.getElementById('pay-note');
+  if (payNote) {
+    if (val === 'dd_fortnightly') payNote.textContent = 'Fortnightly Ezidebit. 5 consecutive fortnightly payments required before delivery.';
+    else if (val === 'deposit_50') payNote.textContent = '50% deposit upfront, then Ezidebit for balance. 5 consecutive payments not required for delivery.';
+    else if (val === 'full' || val === 'c') payNote.textContent = 'Full payment upfront. No consecutive payment requirement for delivery.';
+    else payNote.textContent = 'Weekly Ezidebit direct debit. 5 consecutive payments required before delivery.';
+  }
+  recalc();
 }
 
 async function submitOrder() {
@@ -584,17 +599,38 @@ async function submitOrder() {
     items.push({ name: t.dataset.name, price, qty });
   });
 
+  const payTypeSubmit = document.getElementById('f-paytype').value;
+  const isFortSubmit = payTypeSubmit === 'dd_fortnightly';
+  const pwSubmit = (configCache['delivery']?.settings?.payment_weeks) || 156;
+  const ppSubmit = isFortSubmit ? Math.ceil(pwSubmit / 2) : pwSubmit;
+
   const order = {
     fname, lname,
     phone:            document.getElementById('f-phone').value.trim(),
     email:            document.getElementById('f-email').value.trim(),
     address:          document.getElementById('f-address').value.trim(),
+    suburb:           document.getElementById('f-suburb')?.value.trim() || '',
+    postcode:         document.getElementById('f-postcode')?.value.trim() || '',
+    licence:          document.getElementById('f-licence')?.value.trim() || '',
+    comments:         document.getElementById('f-comments')?.value.trim() || '',
+    preferred_delivery_date: document.getElementById('f-delivery-date')?.value || null,
+    marketing_consent: document.getElementById('f-marketing-consent')?.checked || false,
+    referee1_name:    document.getElementById('f-ref1-name')?.value.trim() || '',
+    referee1_rel:     document.getElementById('f-ref1-rel')?.value.trim() || '',
+    referee1_phone:   document.getElementById('f-ref1-phone')?.value.trim() || '',
+    referee1_email:   document.getElementById('f-ref1-email')?.value.trim() || '',
+    referee2_name:    document.getElementById('f-ref2-name')?.value.trim() || '',
+    referee2_rel:     document.getElementById('f-ref2-rel')?.value.trim() || '',
+    referee2_phone:   document.getElementById('f-ref2-phone')?.value.trim() || '',
+    referee2_email:   document.getElementById('f-ref2-email')?.value.trim() || '',
     consultant:       document.getElementById('f-consultant').value,
     consultant_phone: document.getElementById('f-consultant-phone').value.trim(),
     pay_day:          document.getElementById('f-payday').value,
-    pay_type:         document.getElementById('f-paytype').value,
+    pay_type:         payTypeSubmit,
+    payment_frequency: isFortSubmit ? 'fortnightly' : 'weekly',
+    consecutive_payments_waived: ['full','c','deposit_50'].includes(payTypeSubmit),
     total,
-    weekly_rep: +((total / ((configCache['delivery']?.settings?.payment_weeks) || 156)).toFixed(2)),
+    weekly_rep: +((total / ppSubmit).toFixed(2)),
     items,
     call_status: 'pending',
     signature_data: (document.getElementById('consultant-signature-pad') ? consultantSignatureData : signatureData) || null

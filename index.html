@@ -727,11 +727,14 @@ body { background: #eef1f8; color: var(--gt); min-height: 100vh; font-size: 14px
       <div class="form-grid">
         <div><label class="flabel">First name</label><input class="finput" id="f-fname" placeholder="Sarah" /></div>
         <div><label class="flabel">Last name</label><input class="finput" id="f-lname" placeholder="Mitchell" /></div>
-        <div class="fg-full"><label class="flabel">Street address</label><input class="finput" id="f-address" placeholder="12 Example St, Darwin NT 0800" /></div>
-        <div><label class="flabel">Mobile</label><input class="finput" id="f-phone" placeholder="0400 000 000" /></div>
+        <div class="fg-full"><label class="flabel">Street address</label><input class="finput" id="f-address" placeholder="12 Example St, Auckland" /></div>
+        <div><label class="flabel">Suburb</label><input class="finput" id="f-suburb" placeholder="Onehunga" /></div>
+        <div><label class="flabel">Postcode</label><input class="finput" id="f-postcode" placeholder="1061" maxlength="4" /></div>
+        <div><label class="flabel">Mobile</label><input class="finput" id="f-phone" placeholder="021 000 0000" /></div>
         <div><label class="flabel">Email</label><input class="finput" id="f-email" type="email" placeholder="sarah@email.com" /></div>
+        <div><label class="flabel">Driver licence #</label><input class="finput" id="f-licence" placeholder="AB123456" /></div>
 
-        <!-- ═══ CONSULTANTS — update names and phone numbers here when in NZ ═══ -->
+        <!-- CONSULTANT -->
         <div><label class="flabel">Sleep consultant</label>
           <select class="finput" id="f-consultant" onchange="consultantChange(this)">
             <option value="">-- Select consultant --</option>
@@ -739,17 +742,57 @@ body { background: #eef1f8; color: var(--gt); min-height: 100vh; font-size: 14px
           <input type="hidden" id="f-consultant-phone" value="" />
         </div>
 
-        <div><label class="flabel">Weekly payment day</label>
+        <!-- PAYMENT METHOD -->
+        <div><label class="flabel">Payment method</label>
+          <select class="finput" id="f-paytype" onchange="payChange(this)">
+            <option value="dd_weekly">Weekly direct debit (Ezidebit)</option>
+            <option value="dd_fortnightly">Fortnightly direct debit (Ezidebit)</option>
+            <option value="deposit_50">50% deposit then direct debit</option>
+            <option value="full">Pay in full / direct deposit</option>
+            <option value="c">Cash — full amount upfront</option>
+          </select>
+        </div>
+
+        <!-- PAYMENT DAY - shown for DD options only -->
+        <div id="f-payday-row"><label class="flabel">Payment day</label>
           <select class="finput" id="f-payday">
             <option>Monday</option><option>Tuesday</option><option>Wednesday</option>
             <option>Thursday</option><option>Friday</option>
           </select>
         </div>
-        <div><label class="flabel">Payment type</label>
-          <select class="finput" id="f-paytype" onchange="payChange(this)">
-            <option value="dd">Weekly direct debit (Ezidebit)</option>
-            <option value="c">Cash — full amount upfront</option>
-          </select>
+
+        <!-- PREFERRED DELIVERY DATE -->
+        <div><label class="flabel">Preferred delivery date</label>
+          <input class="finput" id="f-delivery-date" type="date" />
+        </div>
+
+        <!-- ORDER COMMENTS -->
+        <div class="fg-full"><label class="flabel">Order comments</label>
+          <input class="finput" id="f-comments" placeholder="Any notes about this order..." /></div>
+      </div>
+
+      <!-- REFEREES -->
+      <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border)">
+        <div class="card-title" style="font-size:13px;margin-bottom:10px">Referees <span style="font-size:11px;color:var(--gm);font-weight:400">(not living with the customer)</span></div>
+        <div class="form-grid">
+          <div><label class="flabel">Referee 1 — Name</label><input class="finput" id="f-ref1-name" placeholder="John Smith" /></div>
+          <div><label class="flabel">Relationship</label><input class="finput" id="f-ref1-rel" placeholder="Brother" /></div>
+          <div><label class="flabel">Phone</label><input class="finput" id="f-ref1-phone" placeholder="021 000 0000" /></div>
+          <div><label class="flabel">Email</label><input class="finput" id="f-ref1-email" type="email" placeholder="john@email.com" /></div>
+          <div><label class="flabel">Referee 2 — Name</label><input class="finput" id="f-ref2-name" placeholder="Jane Brown" /></div>
+          <div><label class="flabel">Relationship</label><input class="finput" id="f-ref2-rel" placeholder="Friend" /></div>
+          <div><label class="flabel">Phone</label><input class="finput" id="f-ref2-phone" placeholder="021 000 0000" /></div>
+          <div><label class="flabel">Email</label><input class="finput" id="f-ref2-email" type="email" placeholder="jane@email.com" /></div>
+        </div>
+      </div>
+
+      <!-- MARKETING CONSENT -->
+      <div style="margin-top:16px;background:var(--gl);border-radius:10px;padding:14px 18px;border:1.5px solid var(--border)">
+        <div style="display:flex;align-items:flex-start;gap:12px">
+          <input type="checkbox" id="f-marketing-consent" style="width:18px;height:18px;cursor:pointer;accent-color:var(--navy);margin-top:2px;flex-shrink:0">
+          <label for="f-marketing-consent" style="font-size:13px;color:var(--navy);cursor:pointer;line-height:1.5">
+            <strong>Marketing consent</strong> — The customer consents that Simtec Therapeutic may use photos or testimonials for promotional purposes on various media platforms.
+          </label>
         </div>
       </div>
     </div>
@@ -769,7 +812,7 @@ body { background: #eef1f8; color: var(--gt); min-height: 100vh; font-size: 14px
       <div class="sum-bar">
         <div><div class="sl">Items selected</div><div class="sv" id="item-count">0 items</div></div>
         <div><div class="sl">Total sale</div><div class="sv" id="total-val">$0.00</div></div>
-        <div><div class="sl">Weekly repayment</div><div class="sv" id="weekly-val">—</div></div>
+        <div><div class="sl" id="repayment-label">Weekly repayment</div><div class="sv" id="weekly-val">—</div></div>
       </div>
 
       <!-- DELIVERY CHECKBOX -->
