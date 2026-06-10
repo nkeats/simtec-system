@@ -1651,6 +1651,7 @@ function switchConfigTab(tab, btn) {
     const ed = document.getElementById('template-editor');
     if (ed) ed.style.display = 'none';
   }
+  if (tab === 'users') loadUsers();
 }
 
 async function loadConfig() {
@@ -3387,6 +3388,175 @@ async function checkAndCompleteEzidebitLoan(orderId) {
 
   if (balance <= 0) {
     await markLoanComplete(orderId, order.fname + ' ' + order.lname);
+  }
+}
+
+// ══════════════════════════════════════════════════════
+// USER MANAGEMENT
+// ══════════════════════════════════════════════════════
+
+const ROLE_LABELS = {
+  admin: { label: 'Admin', colour: '#8a2222', bg: '#fff0f0' },
+  office: { label: 'Office', colour: '#1a7a44', bg: '#edfaf3' },
+  consultant: { label: 'Sleep Consultant', colour: '#1e3a6e', bg: '#f0f4fb' },
+  caller: { label: 'Caller', colour: '#8a5500', bg: '#fdf6e3' },
+};
+
+
+async function userMgmtCall(payload) {
+  const session = await sbClient.auth.getSession();
+  const token = session?.data?.session?.access_token || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imp2cWpvZW5hdW5ndWJwb2VneXZmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA1MzQyMjYsImV4cCI6MjA5NjExMDIyNn0.ypVt8578XTdNwBH6TRDn30s1cF_rHTu67qCWYv5XHcQ';
+  const res = await fetch('https://jvqjoenaungubpoegyvf.supabase.co/functions/v1/user-management', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+    body: JSON.stringify(payload)
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'User management error');
+  return data;
+}
+async function loadUsers() {
+  const container = document.getElementById('users-list');
+  if (!container || !sbClient) return;
+  container.innerHTML = '<div style="text-align:center;padding:20px;color:var(--gm);font-size:13px">Loading...</div>';
+
+  try {
+    const data = await userMgmtCall({ action: 'list' });
+    const users = (data.users || []).sort((a, b) => {
+      const ra = a.user_metadata?.role || 'z';
+      const rb = b.user_metadata?.role || 'z';
+      return ra.localeCompare(rb) || (a.user_metadata?.name || '').localeCompare(b.user_metadata?.name || '');
+    });
+
+    if (users.length === 0) {
+      container.innerHTML = '<div style="color:var(--gm);font-size:13px;padding:12px 0">No users found.</div>';
+      return;
+    }
+
+    container.innerHTML = users.map(u => {
+      const role = u.user_metadata?.role || 'unknown';
+      const name = u.user_metadata?.name || '—';
+      const roleInfo = ROLE_LABELS[role] || { label: role, colour: '#888', bg: '#f4f6fa' };
+      const lastSeen = u.last_sign_in_at ? timeAgo(u.last_sign_in_at) : 'Never';
+      const confirmed = u.email_confirmed_at ? true : false;
+
+      return `<div class="config-row" style="flex-wrap:wrap;gap:8px;align-items:center">
+        <div style="flex:2;min-width:180px">
+          <div class="config-label">${name}</div>
+          <div class="config-sub">${u.email}</div>
+          <div style="font-size:11px;color:var(--gm);margin-top:2px">Last login: ${lastSeen} ${!confirmed ? '· <span style="color:#8a5500">Invite pending</span>' : ''}</div>
+        </div>
+        <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+          <span style="font-size:12px;font-weight:700;color:${roleInfo.colour};background:${roleInfo.bg};padding:4px 10px;border-radius:20px">${roleInfo.label}</span>
+          <button class="btn-outline btn-sm" onclick="openEditUser('${u.id}','${name.replace(/'/g,'&apos;')}','${u.email}','${role}')">Edit</button>
+          ${u.email !== currentUser?.email ? `<button class="btn-red btn-sm" onclick="deactivateUser('${u.id}','${name.replace(/'/g,'&apos;')}')">Remove</button>` : '<span style="font-size:11px;color:var(--gm)">(you)</span>'}
+        </div>
+      </div>`;
+    }).join('');
+
+  } catch(e) {
+    container.innerHTML = `<div style="color:var(--red);font-size:13px;padding:12px">
+      Could not load users. This requires admin API access.<br>
+      <span style="font-size:12px;color:var(--gm)">Error: ${e.message}</span>
+    </div>`;
+  }
+}
+
+function openEditUser(userId, name, email, role) {
+  const existing = document.getElementById('edit-user-modal');
+  if (existing) existing.remove();
+
+  const modal = document.createElement('div');
+  modal.id = 'edit-user-modal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(20,30,60,.6);z-index:2000;display:flex;align-items:center;justify-content:center;padding:20px';
+  modal.innerHTML = `
+    <div style="background:#fff;border-radius:18px;padding:28px;width:100%;max-width:440px;box-shadow:0 4px 32px rgba(30,58,110,.18)">
+      <div style="font-size:17px;font-weight:700;color:var(--navy);margin-bottom:16px">Edit user — ${name}</div>
+      <div style="font-size:13px;color:var(--gm);margin-bottom:16px">${email}</div>
+      <div class="form-grid">
+        <div class="fg-full"><label class="flabel">Full name</label>
+          <input class="finput" id="edit-user-name" value="${name}" /></div>
+        <div class="fg-full"><label class="flabel">Role</label>
+          <select class="finput" id="edit-user-role">
+            <option value="consultant" ${role==='consultant'?'selected':''}>Sleep Consultant</option>
+            <option value="office" ${role==='office'?'selected':''}>Office</option>
+            <option value="caller" ${role==='caller'?'selected':''}>Caller</option>
+            <option value="admin" ${role==='admin'?'selected':''}>Admin</option>
+          </select>
+        </div>
+      </div>
+      <div style="display:flex;gap:10px;margin-top:16px">
+        <button onclick="saveUserEdit('${userId}')"
+          style="flex:1;padding:13px;background:var(--navy);color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;font-family:inherit">
+          Save changes
+        </button>
+        <button onclick="document.getElementById('edit-user-modal').remove()"
+          style="padding:13px 20px;background:#f4f6fa;color:var(--navy);border:none;border-radius:10px;font-size:14px;cursor:pointer;font-family:inherit">
+          Cancel
+        </button>
+      </div>
+    </div>`;
+  document.body.appendChild(modal);
+}
+
+async function saveUserEdit(userId) {
+  const name = document.getElementById('edit-user-name').value.trim();
+  const role = document.getElementById('edit-user-role').value;
+  if (!name) { showToast('Please enter a name', 'error'); return; }
+
+  try {
+    await userMgmtCall({ action: 'update', userId, name, role });
+
+    // Also update in config staff table if consultant
+    await loadConsultants();
+    document.getElementById('edit-user-modal')?.remove();
+    showToast(name + ' updated ✓', 'success');
+    loadUsers();
+  } catch(e) {
+    showToast('Error updating user: ' + e.message, 'error');
+  }
+}
+
+async function inviteUser() {
+  const name = document.getElementById('new-user-name').value.trim();
+  const email = document.getElementById('new-user-email').value.trim();
+  const role = document.getElementById('new-user-role').value;
+
+  if (!name || !email) { showToast('Please enter name and email', 'error'); return; }
+  if (!email.includes('@')) { showToast('Please enter a valid email address', 'error'); return; }
+
+  try {
+    // Invite the user
+    await userMgmtCall({ action: 'invite', email, name, role });
+
+    // If consultant, also add to config staff table
+    if (role === 'consultant') {
+      const key = name.toLowerCase().replace(/[^a-z0-9]/g, '_');
+      await addConfigRow('staff', key, { name, email, role: 'Sleep Consultant', active: true }, name);
+      await loadConsultants();
+    }
+
+    // Clear form
+    document.getElementById('new-user-name').value = '';
+    document.getElementById('new-user-email').value = '';
+    document.getElementById('new-user-role').value = 'consultant';
+
+    showToast(name + ' invited ✓ — they will receive an email to set their password', 'success');
+    loadUsers();
+  } catch(e) {
+    showToast('Error inviting user: ' + e.message, 'error');
+  }
+}
+
+async function deactivateUser(userId, name) {
+  if (!confirm('Remove ' + name + '? They will no longer be able to log in. Their historical data is preserved.')) return;
+
+  try {
+    await userMgmtCall({ action: 'delete', userId });
+    showToast(name + ' removed ✓', 'success');
+    loadUsers();
+  } catch(e) {
+    showToast('Error removing user: ' + e.message, 'error');
   }
 }
 
