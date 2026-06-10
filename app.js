@@ -3505,7 +3505,7 @@ async function saveUserEdit(userId) {
   if (!name) { showToast('Please enter a name', 'error'); return; }
 
   try {
-    await userMgmtCall({ action: 'update', userId, name, role });
+    await userMgmtCall({ action: 'update', userId, name, roleVal: role });
 
     // Also update in config staff table if consultant
     await loadConsultants();
@@ -3527,7 +3527,7 @@ async function inviteUser() {
 
   try {
     // Invite the user
-    await userMgmtCall({ action: 'invite', email, name, role });
+    await userMgmtCall({ action: 'invite', email, name, roleVal: role });
 
     // If consultant, also add to config staff table
     if (role === 'consultant') {
