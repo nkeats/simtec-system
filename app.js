@@ -188,11 +188,22 @@ function showApp() {
     loadConsultants();
     loadConfig();
     startSessionTimer();
+  } else if (currentRole === 'office') {
+    document.getElementById('caller-screen').style.display = 'none';
+    document.getElementById('consultant-screen').style.display = 'none';
+    document.getElementById('app-screen').style.display = 'block';
+    document.getElementById('nav-user-label').textContent = currentUser?.user_metadata?.name || currentUser?.email || '';
+    applyOfficeRestrictions();
+    loadDashboard();
+    loadProducts();
+    loadConsultants();
+    startRealtimeUpdates();
+    startSessionTimer();
   } else {
     document.getElementById('caller-screen').style.display = 'none';
     document.getElementById('consultant-screen').style.display = 'none';
     document.getElementById('app-screen').style.display = 'block';
-    document.getElementById('nav-user-label').textContent = currentUser?.email || '';
+    document.getElementById('nav-user-label').textContent = currentUser?.user_metadata?.name || currentUser?.email || '';
     loadDashboard();
     loadProducts();
     loadConsultants();
@@ -672,6 +683,27 @@ async function loadDashboard() {
     document.getElementById('dash-queue-count').textContent = pending.length;
     document.getElementById('dash-sales-week').textContent = thisWeek.length;
 
+    // Cancellation requests pending management review
+    const cancelRequests = orders.filter(o => o.cancellation_requested && !o.cancelled_at);
+    const cancelSection = document.getElementById('dash-cancel-requests');
+    const cancelList = document.getElementById('dash-cancel-list');
+    if (cancelSection && cancelList && isAdmin()) {
+      cancelSection.style.display = cancelRequests.length > 0 ? 'block' : 'none';
+      cancelList.innerHTML = cancelRequests.map(o => `
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 0;border-bottom:1px solid var(--border);flex-wrap:wrap;gap:8px">
+          <div>
+            <div style="font-weight:600;color:var(--navy)">${o.fname} ${o.lname}</div>
+            <div style="font-size:12px;color:var(--gm)">${o.phone || '-'} · Requested by: ${o.cancellation_requested_by || 'office'}</div>
+            <div style="font-size:12px;color:#8a5500;margin-top:2px">Reason: ${o.cancellation_request_reason || '-'}</div>
+            <div style="font-size:12px;color:var(--gm)">${o.cancellation_request_notes || ''}</div>
+          </div>
+          <div style="display:flex;gap:6px">
+            <button class="btn-outline btn-sm" onclick="showCancellationModal('${o.id}','${o.fname} ${o.lname}')">Process cancellation</button>
+            <button class="btn-green btn-sm" onclick="dismissCancelRequest('${o.id}')">Retained ✓</button>
+          </div>
+        </div>`).join('') || '';
+    }
+
     // Payment follow-up
     const paymentFollowUp = orders.filter(o => o.payment_follow_up_status === 'call_needed');
     const paymentCard = document.getElementById('dash-payment-card');
@@ -725,8 +757,10 @@ async function loadDashboard() {
         const daysSince = (Date.now() - new Date(o.created_at).getTime()) / (1000 * 60 * 60 * 24);
         const inCoolingOff = daysSince <= 5 && !o.cancelled_at && !o.delivered_at;
         const isCancelled = !!o.cancelled_at;
-        const coolingOffBtn = inCoolingOff && currentRole === 'admin'
+        const coolingOffBtn = inCoolingOff && isAdmin()
           ? `<button class="btn-outline btn-sm" style="font-size:11px;color:#8a5500;border-color:#c9a84c" onclick="showCoolingOffModal('${o.id}','${o.fname} ${o.lname}')">5-day cancel</button>`
+          : inCoolingOff && isOfficeOrAdmin()
+          ? `<button class="btn-outline btn-sm" style="font-size:11px;color:var(--navy)" onclick="showCancellationRequest('${o.id}','${o.fname} ${o.lname}')">Flag cancellation</button>`
           : '';
         const cancelledBadge = isCancelled
           ? o.cooling_off_cancel
@@ -1073,6 +1107,17 @@ async function confirmCoolingOffCancel(orderId, customerName) {
   loadDashboard();
 }
 
+async function dismissCancelRequest(orderId) {
+  if (!sbClient) return;
+  await sbClient.from('orders').update({
+    cancellation_requested: false,
+    cancellation_request_notes: null,
+    cancellation_request_reason: null
+  }).eq('id', orderId);
+  showToast('Marked as retained ✓', 'success');
+  loadDashboard();
+}
+
 async function markPaymentFollowUpDone(orderId) {
   if (!sbClient) return;
   await sbClient.from('orders').update({
@@ -1104,6 +1149,92 @@ let sessionTimer = null;
 
 function resetActivityTimer() {
   lastActivity = Date.now();
+}
+
+// ══════════════════════════════════════════════════════
+// OFFICE ROLE PERMISSIONS
+// ══════════════════════════════════════════════════════
+
+function isAdmin() { return currentRole === 'admin'; }
+function isOfficeOrAdmin() { return currentRole === 'admin' || currentRole === 'office'; }
+
+function applyOfficeRestrictions() {
+  // Hide Config tab from office role
+  const configNavBtn = Array.from(document.querySelectorAll('.nav-btn')).find(b => b.textContent.includes('Config'));
+  if (configNavBtn) configNavBtn.style.display = 'none';
+
+  // Hide commission amounts from nav - office can see structure but not amounts
+  // This is handled in the commissions screen render
+
+  // Show a role indicator in the topbar
+  const userLabel = document.getElementById('nav-user-label');
+  if (userLabel) userLabel.title = 'Office access';
+}
+
+// ── CANCELLATION REQUEST (office role) ──
+// Office staff cannot cancel — they flag it for management approval
+function showCancellationRequest(orderId, customerName) {
+  const existing = document.getElementById('cancel-request-modal');
+  if (existing) existing.remove();
+
+  const modal = document.createElement('div');
+  modal.id = 'cancel-request-modal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(20,30,60,.6);z-index:2000;display:flex;align-items:center;justify-content:center;padding:20px';
+  modal.innerHTML = `
+    <div style="background:#fff;border-radius:18px;padding:28px;width:100%;max-width:480px;box-shadow:0 4px 32px rgba(30,58,110,.18)">
+      <div style="font-size:18px;font-weight:700;color:var(--navy);margin-bottom:6px">Customer cancellation request</div>
+      <div style="font-size:13px;color:var(--gm);margin-bottom:20px">
+        Record the details of <strong>${customerName}</strong>'s cancellation request. This will be flagged for management approval — you do not have authority to action the cancellation directly.
+      </div>
+      <div style="margin-bottom:14px">
+        <label class="flabel">Reason given by customer</label>
+        <select class="finput" id="cancel-req-reason">
+          <option value="cant_afford">Cannot afford to continue</option>
+          <option value="changed_mind">Changed their mind</option>
+          <option value="found_alternative">Found an alternative</option>
+          <option value="dissatisfied">Dissatisfied with product/service</option>
+          <option value="other">Other</option>
+        </select>
+      </div>
+      <div style="margin-bottom:20px">
+        <label class="flabel">Notes (what did the customer say?)</label>
+        <textarea class="finput" id="cancel-req-notes" rows="3" placeholder="Record the customer's exact words where possible..."></textarea>
+      </div>
+      <div style="background:var(--abg);border:1px solid #f5d080;border-radius:8px;padding:12px 14px;font-size:13px;color:#8a5500;margin-bottom:20px">
+        ⚠ This request will be flagged on the dashboard for Nigel or Matt to review. They will contact the customer to attempt to retain the sale before any cancellation is processed.
+      </div>
+      <div style="display:flex;gap:10px">
+        <button onclick="submitCancellationRequest('${orderId}','${customerName}')"
+          style="flex:1;padding:13px;background:var(--navy);color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;font-family:inherit">
+          Flag for management
+        </button>
+        <button onclick="document.getElementById('cancel-request-modal').remove()"
+          style="padding:13px 20px;background:#f4f6fa;color:var(--navy);border:none;border-radius:10px;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit">
+          Cancel
+        </button>
+      </div>
+    </div>`;
+  document.body.appendChild(modal);
+}
+
+async function submitCancellationRequest(orderId, customerName) {
+  if (!sbClient) return;
+  const reason = document.getElementById('cancel-req-reason').value;
+  const notes = document.getElementById('cancel-req-notes').value.trim();
+  if (!notes) { showToast('Please add notes about what the customer said', 'error'); return; }
+
+  // Flag the order as having a pending cancellation request
+  await sbClient.from('orders').update({
+    cancellation_requested: true,
+    cancellation_request_reason: reason,
+    cancellation_request_notes: notes,
+    cancellation_requested_at: new Date().toISOString(),
+    cancellation_requested_by: currentUser?.user_metadata?.name || currentUser?.email || 'office'
+  }).eq('id', orderId);
+
+  document.getElementById('cancel-request-modal')?.remove();
+  showToast('Cancellation request flagged for management review ✓', 'success');
+  loadDashboard();
 }
 
 function startSessionTimer() {
@@ -1411,7 +1542,12 @@ async function approveDelivery(orderId, customerName) {
 }
 
 async function cancelFromDelivery(orderId, customerName) {
-  // Admin only check
+  // Office role can flag but not cancel
+  if (currentRole === 'office') {
+    showCancellationRequest(orderId, customerName);
+    return;
+  }
+  // Admin only for actual cancellation
   if (currentRole !== 'admin') {
     showToast('Only administrators can cancel orders', 'error');
     return;
