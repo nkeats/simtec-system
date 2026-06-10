@@ -692,6 +692,7 @@ body { background: #eef1f8; color: var(--gt); min-height: 100vh; font-size: 14px
           <span class="nav-icon">☰</span><span class="nav-label">More</span>
         </button>
         <div id="more-menu" style="display:none;position:fixed;top:70px;right:12px;background:#fff;border:1.5px solid var(--border);border-radius:12px;box-shadow:0 4px 24px rgba(30,58,110,.15);z-index:9000;min-width:200px;padding:6px">
+          <button class="more-menu-item" onclick="nav('customers',null);toggleMoreMenu()">🔍 &nbsp;Customer search</button>
           <button class="more-menu-item" onclick="nav('manual',null);toggleMoreMenu()">📄 &nbsp;Manual form</button>
           <button class="more-menu-item" onclick="nav('commissions',null);toggleMoreMenu()">💰 &nbsp;Commissions</button>
           <button class="more-menu-item" onclick="nav('awards',null);toggleMoreMenu()">🏆 &nbsp;Awards</button>
@@ -1087,6 +1088,7 @@ body { background: #eef1f8; color: var(--gt); min-height: 100vh; font-size: 14px
       <button class="config-tab" onclick="switchConfigTab('delivery',this)">Delivery & Credit</button>
       <button class="config-tab" onclick="switchConfigTab('reports',this)">Reports</button>
       <button class="config-tab" onclick="switchConfigTab('staff',this)">Staff</button>
+      <button class="config-tab" onclick="switchConfigTab('templates',this)">Templates</button>
     </div>
 
     <!-- PRODUCTS TAB -->
@@ -1252,6 +1254,68 @@ body { background: #eef1f8; color: var(--gt); min-height: 100vh; font-size: 14px
         </div>
       </div>
     </div>
+
+  <!-- ── TEMPLATES CONFIG TAB ── -->
+  <div id="config-templates" class="config-tab-content" style="display:none">
+    <div class="card">
+      <div class="card-title">Message templates</div>
+      <div class="card-sub">Edit the wording of all automated emails and SMS messages here. Changes take effect immediately — no redeployment needed. Use placeholders like {{fname}}, {{lname}}, {{amount}}, {{weekly}}, {{address}}, {{phone}}, {{consultant}} in your templates.</div>
+
+      <!-- Template selector -->
+      <div style="margin-bottom:16px">
+        <label class="flabel">Select template to edit</label>
+        <select class="finput" id="template-selector" onchange="loadTemplateEditor(this.value)" style="max-width:400px">
+          <option value="">-- Choose a template --</option>
+          <optgroup label="Customer emails">
+            <option value="welcome_email">Welcome email (after confirmation call)</option>
+            <option value="delivery_email">Delivery notification email</option>
+            <option value="payment_failed_email">Payment failure email</option>
+            <option value="cancellation_email">Cancellation email</option>
+            <option value="cooling_off_email">Cooling-off cancellation email</option>
+            <option value="end_of_loan_email">End of loan congratulations email</option>
+            <option value="referral_email">Referral ask email</option>
+            <option value="marketing_email">Marketing / re-engagement email</option>
+          </optgroup>
+          <optgroup label="SMS messages">
+            <option value="welcome_sms">Welcome SMS (after confirmation call)</option>
+            <option value="delivery_sms">Delivery notification SMS</option>
+            <option value="payment_failed_sms">Payment failure SMS</option>
+            <option value="end_of_loan_sms">End of loan congratulations SMS</option>
+            <option value="referral_sms">Referral ask SMS</option>
+            <option value="marketing_sms">Marketing / re-engagement SMS</option>
+          </optgroup>
+        </select>
+      </div>
+
+      <!-- Template editor -->
+      <div id="template-editor" style="display:none">
+        <div id="template-editor-fields"></div>
+        <div style="display:flex;gap:8px;margin-top:12px">
+          <button class="btn-gold" onclick="saveTemplate()">Save template</button>
+          <button class="btn-outline btn-sm" onclick="resetTemplate()">Reset to default</button>
+        </div>
+        <div style="margin-top:12px;background:var(--gl);border-radius:8px;padding:12px 14px;font-size:12px;color:var(--gm)">
+          <b>Available placeholders:</b> {{fname}} {{lname}} {{amount}} {{weekly}} {{address}} {{phone}} {{consultant}} {{date}} {{reference}}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── CUSTOMER SEARCH ── -->
+  <div id="s-customers" class="screen">
+    <div class="page-header">
+      <div><div class="page-title">Customer search</div><div class="page-sub">Search by name, phone, email or address</div></div>
+    </div>
+    <div class="card">
+      <div style="display:flex;gap:8px;margin-bottom:16px">
+        <input class="finput" id="customer-search-input" style="margin-bottom:0;flex:1" placeholder="Search name, phone, email or address..." oninput="searchCustomers(this.value)" />
+        <button class="btn-outline btn-sm" onclick="searchCustomers(document.getElementById('customer-search-input').value)">Search</button>
+      </div>
+      <div id="customer-search-results">
+        <div style="text-align:center;padding:30px;color:var(--gm);font-size:13px">Start typing to search customers...</div>
+      </div>
+    </div>
+  </div>
 
   <!-- ── APPOINTMENTS ── -->
   <div id="s-appointments" class="screen">
@@ -1580,6 +1644,7 @@ function nav(id, btn) {
     loadAdminAppointments();
   }
   if (id === 'nosale') loadNoSaleContacts();
+  if (id === 'customers') { document.getElementById('customer-search-input').value = ''; searchCustomers(''); }
   if (id === 'reports') { loadConfig().then(loadReports); }
 }
 
@@ -2177,6 +2242,19 @@ async function markCallComplete(id, name) {
     .update({ call_status: 'complete', call_notes: notes, call_time: new Date().toISOString() })
     .eq('id', id);
 
+  // Fire welcome email + SMS after call confirmed
+  try {
+    const { data: orderData } = await sbClient.from('orders').select('*').eq('id', id).single();
+    if (orderData && (orderData.email || orderData.phone)) {
+      fetch('https://jvqjoenaungubpoegyvf.supabase.co/functions/v1/welcome-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json',
+          'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imp2cWpvZW5hdW5ndWJwb2VneXZmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA1MzQyMjYsImV4cCI6MjA5NjExMDIyNn0.ypVt8578XTdNwBH6TRDn30s1cF_rHTu67qCWYv5XHcQ' },
+        body: JSON.stringify({ order: orderData })
+      });
+    }
+  } catch(e) { /* welcome message failed silently */ }
+
   if (error) {
     showToast('Error: ' + error.message, 'error');
     if (card) { card.style.opacity = '1'; card.style.pointerEvents = 'all'; }
@@ -2693,17 +2771,27 @@ async function loadDeliveryQueue() {
 
 async function approveDelivery(orderId, customerName) {
   if (!sbClient) return;
-  const { error } = await sbClient
-    .from('orders')
+  const { data: orderData } = await sbClient.from('orders').select('*').eq('id', orderId).single();
+  const { error } = await sbClient.from('orders')
     .update({ delivered_at: new Date().toISOString() })
     .eq('id', orderId);
-  if (error) {
-    showToast('Error approving delivery: ' + error.message, 'error');
-  } else {
-    showToast(`${customerName} approved for delivery ✓`, 'success');
-    loadDeliveryQueue();
+  if (error) { showToast('Error: ' + error.message, 'error'); return; }
+
+  // Send delivery notification using template
+  if (orderData) {
+    try {
+      fetch('https://jvqjoenaungubpoegyvf.supabase.co/functions/v1/delivery-notification', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json',
+          'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imp2cWpvZW5hdW5ndWJwb2VneXZmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA1MzQyMjYsImV4cCI6MjA5NjExMDIyNn0.ypVt8578XTdNwBH6TRDn30s1cF_rHTu67qCWYv5XHcQ' },
+        body: JSON.stringify({ order: orderData })
+      });
+    } catch(e) { /* delivery notification failed silently */ }
   }
+  showToast(customerName + ' — delivery approved ✓ — notification sent', 'success');
+  loadDeliveryQueue();
 }
+
 
 async function cancelFromDelivery(orderId, customerName) {
   // Admin only check
@@ -2810,6 +2898,13 @@ function switchConfigTab(tab, btn) {
   document.querySelectorAll('.config-tab-content').forEach(c => c.style.display = 'none');
   if (btn) btn.classList.add('active');
   document.getElementById('config-' + tab).style.display = 'block';
+  if (tab === 'staff') { renderStaff(); renderStaffConfig(); }
+  if (tab === 'templates') {
+    const sel = document.getElementById('template-selector');
+    if (sel) sel.value = '';
+    const ed = document.getElementById('template-editor');
+    if (ed) ed.style.display = 'none';
+  }
 }
 
 async function loadConfig() {
@@ -4028,6 +4123,247 @@ async function loadAdminAppointments() {
 // Load admin appointments when navigating to appointments screen
 
 // ══════════════════════════════════════════════════════
+// MESSAGE TEMPLATES
+// ══════════════════════════════════════════════════════
+
+const DEFAULT_TEMPLATES = {
+  welcome_email: {
+    label: 'Welcome email',
+    type: 'email',
+    subject: 'Welcome to the Simtec Therapeutic family, {{fname}}!',
+    body: `<p>Hi {{fname}},</p>
+<p>Welcome to Simtec Therapeutic! We're absolutely delighted to have you as a customer and we know you're going to love your new mattress.</p>
+<p>Just a reminder of your order details:</p>
+<ul>
+  <li><strong>Weekly payment:</strong> ${{weekly}} per week via direct debit</li>
+  <li><strong>Your consultant:</strong> {{consultant}}</li>
+  <li><strong>Delivery address:</strong> {{address}}</li>
+</ul>
+<p>Your mattress will be delivered once your initial payments have been processed and your account is approved. We'll be in touch to confirm your delivery date.</p>
+<p>Remember — if for any reason you change your mind within the first 5 days of signing, you have the right to cancel for a full refund. Simply call us on 09 886 9897.</p>
+<p>If you ever have any questions, we're always here to help.</p>
+<p>Warm regards,<br><strong>The Simtec Therapeutic Team</strong><br>09 886 9897 · simtecnz.com</p>`
+  },
+  welcome_sms: {
+    label: 'Welcome SMS',
+    type: 'sms',
+    body: `Hi {{fname}}, welcome to Simtec Therapeutic! Your order is confirmed at ${{weekly}}/week. We'll be in touch soon about your delivery. Any questions call 09 886 9897. 😊`
+  },
+  delivery_email: {
+    label: 'Delivery notification email',
+    type: 'email',
+    subject: 'Your Simtec mattress delivery is confirmed, {{fname}}!',
+    body: `<p>Hi {{fname}},</p>
+<p>Exciting news — your Simtec Therapeutic mattress is on its way!</p>
+<p><strong>Delivery details:</strong></p>
+<ul>
+  <li><strong>Address:</strong> {{address}}</li>
+  <li><strong>Date:</strong> {{date}}</li>
+</ul>
+<p>Please ensure someone is home to receive the delivery. Our team will take care of everything — just show them where you'd like the mattress set up.</p>
+<p>We know you're going to love it. Sweet dreams!</p>
+<p>Warm regards,<br><strong>The Simtec Therapeutic Team</strong><br>09 886 9897 · simtecnz.com</p>`
+  },
+  delivery_sms: {
+    label: 'Delivery notification SMS',
+    type: 'sms',
+    body: `Hi {{fname}}, great news! Your Simtec mattress delivery is confirmed for {{date}}. Please ensure someone is home. Any questions call 09 886 9897. 🚚`
+  },
+  payment_failed_email: {
+    label: 'Payment failure email',
+    type: 'email',
+    subject: "We noticed your payment didn't go through — we're here to help",
+    body: `<p>Hi {{fname}},</p>
+<p>We noticed your payment didn't go through this week — no worries, these things happen!</p>
+<p>We'd love to help you sort it out. Please give us a call on <strong>09 886 9897</strong> or reply to this email and one of our friendly team will be in touch.</p>
+<p>We're here to help — just let us know how we can assist.</p>
+<p>Warm regards,<br><strong>The Simtec Therapeutic Team</strong><br>09 886 9897 · simtecnz.com</p>`
+  },
+  payment_failed_sms: {
+    label: 'Payment failure SMS',
+    type: 'sms',
+    body: `Hi {{fname}}, this is Simtec Therapeutic. We noticed your payment didn't go through this week — no worries! Give us a call on 09 886 9897 or reply and we'll sort it out. 😊`
+  },
+  cancellation_email: {
+    label: 'Cancellation email',
+    type: 'email',
+    subject: 'Regarding your Simtec Therapeutic order',
+    body: `<p>Hi {{fname}},</p>
+<p>We wanted to reach out personally to let you know that we have cancelled your order, and we want you to know that we completely understand.</p>
+<p>Life has its seasons, and financial circumstances can change for any of us. The last thing we ever want to do is add pressure to someone who is already navigating a difficult time. That's simply not who we are.</p>
+<p><strong>Your refund:</strong> All payments you have made will be refunded in full within 3–5 business days.</p>
+<p>We hope that when things look a little brighter — and we genuinely believe they will — you'll think of us again. Our door is always open.</p>
+<p>Warm regards,<br><strong>The Simtec Therapeutic Team</strong><br>09 886 9897 · simtecnz.com</p>`
+  },
+  cooling_off_email: {
+    label: 'Cooling-off cancellation email',
+    type: 'email',
+    subject: 'Your Simtec Therapeutic cancellation is confirmed',
+    body: `<p>Hi {{fname}},</p>
+<p>Thank you for letting us know. We have processed your cancellation under your 5-day cooling off period — absolutely no problem at all.</p>
+<p>This is your right, and we completely respect it. No questions, no pressure.</p>
+<p><strong>Your refund:</strong> All payments will be returned in full within 3–5 business days.</p>
+<p>We hope you'll think of us in the future — we'd love the opportunity to help when the time is right.</p>
+<p>Take care,<br><strong>The Simtec Therapeutic Team</strong><br>09 886 9897 · simtecnz.com</p>`
+  },
+  end_of_loan_email: {
+    label: 'End of loan congratulations email',
+    type: 'email',
+    subject: 'Congratulations {{fname}} — your mattress is completely paid off! 🎉',
+    body: `<p>Hi {{fname}},</p>
+<p>What a milestone! You've made your final payment and your Simtec Therapeutic mattress is now completely yours — paid in full.</p>
+<p>We hope it has given you hundreds of great nights of sleep and we're so grateful you chose us.</p>
+<p>If you've loved your experience, we'd be genuinely grateful if you could share it with someone you know. If a friend or family member buys a Simtec mattress on your recommendation, we'd love to thank you with {{referral_incentive}}.</p>
+<p>Simply have them mention your name when they order.</p>
+<p>Thank you for being a wonderful customer.</p>
+<p>Warm regards,<br><strong>The Simtec Therapeutic Team</strong><br>09 886 9897 · simtecnz.com</p>`
+  },
+  end_of_loan_sms: {
+    label: 'End of loan congratulations SMS',
+    type: 'sms',
+    body: `Hi {{fname}}, congratulations — your Simtec mattress is fully paid off! 🎉 Thank you for being a wonderful customer. Know someone who'd love better sleep? Have them mention your name and we'll thank you for it. Call 09 886 9897.`
+  },
+  referral_email: {
+    label: 'Referral ask email',
+    type: 'email',
+    subject: 'Know someone who deserves better sleep, {{fname}}?',
+    body: `<p>Hi {{fname}},</p>
+<p>We hope you're still loving your Simtec mattress and sleeping better than ever!</p>
+<p>We wanted to reach out because the best customers often know other people who'd love what we do.</p>
+<p>If you refer a friend or family member who goes ahead with a Simtec mattress, we'd love to thank you with {{referral_incentive}}.</p>
+<p>Simply have them mention your name when they order — that's all it takes.</p>
+<p>Thank you for being part of the Simtec family.</p>
+<p>Warm regards,<br><strong>The Simtec Therapeutic Team</strong><br>09 886 9897 · simtecnz.com</p>`
+  },
+  referral_sms: {
+    label: 'Referral ask SMS',
+    type: 'sms',
+    body: `Hi {{fname}}, hope you're loving your Simtec mattress! Know someone who deserves better sleep? Refer them and we'll thank you with {{referral_incentive}}. Just have them mention your name. Call 09 886 9897. 😊`
+  },
+  marketing_email: {
+    label: 'Marketing / re-engagement email',
+    type: 'email',
+    subject: 'A special message for you from Simtec Therapeutic',
+    body: `<p>Hi {{fname}},</p>
+<p>We just wanted to reach out and say hello — and let you know about something we think you'll find interesting.</p>
+<p>[Edit this section with your current offer or message]</p>
+<p>As always, we're here if you need us.</p>
+<p>Warm regards,<br><strong>The Simtec Therapeutic Team</strong><br>09 886 9897 · simtecnz.com</p>`
+  },
+  marketing_sms: {
+    label: 'Marketing / re-engagement SMS',
+    type: 'sms',
+    body: `Hi {{fname}}, this is Simtec Therapeutic with a message we think you'll like. [Edit this with your current offer]. Call 09 886 9897 for more info.`
+  },
+};
+
+let currentTemplateKey = null;
+
+async function loadTemplateEditor(key) {
+  if (!key) { document.getElementById('template-editor').style.display = 'none'; return; }
+  currentTemplateKey = key;
+
+  // Load from config if saved, otherwise use default
+  const saved = configCache['templates'] && configCache['templates'][key];
+  const def = DEFAULT_TEMPLATES[key];
+  const tmpl = saved ? { ...def, ...saved } : def;
+
+  if (!tmpl) return;
+
+  const editor = document.getElementById('template-editor');
+  const fields = document.getElementById('template-editor-fields');
+  editor.style.display = 'block';
+
+  let html = `<div style="font-size:13px;font-weight:700;color:var(--navy);margin-bottom:12px">${tmpl.label}</div>`;
+
+  if (tmpl.type === 'email') {
+    html += `<div><label class="flabel">Subject line</label>
+      <input class="finput" id="tmpl-subject" value="${(tmpl.subject||'').replace(/"/g,'&quot;')}" /></div>
+      <div><label class="flabel">Email body (HTML supported)</label>
+      <textarea class="finput" id="tmpl-body" rows="12" style="font-family:monospace;font-size:12px;resize:vertical">${tmpl.body||''}</textarea></div>`;
+  } else {
+    html += `<div><label class="flabel">SMS message (keep under 160 characters for single SMS)</label>
+      <textarea class="finput" id="tmpl-body" rows="4" style="resize:vertical">${tmpl.body||''}</textarea>
+      <div id="sms-char-count" style="font-size:11px;color:var(--gm);margin-top:4px">0 characters</div></div>`;
+  }
+
+  fields.innerHTML = html;
+
+  // SMS character counter
+  const bodyEl = document.getElementById('tmpl-body');
+  if (tmpl.type === 'sms' && bodyEl) {
+    bodyEl.addEventListener('input', () => {
+      const count = bodyEl.value.length;
+      const counter = document.getElementById('sms-char-count');
+      if (counter) counter.textContent = count + ' characters' + (count > 160 ? ' — will send as ' + Math.ceil(count/160) + ' SMS' : '');
+    });
+    bodyEl.dispatchEvent(new Event('input'));
+  }
+}
+
+async function saveTemplate() {
+  if (!currentTemplateKey || !sbClient) return;
+  const def = DEFAULT_TEMPLATES[currentTemplateKey];
+  const subjectEl = document.getElementById('tmpl-subject');
+  const bodyEl = document.getElementById('tmpl-body');
+
+  const updated = {
+    ...def,
+    subject: subjectEl ? subjectEl.value : def.subject,
+    body: bodyEl ? bodyEl.value : def.body,
+  };
+
+  await saveConfigVal('templates', currentTemplateKey, updated);
+  showToast('Template saved ✓', 'success');
+}
+
+async function resetTemplate() {
+  if (!currentTemplateKey) return;
+  if (!confirm('Reset this template to the default wording?')) return;
+
+  // Delete from config so default is used
+  const { error } = await sbClient.from('config')
+    .delete()
+    .eq('category', 'templates')
+    .eq('key', currentTemplateKey);
+
+  if (!error) {
+    // Reload config cache
+    await loadConfig();
+    loadTemplateEditor(currentTemplateKey);
+    showToast('Template reset to default ✓', 'success');
+  }
+}
+
+// Helper: get template with placeholders filled
+function fillTemplate(templateKey, data) {
+  const saved = configCache['templates'] && configCache['templates'][templateKey];
+  const def = DEFAULT_TEMPLATES[templateKey];
+  const tmpl = saved ? { ...def, ...saved } : (def || {});
+
+  const replacePlaceholders = (str) => {
+    if (!str) return '';
+    return str
+      .replace(/\{\{fname\}\}/g, data.fname || '')
+      .replace(/\{\{lname\}\}/g, data.lname || '')
+      .replace(/\{\{amount\}\}/g, data.amount || '')
+      .replace(/\{\{weekly\}\}/g, data.weekly || '')
+      .replace(/\{\{address\}\}/g, data.address || '')
+      .replace(/\{\{phone\}\}/g, data.phone || '')
+      .replace(/\{\{consultant\}\}/g, data.consultant || '')
+      .replace(/\{\{date\}\}/g, data.date || '')
+      .replace(/\{\{reference\}\}/g, data.reference || '')
+      .replace(/\{\{referral_incentive\}\}/g, data.referral_incentive || 'a special thank you gift');
+  };
+
+  return {
+    subject: replacePlaceholders(tmpl.subject),
+    body: replacePlaceholders(tmpl.body),
+    type: tmpl.type,
+  };
+}
+
+// ══════════════════════════════════════════════════════
 // REPORTS SCREEN
 // ══════════════════════════════════════════════════════
 
@@ -4176,6 +4512,126 @@ async function saveStaffEdit() {
   await loadConsultants();
   closeStaffEdit();
   showToast(updated.name + ' updated ✓', 'success');
+}
+
+// ══════════════════════════════════════════════════════
+// CUSTOMER SEARCH
+// ══════════════════════════════════════════════════════
+
+let customerSearchTimer = null;
+
+function searchCustomers(query) {
+  clearTimeout(customerSearchTimer);
+  const results = document.getElementById('customer-search-results');
+  if (!query || query.trim().length < 2) {
+    if (results) results.innerHTML = '<div style="text-align:center;padding:30px;color:var(--gm);font-size:13px">Start typing to search customers...</div>';
+    return;
+  }
+  if (results) results.innerHTML = '<div style="text-align:center;padding:20px;color:var(--gm);font-size:13px">Searching...</div>';
+  customerSearchTimer = setTimeout(() => runCustomerSearch(query.trim()), 300);
+}
+
+async function runCustomerSearch(query) {
+  if (!sbClient) return;
+  const results = document.getElementById('customer-search-results');
+
+  // Search across name, phone, email, address
+  const { data, error } = await sbClient
+    .from('orders')
+    .select('*')
+    .or(`fname.ilike.%${query}%,lname.ilike.%${query}%,phone.ilike.%${query}%,email.ilike.%${query}%,address.ilike.%${query}%`)
+    .order('created_at', { ascending: false })
+    .limit(20);
+
+  if (error || !data) {
+    if (results) results.innerHTML = '<div style="color:var(--red);font-size:13px;padding:12px">Search error. Please try again.</div>';
+    return;
+  }
+
+  if (data.length === 0) {
+    if (results) results.innerHTML = '<div style="text-align:center;padding:30px;color:var(--gm);font-size:13px">No customers found matching "' + query + '"</div>';
+    return;
+  }
+
+  const statusBadge = (o) => {
+    if (o.cancelled_at) return o.cooling_off_cancel ? '<span class="badge b-amber">Cooling off</span>' : '<span class="badge b-red">Cancelled</span>';
+    if (o.delivered_at) return '<span class="badge b-green">Delivered</span>';
+    return '<span class="badge b-blue">Active</span>';
+  };
+
+  if (results) results.innerHTML = '<table class="dtable">' +
+    '<tr><th>Customer</th><th>Phone</th><th>Email</th><th>Consultant</th><th>Sale</th><th>Date</th><th>Status</th><th></th></tr>' +
+    data.map(o => '<tr>' +
+      '<td><b>' + o.fname + ' ' + o.lname + '</b><div style="font-size:11px;color:var(--gm)">' + (o.address || '') + '</div></td>' +
+      '<td style="font-size:12px">' + (o.phone || '-') + '</td>' +
+      '<td style="font-size:12px">' + (o.email || '-') + '</td>' +
+      '<td style="font-size:12px">' + (o.consultant || '-') + '</td>' +
+      '<td style="font-size:12px;font-weight:600;color:var(--navy)">$' + (o.total || 0).toLocaleString('en-NZ') + '</td>' +
+      '<td style="font-size:12px;color:var(--gm)">' + formatDate(o.created_at) + '</td>' +
+      '<td>' + statusBadge(o) + '</td>' +
+      '<td><button class="btn-outline btn-sm" onclick="showCustomerProfile(\'' + o.id + '\')">' + 'View</button></td>' +
+    '</tr>').join('') +
+    '</table><div style="font-size:12px;color:var(--gm);margin-top:8px">' + data.length + ' result' + (data.length !== 1 ? 's' : '') + ' found</div>';
+}
+
+async function showCustomerProfile(orderId) {
+  if (!sbClient) return;
+  const { data: o } = await sbClient.from('orders').select('*').eq('id', orderId).single();
+  if (!o) return;
+
+  const existing = document.getElementById('customer-profile-modal');
+  if (existing) existing.remove();
+
+  const statusText = o.cancelled_at ? (o.cooling_off_cancel ? 'Cooling-off cancellation' : 'Cancelled') : o.delivered_at ? 'Delivered' : 'Active — awaiting delivery';
+  const statusColour = o.cancelled_at ? '#8a2222' : o.delivered_at ? '#1a7a44' : '#1e3a6e';
+  const products = (o.items || []).map(i => i.name + (i.qty > 1 ? ' x' + i.qty : '')).join(', ') || 'No items recorded';
+
+  const modal = document.createElement('div');
+  modal.id = 'customer-profile-modal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(20,30,60,.6);z-index:2000;display:flex;align-items:center;justify-content:center;padding:20px;overflow-y:auto';
+  modal.innerHTML = `
+    <div style="background:#fff;border-radius:18px;padding:28px;width:100%;max-width:560px;box-shadow:0 4px 32px rgba(30,58,110,.18)">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px">
+        <div>
+          <div style="font-size:20px;font-weight:700;color:var(--navy)">${o.fname} ${o.lname}</div>
+          <div style="font-size:13px;color:var(--gm)">${o.address || 'No address recorded'}</div>
+        </div>
+        <span style="font-size:12px;font-weight:700;color:${statusColour};background:${statusColour}18;padding:4px 10px;border-radius:20px">${statusText}</span>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px">
+        <div style="background:var(--gl);border-radius:8px;padding:12px">
+          <div style="font-size:10px;color:var(--gm);text-transform:uppercase;font-weight:600;margin-bottom:4px">Phone</div>
+          <div style="font-size:14px;font-weight:600;color:var(--navy)">${o.phone || '—'}</div>
+        </div>
+        <div style="background:var(--gl);border-radius:8px;padding:12px">
+          <div style="font-size:10px;color:var(--gm);text-transform:uppercase;font-weight:600;margin-bottom:4px">Email</div>
+          <div style="font-size:13px;font-weight:600;color:var(--navy)">${o.email || '—'}</div>
+        </div>
+        <div style="background:var(--gl);border-radius:8px;padding:12px">
+          <div style="font-size:10px;color:var(--gm);text-transform:uppercase;font-weight:600;margin-bottom:4px">Total sale</div>
+          <div style="font-size:18px;font-weight:700;color:var(--navy)">$${(o.total || 0).toLocaleString('en-NZ')}</div>
+        </div>
+        <div style="background:var(--gl);border-radius:8px;padding:12px">
+          <div style="font-size:10px;color:var(--gm);text-transform:uppercase;font-weight:600;margin-bottom:4px">Weekly payment</div>
+          <div style="font-size:18px;font-weight:700;color:var(--navy)">$${(o.weekly_rep || 0).toFixed(2)}</div>
+        </div>
+        <div style="background:var(--gl);border-radius:8px;padding:12px">
+          <div style="font-size:10px;color:var(--gm);text-transform:uppercase;font-weight:600;margin-bottom:4px">Consultant</div>
+          <div style="font-size:14px;font-weight:600;color:var(--navy)">${o.consultant || '—'}</div>
+        </div>
+        <div style="background:var(--gl);border-radius:8px;padding:12px">
+          <div style="font-size:10px;color:var(--gm);text-transform:uppercase;font-weight:600;margin-bottom:4px">Order date</div>
+          <div style="font-size:14px;font-weight:600;color:var(--navy)">${formatDate(o.created_at)}</div>
+        </div>
+      </div>
+      <div style="background:var(--gl);border-radius:8px;padding:12px;margin-bottom:16px">
+        <div style="font-size:10px;color:var(--gm);text-transform:uppercase;font-weight:600;margin-bottom:4px">Products</div>
+        <div style="font-size:13px;color:var(--navy)">${products}</div>
+      </div>
+      ${o.call_notes ? '<div style="background:var(--gl);border-radius:8px;padding:12px;margin-bottom:16px"><div style="font-size:10px;color:var(--gm);text-transform:uppercase;font-weight:600;margin-bottom:4px">Notes</div><div style="font-size:13px;color:var(--navy)">' + o.call_notes + '</div></div>' : ''}
+      <button onclick="document.getElementById('customer-profile-modal').remove()" style="width:100%;padding:12px;background:var(--gl);border:none;border-radius:10px;font-size:14px;font-weight:600;color:var(--navy);cursor:pointer;font-family:inherit">Close</button>
+    </div>`;
+  document.body.appendChild(modal);
 }
 
 // ══════════════════════════════════════════════════════
