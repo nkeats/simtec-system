@@ -3406,7 +3406,7 @@ const ROLE_LABELS = {
 async function userMgmtCall(payload) {
   const session = await sbClient.auth.getSession();
   const token = session?.data?.session?.access_token || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imp2cWpvZW5hdW5ndWJwb2VneXZmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA1MzQyMjYsImV4cCI6MjA5NjExMDIyNn0.ypVt8578XTdNwBH6TRDn30s1cF_rHTu67qCWYv5XHcQ';
-  const res = await fetch('https://jvqjoenaungubpoegyvf.supabase.co/functions/v1/user-management', {
+  const res = await fetch('https://jvqjoenaungubpoegyvf.supabase.co/functions/v1/clever-function', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
     body: JSON.stringify(payload)
