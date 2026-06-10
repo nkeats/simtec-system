@@ -693,6 +693,7 @@ body { background: #eef1f8; color: var(--gt); min-height: 100vh; font-size: 14px
         </button>
         <div id="more-menu" style="display:none;position:fixed;top:70px;right:12px;background:#fff;border:1.5px solid var(--border);border-radius:12px;box-shadow:0 4px 24px rgba(30,58,110,.15);z-index:9000;min-width:200px;padding:6px">
           <button class="more-menu-item" onclick="nav('customers',null);toggleMoreMenu()">🔍 &nbsp;Customer search</button>
+          <button class="more-menu-item" onclick="nav('scorecard',null);toggleMoreMenu()">📊 &nbsp;Consultant scorecards</button>
           <button class="more-menu-item" onclick="nav('manual',null);toggleMoreMenu()">📄 &nbsp;Manual form</button>
           <button class="more-menu-item" onclick="nav('commissions',null);toggleMoreMenu()">💰 &nbsp;Commissions</button>
           <button class="more-menu-item" onclick="nav('awards',null);toggleMoreMenu()">🏆 &nbsp;Awards</button>
@@ -1301,6 +1302,22 @@ body { background: #eef1f8; color: var(--gt); min-height: 100vh; font-size: 14px
     </div>
   </div>
 
+  <!-- ── CONSULTANT SCORECARDS ── -->
+  <div id="s-scorecard" class="screen">
+    <div class="page-header">
+      <div><div class="page-title">Consultant scorecards</div><div class="page-sub">Individual performance — updated in real time</div></div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <select class="finput" id="scorecard-consultant-filter" style="margin-bottom:0;width:200px" onchange="loadScorecards()">
+          <option value="">All consultants</option>
+        </select>
+        <button class="btn-outline btn-sm" onclick="loadScorecards()">↻ Refresh</button>
+      </div>
+    </div>
+    <div id="scorecard-container">
+      <div style="text-align:center;padding:40px;color:var(--gm);font-size:13px">Loading scorecards...</div>
+    </div>
+  </div>
+
   <!-- ── CUSTOMER SEARCH ── -->
   <div id="s-customers" class="screen">
     <div class="page-header">
@@ -1645,6 +1662,7 @@ function nav(id, btn) {
   }
   if (id === 'nosale') loadNoSaleContacts();
   if (id === 'customers') { document.getElementById('customer-search-input').value = ''; searchCustomers(''); }
+  if (id === 'scorecard') loadScorecards();
   if (id === 'reports') { loadConfig().then(loadReports); }
 }
 
@@ -4512,6 +4530,165 @@ async function saveStaffEdit() {
   await loadConsultants();
   closeStaffEdit();
   showToast(updated.name + ' updated ✓', 'success');
+}
+
+// ══════════════════════════════════════════════════════
+// CONSULTANT SCORECARDS
+// ══════════════════════════════════════════════════════
+
+async function loadScorecards() {
+  if (!sbClient) return;
+  const container = document.getElementById('scorecard-container');
+  if (container) container.innerHTML = '<div style="text-align:center;padding:40px;color:var(--gm);font-size:13px">Loading...</div>';
+
+  const filterConsultant = document.getElementById('scorecard-consultant-filter')?.value || '';
+
+  // Date ranges
+  const now = new Date();
+  const nzNow = new Date(now.getTime() + 12 * 60 * 60 * 1000);
+  const dayOfWeek = nzNow.getUTCDay();
+  const daysFromMon = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+
+  const thisWeekStart = new Date(nzNow);
+  thisWeekStart.setUTCDate(nzNow.getUTCDate() - daysFromMon);
+  thisWeekStart.setUTCHours(0,0,0,0);
+  const thisWeekUTC = new Date(thisWeekStart.getTime() - 12*60*60*1000);
+
+  const lastWeekStart = new Date(thisWeekStart);
+  lastWeekStart.setUTCDate(lastWeekStart.getUTCDate() - 7);
+  const lastWeekUTC = new Date(lastWeekStart.getTime() - 12*60*60*1000);
+
+  const fourWeeksAgo = new Date(thisWeekStart);
+  fourWeeksAgo.setUTCDate(fourWeeksAgo.getUTCDate() - 28);
+  const fourWeeksUTC = new Date(fourWeeksAgo.getTime() - 12*60*60*1000);
+
+  // Fetch orders
+  const { data: allOrders } = await sbClient
+    .from('orders')
+    .select('*')
+    .gte('created_at', fourWeeksUTC.toISOString())
+    .is('cancelled_at', null);
+
+  // Fetch appointments (4 weeks)
+  const fourWeeksDateStr = fourWeeksAgo.toISOString().split('T')[0];
+  const { data: allAppts } = await sbClient
+    .from('appointments')
+    .select('*')
+    .gte('appt_date', fourWeeksDateStr);
+
+  const orders = allOrders || [];
+  const appts = allAppts || [];
+
+  // Get consultant list from config
+  const consultants = configCache['staff']
+    ? Object.values(configCache['staff']).filter((s) => s.active !== false).map((s) => s.name)
+    : [...new Set(orders.map((o) => o.consultant).filter(Boolean))];
+
+  // Populate filter dropdown
+  const filterEl = document.getElementById('scorecard-consultant-filter');
+  if (filterEl && filterEl.options.length <= 1) {
+    consultants.forEach((name) => {
+      const opt = document.createElement('option');
+      opt.value = name; opt.textContent = name;
+      filterEl.appendChild(opt);
+    });
+  }
+
+  const targetConsultants = filterConsultant ? [filterConsultant] : consultants;
+
+  // Build scorecard per consultant
+  const scorecards = targetConsultants.map((name) => {
+    const myOrders = orders.filter((o) => o.consultant === name);
+    const thisWeek = myOrders.filter((o) => new Date(o.created_at) >= thisWeekUTC);
+    const lastWeek = myOrders.filter((o) => new Date(o.created_at) >= lastWeekUTC && new Date(o.created_at) < thisWeekUTC);
+    const fourWeeks = myOrders;
+
+    const avgPerWeek = fourWeeks.length / 4;
+    const thisWeekValue = thisWeek.reduce((s, o) => s + (o.total || 0), 0);
+    const lastWeekValue = lastWeek.reduce((s, o) => s + (o.total || 0), 0);
+
+    // Appointment stats this week
+    const myAppts = appts.filter((a) => a.consultant === name);
+    const thisWeekAppts = myAppts.filter((a) => a.appt_date >= thisWeekStart.toISOString().split('T')[0]);
+    const presented = thisWeekAppts.filter((a) => a.status === 'presented' || a.outcome).length;
+    const sold = thisWeekAppts.filter((a) => a.outcome === 'sold').length;
+    const bookRate = thisWeekAppts.length > 0 ? Math.round(presented / thisWeekAppts.length * 100) : null;
+    const closeRate = presented > 0 ? Math.round(sold / presented * 100) : null;
+
+    // Trend arrow
+    const trend = thisWeek.length > lastWeek.length ? '▲' : thisWeek.length < lastWeek.length ? '▼' : '→';
+    const trendColour = thisWeek.length > lastWeek.length ? '#1a7a44' : thisWeek.length < lastWeek.length ? '#8a2222' : '#8a5500';
+
+    // Award progress
+    const staffData = configCache['staff'] && Object.values(configCache['staff']).find((s) => s.name === name);
+    const awardLevel = staffData?.award_level || 'None';
+    const awardIcons = { 'Initial':'🎖','Pearl':'🦪','Ruby':'❤️','Emerald':'💚','Sapphire':'💙','Grand Diamond':'💎' };
+    const awardIcon = awardIcons[awardLevel] || '';
+
+    return { name, thisWeek: thisWeek.length, lastWeek: lastWeek.length, avgPerWeek,
+      thisWeekValue, lastWeekValue, trend, trendColour,
+      appts: thisWeekAppts.length, presented, sold, bookRate, closeRate,
+      awardLevel, awardIcon };
+  });
+
+  // Sort by this week sales desc
+  scorecards.sort((a, b) => b.thisWeek - a.thisWeek);
+
+  if (!container) return;
+
+  if (scorecards.length === 0) {
+    container.innerHTML = '<div style="text-align:center;padding:40px;color:var(--gm);font-size:13px">No consultant data found.</div>';
+    return;
+  }
+
+  container.innerHTML = scorecards.map((s) => `
+    <div class="card" style="margin-bottom:14px">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px;flex-wrap:wrap;gap:8px">
+        <div>
+          <div style="font-size:17px;font-weight:700;color:var(--navy)">${s.name} ${s.awardIcon}</div>
+          <div style="font-size:12px;color:var(--gm)">${s.awardLevel !== 'None' ? s.awardLevel + ' Award' : 'No award yet'}</div>
+        </div>
+        <div style="font-size:28px;font-weight:800;color:${s.trendColour}">${s.trend}</div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:10px">
+        <div style="background:var(--gl);border-radius:8px;padding:10px;text-align:center">
+          <div style="font-size:22px;font-weight:800;color:var(--navy)">${s.thisWeek}</div>
+          <div style="font-size:10px;color:var(--gm);text-transform:uppercase;font-weight:600">This week</div>
+        </div>
+        <div style="background:var(--gl);border-radius:8px;padding:10px;text-align:center">
+          <div style="font-size:22px;font-weight:800;color:var(--gm)">${s.lastWeek}</div>
+          <div style="font-size:10px;color:var(--gm);text-transform:uppercase;font-weight:600">Last week</div>
+        </div>
+        <div style="background:var(--gl);border-radius:8px;padding:10px;text-align:center">
+          <div style="font-size:22px;font-weight:800;color:var(--navy)">${s.avgPerWeek.toFixed(1)}</div>
+          <div style="font-size:10px;color:var(--gm);text-transform:uppercase;font-weight:600">4-wk avg</div>
+        </div>
+        <div style="background:var(--gl);border-radius:8px;padding:10px;text-align:center">
+          <div style="font-size:16px;font-weight:800;color:var(--navy)">$${s.thisWeekValue.toLocaleString('en-NZ')}</div>
+          <div style="font-size:10px;color:var(--gm);text-transform:uppercase;font-weight:600">This week $</div>
+        </div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px">
+        <div style="background:var(--gl);border-radius:8px;padding:8px;text-align:center">
+          <div style="font-size:16px;font-weight:700;color:var(--navy)">${s.appts}</div>
+          <div style="font-size:10px;color:var(--gm);text-transform:uppercase;font-weight:600">Appts</div>
+        </div>
+        <div style="background:var(--gl);border-radius:8px;padding:8px;text-align:center">
+          <div style="font-size:16px;font-weight:700;color:var(--navy)">${s.presented}</div>
+          <div style="font-size:10px;color:var(--gm);text-transform:uppercase;font-weight:600">Presented</div>
+        </div>
+        <div style="background:var(--gl);border-radius:8px;padding:8px;text-align:center">
+          <div style="font-size:16px;font-weight:700;color:${s.bookRate !== null ? (s.bookRate >= 70 ? '#1a7a44' : s.bookRate >= 50 ? '#8a5500' : '#8a2222') : 'var(--gm)'}">${s.bookRate !== null ? s.bookRate + '%' : '—'}</div>
+          <div style="font-size:10px;color:var(--gm);text-transform:uppercase;font-weight:600">Book→Present</div>
+        </div>
+        <div style="background:var(--gl);border-radius:8px;padding:8px;text-align:center">
+          <div style="font-size:16px;font-weight:700;color:${s.closeRate !== null ? (s.closeRate >= 60 ? '#1a7a44' : s.closeRate >= 40 ? '#8a5500' : '#8a2222') : 'var(--gm)'}">${s.closeRate !== null ? s.closeRate + '%' : '—'}</div>
+          <div style="font-size:10px;color:var(--gm);text-transform:uppercase;font-weight:600">Present→Sale</div>
+        </div>
+      </div>
+    </div>`).join('');
 }
 
 // ══════════════════════════════════════════════════════
