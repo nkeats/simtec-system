@@ -4564,6 +4564,63 @@ async function saveStaffEdit() {
 }
 
 // ══════════════════════════════════════════════════════
+// LOAN COMPLETION & END-OF-LOAN EMAIL
+// ══════════════════════════════════════════════════════
+
+async function markLoanComplete(orderId, customerName) {
+  if (!sbClient) return;
+  if (!confirm('Mark loan for ' + customerName + ' as fully paid off? This will send them a congratulations email and referral ask.')) return;
+
+  // Get full order
+  const { data: orderData } = await sbClient.from('orders').select('*').eq('id', orderId).single();
+  if (!orderData) return;
+
+  // Mark loan as complete
+  const { error } = await sbClient.from('orders').update({
+    loan_completed_at: new Date().toISOString()
+  }).eq('id', orderId);
+
+  if (error) { showToast('Error: ' + error.message, 'error'); return; }
+
+  // Send end-of-loan email via Edge Function
+  try {
+    fetch('https://jvqjoenaungubpoegyvf.supabase.co/functions/v1/end-of-loan-email', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imp2cWpvZW5hdW5ndWJwb2VneXZmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA1MzQyMjYsImV4cCI6MjA5NjExMDIyNn0.ypVt8578XTdNwBH6TRDn30s1cF_rHTu67qCWYv5XHcQ'
+      },
+      body: JSON.stringify({ order: orderData })
+    });
+  } catch(e) { /* email failed silently */ }
+
+  // Close modal and refresh
+  document.getElementById('customer-profile-modal')?.remove();
+  showToast('Loan marked complete ✓ — congratulations email sent to ' + customerName, 'success');
+}
+
+// Also called automatically by Ezidebit webhook when balance reaches zero
+async function checkAndCompleteEzidebitLoan(orderId) {
+  if (!sbClient) return;
+  const { data: order } = await sbClient.from('orders').select('*').eq('id', orderId).single();
+  if (!order || order.loan_completed_at || order.cancelled_at) return;
+
+  // Calculate balance: total - sum of all payments
+  const { data: payments } = await sbClient
+    .from('payments')
+    .select('amount')
+    .eq('order_id', orderId)
+    .eq('status', 'on_time');
+
+  const paid = (payments || []).reduce((s, p) => s + (p.amount || 0), 0);
+  const balance = (order.total || 0) - paid;
+
+  if (balance <= 0) {
+    await markLoanComplete(orderId, order.fname + ' ' + order.lname);
+  }
+}
+
+// ══════════════════════════════════════════════════════
 // CLAWBACK MANAGEMENT
 // ══════════════════════════════════════════════════════
 
@@ -4946,6 +5003,8 @@ async function showCustomerProfile(orderId) {
         <div style="font-size:13px;color:var(--navy)">${products}</div>
       </div>
       ${o.call_notes ? '<div style="background:var(--gl);border-radius:8px;padding:12px;margin-bottom:16px"><div style="font-size:10px;color:var(--gm);text-transform:uppercase;font-weight:600;margin-bottom:4px">Notes</div><div style="font-size:13px;color:var(--navy)">' + o.call_notes + '</div></div>' : ''}
+      ${!o.cancelled_at && !o.loan_completed_at ? '<button onclick="markLoanComplete(\'' + o.id + '\',\'' + o.fname + ' ' + o.lname + '\')" style="width:100%;padding:12px;margin-bottom:8px;background:#1a7a44;color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit">Mark loan as fully paid off</button>' : ''}
+      ${o.loan_completed_at ? '<div style="text-align:center;padding:10px;background:#edfaf3;border-radius:8px;margin-bottom:8px;font-size:13px;font-weight:600;color:#1a7a44">✓ Loan completed ' + formatDate(o.loan_completed_at) + '</div>' : ''}
       <button onclick="document.getElementById('customer-profile-modal').remove()" style="width:100%;padding:12px;background:var(--gl);border:none;border-radius:10px;font-size:14px;font-weight:600;color:var(--navy);cursor:pointer;font-family:inherit">Close</button>
     </div>`;
   document.body.appendChild(modal);
