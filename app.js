@@ -1,5 +1,44 @@
 let configCache = {};
 
+// ══════════════════════════════════════════════════════
+// LOAN TERM CALCULATION
+// ══════════════════════════════════════════════════════
+// Rules (highest rule in order wins):
+//   Any Mk II or Mk III product → 156 weeks
+//   Any Mk I non-King-Single    → 78 weeks
+//   Mk I King Single only       → 52 weeks
+function calcLoanTerm(items) {
+  // Filter out non-mattress items (delivery fee, protectors, bases, pillows)
+  const mattresses = (items || []).filter(i => {
+    const n = (i.name || '').toLowerCase();
+    return n.includes('mk i') || n.includes('mk ii') || n.includes('mk iii') ||
+           n.includes('mk 1') || n.includes('mk 2') || n.includes('mk 3');
+  });
+
+  if (mattresses.length === 0) return 156; // fallback
+
+  const hasMk2or3 = mattresses.some(i => {
+    const n = (i.name || '').toLowerCase();
+    return n.includes('mk ii') || n.includes('mk iii') ||
+           n.includes('mk 2') || n.includes('mk 3');
+  });
+  if (hasMk2or3) return 156;
+
+  const hasNonKingSingle = mattresses.some(i => {
+    const n = (i.name || '').toLowerCase();
+    // Mk I but NOT king single
+    return (n.includes('mk i') || n.includes('mk 1')) && !n.includes('king single');
+  });
+  if (hasNonKingSingle) return 78;
+
+  return 52; // Mk I King Single only
+}
+
+function loanTermLabel(weeks) {
+  if (weeks === 52) return '52 weeks (1 year)';
+  if (weeks === 78) return '78 weeks (18 months)';
+  return '156 weeks (3 years)';
+}
 
 // ══════════════════════════════════════════════════════
 // AUDIO ALERT
@@ -556,12 +595,14 @@ function recalc() {
   const payTypeEl = document.getElementById('f-paytype');
   const payTypeVal = payTypeEl ? payTypeEl.value : 'dd_weekly';
   const isFortnightly = payTypeVal === 'dd_fortnightly';
-  const payWeeks = (configCache['delivery'] && configCache['delivery']['settings'] && configCache['delivery']['settings'].payment_weeks) || 156;
+  const payWeeks = calcLoanTerm(items);
   const payPeriods = isFortnightly ? Math.ceil(payWeeks / 2) : payWeeks;
   const weekly = total > 0 ? total / payPeriods : 0;
   const repLabel = document.getElementById('repayment-label');
   if (repLabel) repLabel.textContent = isFortnightly ? 'Fortnightly repayment' : 'Weekly repayment';
-  document.getElementById('weekly-val').textContent = weekly > 0 ? '$' + weekly.toFixed(2) + (isFortnightly ? '/fn' : '/wk') : '-';
+  document.getElementById("weekly-val").textContent = weekly > 0 ? "$" + weekly.toFixed(2) + (isFortnightly ? "/fn" : "/wk") : "-";
+  const termEl = document.getElementById("loan-term-val");
+  if (termEl) termEl.textContent = total > 0 ? loanTermLabel(payWeeks) : "-";
   const summary = document.getElementById('order-summary');
   document.getElementById('order-items').innerHTML = items.map(i =>
     `<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--border);font-size:13px">
@@ -612,7 +653,7 @@ async function submitOrder() {
 
   const payTypeSubmit = document.getElementById('f-paytype').value;
   const isFortSubmit = payTypeSubmit === 'dd_fortnightly';
-  const pwSubmit = (configCache['delivery']?.settings?.payment_weeks) || 156;
+  const pwSubmit = calcLoanTerm(items);
   const ppSubmit = isFortSubmit ? Math.ceil(pwSubmit / 2) : pwSubmit;
 
   const order = {
@@ -642,6 +683,7 @@ async function submitOrder() {
     consecutive_payments_waived: ['full','c','deposit_50'].includes(payTypeSubmit),
     total,
     weekly_rep: +((total / ppSubmit).toFixed(2)),
+    loan_term_weeks: pwSubmit,
     items,
     call_status: 'pending',
     signature_data: (document.getElementById('consultant-signature-pad') ? consultantSignatureData : signatureData) || null
@@ -2326,12 +2368,22 @@ function addManualProduct() {
 
 function updateManualTotals() {
   const total = manualFormItems.reduce((sum, i) => sum + i.price * i.qty, 0);
-  const payWks = (configCache['delivery']?.settings?.payment_weeks) || 156;
+  const payWks = calcLoanTerm(manualFormItems);
   const weekly = total > 0 ? (total / payWks).toFixed(2) : 0;
   const td = document.getElementById('m-total-display');
   const wd = document.getElementById('m-weekly-display');
   if (td) td.textContent = '$' + total.toLocaleString('en-AU', {minimumFractionDigits:2});
   if (wd) wd.textContent = weekly > 0 ? '$' + weekly + '/wk' : '-';
+  // Inject loan term display next to weekly if container exists
+  const termEl2 = document.getElementById('m-term-display');
+  if (termEl2) {
+    termEl2.textContent = total > 0 ? loanTermLabel(payWks) : '-';
+  } else if (wd && wd.parentElement && wd.parentElement.parentElement) {
+    // Create and insert term display if not already present
+    const termDiv = document.createElement('div');
+    termDiv.innerHTML = '<div class="sl">Loan term</div><div class="sv" id="m-term-display" style="font-size:13px;color:var(--gm)">' + (total > 0 ? loanTermLabel(payWks) : '-') + '</div>';
+    wd.parentElement.parentElement.appendChild(termDiv);
+  }
 }
 
 async function submitManualOrder() {
@@ -2354,7 +2406,8 @@ async function submitManualOrder() {
     pay_day: document.getElementById('m-payday').value,
     pay_type: document.getElementById('m-paytype').value,
     total,
-    weekly_rep: +((total / ((configCache['delivery']?.settings?.payment_weeks) || 156)).toFixed(2)),
+    weekly_rep: +((total / calcLoanTerm(manualFormItems)).toFixed(2)),
+    loan_term_weeks: calcLoanTerm(manualFormItems),
     items: manualFormItems,
     call_status: 'pending',
     manual_form: true
@@ -2495,12 +2548,14 @@ function renderConsultantProducts() {
       </div>`).join('');
   }
   const total = consultantFormItems.reduce((s, i) => s + i.price * i.qty, 0);
-  const payWks2 = (configCache['delivery']?.settings?.payment_weeks) || 156;
+  const payWks2 = calcLoanTerm(consultantFormItems);
   const weekly = total > 0 ? (total / payWks2).toFixed(2) : 0;
   const td = document.getElementById('cm-total-display');
   const wd = document.getElementById('cm-weekly-display');
   if (td) td.textContent = '$' + total.toLocaleString('en-AU', {minimumFractionDigits:2});
-  if (wd) wd.textContent = weekly > 0 ? '$' + weekly + '/wk' : '-';
+  if (wd) wd.textContent = weekly > 0 ? "$" + weekly + "/wk" : "-";
+  const termEl3 = document.getElementById("cm-term-display");
+  if (termEl3) termEl3.textContent = total > 0 ? loanTermLabel(payWks2) : "-";
 }
 
 async function submitConsultantManualOrder() {
@@ -2518,7 +2573,8 @@ async function submitConsultantManualOrder() {
     pay_day: document.getElementById('cm-payday').value,
     pay_type: document.getElementById('cm-paytype').value,
     total,
-    weekly_rep: +((total / ((configCache['delivery']?.settings?.payment_weeks) || 156)).toFixed(2)),
+    weekly_rep: +((total / calcLoanTerm(consultantFormItems)).toFixed(2)),
+    loan_term_weeks: calcLoanTerm(consultantFormItems),
     items: consultantFormItems,
     call_status: 'pending',
     manual_form: true
@@ -3762,7 +3818,14 @@ async function loadScorecards() {
     const awardIcons = { 'Initial':'🎖','Pearl':'🦪','Ruby':'❤️','Emerald':'💚','Sapphire':'💙','Grand Diamond':'💎' };
     const awardIcon = awardIcons[awardLevel] || '';
 
+    // Award sales count = unique customers this week (by phone, fallback to name)
+    // Commission is per mattress line but awards count one customer as one sale
+    const thisWeekUniqueCustomers = new Set(thisWeek.map(o => o.phone || (o.fname + ' ' + o.lname))).size;
+    const lastWeekUniqueCustomers = new Set(lastWeek.map(o => o.phone || (o.fname + ' ' + o.lname))).size;
+    const fourWeekUniqueCustomers = new Set(fourWeeks.map(o => o.phone || (o.fname + ' ' + o.lname))).size;
+
     return { name, thisWeek: thisWeek.length, lastWeek: lastWeek.length, avgPerWeek,
+      thisWeekAward: thisWeekUniqueCustomers, lastWeekAward: lastWeekUniqueCustomers, fourWeekAward: fourWeekUniqueCustomers,
       thisWeekValue, lastWeekValue, trend, trendColour,
       appts: thisWeekAppts.length, presented, sold, bookRate, closeRate,
       awardLevel, awardIcon };
@@ -3791,11 +3854,13 @@ async function loadScorecards() {
       <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:10px">
         <div style="background:var(--gl);border-radius:8px;padding:10px;text-align:center">
           <div style="font-size:22px;font-weight:800;color:var(--navy)">${s.thisWeek}</div>
-          <div style="font-size:10px;color:var(--gm);text-transform:uppercase;font-weight:600">This week</div>
+          <div style="font-size:10px;color:var(--gm);text-transform:uppercase;font-weight:600">Orders this wk</div>
+          <div style="font-size:10px;color:var(--navy);font-weight:600;margin-top:2px">${s.thisWeekAward} customers</div>
         </div>
         <div style="background:var(--gl);border-radius:8px;padding:10px;text-align:center">
           <div style="font-size:22px;font-weight:800;color:var(--gm)">${s.lastWeek}</div>
           <div style="font-size:10px;color:var(--gm);text-transform:uppercase;font-weight:600">Last week</div>
+          <div style="font-size:10px;color:var(--gm);font-weight:600;margin-top:2px">${s.lastWeekAward} customers</div>
         </div>
         <div style="background:var(--gl);border-radius:8px;padding:10px;text-align:center">
           <div style="font-size:22px;font-weight:800;color:var(--navy)">${s.avgPerWeek.toFixed(1)}</div>
