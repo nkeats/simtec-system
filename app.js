@@ -3953,10 +3953,21 @@ async function runCustomerSearch(query) {
     '</table><div style="font-size:12px;color:var(--gm);margin-top:8px">' + data.length + ' result' + (data.length !== 1 ? 's' : '') + ' found</div>';
 }
 
+// ══════════════════════════════════════════════════════
+// CUSTOMER PROFILE & ORDER MANAGEMENT
+// ══════════════════════════════════════════════════════
+
 async function showCustomerProfile(orderId) {
   if (!sbClient) return;
   const { data: o } = await sbClient.from('orders').select('*').eq('id', orderId).single();
   if (!o) return;
+
+  // Fetch manual payments for this order
+  const { data: manPays } = await sbClient
+    .from('manual_payments')
+    .select('*')
+    .eq('order_id', orderId)
+    .order('created_at', { ascending: false });
 
   const existing = document.getElementById('customer-profile-modal');
   if (existing) existing.remove();
@@ -3965,11 +3976,54 @@ async function showCustomerProfile(orderId) {
   const statusColour = o.cancelled_at ? '#8a2222' : o.delivered_at ? '#1a7a44' : '#1e3a6e';
   const products = (o.items || []).map(i => i.name + (i.qty > 1 ? ' x' + i.qty : '')).join(', ') || 'No items recorded';
 
+  // Loan calculations
+  const loanTerm = o.loan_term_weeks || calcLoanTerm(o.items || []);
+  const weeklyRep = o.weekly_rep || 0;
+  const totalPaid_ezidebit = 0; // placeholder — would come from payments table
+  const manualPaidTotal = (manPays || []).reduce((s, p) => s + (p.amount || 0), 0);
+  const totalPaid = manualPaidTotal; // will grow as we hook in Ezidebit payments
+  const balanceOwing = Math.max(0, (o.total || 0) - totalPaid);
+  const weeksRemaining = weeklyRep > 0 ? Math.ceil(balanceOwing / weeklyRep) : loanTerm;
+  const depositTarget = ((o.total || 0) * ((configCache['delivery']?.settings?.threshold_pct || 10) / 100));
+  const depositMet = totalPaid >= depositTarget;
+
+  // Payment holiday status
+  const onHoliday = o.payment_holiday_weeks > 0;
+  const holidayHtml = onHoliday
+    ? `<div style="background:#fef3e2;border:1px solid #e08c10;border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:13px;color:#8a5500">
+        ⏸ Payment holiday active — ${o.payment_holiday_weeks} week${o.payment_holiday_weeks !== 1 ? 's' : ''} remaining
+        ${o.payment_holiday_reason ? '<br><span style="color:var(--gm)">' + o.payment_holiday_reason + '</span>' : ''}
+      </div>` : '';
+
+  // Bank change flag
+  const bankFlagHtml = o.bank_change_pending
+    ? `<div style="background:#fdecea;border:1px solid #d63030;border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:13px;color:#8a2222">
+        ⚠️ Bank account change pending — new DDR authority required
+      </div>` : '';
+
+  // Manual payments history
+  const manPayHtml = (manPays && manPays.length > 0)
+    ? `<div style="background:var(--gl);border-radius:8px;padding:12px;margin-bottom:12px">
+        <div style="font-size:10px;color:var(--gm);text-transform:uppercase;font-weight:600;margin-bottom:8px">Manual payments recorded</div>
+        ${manPays.map(p => `<div style="display:flex;justify-content:space-between;font-size:12px;padding:4px 0;border-bottom:1px solid var(--border)">
+          <span style="color:var(--navy)">${p.payment_type === 'lump_sum' ? 'Lump sum' : p.payment_type === 'partial' ? 'Partial payment' : 'Early payoff'} — ${p.note || ''}</span>
+          <span style="font-weight:700;color:var(--green)">+$${(p.amount||0).toFixed(2)}</span>
+        </div>`).join('')}
+        <div style="display:flex;justify-content:space-between;font-size:13px;font-weight:700;padding-top:6px;color:var(--navy)">
+          <span>Total manual payments</span><span>$${manualPaidTotal.toFixed(2)}</span>
+        </div>
+      </div>` : '';
+
+  // Admin-only manage button (only for active, non-cancelled orders)
+  const manageBtn = (currentRole === 'admin' && !o.cancelled_at && !o.loan_completed_at)
+    ? `<button onclick="showOrderManagement('${o.id}')" style="width:100%;padding:12px;margin-bottom:8px;background:var(--navy);color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit">⚙️ Manage order</button>`
+    : '';
+
   const modal = document.createElement('div');
   modal.id = 'customer-profile-modal';
-  modal.style.cssText = 'position:fixed;inset:0;background:rgba(20,30,60,.6);z-index:2000;display:flex;align-items:center;justify-content:center;padding:20px;overflow-y:auto';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(20,30,60,.6);z-index:2000;display:flex;align-items:flex-start;justify-content:center;padding:20px;overflow-y:auto';
   modal.innerHTML = `
-    <div style="background:#fff;border-radius:18px;padding:28px;width:100%;max-width:560px;box-shadow:0 4px 32px rgba(30,58,110,.18)">
+    <div style="background:#fff;border-radius:18px;padding:28px;width:100%;max-width:580px;box-shadow:0 4px 32px rgba(30,58,110,.18);margin:auto">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px">
         <div>
           <div style="font-size:20px;font-weight:700;color:var(--navy)">${o.fname} ${o.lname}</div>
@@ -3977,6 +4031,9 @@ async function showCustomerProfile(orderId) {
         </div>
         <span style="font-size:12px;font-weight:700;color:${statusColour};background:${statusColour}18;padding:4px 10px;border-radius:20px">${statusText}</span>
       </div>
+
+      ${holidayHtml}${bankFlagHtml}
+
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px">
         <div style="background:var(--gl);border-radius:8px;padding:12px">
           <div style="font-size:10px;color:var(--gm);text-transform:uppercase;font-weight:600;margin-bottom:4px">Phone</div>
@@ -3992,27 +4049,335 @@ async function showCustomerProfile(orderId) {
         </div>
         <div style="background:var(--gl);border-radius:8px;padding:12px">
           <div style="font-size:10px;color:var(--gm);text-transform:uppercase;font-weight:600;margin-bottom:4px">Weekly payment</div>
-          <div style="font-size:18px;font-weight:700;color:var(--navy)">$${(o.weekly_rep || 0).toFixed(2)}</div>
+          <div style="font-size:18px;font-weight:700;color:var(--navy)">$${weeklyRep.toFixed(2)}/wk</div>
         </div>
         <div style="background:var(--gl);border-radius:8px;padding:12px">
+          <div style="font-size:10px;color:var(--gm);text-transform:uppercase;font-weight:600;margin-bottom:4px">Loan term</div>
+          <div style="font-size:14px;font-weight:600;color:var(--navy)">${loanTermLabel(loanTerm)}</div>
+        </div>
+        <div style="background:var(--gl);border-radius:8px;padding:12px">
+          <div style="font-size:10px;color:var(--gm);text-transform:uppercase;font-weight:600;margin-bottom:4px">Balance owing</div>
+          <div style="font-size:18px;font-weight:700;color:var(--navy)">$${balanceOwing.toLocaleString('en-NZ', {minimumFractionDigits:2})}</div>
+        </div>
+        <div style="background:${depositMet ? '#edfaf3' : '#fef3e2'};border-radius:8px;padding:12px">
+          <div style="font-size:10px;color:var(--gm);text-transform:uppercase;font-weight:600;margin-bottom:4px">10% deposit</div>
+          <div style="font-size:14px;font-weight:700;color:${depositMet ? '#1a7a44' : '#8a5500'}">${depositMet ? '✓ Met' : 'Target: $' + depositTarget.toFixed(2)}</div>
+        </div>
+        <div style="background:var(--gl);border-radius:8px;padding:12px">
+          <div style="font-size:10px;color:var(--gm);text-transform:uppercase;font-weight:600;margin-bottom:4px">Weeks remaining</div>
+          <div style="font-size:18px;font-weight:700;color:var(--navy)">${weeksRemaining}</div>
+        </div>
+      </div>
+
+      <div style="background:var(--gl);border-radius:8px;padding:12px;margin-bottom:12px">
+        <div style="font-size:10px;color:var(--gm);text-transform:uppercase;font-weight:600;margin-bottom:4px">Products</div>
+        <div style="font-size:13px;color:var(--navy)">${products}</div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px">
+        <div style="background:var(--gl);border-radius:8px;padding:12px">
           <div style="font-size:10px;color:var(--gm);text-transform:uppercase;font-weight:600;margin-bottom:4px">Consultant</div>
-          <div style="font-size:14px;font-weight:600;color:var(--navy)">${o.consultant || '—'}</div>
+          <div style="font-size:14px;font-weight:600;color:var(--navy)">${o.consultant || '—'}${o.reassigned_from ? '<div style="font-size:11px;color:var(--gm)">Reassigned from ' + o.reassigned_from + '</div>' : ''}</div>
         </div>
         <div style="background:var(--gl);border-radius:8px;padding:12px">
           <div style="font-size:10px;color:var(--gm);text-transform:uppercase;font-weight:600;margin-bottom:4px">Order date</div>
           <div style="font-size:14px;font-weight:600;color:var(--navy)">${formatDate(o.created_at)}</div>
         </div>
       </div>
-      <div style="background:var(--gl);border-radius:8px;padding:12px;margin-bottom:16px">
-        <div style="font-size:10px;color:var(--gm);text-transform:uppercase;font-weight:600;margin-bottom:4px">Products</div>
-        <div style="font-size:13px;color:var(--navy)">${products}</div>
-      </div>
-      ${o.call_notes ? '<div style="background:var(--gl);border-radius:8px;padding:12px;margin-bottom:16px"><div style="font-size:10px;color:var(--gm);text-transform:uppercase;font-weight:600;margin-bottom:4px">Notes</div><div style="font-size:13px;color:var(--navy)">' + o.call_notes + '</div></div>' : ''}
-      ${!o.cancelled_at && !o.loan_completed_at ? '<button onclick="markLoanComplete(\'' + o.id + '\',\'' + o.fname + ' ' + o.lname + '\')" style="width:100%;padding:12px;margin-bottom:8px;background:#1a7a44;color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit">Mark loan as fully paid off</button>' : ''}
+
+      ${manPayHtml}
+      ${o.call_notes ? '<div style="background:var(--gl);border-radius:8px;padding:12px;margin-bottom:12px"><div style="font-size:10px;color:var(--gm);text-transform:uppercase;font-weight:600;margin-bottom:4px">Call notes</div><div style="font-size:13px;color:var(--navy)">' + o.call_notes + '</div></div>' : ''}
+
+      ${manageBtn}
+      ${!o.cancelled_at && !o.loan_completed_at ? '<button onclick="markLoanComplete(\'' + o.id + '\',\'' + o.fname + ' ' + o.lname + '\')" style="width:100%;padding:12px;margin-bottom:8px;background:#1a7a44;color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit">✓ Mark loan as fully paid off</button>' : ''}
       ${o.loan_completed_at ? '<div style="text-align:center;padding:10px;background:#edfaf3;border-radius:8px;margin-bottom:8px;font-size:13px;font-weight:600;color:#1a7a44">✓ Loan completed ' + formatDate(o.loan_completed_at) + '</div>' : ''}
       <button onclick="document.getElementById('customer-profile-modal').remove()" style="width:100%;padding:12px;background:var(--gl);border:none;border-radius:10px;font-size:14px;font-weight:600;color:var(--navy);cursor:pointer;font-family:inherit">Close</button>
     </div>`;
   document.body.appendChild(modal);
+}
+
+// ══════════════════════════════════════════════════════
+// ORDER MANAGEMENT PANEL
+// ══════════════════════════════════════════════════════
+
+async function showOrderManagement(orderId) {
+  if (!sbClient || currentRole !== 'admin') return;
+  const { data: o } = await sbClient.from('orders').select('*').eq('id', orderId).single();
+  if (!o) return;
+
+  const existing = document.getElementById('order-mgmt-modal');
+  if (existing) existing.remove();
+
+  // Get consultant list for reassignment
+  const consultants = configCache['staff']
+    ? Object.values(configCache['staff']).filter(s => s.active !== false).map(s => s.name)
+    : [];
+
+  const modal = document.createElement('div');
+  modal.id = 'order-mgmt-modal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(20,30,60,.7);z-index:2100;display:flex;align-items:flex-start;justify-content:center;padding:20px;overflow-y:auto';
+  modal.innerHTML = `
+    <div style="background:#fff;border-radius:18px;width:100%;max-width:600px;box-shadow:0 4px 32px rgba(30,58,110,.22);margin:auto;overflow:hidden">
+
+      <!-- Header -->
+      <div style="background:var(--navy);padding:20px 24px;display:flex;justify-content:space-between;align-items:center">
+        <div>
+          <div style="font-size:17px;font-weight:700;color:#fff">⚙️ Manage Order</div>
+          <div style="font-size:13px;color:var(--gm);margin-top:2px">${o.fname} ${o.lname}</div>
+        </div>
+        <button onclick="document.getElementById('order-mgmt-modal').remove()" style="background:rgba(255,255,255,.12);border:none;color:#fff;border-radius:8px;padding:6px 12px;cursor:pointer;font-family:inherit;font-size:13px">✕ Close</button>
+      </div>
+
+      <div style="padding:24px;display:flex;flex-direction:column;gap:16px">
+
+        <!-- SECTION: Manual Payment -->
+        <div style="border:1.5px solid var(--border);border-radius:12px;overflow:hidden">
+          <div style="background:var(--gl);padding:12px 16px;font-size:13px;font-weight:700;color:var(--navy);border-bottom:1px solid var(--border)">💵 Record manual payment</div>
+          <div style="padding:16px;display:flex;flex-direction:column;gap:10px">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+              <div>
+                <label class="flabel">Payment type</label>
+                <select class="finput" id="mgmt-pay-type" style="margin-bottom:0">
+                  <option value="lump_sum">Lump sum (toward deposit / balance)</option>
+                  <option value="partial">Partial payment</option>
+                  <option value="early_payoff">Full early payoff</option>
+                </select>
+              </div>
+              <div>
+                <label class="flabel">Amount ($)</label>
+                <input class="finput" id="mgmt-pay-amount" type="number" min="1" step="0.01" placeholder="0.00" style="margin-bottom:0" />
+              </div>
+            </div>
+            <div>
+              <label class="flabel">Note (optional)</label>
+              <input class="finput" id="mgmt-pay-note" type="text" placeholder="e.g. Cash received in store" style="margin-bottom:0" />
+            </div>
+            <div style="background:#fdf6e3;border-radius:8px;padding:10px 12px;font-size:12px;color:#554400;line-height:1.5">
+              ⚠️ Note: the 5 consecutive Ezidebit payments rule applies separately. A lump sum shortens the loan term but does not count as one of the 5 consecutive payments.
+            </div>
+            <button onclick="recordManualPayment('${o.id}')" style="padding:11px;background:var(--navy);color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit">Record payment</button>
+          </div>
+        </div>
+
+        <!-- SECTION: Payment Holiday -->
+        <div style="border:1.5px solid var(--border);border-radius:12px;overflow:hidden">
+          <div style="background:var(--gl);padding:12px 16px;font-size:13px;font-weight:700;color:var(--navy);border-bottom:1px solid var(--border)">⏸ Payment holiday</div>
+          <div style="padding:16px;display:flex;flex-direction:column;gap:10px">
+            ${o.payment_holiday_weeks > 0 ? `<div style="background:#fef3e2;border-radius:8px;padding:10px 12px;font-size:13px;color:#8a5500">Currently on holiday: ${o.payment_holiday_weeks} week(s) — ${o.payment_holiday_reason || 'no reason recorded'}</div>` : ''}
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+              <div>
+                <label class="flabel">Freeze for (weeks)</label>
+                <input class="finput" id="mgmt-holiday-weeks" type="number" min="1" max="26" placeholder="e.g. 4" value="${o.payment_holiday_weeks || ''}" style="margin-bottom:0" />
+              </div>
+              <div>
+                <label class="flabel">Reason</label>
+                <input class="finput" id="mgmt-holiday-reason" type="text" placeholder="e.g. Medical leave" value="${o.payment_holiday_reason || ''}" style="margin-bottom:0" />
+              </div>
+            </div>
+            <div style="display:flex;gap:8px">
+              <button onclick="savePaymentHoliday('${o.id}')" style="flex:1;padding:11px;background:var(--amber);color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit">Save holiday</button>
+              ${o.payment_holiday_weeks > 0 ? `<button onclick="clearPaymentHoliday('${o.id}')" style="padding:11px 16px;background:var(--gl);color:var(--navy);border:1.5px solid var(--border);border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit">Clear</button>` : ''}
+            </div>
+          </div>
+        </div>
+
+        <!-- SECTION: Edit Customer Details -->
+        <div style="border:1.5px solid var(--border);border-radius:12px;overflow:hidden">
+          <div style="background:var(--gl);padding:12px 16px;font-size:13px;font-weight:700;color:var(--navy);border-bottom:1px solid var(--border)">✏️ Edit customer details</div>
+          <div style="padding:16px;display:flex;flex-direction:column;gap:10px">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+              <div>
+                <label class="flabel">First name</label>
+                <input class="finput" id="mgmt-fname" type="text" value="${o.fname || ''}" style="margin-bottom:0" />
+              </div>
+              <div>
+                <label class="flabel">Last name</label>
+                <input class="finput" id="mgmt-lname" type="text" value="${o.lname || ''}" style="margin-bottom:0" />
+              </div>
+            </div>
+            <div>
+              <label class="flabel">Phone</label>
+              <input class="finput" id="mgmt-phone" type="text" value="${o.phone || ''}" style="margin-bottom:0" />
+            </div>
+            <div>
+              <label class="flabel">Email</label>
+              <input class="finput" id="mgmt-email" type="text" value="${o.email || ''}" style="margin-bottom:0" />
+            </div>
+            <div>
+              <label class="flabel">Address</label>
+              <input class="finput" id="mgmt-address" type="text" value="${o.address || ''}" style="margin-bottom:0" />
+            </div>
+            <button onclick="saveCustomerDetails('${o.id}')" style="padding:11px;background:var(--navy);color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit">Save details</button>
+          </div>
+        </div>
+
+        <!-- SECTION: Bank Account Change -->
+        <div style="border:1.5px solid var(--border);border-radius:12px;overflow:hidden">
+          <div style="background:var(--gl);padding:12px 16px;font-size:13px;font-weight:700;color:var(--navy);border-bottom:1px solid var(--border)">🏦 Bank account change</div>
+          <div style="padding:16px;display:flex;flex-direction:column;gap:10px">
+            <div style="background:#fdf6e3;border-radius:8px;padding:12px;font-size:13px;color:#554400;line-height:1.7">
+              <b>Steps to process a bank change:</b><br>
+              1. Get customer to sign a new Ezidebit Direct Debit Request authority<br>
+              2. Log into Ezidebit portal and update the customer's bank details<br>
+              3. Confirm the change has been saved in Ezidebit<br>
+              4. Click <b>Mark bank change complete</b> below to clear the flag
+            </div>
+            ${o.bank_change_pending
+              ? `<div style="background:#fdecea;border-radius:8px;padding:10px 12px;font-size:13px;font-weight:600;color:#8a2222">⚠️ Bank change currently flagged as pending</div>
+                 <div style="display:flex;gap:8px">
+                   <button onclick="setBankChangePending('${o.id}', false)" style="flex:1;padding:11px;background:#1a7a44;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit">✓ Mark bank change complete</button>
+                 </div>`
+              : `<button onclick="setBankChangePending('${o.id}', true)" style="padding:11px;background:var(--amber);color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit">Flag bank change in progress</button>`
+            }
+          </div>
+        </div>
+
+        <!-- SECTION: Reassign Consultant -->
+        <div style="border:1.5px solid var(--border);border-radius:12px;overflow:hidden">
+          <div style="background:var(--gl);padding:12px 16px;font-size:13px;font-weight:700;color:var(--navy);border-bottom:1px solid var(--border)">👤 Reassign consultant</div>
+          <div style="padding:16px;display:flex;flex-direction:column;gap:10px">
+            <div style="font-size:13px;color:var(--gm)">Currently assigned to: <b style="color:var(--navy)">${o.consultant || '—'}</b></div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+              <div>
+                <label class="flabel">Reassign to</label>
+                <select class="finput" id="mgmt-reassign-to" style="margin-bottom:0">
+                  <option value="">— Select consultant —</option>
+                  ${consultants.filter(c => c !== o.consultant).map(c => `<option value="${c}">${c}</option>`).join('')}
+                </select>
+              </div>
+              <div>
+                <label class="flabel">Reason</label>
+                <input class="finput" id="mgmt-reassign-reason" type="text" placeholder="e.g. Consultant left" style="margin-bottom:0" />
+              </div>
+            </div>
+            <button onclick="reassignConsultant('${o.id}', '${o.consultant || ''}')" style="padding:11px;background:var(--navy);color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit">Reassign</button>
+          </div>
+        </div>
+
+        <!-- SECTION: Delivery / Collection -->
+        <div style="border:1.5px solid var(--border);border-radius:12px;overflow:hidden">
+          <div style="background:var(--gl);padding:12px 16px;font-size:13px;font-weight:700;color:var(--navy);border-bottom:1px solid var(--border)">🚚 Delivery settings</div>
+          <div style="padding:16px;display:flex;flex-direction:column;gap:10px">
+            <div>
+              <label class="flabel">Preferred delivery date</label>
+              <input class="finput" id="mgmt-delivery-date" type="date" value="${o.preferred_delivery_date || ''}" style="margin-bottom:0" />
+            </div>
+            <button onclick="saveDeliveryDate('${o.id}')" style="padding:11px;background:var(--navy);color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit">Update delivery date</button>
+          </div>
+        </div>
+
+      </div>
+    </div>`;
+  document.body.appendChild(modal);
+}
+
+// ── Order Management Actions ──
+
+async function recordManualPayment(orderId) {
+  const type = document.getElementById('mgmt-pay-type')?.value;
+  const amount = parseFloat(document.getElementById('mgmt-pay-amount')?.value || '0');
+  const note = document.getElementById('mgmt-pay-note')?.value.trim() || '';
+  if (!amount || amount <= 0) { showToast('Please enter a valid amount', 'error'); return; }
+
+  const { error } = await sbClient.from('manual_payments').insert([{
+    order_id: orderId,
+    amount,
+    payment_type: type,
+    note,
+    recorded_by: currentUser?.email || 'admin'
+  }]);
+
+  if (error) { showToast('Error: ' + error.message, 'error'); return; }
+
+  // If early payoff, mark loan complete
+  if (type === 'early_payoff') {
+    await sbClient.from('orders').update({ loan_completed_at: new Date().toISOString() }).eq('id', orderId);
+    showToast('Early payoff recorded — loan marked complete ✓', 'success');
+  } else {
+    showToast('Payment of $' + amount.toFixed(2) + ' recorded ✓', 'success');
+  }
+
+  document.getElementById('order-mgmt-modal')?.remove();
+  showCustomerProfile(orderId);
+}
+
+async function savePaymentHoliday(orderId) {
+  const weeks = parseInt(document.getElementById('mgmt-holiday-weeks')?.value || '0');
+  const reason = document.getElementById('mgmt-holiday-reason')?.value.trim() || '';
+  if (!weeks || weeks < 1) { showToast('Please enter number of weeks', 'error'); return; }
+
+  const { error } = await sbClient.from('orders').update({
+    payment_holiday_weeks: weeks,
+    payment_holiday_reason: reason,
+    payment_holiday_start_date: new Date().toISOString().split('T')[0]
+  }).eq('id', orderId);
+
+  if (error) { showToast('Error: ' + error.message, 'error'); return; }
+  showToast('Payment holiday saved — ' + weeks + ' week(s) ✓', 'success');
+  document.getElementById('order-mgmt-modal')?.remove();
+  showCustomerProfile(orderId);
+}
+
+async function clearPaymentHoliday(orderId) {
+  if (!confirm('Clear the payment holiday for this customer?')) return;
+  await sbClient.from('orders').update({
+    payment_holiday_weeks: 0,
+    payment_holiday_reason: null,
+    payment_holiday_start_date: null
+  }).eq('id', orderId);
+  showToast('Payment holiday cleared ✓', 'success');
+  document.getElementById('order-mgmt-modal')?.remove();
+  showCustomerProfile(orderId);
+}
+
+async function saveCustomerDetails(orderId) {
+  const fname = document.getElementById('mgmt-fname')?.value.trim();
+  const lname = document.getElementById('mgmt-lname')?.value.trim();
+  const phone = document.getElementById('mgmt-phone')?.value.trim();
+  const email = document.getElementById('mgmt-email')?.value.trim();
+  const address = document.getElementById('mgmt-address')?.value.trim();
+  if (!fname || !lname) { showToast('Name is required', 'error'); return; }
+
+  const { error } = await sbClient.from('orders').update({ fname, lname, phone, email, address }).eq('id', orderId);
+  if (error) { showToast('Error: ' + error.message, 'error'); return; }
+  showToast('Customer details updated ✓', 'success');
+  document.getElementById('order-mgmt-modal')?.remove();
+  showCustomerProfile(orderId);
+}
+
+async function setBankChangePending(orderId, pending) {
+  const { error } = await sbClient.from('orders').update({ bank_change_pending: pending }).eq('id', orderId);
+  if (error) { showToast('Error: ' + error.message, 'error'); return; }
+  showToast(pending ? 'Bank change flagged — complete Ezidebit steps ✓' : 'Bank change marked complete ✓', 'success');
+  document.getElementById('order-mgmt-modal')?.remove();
+  showCustomerProfile(orderId);
+}
+
+async function reassignConsultant(orderId, currentConsultant) {
+  const newConsultant = document.getElementById('mgmt-reassign-to')?.value;
+  const reason = document.getElementById('mgmt-reassign-reason')?.value.trim() || '';
+  if (!newConsultant) { showToast('Please select a consultant', 'error'); return; }
+  if (!confirm('Reassign this order from ' + currentConsultant + ' to ' + newConsultant + '?')) return;
+
+  const { error } = await sbClient.from('orders').update({
+    consultant: newConsultant,
+    reassigned_from: currentConsultant,
+    reassigned_reason: reason
+  }).eq('id', orderId);
+
+  if (error) { showToast('Error: ' + error.message, 'error'); return; }
+  showToast('Order reassigned to ' + newConsultant + ' ✓', 'success');
+  document.getElementById('order-mgmt-modal')?.remove();
+  showCustomerProfile(orderId);
+}
+
+async function saveDeliveryDate(orderId) {
+  const date = document.getElementById('mgmt-delivery-date')?.value;
+  const { error } = await sbClient.from('orders').update({ preferred_delivery_date: date || null }).eq('id', orderId);
+  if (error) { showToast('Error: ' + error.message, 'error'); return; }
+  showToast('Delivery date updated ✓', 'success');
+  document.getElementById('order-mgmt-modal')?.remove();
+  showCustomerProfile(orderId);
 }
 
 // ══════════════════════════════════════════════════════
