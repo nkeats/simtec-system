@@ -276,6 +276,7 @@ function nav(id, btn) {
   if (id === 'customers') { document.getElementById('customer-search-input').value = ''; searchCustomers(''); }
   if (id === 'scorecard') loadScorecards();
   if (id === 'clawbacks') loadClawbacks();
+  if (id === 'ezidebit') document.getElementById('ezidebit-import-result').innerHTML = '';
   if (id === 'reports') { loadConfig().then(loadReports); }
 }
 
@@ -4211,6 +4212,16 @@ async function showOrderManagement(orderId) {
           </div>
         </div>
 
+        <!-- SECTION: Ezidebit ID -->
+        <div style="border:1.5px solid var(--border);border-radius:12px;overflow:hidden">
+          <div style="background:var(--gl);padding:12px 16px;font-size:13px;font-weight:700;color:var(--navy);border-bottom:1px solid var(--border)">🏦 Ezidebit Payer ID</div>
+          <div style="padding:16px;display:flex;flex-direction:column;gap:10px">
+            <div style="font-size:12px;color:var(--gm);line-height:1.5">Enter the Payer ID exactly as shown in the Ezidebit portal once this customer's direct debit account is set up (format e.g. 558-998-400). This is what the settlement report import matches against — payments won't link to this customer without it.</div>
+            <input class="finput" id="mgmt-ezidebit-id" type="text" placeholder="e.g. 558-998-400" value="${o.ezidebit_id || ''}" style="margin-bottom:0" />
+            <button onclick="saveEzidebitId('${o.id}')" style="padding:11px;background:var(--navy);color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit">Save Payer ID</button>
+          </div>
+        </div>
+
         <!-- SECTION: Bank Account Change -->
         <div style="border:1.5px solid var(--border);border-radius:12px;overflow:hidden">
           <div style="background:var(--gl);padding:12px 16px;font-size:13px;font-weight:700;color:var(--navy);border-bottom:1px solid var(--border)">🏦 Bank account change</div>
@@ -4271,7 +4282,95 @@ async function showOrderManagement(orderId) {
   document.body.appendChild(modal);
 }
 
+// ── Ezidebit settlement import ──
+
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result.split(',')[1]);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
 // ── Order Management Actions ──
+
+async function saveEzidebitId(orderId) {
+  const val = document.getElementById('mgmt-ezidebit-id')?.value.trim() || '';
+  const { error } = await sbClient.from('orders').update({ ezidebit_id: val || null }).eq('id', orderId);
+  if (error) { showToast('Error: ' + error.message, 'error'); return; }
+  showToast('Ezidebit Payer ID saved ✓', 'success');
+}
+
+async function importEzidebitPdf() {
+  const input = document.getElementById('ezidebit-pdf-input');
+  const file = input?.files?.[0];
+  const resultEl = document.getElementById('ezidebit-import-result');
+  if (!file) { showToast('Choose a PDF first', 'error'); return; }
+
+  const btn = document.getElementById('ezidebit-import-btn');
+  btn.disabled = true;
+  btn.textContent = 'Importing...';
+  resultEl.innerHTML = `<div class="card"><div style="text-align:center;padding:30px;color:var(--gm);font-size:13px">Reading report and matching payments...</div></div>`;
+
+  try {
+    const base64 = await fileToBase64(file);
+    const { data, error } = await sbClient.functions.invoke('ezidebit-pdf-import', {
+      body: { file_base64: base64 }
+    });
+
+    if (error) {
+      resultEl.innerHTML = `<div class="card"><div style="color:#8a2222;font-size:13px">Import failed: ${error.message}</div></div>`;
+      return;
+    }
+    if (data?.error) {
+      resultEl.innerHTML = `<div class="card"><div style="color:#8a2222;font-size:13px">Import failed: ${data.error}</div></div>`;
+      return;
+    }
+
+    const unmatchedRows = (data.unmatched || []).map(r => `
+      <tr>
+        <td style="padding:8px;font-size:12px">${r.trans_date}</td>
+        <td style="padding:8px;font-size:12px">${r.ezidebit_payer_id}</td>
+        <td style="padding:8px;font-size:12px">${r.payer_name}</td>
+        <td style="padding:8px;font-size:12px">${r.result}</td>
+        <td style="padding:8px;font-size:12px;text-align:right">$${r.payment_amt.toFixed(2)}</td>
+      </tr>`).join('');
+
+    resultEl.innerHTML = `
+      <div class="card">
+        <div class="card-title">Import summary</div>
+        <div class="metric-grid" style="margin-top:10px">
+          <div class="mcard"><div class="mcard-label">Rows in report</div><div class="mcard-val">${data.total_rows}</div></div>
+          <div class="mcard"><div class="mcard-label">Paid imported</div><div class="mcard-val" style="color:var(--green)">${data.paid_imported}</div></div>
+          <div class="mcard"><div class="mcard-label">Failed imported</div><div class="mcard-val" style="color:#8a2222">${data.failed_imported}</div></div>
+          <div class="mcard"><div class="mcard-label">Duplicates skipped</div><div class="mcard-val">${data.duplicates_skipped}</div></div>
+        </div>
+        ${data.errors?.length ? `<div style="margin-top:14px;background:#fdecea;border-radius:8px;padding:10px 12px;font-size:12px;color:#8a2222">${data.errors.length} row(s) hit an error — check Edge Function logs in Supabase.</div>` : ''}
+      </div>
+      ${data.unmatched?.length ? `
+      <div class="card">
+        <div class="card-title">⚠️ Unmatched — no order found with this Ezidebit Payer ID</div>
+        <div class="card-sub">Add the Payer ID to the customer's order (Customer search → View → ⚙️ Manage order), then re-upload this same report — already-imported rows will be skipped automatically.</div>
+        <table style="width:100%;border-collapse:collapse;margin-top:8px">
+          <tr style="border-bottom:1.5px solid var(--border)">
+            <th style="padding:8px;text-align:left;font-size:11px;color:var(--gm)">Date</th>
+            <th style="padding:8px;text-align:left;font-size:11px;color:var(--gm)">Payer ID</th>
+            <th style="padding:8px;text-align:left;font-size:11px;color:var(--gm)">Name</th>
+            <th style="padding:8px;text-align:left;font-size:11px;color:var(--gm)">Result</th>
+            <th style="padding:8px;text-align:right;font-size:11px;color:var(--gm)">Amount</th>
+          </tr>
+          ${unmatchedRows}
+        </table>
+      </div>` : ''}
+    `;
+  } catch (e) {
+    resultEl.innerHTML = `<div class="card"><div style="color:#8a2222;font-size:13px">Import failed: ${e.message}</div></div>`;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Upload & import';
+  }
+}
 
 async function recordManualPayment(orderId) {
   const type = document.getElementById('mgmt-pay-type')?.value;

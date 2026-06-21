@@ -696,6 +696,7 @@ body { background: #eef1f8; color: var(--gt); min-height: 100vh; font-size: 14px
           <button class="more-menu-item" onclick="nav('customers',null);toggleMoreMenu()">🔍 &nbsp;Customer search</button>
           <button class="more-menu-item" onclick="nav('scorecard',null);toggleMoreMenu()">📊 &nbsp;Consultant scorecards</button>
           <button class="more-menu-item" onclick="nav('clawbacks',null);toggleMoreMenu()">↩ &nbsp;Clawbacks</button>
+          <button class="more-menu-item" onclick="nav('ezidebit',null);toggleMoreMenu()">🏦 &nbsp;Ezidebit import</button>
           <button class="more-menu-item" onclick="nav('manual',null);toggleMoreMenu()">📄 &nbsp;Manual form</button>
           <button class="more-menu-item" onclick="nav('commissions',null);toggleMoreMenu()">💰 &nbsp;Commissions</button>
           <button class="more-menu-item" onclick="nav('awards',null);toggleMoreMenu()">🏆 &nbsp;Awards</button>
@@ -1474,6 +1475,22 @@ body { background: #eef1f8; color: var(--gt); min-height: 100vh; font-size: 14px
     <div id="scorecard-container">
       <div style="text-align:center;padding:40px;color:var(--gm);font-size:13px">Loading scorecards...</div>
     </div>
+  </div>
+
+  <!-- ── EZIDEBIT IMPORT ── -->
+  <div id="s-ezidebit" class="screen">
+    <div class="page-header">
+      <div><div class="page-title">Ezidebit settlement import</div><div class="page-sub">Upload the daily Payment Settlement Report PDF from Ezidebit</div></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Upload report</div>
+      <div class="card-sub">Each customer must have their Ezidebit Payer ID saved on their order first (Customer search → View → ⚙️ Manage order). Unmatched payments will be listed below for manual linking — nothing is silently dropped.</div>
+      <input type="file" id="ezidebit-pdf-input" accept="application/pdf" class="finput" style="margin-bottom:10px" />
+      <button class="btn-gold" onclick="importEzidebitPdf()" id="ezidebit-import-btn">Upload & import</button>
+    </div>
+
+    <div id="ezidebit-import-result"></div>
   </div>
 
   <!-- ── CUSTOMER SEARCH ── -->
