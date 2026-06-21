@@ -617,6 +617,16 @@ function deliveryChange(cb) {
   recalc();
 }
 
+function orderSourceChange(sel) {
+  const note = document.getElementById('cooling-off-note');
+  if (!note) return;
+  if (sel.value === 'referral') {
+    note.textContent = 'This is a solicited (referral) sale — the standard 5-day cooling-off period does not apply.';
+  } else {
+    note.textContent = 'This is an unsolicited sale — the customer has a 5-day cooling-off period.';
+  }
+}
+
 function payChange(sel) {
   const val = sel.value;
   const isDD = val === 'dd_weekly' || val === 'dd_fortnightly' || val === 'deposit_50';
@@ -668,6 +678,13 @@ async function submitOrder() {
     comments:         document.getElementById('f-comments')?.value.trim() || '',
     preferred_delivery_date: document.getElementById('f-delivery-date')?.value || null,
     marketing_consent: document.getElementById('f-marketing-consent')?.checked || false,
+    is_referral:       document.getElementById('f-order-source')?.value === 'referral',
+    income_pension:    document.getElementById('f-income-pension')?.checked || false,
+    income_fulltime:   document.getElementById('f-income-fulltime')?.checked || false,
+    income_parttime:   document.getElementById('f-income-parttime')?.checked || false,
+    income_weekly:      document.getElementById('f-income-weekly')?.value ? Number(document.getElementById('f-income-weekly').value) : null,
+    homeowner:          document.getElementById('f-homeowner')?.value || null,
+    income_notes:       document.getElementById('f-income-notes')?.value.trim() || '',
     referee1_name:    document.getElementById('f-ref1-name')?.value.trim() || '',
     referee1_rel:     document.getElementById('f-ref1-rel')?.value.trim() || '',
     referee1_phone:   document.getElementById('f-ref1-phone')?.value.trim() || '',

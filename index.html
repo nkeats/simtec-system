@@ -799,6 +799,52 @@ body { background: #eef1f8; color: var(--gt); min-height: 100vh; font-size: 14px
     </div>
 
     <div class="card">
+      <div class="card-title">Order source</div>
+      <div class="card-sub">Determines whether the cooling-off period applies</div>
+      <div class="form-grid">
+        <div class="fg-full">
+          <label class="flabel">How did this customer come to us?</label>
+          <select class="finput" id="f-order-source" onchange="orderSourceChange(this)">
+            <option value="unsolicited">Unsolicited (cold approach / door knock / ad response)</option>
+            <option value="referral">Solicited — referral</option>
+          </select>
+        </div>
+      </div>
+      <div id="cooling-off-note" style="margin-top:10px;font-size:12px;color:var(--gm);line-height:1.5">This is an unsolicited sale — the customer has a 5-day cooling-off period.</div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Income & affordability</div>
+      <div class="card-sub">Confirm with the customer — used for credit assessment</div>
+      <div class="form-grid">
+        <div class="fg-full">
+          <label class="flabel">Source of income</label>
+          <div style="display:flex;gap:18px;flex-wrap:wrap;margin-top:6px">
+            <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--navy);cursor:pointer">
+              <input type="checkbox" id="f-income-pension" style="width:16px;height:16px;cursor:pointer;accent-color:var(--navy)"> Pension
+            </label>
+            <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--navy);cursor:pointer">
+              <input type="checkbox" id="f-income-fulltime" style="width:16px;height:16px;cursor:pointer;accent-color:var(--navy)"> Full time
+            </label>
+            <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--navy);cursor:pointer">
+              <input type="checkbox" id="f-income-parttime" style="width:16px;height:16px;cursor:pointer;accent-color:var(--navy)"> Part time
+            </label>
+          </div>
+        </div>
+        <div><label class="flabel">Weekly income ($)</label><input class="finput" id="f-income-weekly" type="number" min="0" step="1" placeholder="850" /></div>
+        <div><label class="flabel">Homeowner?</label>
+          <select class="finput" id="f-homeowner">
+            <option value="">-- Select --</option>
+            <option value="yes">Yes</option>
+            <option value="no">No</option>
+          </select>
+        </div>
+        <div class="fg-full"><label class="flabel">Income / affordability notes</label>
+          <input class="finput" id="f-income-notes" placeholder="Any additional notes..." /></div>
+      </div>
+    </div>
+
+    <div class="card">
       <div class="card-title">Products</div>
       <div class="card-sub">Tap to select. Delivery fee added automatically.</div>
 
