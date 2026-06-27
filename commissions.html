@@ -1,0 +1,1023 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Simtec Commission Tracker</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+  body { font-family: 'Inter', sans-serif; }
+  @media print {
+    .no-print { display: none !important; }
+    .print-area { display: block !important; }
+    body { background: white !important; }
+    @page { margin: 15mm; size: A4; }
+  }
+  .print-area { display: none; }
+  .gold { color: #B8952A; }
+  .bg-gold { background: #B8952A; }
+  .border-gold { border-color: #B8952A; }
+</style>
+</head>
+<body class="bg-slate-950 text-white min-h-screen">
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useCallback, useRef } = React;
+
+// ─── CONFIG ────────────────────────────────────────────────────────────────
+const SUPABASE_URL = 'https://jvqjoenaungubpoegyvf.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imp2cWpvZW5hdW5ndWJwb2VneXZmIiwicm9sZSI6ImFub24iLCJpYXQiOj'; // ← paste from your existing app.js
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+// ─── HELPERS ───────────────────────────────────────────────────────────────
+const fmt = n => `$${(+n || 0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`;
+const fmtDate = d => d ? new Date(d + 'T00:00:00').toLocaleDateString('en-NZ', {day:'2-digit',month:'short',year:'numeric'}) : '';
+const toMonday = d => { const dt = new Date(d+'T00:00:00'); const day = dt.getDay(); const diff = (day===0?-6:1-day); dt.setDate(dt.getDate()+diff); return dt.toISOString().split('T')[0]; };
+const toSunday = mon => { const dt = new Date(mon+'T00:00:00'); dt.setDate(dt.getDate()+6); return dt.toISOString().split('T')[0]; };
+
+// ─── COMMISSION CALCULATION ────────────────────────────────────────────────
+function calcCommission(sales, bonuses, deductions, retentionBalance, settings) {
+  const { tier1_max, tier1_amount, tier2_max, tier2_amount, tier3_amount,
+          cash_bonus, retention_rate, retention_cap } = settings;
+
+  // Count tier-eligible units
+  let tierUnits = 0;
+  for (const s of sales)
+    for (const it of (s.items||[]))
+      if (it.product?.commission_type !== 'zero') tierUnits += it.quantity;
+
+  const tierRate = tierUnits <= tier1_max ? tier1_amount
+                 : tierUnits <= tier2_max ? tier2_amount
+                 : tier3_amount;
+
+  // Per-sale commission
+  let salesComm = 0, autoCashBonus = 0;
+  for (const sale of sales) {
+    let saleEligible = false;
+    for (const it of (sale.items||[])) {
+      const p = it.product;
+      if (!p) continue;
+      if (p.commission_type === 'zero') continue;
+      if (p.commission_type === 'fixed') { salesComm += p.fixed_amount * it.quantity; saleEligible = true; }
+      if (p.commission_type === 'tier')  { salesComm += tierRate * it.quantity; saleEligible = true; }
+    }
+    if (saleEligible) autoCashBonus += cash_bonus;
+  }
+
+  const manualBonus = bonuses.reduce((s,b) => s + (+b.amount||0), 0);
+  const grossSubject = salesComm + autoCashBonus; // retention applies to this
+  const gross = grossSubject + manualBonus;
+
+  // Retention (capped at $5000 total)
+  let retentionWittheld = 0;
+  if (retentionBalance < retention_cap) {
+    const room = retention_cap - retentionBalance;
+    retentionWittheld = Math.min(grossSubject * retention_rate, room);
+  }
+
+  const totalDeductions = deductions.reduce((s,d) => s + (+d.amount||0), 0);
+  const net = gross - retentionWittheld - totalDeductions;
+
+  return { tierUnits, tierRate, salesComm, autoCashBonus, manualBonus,
+           grossSubject, gross, retentionWittheld, totalDeductions, net,
+           retentionAfter: retentionBalance + retentionWittheld };
+}
+
+// ─── NAV ──────────────────────────────────────────────────────────────────
+function Nav({ view, setView }) {
+  const links = [
+    { id:'runs',    label:'Pay Runs' },
+    { id:'setup',   label:'Consultants & Products' },
+    { id:'settings',label:'Commission Rates' },
+  ];
+  return (
+    <nav className="bg-slate-900 border-b border-slate-800 px-6 py-3 flex items-center gap-8 no-print">
+      <div className="flex items-center gap-2 mr-4">
+        <div className="w-2 h-6 bg-gold rounded-sm"/>
+        <span className="font-semibold text-white tracking-wide text-sm">SIMTEC COMMISSIONS</span>
+      </div>
+      {links.map(l => (
+        <button key={l.id} onClick={()=>setView({page:l.id})}
+          className={`text-sm font-medium pb-1 border-b-2 transition-colors ${view.page===l.id ? 'border-yellow-500 text-yellow-400' : 'border-transparent text-slate-400 hover:text-white'}`}>
+          {l.label}
+        </button>
+      ))}
+    </nav>
+  );
+}
+
+// ─── PAY RUNS LIST ────────────────────────────────────────────────────────
+function PayRunsList({ setView }) {
+  const [runs, setRuns] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [showNew, setShowNew] = useState(false);
+  const [newDate, setNewDate] = useState('');
+
+  const load = async () => {
+    setLoading(true);
+    const { data } = await sb.from('commission_pay_runs').select('*').order('week_ending', { ascending: false });
+    setRuns(data || []);
+    setLoading(false);
+  };
+  useEffect(() => { load(); }, []);
+
+  const createRun = async () => {
+    if (!newDate) return;
+    const sunday = newDate;
+    const monday = toMonday(sunday);
+    await sb.from('commission_pay_runs').insert({ week_start: monday, week_ending: sunday });
+    setShowNew(false); setNewDate('');
+    load();
+  };
+
+  return (
+    <div className="p-8 max-w-4xl mx-auto">
+      <div className="flex items-center justify-between mb-8">
+        <div>
+          <h1 className="text-2xl font-bold text-white">Weekly Pay Runs</h1>
+          <p className="text-slate-400 text-sm mt-1">Select a week to process commissions</p>
+        </div>
+        <button onClick={()=>setShowNew(true)}
+          className="bg-yellow-500 hover:bg-yellow-400 text-slate-900 font-semibold px-5 py-2.5 rounded-lg text-sm transition-colors">
+          + New Pay Run
+        </button>
+      </div>
+
+      {showNew && (
+        <div className="bg-slate-800 border border-slate-700 rounded-xl p-6 mb-6">
+          <h3 className="font-semibold mb-4 text-white">New Pay Run</h3>
+          <div className="flex gap-3 items-end">
+            <div>
+              <label className="text-xs text-slate-400 block mb-1">Week Ending (Sunday)</label>
+              <input type="date" value={newDate} onChange={e=>setNewDate(e.target.value)}
+                className="bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm"/>
+            </div>
+            <button onClick={createRun} className="bg-yellow-500 hover:bg-yellow-400 text-slate-900 font-semibold px-4 py-2 rounded-lg text-sm">Create</button>
+            <button onClick={()=>setShowNew(false)} className="text-slate-400 hover:text-white px-4 py-2 text-sm">Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {loading ? <p className="text-slate-500">Loading…</p> : (
+        <div className="space-y-3">
+          {runs.length === 0 && <div className="text-center py-16 text-slate-500">No pay runs yet. Create your first one above.</div>}
+          {runs.map(r => (
+            <button key={r.id} onClick={()=>setView({page:'run', runId:r.id})}
+              className="w-full text-left bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-xl p-5 transition-colors group">
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="font-semibold text-white text-base">Week ending {fmtDate(r.week_ending)}</div>
+                  <div className="text-slate-400 text-sm mt-0.5">{fmtDate(r.week_start)} – {fmtDate(r.week_ending)}</div>
+                </div>
+                <div className="flex items-center gap-4">
+                  <span className={`text-xs font-medium px-2.5 py-1 rounded-full ${r.status==='finalised' ? 'bg-green-900 text-green-400' : 'bg-slate-700 text-slate-400'}`}>
+                    {r.status==='finalised' ? 'Finalised' : 'Draft'}
+                  </span>
+                  <span className="text-slate-500 group-hover:text-yellow-400 transition-colors">→</span>
+                </div>
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── PAY RUN DETAIL ───────────────────────────────────────────────────────
+function PayRunDetail({ runId, setView }) {
+  const [run, setRun] = useState(null);
+  const [consultants, setConsultants] = useState([]);
+  const [summaries, setSummaries] = useState({});
+  const [settings, setSettings] = useState(null);
+  const [retention, setRetention] = useState({});
+  const [loading, setLoading] = useState(true);
+
+  const load = async () => {
+    setLoading(true);
+    const [{ data: r }, { data: cons }, { data: set }, { data: ret }] = await Promise.all([
+      sb.from('commission_pay_runs').select('*').eq('id', runId).single(),
+      sb.from('commission_consultants').select('*').eq('active', true).order('name'),
+      sb.from('commission_settings').select('*').single(),
+      sb.from('commission_retention').select('*'),
+    ]);
+    setRun(r); setSettings(set);
+    const retMap = {};
+    (ret||[]).forEach(x => { retMap[x.consultant_id] = x.balance; });
+    setRetention(retMap);
+    setConsultants(cons || []);
+
+    // Load summaries for all consultants
+    const sumMap = {};
+    await Promise.all((cons||[]).map(async c => {
+      const [{ data: sales }, { data: bonuses }, { data: deductions }] = await Promise.all([
+        sb.from('commission_sales').select('*, commission_sale_items(quantity, commission_products(*))').eq('pay_run_id', runId).eq('consultant_id', c.id),
+        sb.from('commission_bonuses').select('*').eq('pay_run_id', runId).eq('consultant_id', c.id),
+        sb.from('commission_deductions').select('*').eq('pay_run_id', runId).eq('consultant_id', c.id),
+      ]);
+      const salesWithItems = (sales||[]).map(s => ({...s, items: (s.commission_sale_items||[]).map(it => ({...it, product: it.commission_products}))}));
+      const retBal = retMap[c.id] || 0;
+      if (set) sumMap[c.id] = calcCommission(salesWithItems, bonuses||[], deductions||[], retBal, set);
+    }));
+    setSummaries(sumMap);
+    setLoading(false);
+  };
+
+  useEffect(() => { load(); }, [runId]);
+
+  if (loading) return <div className="p-8 text-slate-500">Loading…</div>;
+  if (!run) return <div className="p-8 text-slate-500">Not found</div>;
+
+  return (
+    <div className="p-8 max-w-5xl mx-auto">
+      <button onClick={()=>setView({page:'runs'})} className="text-slate-400 hover:text-white text-sm mb-6 flex items-center gap-2">
+        ← Back to Pay Runs
+      </button>
+      <div className="flex items-start justify-between mb-8">
+        <div>
+          <h1 className="text-2xl font-bold text-white">Week ending {fmtDate(run.week_ending)}</h1>
+          <p className="text-slate-400 text-sm mt-1">{fmtDate(run.week_start)} — {fmtDate(run.week_ending)}</p>
+        </div>
+        <span className={`text-sm font-medium px-3 py-1.5 rounded-full ${run.status==='finalised' ? 'bg-green-900 text-green-400' : 'bg-slate-700 text-slate-400'}`}>
+          {run.status==='finalised' ? 'Finalised' : 'Draft'}
+        </span>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        {consultants.map(c => {
+          const s = summaries[c.id];
+          const hasSales = s && s.salesComm > 0;
+          return (
+            <button key={c.id} onClick={()=>setView({page:'consultant', runId, consultantId:c.id})}
+              className="text-left bg-slate-800 hover:bg-slate-700 border border-slate-700 hover:border-yellow-500/40 rounded-xl p-5 transition-all group">
+              <div className="flex items-start justify-between mb-3">
+                <div className="font-semibold text-white text-base">{c.name}</div>
+                <span className="text-slate-500 group-hover:text-yellow-400 text-lg">→</span>
+              </div>
+              {s ? (
+                <div className="space-y-1.5 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-slate-400">Sales</span>
+                    <span className="text-slate-300">{fmt(s.salesComm)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-400">Bonuses</span>
+                    <span className="text-slate-300">{fmt(s.autoCashBonus + s.manualBonus)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-400">Deductions</span>
+                    <span className="text-slate-300">-{fmt(s.retentionWittheld + s.totalDeductions)}</span>
+                  </div>
+                  <div className="border-t border-slate-600 pt-1.5 flex justify-between font-semibold">
+                    <span className="text-slate-300">Net Pay</span>
+                    <span className="text-yellow-400">{fmt(s.net)}</span>
+                  </div>
+                </div>
+              ) : (
+                <p className="text-slate-500 text-sm">No sales entered</p>
+              )}
+            </button>
+          );
+        })}
+      </div>
+      {consultants.length === 0 && (
+        <div className="text-center py-16 text-slate-500">
+          No active consultants. Add them in <button onClick={()=>setView({page:'setup'})} className="text-yellow-400 hover:underline">Consultants & Products</button>.
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── CONSULTANT PAY DETAIL ────────────────────────────────────────────────
+function ConsultantDetail({ runId, consultantId, setView }) {
+  const [run, setRun] = useState(null);
+  const [consultant, setConsultant] = useState(null);
+  const [settings, setSettings] = useState(null);
+  const [products, setProducts] = useState([]);
+  const [sales, setSales] = useState([]);
+  const [bonuses, setBonuses] = useState([]);
+  const [deductions, setDeductions] = useState([]);
+  const [retentionBalance, setRetentionBalance] = useState(0);
+  const [loading, setLoading] = useState(true);
+
+  // Modals
+  const [showSale, setShowSale] = useState(false);
+  const [showBonus, setShowBonus] = useState(false);
+  const [showDeduction, setShowDeduction] = useState(false);
+  const [editSale, setEditSale] = useState(null);
+
+  const load = async () => {
+    setLoading(true);
+    const [{ data: r }, { data: c }, { data: set }, { data: prods },
+           { data: rawSales }, { data: bon }, { data: ded }, { data: ret }] = await Promise.all([
+      sb.from('commission_pay_runs').select('*').eq('id', runId).single(),
+      sb.from('commission_consultants').select('*').eq('id', consultantId).single(),
+      sb.from('commission_settings').select('*').single(),
+      sb.from('commission_products').select('*').eq('active', true).order('name'),
+      sb.from('commission_sales').select('*, commission_sale_items(id, quantity, product_id, commission_products(*))').eq('pay_run_id', runId).eq('consultant_id', consultantId).order('sale_date'),
+      sb.from('commission_bonuses').select('*').eq('pay_run_id', runId).eq('consultant_id', consultantId),
+      sb.from('commission_deductions').select('*').eq('pay_run_id', runId).eq('consultant_id', consultantId),
+      sb.from('commission_retention').select('*').eq('consultant_id', consultantId).maybeSingle(),
+    ]);
+    setRun(r); setConsultant(c); setSettings(set); setProducts(prods||[]);
+    const enriched = (rawSales||[]).map(s => ({...s, items: (s.commission_sale_items||[]).map(it => ({...it, product: it.commission_products}))}));
+    setSales(enriched); setBonuses(bon||[]); setDeductions(ded||[]);
+    setRetentionBalance(ret?.balance || 0);
+    setLoading(false);
+  };
+
+  useEffect(() => { load(); }, [runId, consultantId]);
+
+  const calc = settings ? calcCommission(sales, bonuses, deductions, retentionBalance, settings) : null;
+
+  const deleteSale = async (saleId) => {
+    await sb.from('commission_sales').delete().eq('id', saleId);
+    load();
+  };
+
+  const deleteBonus = async (id) => { await sb.from('commission_bonuses').delete().eq('id', id); load(); };
+  const deleteDeduction = async (id) => { await sb.from('commission_deductions').delete().eq('id', id); load(); };
+
+  if (loading) return <div className="p-8 text-slate-500">Loading…</div>;
+
+  return (
+    <div className="p-8 max-w-5xl mx-auto">
+      <button onClick={()=>setView({page:'run', runId})} className="text-slate-400 hover:text-white text-sm mb-6 flex items-center gap-2">
+        ← Back to Pay Run
+      </button>
+      <div className="flex items-start justify-between mb-8">
+        <div>
+          <h1 className="text-2xl font-bold text-white">{consultant?.name}</h1>
+          <p className="text-slate-400 text-sm mt-1">Week ending {fmtDate(run?.week_ending)}</p>
+        </div>
+        {calc && (
+          <button onClick={()=>setView({page:'invoice', runId, consultantId})}
+            className="bg-yellow-500 hover:bg-yellow-400 text-slate-900 font-semibold px-5 py-2.5 rounded-lg text-sm transition-colors">
+            View / Print Invoice
+          </button>
+        )}
+      </div>
+
+      {/* SALES */}
+      <Section title="Sales" action={<button onClick={()=>{setEditSale(null);setShowSale(true)}} className="text-yellow-400 hover:text-yellow-300 text-sm font-medium">+ Add Sale</button>}>
+        {sales.length === 0 ? <p className="text-slate-500 text-sm py-4 text-center">No sales entered yet</p> : (
+          <table className="w-full text-sm">
+            <thead><tr className="text-slate-500 text-xs">
+              <th className="text-left pb-2 font-medium">Date</th>
+              <th className="text-left pb-2 font-medium">Customer</th>
+              <th className="text-left pb-2 font-medium">Products</th>
+              <th className="text-right pb-2 font-medium">Commission</th>
+              <th className="pb-2 w-8"></th>
+            </tr></thead>
+            <tbody className="divide-y divide-slate-700/50">
+              {sales.map(sale => {
+                const sComm = settings ? (() => {
+                  let c = 0, eligible = false;
+                  const tierRate = calc?.tierRate || 0;
+                  for (const it of sale.items) {
+                    const p = it.product;
+                    if (!p) continue;
+                    if (p.commission_type === 'fixed') { c += p.fixed_amount * it.quantity; eligible = true; }
+                    if (p.commission_type === 'tier')  { c += tierRate * it.quantity; eligible = true; }
+                  }
+                  if (eligible) c += settings.cash_bonus;
+                  return c;
+                })() : 0;
+                return (
+                  <tr key={sale.id} className="text-slate-300">
+                    <td className="py-2.5 pr-3 text-slate-400 whitespace-nowrap">{fmtDate(sale.sale_date)}</td>
+                    <td className="py-2.5 pr-3 font-medium text-white">{sale.customer_name}</td>
+                    <td className="py-2.5 pr-3 text-slate-400 text-xs">
+                      {sale.items.map((it,i) => <span key={i}>{it.product?.name}{it.quantity>1?` ×${it.quantity}`:''}{i<sale.items.length-1?', ':''}</span>)}
+                    </td>
+                    <td className="py-2.5 text-right text-yellow-400 font-medium">{fmt(sComm)}</td>
+                    <td className="py-2.5 pl-3">
+                      <button onClick={()=>deleteSale(sale.id)} className="text-slate-600 hover:text-red-400 text-xs">✕</button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
+      </Section>
+
+      {/* BONUSES */}
+      <Section title="Bonuses" action={<button onClick={()=>setShowBonus(true)} className="text-yellow-400 hover:text-yellow-300 text-sm font-medium">+ Add Bonus</button>}>
+        {calc && calc.autoCashBonus > 0 && (
+          <div className="flex justify-between text-sm py-1.5 text-slate-400 italic">
+            <span>Auto cash bonuses ({sales.filter(s=>s.items.some(i=>i.product?.cash_bonus_eligible)).length} × {fmt(settings.cash_bonus)})</span>
+            <span className="text-slate-300">{fmt(calc.autoCashBonus)}</span>
+          </div>
+        )}
+        {bonuses.map(b => (
+          <div key={b.id} className="flex items-center justify-between text-sm py-1.5 border-t border-slate-700/50">
+            <span className="text-slate-300">{b.description}</span>
+            <div className="flex items-center gap-3">
+              <span className="text-yellow-400 font-medium">{fmt(b.amount)}</span>
+              <button onClick={()=>deleteBonus(b.id)} className="text-slate-600 hover:text-red-400 text-xs">✕</button>
+            </div>
+          </div>
+        ))}
+        {bonuses.length === 0 && (!calc || calc.autoCashBonus === 0) && <p className="text-slate-500 text-sm py-4 text-center">No bonuses</p>}
+      </Section>
+
+      {/* DEDUCTIONS */}
+      <Section title="Deductions" action={<button onClick={()=>setShowDeduction(true)} className="text-yellow-400 hover:text-yellow-300 text-sm font-medium">+ Add Deduction</button>}>
+        {calc && calc.retentionWittheld > 0 && (
+          <div className="flex justify-between text-sm py-1.5 text-slate-400 italic">
+            <span>Retention withheld (25% of {fmt(calc.grossSubject)})</span>
+            <span className="text-slate-300">-{fmt(calc.retentionWittheld)}</span>
+          </div>
+        )}
+        {deductions.map(d => (
+          <div key={d.id} className="flex items-center justify-between text-sm py-1.5 border-t border-slate-700/50">
+            <div>
+              <span className="text-slate-300">{d.description || d.deduction_type}</span>
+              <span className="text-xs text-slate-500 ml-2 capitalize">({d.deduction_type}{d.quantity>1?` ×${d.quantity}`:''})</span>
+            </div>
+            <div className="flex items-center gap-3">
+              <span className="text-red-400 font-medium">-{fmt(d.amount)}</span>
+              <button onClick={()=>deleteDeduction(d.id)} className="text-slate-600 hover:text-red-400 text-xs">✕</button>
+            </div>
+          </div>
+        ))}
+        {deductions.length === 0 && (!calc || calc.retentionWittheld === 0) && <p className="text-slate-500 text-sm py-4 text-center">No deductions</p>}
+      </Section>
+
+      {/* PAY SUMMARY */}
+      {calc && (
+        <div className="bg-slate-800 border border-yellow-500/30 rounded-xl p-6 mt-6">
+          <h3 className="font-semibold text-white mb-4">Pay Summary</h3>
+          <div className="grid grid-cols-2 gap-y-2 text-sm max-w-sm">
+            <span className="text-slate-400">Sales commission</span><span className="text-right text-white">{fmt(calc.salesComm)}</span>
+            <span className="text-slate-400">Cash bonuses</span><span className="text-right text-white">{fmt(calc.autoCashBonus)}</span>
+            {calc.manualBonus>0 && <><span className="text-slate-400">Extra bonuses</span><span className="text-right text-white">{fmt(calc.manualBonus)}</span></>}
+            <span className="text-slate-400">Less: retention</span><span className="text-right text-red-400">-{fmt(calc.retentionWittheld)}</span>
+            {calc.totalDeductions>0 && <><span className="text-slate-400">Less: deductions</span><span className="text-right text-red-400">-{fmt(calc.totalDeductions)}</span></>}
+            <div className="col-span-2 border-t border-slate-600 mt-2 pt-3 flex justify-between">
+              <span className="font-bold text-white text-base">Net Payable</span>
+              <span className="font-bold text-yellow-400 text-xl">{fmt(calc.net)}</span>
+            </div>
+          </div>
+          <div className="mt-4 pt-4 border-t border-slate-700 text-sm">
+            <div className="flex justify-between text-slate-400">
+              <span>Retention opening balance</span><span>{fmt(retentionBalance)}</span>
+            </div>
+            <div className="flex justify-between text-slate-400 mt-1">
+              <span>+ This week</span><span>{fmt(calc.retentionWittheld)}</span>
+            </div>
+            <div className="flex justify-between font-medium mt-1">
+              <span className="text-white">Retention closing balance</span>
+              <span className={calc.retentionAfter >= settings.retention_cap ? 'text-green-400' : 'text-yellow-400'}>{fmt(calc.retentionAfter)} {calc.retentionAfter >= settings.retention_cap ? '✓ CAPPED' : `/ ${fmt(settings.retention_cap)}`}</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODALS */}
+      {showSale    && <SaleModal    run={run} consultantId={consultantId} products={products} onClose={()=>{setShowSale(false);load();}} />}
+      {showBonus   && <BonusModal   runId={runId} consultantId={consultantId} onClose={()=>{setShowBonus(false);load();}} />}
+      {showDeduction && <DeductionModal runId={runId} consultantId={consultantId} settings={settings} onClose={()=>{setShowDeduction(false);load();}} />}
+    </div>
+  );
+}
+
+function Section({ title, action, children }) {
+  return (
+    <div className="bg-slate-800 border border-slate-700 rounded-xl p-5 mb-4">
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="font-semibold text-white text-sm uppercase tracking-wide">{title}</h3>
+        {action}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+// ─── SALE MODAL ───────────────────────────────────────────────────────────
+function SaleModal({ run, consultantId, products, onClose }) {
+  const [date, setDate] = useState(run?.week_ending || '');
+  const [customer, setCustomer] = useState('');
+  const [items, setItems] = useState([{ product_id: '', quantity: 1 }]);
+  const [saving, setSaving] = useState(false);
+
+  const save = async () => {
+    if (!customer.trim() || !date) return;
+    setSaving(true);
+    const { data: sale } = await sb.from('commission_sales').insert({
+      pay_run_id: run.id, consultant_id: consultantId,
+      sale_date: date, customer_name: customer.trim(),
+    }).select().single();
+    const validItems = items.filter(i => i.product_id);
+    if (sale && validItems.length > 0)
+      await sb.from('commission_sale_items').insert(validItems.map(i => ({
+        sale_id: sale.id, product_id: i.product_id, quantity: i.quantity
+      })));
+    setSaving(false); onClose();
+  };
+
+  return (
+    <Modal title="Add Sale" onClose={onClose}>
+      <div className="space-y-4">
+        <Field label="Sale Date"><input type="date" value={date} onChange={e=>setDate(e.target.value)} className="input"/></Field>
+        <Field label="Customer Name"><input type="text" value={customer} onChange={e=>setCustomer(e.target.value)} placeholder="Customer surname" className="input"/></Field>
+        <div>
+          <label className="text-xs text-slate-400 block mb-2">Products</label>
+          {items.map((item, i) => (
+            <div key={i} className="flex gap-2 mb-2">
+              <select value={item.product_id} onChange={e=>{const n=[...items];n[i].product_id=e.target.value;setItems(n)}} className="input flex-1">
+                <option value="">Select product</option>
+                {products.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+              <input type="number" min="1" value={item.quantity} onChange={e=>{const n=[...items];n[i].quantity=+e.target.value;setItems(n)}} className="input w-16 text-center"/>
+              {items.length>1 && <button onClick={()=>setItems(items.filter((_,j)=>j!==i))} className="text-slate-500 hover:text-red-400">✕</button>}
+            </div>
+          ))}
+          <button onClick={()=>setItems([...items,{product_id:'',quantity:1}])} className="text-yellow-400 hover:text-yellow-300 text-xs mt-1">+ Add Product</button>
+        </div>
+        <div className="flex gap-3 pt-2">
+          <button onClick={save} disabled={saving} className="btn-primary flex-1">{saving?'Saving…':'Save Sale'}</button>
+          <button onClick={onClose} className="btn-secondary flex-1">Cancel</button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+// ─── BONUS MODAL ──────────────────────────────────────────────────────────
+function BonusModal({ runId, consultantId, onClose }) {
+  const [desc, setDesc] = useState('');
+  const [amount, setAmount] = useState('');
+  const save = async () => {
+    if (!desc.trim() || !amount) return;
+    await sb.from('commission_bonuses').insert({ pay_run_id:runId, consultant_id:consultantId, description:desc.trim(), amount:+amount });
+    onClose();
+  };
+  return (
+    <Modal title="Add Bonus" onClose={onClose}>
+      <Field label="Description"><input type="text" value={desc} onChange={e=>setDesc(e.target.value)} className="input" placeholder="e.g. Performance bonus"/></Field>
+      <Field label="Amount ($)"><input type="number" value={amount} onChange={e=>setAmount(e.target.value)} className="input" min="0" step="0.01"/></Field>
+      <div className="flex gap-3 pt-2">
+        <button onClick={save} className="btn-primary flex-1">Save</button>
+        <button onClick={onClose} className="btn-secondary flex-1">Cancel</button>
+      </div>
+    </Modal>
+  );
+}
+
+// ─── DEDUCTION MODAL ──────────────────────────────────────────────────────
+function DeductionModal({ runId, consultantId, settings, onClose }) {
+  const [type, setType] = useState('pillow');
+  const [desc, setDesc] = useState('');
+  const [qty, setQty] = useState(1);
+  const [amount, setAmount] = useState('');
+
+  useEffect(() => {
+    if (type === 'pillow' && settings) setAmount((qty * settings.pillow_charge).toFixed(2));
+  }, [type, qty, settings]);
+
+  const save = async () => {
+    if (!amount) return;
+    await sb.from('commission_deductions').insert({
+      pay_run_id:runId, consultant_id:consultantId,
+      deduction_type:type, description:desc.trim()||null, quantity:qty, amount:+amount
+    });
+    onClose();
+  };
+
+  return (
+    <Modal title="Add Deduction" onClose={onClose}>
+      <Field label="Type">
+        <select value={type} onChange={e=>setType(e.target.value)} className="input">
+          <option value="pillow">Pillow / Giveaway</option>
+          <option value="advance">Advance Repayment</option>
+          <option value="giveaway">Product Giveaway</option>
+          <option value="retainer">Retainer</option>
+          <option value="other">Other</option>
+        </select>
+      </Field>
+      {type==='pillow' && <Field label="Quantity"><input type="number" value={qty} min="1" onChange={e=>setQty(+e.target.value)} className="input w-24"/></Field>}
+      <Field label="Description (optional)"><input type="text" value={desc} onChange={e=>setDesc(e.target.value)} className="input" placeholder="Details"/></Field>
+      <Field label="Amount ($)"><input type="number" value={amount} onChange={e=>setAmount(e.target.value)} className="input" min="0" step="0.01"/></Field>
+      <div className="flex gap-3 pt-2">
+        <button onClick={save} className="btn-primary flex-1">Save</button>
+        <button onClick={onClose} className="btn-secondary flex-1">Cancel</button>
+      </div>
+    </Modal>
+  );
+}
+
+// ─── INVOICE VIEW ─────────────────────────────────────────────────────────
+function InvoiceView({ runId, consultantId, setView }) {
+  const [data, setData] = useState(null);
+
+  useEffect(() => {
+    (async () => {
+      const [{ data: run }, { data: consultant }, { data: settings },
+             { data: rawSales }, { data: bonuses }, { data: deductions },
+             { data: ret }] = await Promise.all([
+        sb.from('commission_pay_runs').select('*').eq('id', runId).single(),
+        sb.from('commission_consultants').select('*').eq('id', consultantId).single(),
+        sb.from('commission_settings').select('*').single(),
+        sb.from('commission_sales').select('*, commission_sale_items(id, quantity, product_id, commission_products(*))').eq('pay_run_id', runId).eq('consultant_id', consultantId).order('sale_date'),
+        sb.from('commission_bonuses').select('*').eq('pay_run_id', runId).eq('consultant_id', consultantId),
+        sb.from('commission_deductions').select('*').eq('pay_run_id', runId).eq('consultant_id', consultantId),
+        sb.from('commission_retention').select('*').eq('consultant_id', consultantId).maybeSingle(),
+      ]);
+      const sales = (rawSales||[]).map(s => ({...s, items: (s.commission_sale_items||[]).map(it => ({...it, product: it.commission_products}))}));
+      const retBal = ret?.balance || 0;
+      const calc = calcCommission(sales, bonuses||[], deductions||[], retBal, settings);
+      setData({ run, consultant, settings, sales, bonuses: bonuses||[], deductions: deductions||[], retBal, calc });
+    })();
+  }, [runId, consultantId]);
+
+  if (!data) return <div className="p-8 text-slate-500">Loading…</div>;
+
+  const { run, consultant, settings, sales, bonuses, deductions, retBal, calc } = data;
+
+  const saleComm = (sale) => {
+    let c = 0, eligible = false;
+    for (const it of sale.items) {
+      const p = it.product;
+      if (!p) continue;
+      if (p.commission_type === 'fixed') { c += p.fixed_amount * it.quantity; eligible = true; }
+      if (p.commission_type === 'tier')  { c += calc.tierRate * it.quantity; eligible = true; }
+    }
+    if (eligible) c += settings.cash_bonus;
+    return c;
+  };
+
+  return (
+    <div className="bg-slate-950 min-h-screen">
+      {/* Toolbar */}
+      <div className="bg-slate-900 border-b border-slate-800 px-8 py-4 flex items-center gap-4 no-print">
+        <button onClick={()=>setView({page:'consultant', runId, consultantId})} className="text-slate-400 hover:text-white text-sm">← Back</button>
+        <div className="flex-1"/>
+        <button onClick={()=>window.print()} className="bg-yellow-500 hover:bg-yellow-400 text-slate-900 font-semibold px-5 py-2 rounded-lg text-sm">
+          ⬇ Download PDF (Print → Save as PDF)
+        </button>
+      </div>
+
+      {/* Print preview wrapper */}
+      <div className="py-8 px-4 flex justify-center">
+        <div className="bg-white text-gray-900 w-[210mm] min-h-[297mm] shadow-2xl print-area" style={{fontFamily:'Arial,sans-serif',fontSize:'9pt',padding:'15mm'}}>
+
+          {/* Header */}
+          <div style={{borderBottom:'2px solid #0f1e3c',paddingBottom:'8mm',marginBottom:'6mm'}}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
+              <div>
+                <div style={{fontSize:'20pt',fontWeight:'bold',color:'#0f1e3c',letterSpacing:'-0.5px'}}>COMMISSION INVOICE</div>
+                <div style={{marginTop:'2mm',color:'#555',fontSize:'8.5pt'}}>
+                  <div>From: <strong>{consultant.name}</strong></div>
+                  <div>To: <strong>Simtec Therapeutic Ltd</strong></div>
+                  <div>297 Neilsons Rd Onehunga, Auckland &nbsp;|&nbsp; Ph: 09 886 9897</div>
+                </div>
+              </div>
+              <div style={{textAlign:'right',color:'#555',fontSize:'8.5pt'}}>
+                <div><strong>Week Starting:</strong> {fmtDate(run.week_start)}</div>
+                <div><strong>Week Ending:</strong> {fmtDate(run.week_ending)}</div>
+                <div style={{marginTop:'2mm',fontSize:'7pt',color:'#999'}}>Generated: {new Date().toLocaleDateString('en-NZ')}</div>
+              </div>
+            </div>
+          </div>
+
+          {/* Sales */}
+          <div style={{marginBottom:'5mm'}}>
+            <div style={{fontSize:'9pt',fontWeight:'bold',color:'#0f1e3c',borderBottom:'1px solid #ddd',paddingBottom:'1.5mm',marginBottom:'2mm',textTransform:'uppercase',letterSpacing:'0.5px'}}>Sales</div>
+            <table style={{width:'100%',borderCollapse:'collapse',fontSize:'8.5pt'}}>
+              <thead>
+                <tr style={{background:'#f5f5f5'}}>
+                  {['Date','Customer','Products','Qty','Commission'].map(h=>(
+                    <th key={h} style={{padding:'2mm 3mm',textAlign:h==='Commission'?'right':'left',fontWeight:'600',color:'#333',fontSize:'7.5pt'}}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {sales.map((sale,i) => (
+                  <tr key={sale.id} style={{borderBottom:'0.5pt solid #eee',background:i%2===0?'white':'#fafafa'}}>
+                    <td style={{padding:'2mm 3mm',whiteSpace:'nowrap',color:'#555'}}>{fmtDate(sale.sale_date)}</td>
+                    <td style={{padding:'2mm 3mm',fontWeight:'500'}}>{sale.customer_name}</td>
+                    <td style={{padding:'2mm 3mm',color:'#555'}}>{sale.items.map(it=>it.product?.name).filter(Boolean).join(', ')}</td>
+                    <td style={{padding:'2mm 3mm',textAlign:'center',color:'#555'}}>{sale.items.reduce((s,i)=>s+i.quantity,0)}</td>
+                    <td style={{padding:'2mm 3mm',textAlign:'right',fontWeight:'600',color:'#1a3a6b'}}>{fmt(saleComm(sale))}</td>
+                  </tr>
+                ))}
+                <tr style={{background:'#f0f0f0',fontWeight:'bold'}}>
+                  <td colSpan={4} style={{padding:'2mm 3mm'}}>Sales Commission Subtotal</td>
+                  <td style={{padding:'2mm 3mm',textAlign:'right'}}>{fmt(calc.salesComm)}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          {/* Bonuses */}
+          {(calc.autoCashBonus > 0 || bonuses.length > 0) && (
+            <div style={{marginBottom:'5mm'}}>
+              <div style={{fontSize:'9pt',fontWeight:'bold',color:'#0f1e3c',borderBottom:'1px solid #ddd',paddingBottom:'1.5mm',marginBottom:'2mm',textTransform:'uppercase',letterSpacing:'0.5px'}}>Bonuses</div>
+              <table style={{width:'100%',borderCollapse:'collapse',fontSize:'8.5pt'}}>
+                <tbody>
+                  {calc.autoCashBonus > 0 && (
+                    <tr style={{borderBottom:'0.5pt solid #eee'}}>
+                      <td style={{padding:'1.5mm 3mm',color:'#555'}}>Cash bonuses ({sales.filter(s=>s.items.some(i=>i.product?.cash_bonus_eligible)).length} eligible sales × {fmt(settings.cash_bonus)})</td>
+                      <td style={{padding:'1.5mm 3mm',textAlign:'right',fontWeight:'600',color:'#1a3a6b'}}>{fmt(calc.autoCashBonus)}</td>
+                    </tr>
+                  )}
+                  {bonuses.map(b=>(
+                    <tr key={b.id} style={{borderBottom:'0.5pt solid #eee'}}>
+                      <td style={{padding:'1.5mm 3mm',color:'#555'}}>{b.description}</td>
+                      <td style={{padding:'1.5mm 3mm',textAlign:'right',fontWeight:'600',color:'#1a3a6b'}}>{fmt(b.amount)}</td>
+                    </tr>
+                  ))}
+                  <tr style={{background:'#f0f0f0',fontWeight:'bold'}}>
+                    <td style={{padding:'2mm 3mm'}}>Total Bonuses</td>
+                    <td style={{padding:'2mm 3mm',textAlign:'right'}}>{fmt(calc.autoCashBonus + calc.manualBonus)}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* Deductions */}
+          {(calc.retentionWittheld > 0 || deductions.length > 0) && (
+            <div style={{marginBottom:'5mm'}}>
+              <div style={{fontSize:'9pt',fontWeight:'bold',color:'#0f1e3c',borderBottom:'1px solid #ddd',paddingBottom:'1.5mm',marginBottom:'2mm',textTransform:'uppercase',letterSpacing:'0.5px'}}>Deductions</div>
+              <table style={{width:'100%',borderCollapse:'collapse',fontSize:'8.5pt'}}>
+                <tbody>
+                  {calc.retentionWittheld > 0 && (
+                    <tr style={{borderBottom:'0.5pt solid #eee'}}>
+                      <td style={{padding:'1.5mm 3mm',color:'#555'}}>Retention withheld (25% of {fmt(calc.grossSubject)})</td>
+                      <td style={{padding:'1.5mm 3mm',textAlign:'right',fontWeight:'600',color:'#c00'}}>({fmt(calc.retentionWittheld)})</td>
+                    </tr>
+                  )}
+                  {deductions.map(d=>(
+                    <tr key={d.id} style={{borderBottom:'0.5pt solid #eee'}}>
+                      <td style={{padding:'1.5mm 3mm',color:'#555'}}>{d.description || d.deduction_type}{d.quantity>1?` ×${d.quantity}`:''} <span style={{color:'#999',fontSize:'7.5pt',textTransform:'capitalize'}}>({d.deduction_type})</span></td>
+                      <td style={{padding:'1.5mm 3mm',textAlign:'right',fontWeight:'600',color:'#c00'}}>({fmt(d.amount)})</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* Net Payable */}
+          <div style={{border:'2pt solid #0f1e3c',borderRadius:'3mm',padding:'4mm 5mm',marginBottom:'5mm',background:'#f8f9ff'}}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+              <div>
+                <div style={{fontWeight:'bold',fontSize:'12pt',color:'#0f1e3c'}}>NET AMOUNT PAYABLE</div>
+                <div style={{fontSize:'8pt',color:'#666',marginTop:'0.5mm'}}>Week ending {fmtDate(run.week_ending)}</div>
+              </div>
+              <div style={{fontSize:'20pt',fontWeight:'bold',color:'#1a3a6b'}}>{fmt(calc.net)}</div>
+            </div>
+          </div>
+
+          {/* Retention Account */}
+          <div style={{background:'#f5f5f5',border:'1pt solid #ddd',borderRadius:'2mm',padding:'3mm 4mm',fontSize:'8.5pt'}}>
+            <div style={{fontWeight:'bold',color:'#0f1e3c',marginBottom:'2mm',fontSize:'9pt',textTransform:'uppercase',letterSpacing:'0.5px'}}>Retention Account Balance</div>
+            <table style={{width:'100%',borderCollapse:'collapse'}}>
+              <tbody>
+                <tr><td style={{padding:'0.8mm 0',color:'#555'}}>Opening balance</td><td style={{textAlign:'right'}}>{fmt(retBal)}</td></tr>
+                <tr><td style={{padding:'0.8mm 0',color:'#555'}}>Plus: withheld this week</td><td style={{textAlign:'right'}}>+{fmt(calc.retentionWittheld)}</td></tr>
+                <tr style={{borderTop:'1pt solid #ddd',fontWeight:'bold'}}>
+                  <td style={{padding:'1mm 0',color:'#0f1e3c'}}>Closing balance {calc.retentionAfter >= settings.retention_cap ? '(CAP REACHED)' : `/ ${fmt(settings.retention_cap)} cap`}</td>
+                  <td style={{textAlign:'right',color: calc.retentionAfter >= settings.retention_cap ? '#1a7a1a' : '#0f1e3c'}}>{fmt(calc.retentionAfter)}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          {/* Footer */}
+          <div style={{marginTop:'8mm',paddingTop:'3mm',borderTop:'0.5pt solid #ddd',fontSize:'7.5pt',color:'#999',textAlign:'center'}}>
+            Simtec Therapeutic Ltd &nbsp;|&nbsp; NZBN 9429053287908 &nbsp;|&nbsp; 297 Neilsons Rd Onehunga, Auckland &nbsp;|&nbsp; 09 886 9897
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── SETTINGS ─────────────────────────────────────────────────────────────
+function Settings() {
+  const [s, setS] = useState(null);
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    sb.from('commission_settings').select('*').single().then(({data})=>setS(data));
+  }, []);
+
+  const save = async () => {
+    await sb.from('commission_settings').update({...s, updated_at: new Date().toISOString()}).eq('id', 1);
+    setSaved(true); setTimeout(()=>setSaved(false), 2000);
+  };
+
+  if (!s) return <div className="p-8 text-slate-500">Loading…</div>;
+
+  const Field2 = ({label, field, step='1'}) => (
+    <div>
+      <label className="text-xs text-slate-400 block mb-1">{label}</label>
+      <div className="flex items-center gap-1">
+        <span className="text-slate-500">$</span>
+        <input type="number" value={s[field]||0} step={step} onChange={e=>setS({...s,[field]:+e.target.value})} className="input w-28"/>
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="p-8 max-w-2xl mx-auto">
+      <h1 className="text-2xl font-bold text-white mb-8">Commission Rates</h1>
+      <div className="space-y-6">
+        <Card title="Tier Rates">
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="text-xs text-slate-400 block mb-1">Tier 1 max sales</label>
+              <input type="number" value={s.tier1_max} onChange={e=>setS({...s,tier1_max:+e.target.value})} className="input w-24"/>
+            </div>
+            <Field2 label="Tier 1 rate (1-4 sales)" field="tier1_amount"/>
+            <div>
+              <label className="text-xs text-slate-400 block mb-1">Tier 2 max sales</label>
+              <input type="number" value={s.tier2_max} onChange={e=>setS({...s,tier2_max:+e.target.value})} className="input w-24"/>
+            </div>
+            <Field2 label="Tier 2 rate (5-9 sales)" field="tier2_amount"/>
+            <div className="col-span-1"/>
+            <Field2 label="Tier 3 rate (10+ sales)" field="tier3_amount"/>
+          </div>
+        </Card>
+        <Card title="Bonuses & Deductions">
+          <div className="grid grid-cols-2 gap-4">
+            <Field2 label="Cash bonus per eligible sale" field="cash_bonus"/>
+            <Field2 label="Pillow / giveaway charge" field="pillow_charge"/>
+          </div>
+        </Card>
+        <Card title="Retention Account">
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="text-xs text-slate-400 block mb-1">Retention rate</label>
+              <div className="flex items-center gap-1">
+                <input type="number" value={(s.retention_rate*100).toFixed(0)} min="0" max="100" onChange={e=>setS({...s,retention_rate:+e.target.value/100})} className="input w-20"/>
+                <span className="text-slate-400 text-sm">%</span>
+              </div>
+            </div>
+            <Field2 label="Retention cap (stop witholding at)" field="retention_cap"/>
+          </div>
+        </Card>
+        <button onClick={save} className="btn-primary px-8 py-2.5">
+          {saved ? '✓ Saved' : 'Save Rates'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── SETUP ────────────────────────────────────────────────────────────────
+function Setup() {
+  const [consultants, setConsultants] = useState([]);
+  const [products, setProducts] = useState([]);
+  const [newCons, setNewCons] = useState('');
+  const [tab, setTab] = useState('consultants');
+
+  const loadC = async () => {
+    const { data } = await sb.from('commission_consultants').select('*').order('name');
+    setConsultants(data||[]);
+  };
+  const loadP = async () => {
+    const { data } = await sb.from('commission_products').select('*').order('name');
+    setProducts(data||[]);
+  };
+  useEffect(() => { loadC(); loadP(); }, []);
+
+  const addConsultant = async () => {
+    if (!newCons.trim()) return;
+    await sb.from('commission_consultants').insert({ name: newCons.trim() });
+    setNewCons(''); loadC();
+  };
+
+  const toggleConsultant = async (c) => {
+    await sb.from('commission_consultants').update({ active: !c.active }).eq('id', c.id);
+    loadC();
+  };
+
+  return (
+    <div className="p-8 max-w-3xl mx-auto">
+      <h1 className="text-2xl font-bold text-white mb-6">Consultants & Products</h1>
+      <div className="flex gap-2 mb-6">
+        {['consultants','products'].map(t=>(
+          <button key={t} onClick={()=>setTab(t)}
+            className={`px-4 py-2 rounded-lg text-sm font-medium capitalize transition-colors ${tab===t?'bg-yellow-500 text-slate-900':'bg-slate-800 text-slate-400 hover:text-white'}`}>
+            {t}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'consultants' && (
+        <div className="space-y-4">
+          <div className="flex gap-3">
+            <input type="text" value={newCons} onChange={e=>setNewCons(e.target.value)}
+              onKeyDown={e=>e.key==='Enter'&&addConsultant()}
+              placeholder="Consultant name" className="input flex-1"/>
+            <button onClick={addConsultant} className="btn-primary px-4">Add</button>
+          </div>
+          <div className="bg-slate-800 border border-slate-700 rounded-xl divide-y divide-slate-700">
+            {consultants.map(c => (
+              <div key={c.id} className="flex items-center justify-between px-4 py-3">
+                <span className={`text-sm ${c.active?'text-white':'text-slate-500 line-through'}`}>{c.name}</span>
+                <button onClick={()=>toggleConsultant(c)} className={`text-xs px-2.5 py-1 rounded-full ${c.active?'bg-slate-700 text-slate-400 hover:bg-red-900 hover:text-red-400':'bg-slate-700 text-slate-500 hover:text-green-400'}`}>
+                  {c.active ? 'Deactivate' : 'Reactivate'}
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {tab === 'products' && (
+        <div className="bg-slate-800 border border-slate-700 rounded-xl divide-y divide-slate-700">
+          <div className="grid grid-cols-4 px-4 py-2 text-xs text-slate-500 font-medium uppercase">
+            <span>Product</span><span>Type</span><span>Fixed $</span><span>Cash Bonus</span>
+          </div>
+          {products.map(p => (
+            <div key={p.id} className="grid grid-cols-4 px-4 py-3 text-sm items-center">
+              <span className={p.active?'text-white':'text-slate-500'}>{p.name}</span>
+              <span className="capitalize text-slate-400">{p.commission_type}</span>
+              <span className="text-slate-400">{p.commission_type==='fixed'?fmt(p.fixed_amount):'—'}</span>
+              <span className={p.cash_bonus_eligible?'text-green-400':'text-slate-600'}>{p.cash_bonus_eligible?'Yes':'No'}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── SHARED COMPONENTS ─────────────────────────────────────────────────────
+function Card({ title, children }) {
+  return (
+    <div className="bg-slate-800 border border-slate-700 rounded-xl p-5">
+      <h3 className="font-semibold text-white mb-4 text-sm uppercase tracking-wide">{title}</h3>
+      {children}
+    </div>
+  );
+}
+function Modal({ title, children, onClose }) {
+  return (
+    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4 no-print">
+      <div className="bg-slate-800 border border-slate-700 rounded-xl p-6 w-full max-w-md">
+        <div className="flex items-center justify-between mb-5">
+          <h3 className="font-semibold text-white">{title}</h3>
+          <button onClick={onClose} className="text-slate-400 hover:text-white">✕</button>
+        </div>
+        <div className="space-y-4">{children}</div>
+      </div>
+    </div>
+  );
+}
+function Field({ label, children }) {
+  return <div><label className="text-xs text-slate-400 block mb-1">{label}</label>{children}</div>;
+}
+
+// ─── TAILWIND CLASSES via style tag ───────────────────────────────────────
+const style = document.createElement('style');
+style.textContent = `
+  .input { background:#1e293b; border:1px solid #334155; border-radius:0.5rem; padding:0.5rem 0.75rem; color:white; font-size:0.875rem; width:100%; outline:none; }
+  .input:focus { border-color:#eab308; }
+  .btn-primary { background:#eab308; color:#0f172a; font-weight:600; border-radius:0.5rem; font-size:0.875rem; cursor:pointer; transition:background 0.15s; }
+  .btn-primary:hover { background:#facc15; }
+  .btn-secondary { background:#1e293b; color:#94a3b8; font-weight:500; border-radius:0.5rem; font-size:0.875rem; cursor:pointer; border:1px solid #334155; }
+  .btn-secondary:hover { color:white; }
+`;
+document.head.appendChild(style);
+
+// ─── APP ROOT ─────────────────────────────────────────────────────────────
+function App() {
+  const [view, setView] = useState({ page: 'runs' });
+
+  const renderPage = () => {
+    switch (view.page) {
+      case 'runs':       return <PayRunsList setView={setView}/>;
+      case 'run':        return <PayRunDetail runId={view.runId} setView={setView}/>;
+      case 'consultant': return <ConsultantDetail runId={view.runId} consultantId={view.consultantId} setView={setView}/>;
+      case 'invoice':    return <InvoiceView runId={view.runId} consultantId={view.consultantId} setView={setView}/>;
+      case 'settings':   return <Settings/>;
+      case 'setup':      return <Setup/>;
+      default:           return <PayRunsList setView={setView}/>;
+    }
+  };
+
+  return (
+    <div>
+      <Nav view={view} setView={setView}/>
+      {renderPage()}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>
