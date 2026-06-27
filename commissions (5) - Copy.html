@@ -1,0 +1,762 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Simtec Commission Tracker</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/@supabase/supabase-js@2.38.4/dist/umd/supabase.js"></script>
+<style>
+body { font-family: system-ui, -apple-system, sans-serif; }
+.input { background:#1e293b; border:1px solid #334155; border-radius:0.5rem; padding:0.5rem 0.75rem; color:white; font-size:0.875rem; width:100%; outline:none; box-sizing:border-box; }
+.input:focus { border-color:#eab308; }
+.btn { padding:0.5rem 1rem; border-radius:0.5rem; font-size:0.875rem; font-weight:600; cursor:pointer; border:none; }
+.btn-gold { background:#eab308; color:#0f172a; }
+.btn-gold:hover { background:#facc15; }
+.btn-dark { background:#1e293b; color:#94a3b8; border:1px solid #334155; }
+.btn-dark:hover { color:white; }
+.card { background:#1e293b; border:1px solid #334155; border-radius:0.75rem; padding:1.25rem; }
+select.input { appearance:auto; }
+@media print {
+  .no-print { display:none !important; }
+  body { background:white; }
+  @page { margin:15mm; size:A4; }
+}
+</style>
+</head>
+<body class="bg-slate-950 text-white min-h-screen">
+
+<!-- NAV -->
+<nav class="bg-slate-900 border-b border-slate-800 px-6 py-3 flex items-center gap-6 no-print" id="nav"></nav>
+
+<!-- MAIN -->
+<div id="app" class="min-h-screen"></div>
+
+<!-- MODAL -->
+<div id="modal-overlay" class="fixed inset-0 bg-black/70 z-50 hidden items-center justify-center p-4 no-print">
+  <div class="bg-slate-800 border border-slate-700 rounded-xl p-6 w-full max-w-md" id="modal-box"></div>
+</div>
+
+<script>
+// ─── CONFIG ────────────────────────────────────────────────────────────────
+const SUPABASE_URL = 'https://jvqjoenaungubpoegyvf.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imp2cWpvZW5hdW5ndWJwb2VneXZmIiwicm9sZSI6ImFub24iLCJpYXQiOj'; // ← paste your key here
+
+// ─── PLACEHOLDER — replace with your actual key ───────────────────────────
+// Find it in your Supabase project → Settings → API → anon public key
+// Then replace the SUPABASE_KEY value above with your actual key
+
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+// ─── STATE ─────────────────────────────────────────────────────────────────
+let state = { page:'runs', runId:null, consultantId:null };
+let cache = { settings:null, consultants:[], products:[] };
+
+// ─── HELPERS ───────────────────────────────────────────────────────────────
+const fmt = n => '$' + (+n||0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,',');
+const fmtDate = d => d ? new Date(d+'T12:00:00').toLocaleDateString('en-NZ',{day:'2-digit',month:'short',year:'numeric'}) : '';
+const toMonday = d => { const dt=new Date(d+'T12:00:00'); const day=dt.getDay(); dt.setDate(dt.getDate()+(day===0?-6:1-day)); return dt.toISOString().split('T')[0]; };
+const el = (tag,cls,inner='',attrs={}) => { const e=document.createElement(tag); if(cls)e.className=cls; if(inner)e.innerHTML=inner; Object.entries(attrs).forEach(([k,v])=>e.setAttribute(k,v)); return e; };
+const div = (cls,inner='') => el('div',cls,inner);
+const modal = (content) => { document.getElementById('modal-box').innerHTML=content; document.getElementById('modal-overlay').classList.replace('hidden','flex'); };
+const closeModal = () => { document.getElementById('modal-overlay').classList.replace('flex','hidden'); };
+
+// ─── COMMISSION CALC ───────────────────────────────────────────────────────
+function calcCommission(sales, bonuses, deductions, retBal, s) {
+  let tierUnits=0;
+  for(const sale of sales) for(const it of (sale.items||[])) if(it.product?.commission_type!=='zero') tierUnits+=it.quantity;
+  const t1max=s.tier1_max??4,t1amt=s.tier1_amount??200,t2max=s.tier2_max??9,t2amt=s.tier2_amount??300,t3amt=s.tier3_amount??400;
+  const tierRate = tierUnits<=t1max ? t1amt : tierUnits<=t2max ? t2amt : t3amt;
+  let salesComm=0, autoCash=0;
+  for(const sale of sales){
+    let elig=false;
+    for(const it of (sale.items||[])){
+      const p=it.product; if(!p) continue;
+      if(p.commission_type==='fixed'){salesComm+=p.fixed_amount*it.quantity;elig=true;}
+      if(p.commission_type==='tier'){salesComm+=tierRate*it.quantity;elig=true;}
+    }
+    if(elig) autoCash+=s.cash_bonus;
+  }
+  const manualBonus=bonuses.reduce((a,b)=>a+(+b.amount||0),0);
+  const grossSubject=salesComm+autoCash;
+  const gross=grossSubject+manualBonus;
+  let retention=0;
+  if(retBal<s.retention_cap) retention=Math.min(grossSubject*s.retention_rate, s.retention_cap-retBal);
+  const totalDed=deductions.reduce((a,d)=>a+(+d.amount||0),0);
+  return {tierUnits,tierRate,salesComm,autoCash,manualBonus,grossSubject,gross,retention,totalDed,net:gross-retention-totalDed,retAfter:retBal+retention};
+}
+
+// ─── RENDER NAV ────────────────────────────────────────────────────────────
+function renderNav() {
+  const nav = document.getElementById('nav');
+  nav.innerHTML = '';
+  const logo = div('flex items-center gap-2 mr-4','<div class="w-1.5 h-5 bg-yellow-500 rounded-sm"></div><span class="font-bold text-sm tracking-wide">SIMTEC COMMISSIONS</span>');
+  nav.appendChild(logo);
+  [['runs','Pay Runs'],['setup','Consultants & Products'],['settings','Commission Rates']].forEach(([page,label])=>{
+    const active = state.page===page;
+    const btn = el('button', `text-sm font-medium pb-0.5 border-b-2 transition-colors ${active?'border-yellow-500 text-yellow-400':'border-transparent text-slate-400 hover:text-white'}`, label);
+    btn.onclick = () => navigate({page});
+    nav.appendChild(btn);
+  });
+}
+
+// ─── NAVIGATE ──────────────────────────────────────────────────────────────
+function navigate(newState) {
+  state = {...state, ...newState};
+  renderNav();
+  renderApp();
+}
+
+// ─── MAIN RENDER ───────────────────────────────────────────────────────────
+async function renderApp() {
+  const app = document.getElementById('app');
+  app.innerHTML = '<div class="p-8 text-slate-500">Loading…</div>';
+  if(!cache.settings) {
+    const [{data:s},{data:c},{data:p}] = await Promise.all([
+      sb.from('commission_settings').select('*').single(),
+      sb.from('commission_consultants').select('*').order('name'),
+      sb.from('commission_products').select('*').order('name'),
+    ]);
+    cache.settings=s;
+    if(!s||s.tier1_max==null){await sb.from("commission_settings").upsert({id:1,tier1_max:4,tier1_amount:200,tier2_max:9,tier2_amount:300,tier3_amount:400,cash_bonus:100,retention_rate:0.25,retention_cap:5000,pillow_charge:40});const{data:s2}=await sb.from("commission_settings").select("*").single();cache.settings=s2;} cache.consultants=c||[]; cache.products=p||[];
+  }
+  if(state.page==='runs')       await renderRuns(app);
+  else if(state.page==='run')   await renderRun(app);
+  else if(state.page==='cons')  await renderConsultant(app);
+  else if(state.page==='inv')   await renderInvoice(app);
+  else if(state.page==='settings') renderSettings(app);
+  else if(state.page==='setup')    await renderSetup(app);
+}
+
+// ─── PAY RUNS ──────────────────────────────────────────────────────────────
+async function renderRuns(app) {
+  const {data:runs} = await sb.from('commission_pay_runs').select('*').order('week_ending',{ascending:false});
+  const wrap = div('p-8 max-w-4xl mx-auto');
+  wrap.innerHTML = `
+    <div class="flex items-center justify-between mb-8">
+      <div><h1 class="text-2xl font-bold">Weekly Pay Runs</h1><p class="text-slate-400 text-sm mt-1">Select a week to process commissions</p></div>
+      <button class="btn btn-gold" id="btn-new">+ New Pay Run</button>
+    </div>
+    <div id="runs-list"></div>`;
+  app.innerHTML=''; app.appendChild(wrap);
+
+  wrap.querySelector('#btn-new').onclick = () => {
+    modal(`<h3 class="font-semibold text-white mb-4">New Pay Run</h3>
+      <label class="text-xs text-slate-400 block mb-1">Week Ending (Sunday)</label>
+      <input type="date" id="m-date" class="input mb-4">
+      <div class="flex gap-3">
+        <button class="btn btn-gold flex-1" id="m-create">Create</button>
+        <button class="btn btn-dark flex-1" onclick="closeModal()">Cancel</button>
+      </div>`);
+    document.getElementById('m-create').onclick = async () => {
+      const d=document.getElementById('m-date').value; if(!d) return;
+      await sb.from('commission_pay_runs').insert({week_start:toMonday(d),week_ending:d});
+      closeModal(); cache.settings=null; navigate({page:'runs'});
+    };
+  };
+
+  const list = wrap.querySelector('#runs-list');
+  if(!runs||!runs.length){ list.innerHTML='<p class="text-center text-slate-500 py-16">No pay runs yet. Create your first one above.</p>'; return; }
+  runs.forEach(r => {
+    const btn = el('button','w-full text-left card hover:border-yellow-500/40 mb-3 transition-all group',
+      `<div class="flex items-center justify-between">
+        <div>
+          <div class="font-semibold text-white">Week ending ${fmtDate(r.week_ending)}</div>
+          <div class="text-slate-400 text-sm mt-0.5">${fmtDate(r.week_start)} – ${fmtDate(r.week_ending)}</div>
+        </div>
+        <div class="flex items-center gap-3">
+          <span class="text-xs px-2.5 py-1 rounded-full ${r.status==='finalised'?'bg-green-900 text-green-400':'bg-slate-700 text-slate-400'}">${r.status==='finalised'?'Finalised':'Draft'}</span>
+          <span class="text-slate-500 group-hover:text-yellow-400">→</span>
+        </div>
+      </div>`);
+    btn.onclick = () => navigate({page:'run',runId:r.id});
+    list.appendChild(btn);
+  });
+}
+
+// ─── PAY RUN DETAIL ────────────────────────────────────────────────────────
+async function renderRun(app) {
+  const [{data:run},{data:ret}] = await Promise.all([
+    sb.from('commission_pay_runs').select('*').eq('id',state.runId).single(),
+    sb.from('commission_retention').select('*'),
+  ]);
+  const retMap={}; (ret||[]).forEach(x=>retMap[x.consultant_id]=x.balance);
+  const consultants = cache.consultants.filter(c=>c.active);
+
+  // Load summaries
+  const summaries={};
+  await Promise.all(consultants.map(async c => {
+    const [{data:sales},{data:bon},{data:ded}] = await Promise.all([
+      sb.from('commission_sales').select('*, commission_sale_items(quantity,commission_products(*))').eq('pay_run_id',state.runId).eq('consultant_id',c.id),
+      sb.from('commission_bonuses').select('*').eq('pay_run_id',state.runId).eq('consultant_id',c.id),
+      sb.from('commission_deductions').select('*').eq('pay_run_id',state.runId).eq('consultant_id',c.id),
+    ]);
+    const enriched=(sales||[]).map(s=>({...s,items:(s.commission_sale_items||[]).map(it=>({...it,product:it.commission_products}))}));
+    summaries[c.id]=calcCommission(enriched,bon||[],ded||[],retMap[c.id]||0,cache.settings);
+  }));
+
+  const wrap=div('p-8 max-w-5xl mx-auto');
+  wrap.innerHTML=`
+    <button class="text-slate-400 hover:text-white text-sm mb-6" id="back">← Back to Pay Runs</button>
+    <div class="flex items-start justify-between mb-8">
+      <div><h1 class="text-2xl font-bold">Week ending ${fmtDate(run.week_ending)}</h1>
+      <p class="text-slate-400 text-sm mt-1">${fmtDate(run.week_start)} — ${fmtDate(run.week_ending)}</p></div>
+      <span class="text-sm px-3 py-1.5 rounded-full ${run.status==='finalised'?'bg-green-900 text-green-400':'bg-slate-700 text-slate-400'}">${run.status==='finalised'?'Finalised':'Draft'}</span>
+    </div>
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4" id="cons-grid"></div>`;
+  app.innerHTML=''; app.appendChild(wrap);
+  wrap.querySelector('#back').onclick=()=>navigate({page:'runs'});
+
+  const grid=wrap.querySelector('#cons-grid');
+  if(!consultants.length){grid.innerHTML='<p class="col-span-3 text-center text-slate-500 py-12">No active consultants. Add them in Consultants & Products.</p>';return;}
+  consultants.forEach(c=>{
+    const s=summaries[c.id];
+    const btn=el('button','text-left card hover:border-yellow-500/40 transition-all group w-full',
+      `<div class="flex items-start justify-between mb-3">
+        <div class="font-semibold text-white">${c.name}</div>
+        <span class="text-slate-500 group-hover:text-yellow-400">→</span>
+      </div>
+      ${s&&s.salesComm>0?`
+        <div class="space-y-1 text-sm">
+          <div class="flex justify-between"><span class="text-slate-400">Sales</span><span>${fmt(s.salesComm)}</span></div>
+          <div class="flex justify-between"><span class="text-slate-400">Bonuses</span><span>${fmt(s.autoCash+s.manualBonus)}</span></div>
+          <div class="flex justify-between"><span class="text-slate-400">Deductions</span><span>-${fmt(s.retention+s.totalDed)}</span></div>
+          <div class="border-t border-slate-600 pt-1.5 flex justify-between font-semibold">
+            <span class="text-slate-300">Net Pay</span><span class="text-yellow-400">${fmt(s.net)}</span>
+          </div>
+        </div>`:'<p class="text-slate-500 text-sm">No sales entered</p>'}`);
+    btn.onclick=()=>navigate({page:'cons',consultantId:c.id});
+    grid.appendChild(btn);
+  });
+}
+
+// ─── CONSULTANT DETAIL ─────────────────────────────────────────────────────
+async function renderConsultant(app) {
+  const s=cache.settings, cons=cache.consultants.find(c=>c.id===state.consultantId);
+  const [{data:run},{data:rawSales},{data:bonuses},{data:deductions},{data:ret}] = await Promise.all([
+    sb.from('commission_pay_runs').select('*').eq('id',state.runId).single(),
+    sb.from('commission_sales').select('*, commission_sale_items(id,quantity,product_id,commission_products(*))').eq('pay_run_id',state.runId).eq('consultant_id',state.consultantId).order('sale_date'),
+    sb.from('commission_bonuses').select('*').eq('pay_run_id',state.runId).eq('consultant_id',state.consultantId),
+    sb.from('commission_deductions').select('*').eq('pay_run_id',state.runId).eq('consultant_id',state.consultantId),
+    sb.from('commission_retention').select('*').eq('consultant_id',state.consultantId).maybeSingle(),
+  ]);
+  const sales=(rawSales||[]).map(s=>({...s,items:(s.commission_sale_items||[]).map(it=>({...it,product:it.commission_products}))}));
+  const retBal=ret?.balance||0;
+  const calc=calcCommission(sales,bonuses||[],deductions||[],retBal,s);
+
+  const saleCommission=(sale)=>{
+    let c=0,elig=false;
+    for(const it of sale.items){
+      const p=it.product; if(!p) continue;
+      if(p.commission_type==='fixed'){c+=p.fixed_amount*it.quantity;elig=true;}
+      if(p.commission_type==='tier'){c+=calc.tierRate*it.quantity;elig=true;}
+    }
+    if(elig) c+=s.cash_bonus; return c;
+  };
+
+  const wrap=div('p-8 max-w-5xl mx-auto');
+  app.innerHTML=''; app.appendChild(wrap);
+
+  // Header
+  const header=div('flex items-start justify-between mb-8');
+  const hLeft=div('');
+  hLeft.innerHTML=`<button class="text-slate-400 hover:text-white text-sm mb-3 block" id="back">← Back to Pay Run</button>
+    <h1 class="text-2xl font-bold">${cons?.name}</h1>
+    <p class="text-slate-400 text-sm mt-1">Week ending ${fmtDate(run?.week_ending)}</p>`;
+  hLeft.querySelector('#back').onclick=()=>navigate({page:'run'});
+  const invBtn=el('button','btn btn-gold','View / Print Invoice');
+  invBtn.onclick=()=>navigate({page:'inv'});
+  header.appendChild(hLeft); header.appendChild(invBtn);
+  wrap.appendChild(header);
+
+  // SALES SECTION
+  const salesSec=div('card mb-4');
+  salesSec.innerHTML=`<div class="flex items-center justify-between mb-3">
+    <h3 class="font-semibold text-sm uppercase tracking-wide">Sales</h3>
+    <button class="text-yellow-400 hover:text-yellow-300 text-sm font-medium" id="add-sale">+ Add Sale</button>
+  </div>
+  <div id="sales-table"></div>`;
+  wrap.appendChild(salesSec);
+
+  const renderSalesTable=()=>{
+    const t=salesSec.querySelector('#sales-table');
+    if(!sales.length){t.innerHTML='<p class="text-slate-500 text-sm text-center py-4">No sales entered yet</p>';return;}
+    t.innerHTML=`<table class="w-full text-sm"><thead><tr class="text-slate-500 text-xs">
+      <th class="text-left pb-2">Date</th><th class="text-left pb-2">Customer</th>
+      <th class="text-left pb-2">Products</th><th class="text-right pb-2">Commission</th><th class="pb-2 w-8"></th>
+    </tr></thead><tbody class="divide-y divide-slate-700/50">
+    ${sales.map(sale=>`<tr>
+      <td class="py-2 pr-3 text-slate-400 whitespace-nowrap">${fmtDate(sale.sale_date)}</td>
+      <td class="py-2 pr-3 font-medium">${sale.customer_name}</td>
+      <td class="py-2 pr-3 text-slate-400 text-xs">${sale.items.map(it=>`${it.product?.name||''}${it.quantity>1?` ×${it.quantity}`:''}`).join(', ')}</td>
+      <td class="py-2 text-right text-yellow-400 font-medium">${fmt(saleCommission(sale))}</td>
+      <td class="py-2 pl-2"><button class="text-slate-600 hover:text-red-400 text-xs del-sale" data-id="${sale.id}">✕</button></td>
+    </tr>`).join('')}
+    </tbody></table>`;
+    t.querySelectorAll('.del-sale').forEach(b=>b.onclick=async()=>{
+      await sb.from('commission_sales').delete().eq('id',b.dataset.id);
+      const i=sales.findIndex(s=>s.id===b.dataset.id); if(i>-1) sales.splice(i,1);
+      updateCalc(); renderSalesTable();
+    });
+  };
+  renderSalesTable();
+
+  salesSec.querySelector('#add-sale').onclick=()=>showSaleModal(run,sales,()=>{ renderSalesTable(); updateCalc(); });
+
+  // BONUSES SECTION
+  const bonSec=div('card mb-4');
+  const renderBonuses=()=>{
+    bonSec.innerHTML=`<div class="flex items-center justify-between mb-3">
+      <h3 class="font-semibold text-sm uppercase tracking-wide">Bonuses</h3>
+      <button class="text-yellow-400 hover:text-yellow-300 text-sm font-medium" id="add-bon">+ Add Bonus</button>
+    </div>
+    ${calc.autoCash>0?`<div class="flex justify-between text-sm py-1.5 text-slate-400 italic">
+      <span>Auto cash bonuses (${sales.filter(s=>s.items.some(i=>i.product?.cash_bonus_eligible)).length} sales × ${fmt(s.cash_bonus)})</span>
+      <span>${fmt(calc.autoCash)}</span></div>`:''}
+    ${(bonuses||[]).map(b=>`<div class="flex items-center justify-between text-sm py-1.5 border-t border-slate-700/50">
+      <span class="text-slate-300">${b.description}</span>
+      <div class="flex items-center gap-3"><span class="text-yellow-400 font-medium">${fmt(b.amount)}</span>
+      <button class="text-slate-600 hover:text-red-400 text-xs del-bon" data-id="${b.id}">✕</button></div>
+    </div>`).join('')}
+    ${!bonuses?.length&&calc.autoCash===0?'<p class="text-slate-500 text-sm text-center py-3">No bonuses</p>':''}`;
+    bonSec.querySelector('#add-bon').onclick=()=>showBonusModal(bonuses,()=>{renderBonuses();updateCalc();});
+    bonSec.querySelectorAll('.del-bon').forEach(b=>b.onclick=async()=>{
+      await sb.from('commission_bonuses').delete().eq('id',b.dataset.id);
+      const i=bonuses.findIndex(x=>x.id===b.dataset.id); if(i>-1) bonuses.splice(i,1);
+      updateCalc(); renderBonuses();
+    });
+  };
+  wrap.appendChild(bonSec); renderBonuses();
+
+  // DEDUCTIONS SECTION
+  const dedSec=div('card mb-4');
+  const renderDeductions=()=>{
+    dedSec.innerHTML=`<div class="flex items-center justify-between mb-3">
+      <h3 class="font-semibold text-sm uppercase tracking-wide">Deductions</h3>
+      <button class="text-yellow-400 hover:text-yellow-300 text-sm font-medium" id="add-ded">+ Add Deduction</button>
+    </div>
+    ${calc.retention>0?`<div class="flex justify-between text-sm py-1.5 text-slate-400 italic">
+      <span>Retention withheld (25% of ${fmt(calc.grossSubject)})</span>
+      <span>-${fmt(calc.retention)}</span></div>`:''}
+    ${(deductions||[]).map(d=>`<div class="flex items-center justify-between text-sm py-1.5 border-t border-slate-700/50">
+      <span class="text-slate-300">${d.description||d.deduction_type}${d.quantity>1?` ×${d.quantity}`:''} <span class="text-xs text-slate-500">(${d.deduction_type})</span></span>
+      <div class="flex items-center gap-3"><span class="text-red-400 font-medium">-${fmt(d.amount)}</span>
+      <button class="text-slate-600 hover:text-red-400 text-xs del-ded" data-id="${d.id}">✕</button></div>
+    </div>`).join('')}
+    ${!deductions?.length&&calc.retention===0?'<p class="text-slate-500 text-sm text-center py-3">No deductions</p>':''}`;
+    dedSec.querySelector('#add-ded').onclick=()=>showDeductionModal(deductions,s,()=>{renderDeductions();updateCalc();});
+    dedSec.querySelectorAll('.del-ded').forEach(b=>b.onclick=async()=>{
+      await sb.from('commission_deductions').delete().eq('id',b.dataset.id);
+      const i=deductions.findIndex(x=>x.id===b.dataset.id); if(i>-1) deductions.splice(i,1);
+      updateCalc(); renderDeductions();
+    });
+  };
+  wrap.appendChild(dedSec); renderDeductions();
+
+  // SUMMARY
+  const summary=div('border border-yellow-500/30 rounded-xl p-6 bg-slate-800/50');
+  wrap.appendChild(summary);
+  const updateCalc=()=>{
+    const c=calcCommission(sales,bonuses||[],deductions||[],retBal,s);
+    Object.assign(calc,c);
+    summary.innerHTML=`
+      <h3 class="font-semibold mb-4">Pay Summary</h3>
+      <div class="grid grid-cols-2 gap-y-2 text-sm max-w-sm">
+        <span class="text-slate-400">Sales commission</span><span class="text-right">${fmt(c.salesComm)}</span>
+        <span class="text-slate-400">Cash bonuses</span><span class="text-right">${fmt(c.autoCash)}</span>
+        ${c.manualBonus>0?`<span class="text-slate-400">Extra bonuses</span><span class="text-right">${fmt(c.manualBonus)}</span>`:''}
+        <span class="text-slate-400">Less: retention</span><span class="text-right text-red-400">-${fmt(c.retention)}</span>
+        ${c.totalDed>0?`<span class="text-slate-400">Less: deductions</span><span class="text-right text-red-400">-${fmt(c.totalDed)}</span>`:''}
+        <div class="col-span-2 border-t border-slate-600 mt-2 pt-3 flex justify-between">
+          <span class="font-bold text-base">Net Payable</span>
+          <span class="font-bold text-yellow-400 text-xl">${fmt(c.net)}</span>
+        </div>
+      </div>
+      <div class="mt-4 pt-4 border-t border-slate-700 text-sm space-y-1">
+        <div class="flex justify-between text-slate-400"><span>Opening retention balance</span><span>${fmt(retBal)}</span></div>
+        <div class="flex justify-between text-slate-400"><span>+ This week</span><span>${fmt(c.retention)}</span></div>
+        <div class="flex justify-between font-medium"><span>Closing balance</span>
+          <span class="${c.retAfter>=s.retention_cap?'text-green-400':'text-yellow-400'}">${fmt(c.retAfter)} ${c.retAfter>=s.retention_cap?'✓ CAPPED':`/ ${fmt(s.retention_cap)}`}</span>
+        </div>
+      </div>`;
+    renderBonuses(); renderDeductions();
+  };
+  updateCalc();
+}
+
+// ─── MODALS ────────────────────────────────────────────────────────────────
+function showSaleModal(run, sales, onDone) {
+  const prods=cache.products.filter(p=>p.active);
+  const itemRows=[{product_id:'',quantity:1}];
+  const renderItems=()=>document.getElementById('m-items').innerHTML=itemRows.map((it,i)=>`
+    <div class="flex gap-2 mb-2">
+      <select class="input flex-1 m-prod" data-i="${i}">
+        <option value="">Select product</option>
+        ${prods.map(p=>`<option value="${p.id}" ${it.product_id===p.id?'selected':''}>${p.name}</option>`).join('')}
+      </select>
+      <input type="number" min="1" value="${it.quantity}" class="input w-16 text-center m-qty" data-i="${i}">
+      ${itemRows.length>1?`<button class="text-slate-500 hover:text-red-400 m-del" data-i="${i}">✕</button>`:''}
+    </div>`).join('');
+
+  modal(`<h3 class="font-semibold text-white mb-4">Add Sale</h3>
+    <label class="text-xs text-slate-400 block mb-1">Sale Date</label>
+    <input type="date" id="m-date" value="${run?.week_ending||''}" class="input mb-3">
+    <label class="text-xs text-slate-400 block mb-1">Customer Name</label>
+    <input type="text" id="m-cust" placeholder="Customer surname" class="input mb-3">
+    <label class="text-xs text-slate-400 block mb-2">Products</label>
+    <div id="m-items"></div>
+    <button class="text-yellow-400 text-xs mt-1" id="m-add-item">+ Add another product</button>
+    <div class="flex gap-3 mt-4">
+      <button class="btn btn-gold flex-1" id="m-save">Save Sale</button>
+      <button class="btn btn-dark flex-1" onclick="closeModal()">Cancel</button>
+    </div>`);
+  renderItems();
+
+  document.getElementById('m-items').addEventListener('change',e=>{
+    const i=+e.target.dataset.i;
+    if(e.target.classList.contains('m-prod')) itemRows[i].product_id=e.target.value;
+    if(e.target.classList.contains('m-qty'))  itemRows[i].quantity=+e.target.value;
+  });
+  document.getElementById('m-items').addEventListener('click',e=>{
+    if(e.target.classList.contains('m-del')){ itemRows.splice(+e.target.dataset.i,1); renderItems(); }
+  });
+  document.getElementById('m-add-item').onclick=()=>{ itemRows.push({product_id:'',quantity:1}); renderItems(); };
+  document.getElementById('m-save').onclick=async()=>{
+    const date=document.getElementById('m-date').value;
+    const cust=document.getElementById('m-cust').value.trim();
+    if(!date||!cust) return alert('Please fill in date and customer name');
+    const {data:sale}=await sb.from('commission_sales').insert({pay_run_id:state.runId,consultant_id:state.consultantId,sale_date:date,customer_name:cust}).select().single();
+    const valid=itemRows.filter(i=>i.product_id);
+    if(sale&&valid.length) {
+      const newItems = await Promise.all(valid.map(async it=>{
+        const {data}=await sb.from('commission_sale_items').insert({sale_id:sale.id,product_id:it.product_id,quantity:it.quantity}).select('id,quantity,product_id,commission_products(*)').single();
+        return {...data,product:data?.commission_products};
+      }));
+      sales.push({...sale,items:newItems});
+    }
+    closeModal(); onDone();
+  };
+}
+
+function showBonusModal(bonuses, onDone) {
+  modal(`<h3 class="font-semibold text-white mb-4">Add Bonus</h3>
+    <label class="text-xs text-slate-400 block mb-1">Description</label>
+    <input type="text" id="m-desc" placeholder="e.g. Performance bonus" class="input mb-3">
+    <label class="text-xs text-slate-400 block mb-1">Amount ($)</label>
+    <input type="number" id="m-amt" min="0" step="0.01" class="input mb-4">
+    <div class="flex gap-3">
+      <button class="btn btn-gold flex-1" id="m-save">Save</button>
+      <button class="btn btn-dark flex-1" onclick="closeModal()">Cancel</button>
+    </div>`);
+  document.getElementById('m-save').onclick=async()=>{
+    const desc=document.getElementById('m-desc').value.trim();
+    const amt=+document.getElementById('m-amt').value;
+    if(!desc||!amt) return;
+    const {data}=await sb.from('commission_bonuses').insert({pay_run_id:state.runId,consultant_id:state.consultantId,description:desc,amount:amt}).select().single();
+    bonuses.push(data); closeModal(); onDone();
+  };
+}
+
+function showDeductionModal(deductions, s, onDone) {
+  modal(`<h3 class="font-semibold text-white mb-4">Add Deduction</h3>
+    <label class="text-xs text-slate-400 block mb-1">Type</label>
+    <select id="m-type" class="input mb-3">
+      <option value="pillow">Pillow / Giveaway</option>
+      <option value="advance">Advance Repayment</option>
+      <option value="giveaway">Product Giveaway</option>
+      <option value="retainer">Retainer</option>
+      <option value="other">Other</option>
+    </select>
+    <div id="m-qty-row">
+      <label class="text-xs text-slate-400 block mb-1">Quantity</label>
+      <input type="number" id="m-qty" value="1" min="1" class="input w-24 mb-3">
+    </div>
+    <label class="text-xs text-slate-400 block mb-1">Description</label>
+    <input type="text" id="m-desc" placeholder="Optional details" class="input mb-3">
+    <label class="text-xs text-slate-400 block mb-1">Amount ($)</label>
+    <input type="number" id="m-amt" value="${s.pillow_charge}" min="0" step="0.01" class="input mb-4">
+    <div class="flex gap-3">
+      <button class="btn btn-gold flex-1" id="m-save">Save</button>
+      <button class="btn btn-dark flex-1" onclick="closeModal()">Cancel</button>
+    </div>`);
+  const typeEl=document.getElementById('m-type');
+  const qtyRow=document.getElementById('m-qty-row');
+  const amtEl=document.getElementById('m-amt');
+  const qtyEl=document.getElementById('m-qty');
+  typeEl.onchange=()=>{
+    const isPillow=typeEl.value==='pillow';
+    qtyRow.style.display=isPillow?'':'none';
+    if(isPillow) amtEl.value=(qtyEl.value*s.pillow_charge).toFixed(2);
+    else amtEl.value='';
+  };
+  qtyEl.oninput=()=>{ if(typeEl.value==='pillow') amtEl.value=(qtyEl.value*s.pillow_charge).toFixed(2); };
+  document.getElementById('m-save').onclick=async()=>{
+    const amt=+amtEl.value; if(!amt) return;
+    const {data}=await sb.from('commission_deductions').insert({
+      pay_run_id:state.runId,consultant_id:state.consultantId,
+      deduction_type:typeEl.value,description:document.getElementById('m-desc').value.trim()||null,
+      quantity:+qtyEl.value,amount:amt
+    }).select().single();
+    deductions.push(data); closeModal(); onDone();
+  };
+}
+
+// ─── INVOICE ───────────────────────────────────────────────────────────────
+async function renderInvoice(app) {
+  const s=cache.settings;
+  const cons=cache.consultants.find(c=>c.id===state.consultantId);
+  const [{data:run},{data:rawSales},{data:bonuses},{data:deductions},{data:ret}]=await Promise.all([
+    sb.from('commission_pay_runs').select('*').eq('id',state.runId).single(),
+    sb.from('commission_sales').select('*, commission_sale_items(id,quantity,product_id,commission_products(*))').eq('pay_run_id',state.runId).eq('consultant_id',state.consultantId).order('sale_date'),
+    sb.from('commission_bonuses').select('*').eq('pay_run_id',state.runId).eq('consultant_id',state.consultantId),
+    sb.from('commission_deductions').select('*').eq('pay_run_id',state.runId).eq('consultant_id',state.consultantId),
+    sb.from('commission_retention').select('*').eq('consultant_id',state.consultantId).maybeSingle(),
+  ]);
+  const sales=(rawSales||[]).map(s=>({...s,items:(s.commission_sale_items||[]).map(it=>({...it,product:it.commission_products}))}));
+  const retBal=ret?.balance||0;
+  const calc=calcCommission(sales,bonuses||[],deductions||[],retBal,s);
+
+  const saleC=(sale)=>{
+    let c=0,elig=false;
+    for(const it of sale.items){const p=it.product;if(!p)continue;
+      if(p.commission_type==='fixed'){c+=p.fixed_amount*it.quantity;elig=true;}
+      if(p.commission_type==='tier'){c+=calc.tierRate*it.quantity;elig=true;}
+    }if(elig)c+=s.cash_bonus;return c;
+  };
+
+  app.innerHTML='';
+  // Toolbar
+  const bar=div('bg-slate-900 border-b border-slate-800 px-8 py-4 flex items-center gap-4 no-print');
+  bar.innerHTML=`<button class="text-slate-400 hover:text-white text-sm" id="back">← Back</button>
+    <div class="flex-1"></div>
+    <button class="btn btn-gold" id="print">⬇ Download PDF (Print → Save as PDF)</button>`;
+  bar.querySelector('#back').onclick=()=>navigate({page:'cons'});
+  bar.querySelector('#print').onclick=()=>window.print();
+  app.appendChild(bar);
+
+  // Invoice
+  const wrap=div('py-8 px-4 flex justify-center');
+  const inv=div('bg-white text-gray-900 shadow-2xl');
+  inv.style.cssText='width:210mm;min-height:297mm;font-family:Arial,sans-serif;font-size:9pt;padding:15mm;box-sizing:border-box;';
+  inv.innerHTML=`
+    <div style="border-bottom:2pt solid #0f1e3c;padding-bottom:8mm;margin-bottom:6mm;display:flex;justify-content:space-between;align-items:flex-start;">
+      <div>
+        <div style="font-size:18pt;font-weight:bold;color:#0f1e3c;">COMMISSION INVOICE</div>
+        <div style="margin-top:2mm;color:#555;font-size:8pt;line-height:1.6;">
+          From: <strong>${cons?.name}</strong><br>
+          To: <strong>Simtec Therapeutic Ltd</strong><br>
+          297 Neilsons Rd Onehunga, Auckland &nbsp;|&nbsp; Ph: 09 886 9897
+        </div>
+      </div>
+      <div style="text-align:right;color:#555;font-size:8pt;line-height:1.6;">
+        <strong>Week Starting:</strong> ${fmtDate(run?.week_start)}<br>
+        <strong>Week Ending:</strong> ${fmtDate(run?.week_ending)}<br>
+        <span style="font-size:7pt;color:#999;">Generated: ${new Date().toLocaleDateString('en-NZ')}</span>
+      </div>
+    </div>
+
+    <!-- SALES -->
+    <div style="font-size:8pt;font-weight:bold;color:#0f1e3c;border-bottom:1pt solid #ddd;padding-bottom:1.5mm;margin-bottom:2mm;text-transform:uppercase;letter-spacing:0.5px;">Sales</div>
+    <table style="width:100%;border-collapse:collapse;font-size:8pt;margin-bottom:5mm;">
+      <thead><tr style="background:#f5f5f5;">
+        <th style="padding:2mm 3mm;text-align:left;font-weight:600;color:#333;font-size:7.5pt;">Date</th>
+        <th style="padding:2mm 3mm;text-align:left;font-weight:600;color:#333;font-size:7.5pt;">Customer</th>
+        <th style="padding:2mm 3mm;text-align:left;font-weight:600;color:#333;font-size:7.5pt;">Products</th>
+        <th style="padding:2mm 3mm;text-align:right;font-weight:600;color:#333;font-size:7.5pt;">Commission</th>
+      </tr></thead>
+      <tbody>
+        ${sales.map((sale,i)=>`<tr style="border-bottom:0.5pt solid #eee;background:${i%2===0?'white':'#fafafa'};">
+          <td style="padding:2mm 3mm;color:#555;white-space:nowrap;">${fmtDate(sale.sale_date)}</td>
+          <td style="padding:2mm 3mm;font-weight:500;">${sale.customer_name}</td>
+          <td style="padding:2mm 3mm;color:#555;">${sale.items.map(it=>`${it.product?.name||''}${it.quantity>1?` ×${it.quantity}`:''}`).join(', ')}</td>
+          <td style="padding:2mm 3mm;text-align:right;font-weight:600;color:#1a3a6b;">${fmt(saleC(sale))}</td>
+        </tr>`).join('')}
+        <tr style="background:#f0f0f0;font-weight:bold;">
+          <td colspan="3" style="padding:2mm 3mm;">Sales Commission Subtotal</td>
+          <td style="padding:2mm 3mm;text-align:right;">${fmt(calc.salesComm)}</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <!-- BONUSES -->
+    ${(calc.autoCash>0||(bonuses||[]).length>0)?`
+    <div style="font-size:8pt;font-weight:bold;color:#0f1e3c;border-bottom:1pt solid #ddd;padding-bottom:1.5mm;margin-bottom:2mm;text-transform:uppercase;letter-spacing:0.5px;">Bonuses</div>
+    <table style="width:100%;border-collapse:collapse;font-size:8pt;margin-bottom:5mm;"><tbody>
+      ${calc.autoCash>0?`<tr style="border-bottom:0.5pt solid #eee;">
+        <td style="padding:1.5mm 3mm;color:#555;">Cash bonuses (${sales.filter(s=>s.items.some(i=>i.product?.cash_bonus_eligible)).length} eligible sales × ${fmt(s.cash_bonus)})</td>
+        <td style="padding:1.5mm 3mm;text-align:right;font-weight:600;color:#1a3a6b;">${fmt(calc.autoCash)}</td>
+      </tr>`:''}
+      ${(bonuses||[]).map(b=>`<tr style="border-bottom:0.5pt solid #eee;">
+        <td style="padding:1.5mm 3mm;color:#555;">${b.description}</td>
+        <td style="padding:1.5mm 3mm;text-align:right;font-weight:600;color:#1a3a6b;">${fmt(b.amount)}</td>
+      </tr>`).join('')}
+      <tr style="background:#f0f0f0;font-weight:bold;">
+        <td style="padding:2mm 3mm;">Total Bonuses</td>
+        <td style="padding:2mm 3mm;text-align:right;">${fmt(calc.autoCash+calc.manualBonus)}</td>
+      </tr>
+    </tbody></table>`:''}
+
+    <!-- DEDUCTIONS -->
+    ${(calc.retention>0||(deductions||[]).length>0)?`
+    <div style="font-size:8pt;font-weight:bold;color:#0f1e3c;border-bottom:1pt solid #ddd;padding-bottom:1.5mm;margin-bottom:2mm;text-transform:uppercase;letter-spacing:0.5px;">Deductions</div>
+    <table style="width:100%;border-collapse:collapse;font-size:8pt;margin-bottom:5mm;"><tbody>
+      ${calc.retention>0?`<tr style="border-bottom:0.5pt solid #eee;">
+        <td style="padding:1.5mm 3mm;color:#555;">Retention withheld (25% of ${fmt(calc.grossSubject)})</td>
+        <td style="padding:1.5mm 3mm;text-align:right;font-weight:600;color:#cc0000;">(${fmt(calc.retention)})</td>
+      </tr>`:''}
+      ${(deductions||[]).map(d=>`<tr style="border-bottom:0.5pt solid #eee;">
+        <td style="padding:1.5mm 3mm;color:#555;">${d.description||d.deduction_type}${d.quantity>1?` ×${d.quantity}`:''} <span style="color:#999;font-size:7.5pt;">(${d.deduction_type})</span></td>
+        <td style="padding:1.5mm 3mm;text-align:right;font-weight:600;color:#cc0000;">(${fmt(d.amount)})</td>
+      </tr>`).join('')}
+    </tbody></table>`:''}
+
+    <!-- NET PAYABLE -->
+    <div style="border:2pt solid #0f1e3c;border-radius:3mm;padding:4mm 5mm;margin-bottom:5mm;background:#f8f9ff;display:flex;justify-content:space-between;align-items:center;">
+      <div>
+        <div style="font-weight:bold;font-size:12pt;color:#0f1e3c;">NET AMOUNT PAYABLE</div>
+        <div style="font-size:7.5pt;color:#666;margin-top:0.5mm;">Week ending ${fmtDate(run?.week_ending)}</div>
+      </div>
+      <div style="font-size:20pt;font-weight:bold;color:#1a3a6b;">${fmt(calc.net)}</div>
+    </div>
+
+    <!-- RETENTION -->
+    <div style="background:#f5f5f5;border:1pt solid #ddd;border-radius:2mm;padding:3mm 4mm;font-size:8pt;">
+      <div style="font-weight:bold;color:#0f1e3c;margin-bottom:2mm;font-size:8.5pt;text-transform:uppercase;letter-spacing:0.5px;">Retention Account Balance</div>
+      <table style="width:100%;border-collapse:collapse;"><tbody>
+        <tr><td style="padding:0.8mm 0;color:#555;">Opening balance</td><td style="text-align:right;">${fmt(retBal)}</td></tr>
+        <tr><td style="padding:0.8mm 0;color:#555;">Plus: withheld this week</td><td style="text-align:right;">+${fmt(calc.retention)}</td></tr>
+        <tr style="border-top:1pt solid #ddd;font-weight:bold;">
+          <td style="padding:1mm 0;color:#0f1e3c;">Closing balance ${calc.retAfter>=s.retention_cap?'(CAP REACHED)':'/ '+fmt(s.retention_cap)+' cap'}</td>
+          <td style="text-align:right;color:${calc.retAfter>=s.retention_cap?'#1a7a1a':'#0f1e3c'};">${fmt(calc.retAfter)}</td>
+        </tr>
+      </tbody></table>
+    </div>
+
+    <div style="margin-top:8mm;padding-top:3mm;border-top:0.5pt solid #ddd;font-size:7pt;color:#999;text-align:center;">
+      Simtec Therapeutic Ltd &nbsp;|&nbsp; 297 Neilsons Rd Onehunga, Auckland &nbsp;|&nbsp; 09 886 9897
+    </div>`;
+  wrap.appendChild(inv); app.appendChild(wrap);
+}
+
+// ─── SETTINGS ──────────────────────────────────────────────────────────────
+function renderSettings(app) {
+  const s=cache.settings;
+  app.innerHTML='';
+  const wrap=div('p-8 max-w-2xl mx-auto');
+  wrap.innerHTML=`<h1 class="text-2xl font-bold mb-8">Commission Rates</h1>
+    <div class="space-y-6">
+      <div class="card">
+        <h3 class="font-semibold text-sm uppercase tracking-wide mb-4">Tier Rates</h3>
+        <div class="grid grid-cols-2 gap-4">
+          <div><label class="text-xs text-slate-400 block mb-1">Tier 1 max sales</label><input type="number" id="t1max" value="${s.tier1_max}" class="input w-24"></div>
+          <div><label class="text-xs text-slate-400 block mb-1">Tier 1 rate (per mattress)</label><div class="flex items-center gap-1"><span class="text-slate-500">$</span><input type="number" id="t1amt" value="${s.tier1_amount}" class="input w-28"></div></div>
+          <div><label class="text-xs text-slate-400 block mb-1">Tier 2 max sales</label><input type="number" id="t2max" value="${s.tier2_max}" class="input w-24"></div>
+          <div><label class="text-xs text-slate-400 block mb-1">Tier 2 rate (per mattress)</label><div class="flex items-center gap-1"><span class="text-slate-500">$</span><input type="number" id="t2amt" value="${s.tier2_amount}" class="input w-28"></div></div>
+          <div></div>
+          <div><label class="text-xs text-slate-400 block mb-1">Tier 3 rate (10+ sales)</label><div class="flex items-center gap-1"><span class="text-slate-500">$</span><input type="number" id="t3amt" value="${s.tier3_amount}" class="input w-28"></div></div>
+        </div>
+      </div>
+      <div class="card">
+        <h3 class="font-semibold text-sm uppercase tracking-wide mb-4">Bonuses & Deductions</h3>
+        <div class="grid grid-cols-2 gap-4">
+          <div><label class="text-xs text-slate-400 block mb-1">Cash bonus per eligible sale</label><div class="flex items-center gap-1"><span class="text-slate-500">$</span><input type="number" id="cbamt" value="${s.cash_bonus}" class="input w-28"></div></div>
+          <div><label class="text-xs text-slate-400 block mb-1">Pillow / giveaway charge</label><div class="flex items-center gap-1"><span class="text-slate-500">$</span><input type="number" id="pillamt" value="${s.pillow_charge}" class="input w-28"></div></div>
+        </div>
+      </div>
+      <div class="card">
+        <h3 class="font-semibold text-sm uppercase tracking-wide mb-4">Retention Account</h3>
+        <div class="grid grid-cols-2 gap-4">
+          <div><label class="text-xs text-slate-400 block mb-1">Retention rate</label><div class="flex items-center gap-1"><input type="number" id="retrate" value="${s.retention_rate*100}" min="0" max="100" class="input w-20"><span class="text-slate-400 text-sm">%</span></div></div>
+          <div><label class="text-xs text-slate-400 block mb-1">Retention cap (stop at)</label><div class="flex items-center gap-1"><span class="text-slate-500">$</span><input type="number" id="retcap" value="${s.retention_cap}" class="input w-28"></div></div>
+        </div>
+      </div>
+      <button class="btn btn-gold px-8 py-2.5" id="save-btn">Save Rates</button>
+    </div>`;
+  app.appendChild(wrap);
+  wrap.querySelector('#save-btn').onclick=async()=>{
+    const upd={tier1_max:+wrap.querySelector('#t1max').value,tier1_amount:+wrap.querySelector('#t1amt').value,
+      tier2_max:+wrap.querySelector('#t2max').value,tier2_amount:+wrap.querySelector('#t2amt').value,
+      tier3_amount:+wrap.querySelector('#t3amt').value,cash_bonus:+wrap.querySelector('#cbamt').value,
+      pillow_charge:+wrap.querySelector('#pillamt').value,
+      retention_rate:+wrap.querySelector('#retrate').value/100,
+      retention_cap:+wrap.querySelector('#retcap').value,updated_at:new Date().toISOString()};
+    await sb.from('commission_settings').update(upd).eq('id',1);
+    Object.assign(cache.settings,upd);
+    wrap.querySelector('#save-btn').textContent='✓ Saved';
+    setTimeout(()=>wrap.querySelector('#save-btn').textContent='Save Rates',2000);
+  };
+}
+
+// ─── SETUP ─────────────────────────────────────────────────────────────────
+async function renderSetup(app) {
+  app.innerHTML='';
+  const wrap=div('p-8 max-w-3xl mx-auto');
+  let activeTab='consultants';
+
+  const render=async()=>{
+    const [{data:cons},{data:prods}]=await Promise.all([
+      sb.from('commission_consultants').select('*').order('name'),
+      sb.from('commission_products').select('*').order('name'),
+    ]);
+    cache.consultants=cons||[]; cache.products=prods||[];
+
+    wrap.innerHTML=`<h1 class="text-2xl font-bold mb-6">Consultants & Products</h1>
+      <div class="flex gap-2 mb-6">
+        ${['consultants','products'].map(t=>`<button class="btn px-4 py-2 capitalize tab-btn ${activeTab===t?'btn-gold':'btn-dark'}" data-tab="${t}">${t}</button>`).join('')}
+      </div>
+      <div id="tab-content"></div>`;
+
+    wrap.querySelectorAll('.tab-btn').forEach(b=>b.onclick=()=>{ activeTab=b.dataset.tab; render(); });
+
+    const tc=wrap.querySelector('#tab-content');
+    if(activeTab==='consultants'){
+      tc.innerHTML=`<div class="flex gap-3 mb-4"><input type="text" id="new-cons" placeholder="Consultant name" class="input flex-1"><button class="btn btn-gold px-4" id="add-cons">Add</button></div>
+        <div class="card divide-y divide-slate-700">
+          ${(cons||[]).map(c=>`<div class="flex items-center justify-between py-3 px-1">
+            <span class="text-sm ${c.active?'text-white':'text-slate-500 line-through'}">${c.name}</span>
+            <button class="text-xs px-2.5 py-1 rounded-full bg-slate-700 text-slate-400 hover:text-${c.active?'red':'green'}-400 tog-cons" data-id="${c.id}" data-active="${c.active}">${c.active?'Deactivate':'Reactivate'}</button>
+          </div>`).join('')}
+        </div>`;
+      tc.querySelector('#add-cons').onclick=async()=>{
+        const input=tc.querySelector('#new-cons');
+        const v=input.value.trim(); if(!v) return;
+        const btn=tc.querySelector('#add-cons');
+        btn.textContent='Adding…'; btn.disabled=true;
+        const {error}=await sb.from('commission_consultants').insert({name:v});
+        if(error){ alert('Error: '+error.message); btn.textContent='Add'; btn.disabled=false; return; }
+        input.value='';
+        await render();
+      };
+      tc.querySelectorAll('.tog-cons').forEach(b=>b.onclick=async()=>{
+        await sb.from('commission_consultants').update({active:b.dataset.active!=='true'}).eq('id',b.dataset.id); render();
+      });
+    } else {
+      tc.innerHTML=`<div class="card">
+        <div class="grid grid-cols-4 px-1 py-2 text-xs text-slate-500 font-medium uppercase">
+          <span>Product</span><span>Type</span><span>Fixed $</span><span>Cash Bonus</span>
+        </div>
+        ${(prods||[]).map(p=>`<div class="grid grid-cols-4 px-1 py-3 text-sm items-center border-t border-slate-700">
+          <span class="${p.active?'text-white':'text-slate-500'}">${p.name}</span>
+          <span class="capitalize text-slate-400">${p.commission_type}</span>
+          <span class="text-slate-400">${p.commission_type==='fixed'?fmt(p.fixed_amount):'—'}</span>
+          <span class="${p.cash_bonus_eligible?'text-green-400':'text-slate-600'}">${p.cash_bonus_eligible?'Yes':'No'}</span>
+        </div>`).join('')}
+      </div>`;
+    }
+  };
+  app.appendChild(wrap); await render();
+}
+
+// ─── INIT ──────────────────────────────────────────────────────────────────
+document.getElementById('modal-overlay').onclick=e=>{ if(e.target===document.getElementById('modal-overlay')) closeModal(); };
+renderNav();
+renderApp().catch(err=>{
+  document.getElementById('app').innerHTML=`<div class="p-8 text-center">
+    <div class="text-red-400 text-lg font-semibold mb-2">Connection Error</div>
+    <div class="text-slate-400 text-sm">${err.message}</div>
+    <div class="text-slate-500 text-xs mt-4">Check that your Supabase key is correct and the migration has been run.</div>
+  </div>`;
+});
+</script>
+</body>
+</html>
