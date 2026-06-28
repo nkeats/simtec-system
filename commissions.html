@@ -62,11 +62,12 @@ const err=e=>{console.error(e);toast(e?.message||'An error occurred',false)};
 function calc(sales,bonuses,deds,retBal){
   const s=S();
   let units=0;
-  for(const sale of sales)for(const it of(sale.items||[]))
-    if(it.product?.commission_type!=='zero')units+=it.quantity;
+  for(const sale of sales){if(sale.status==='cancelled')continue;for(const it of(sale.items||[]))
+    if(it.product?.commission_type!=='zero')units+=it.quantity;}
   const rate=units<=s.tier1_max?s.tier1_amount:units<=s.tier2_max?s.tier2_amount:s.tier3_amount;
   let sc=0,ac=0;
   for(const sale of sales){
+    if(sale.status==='cancelled')continue;
     let elig=false;
     for(const it of(sale.items||[])){
       const p=it.product;if(!p)continue;
@@ -221,8 +222,11 @@ async function showRun(){
         <div><h1 class="text-2xl font-bold">Week ending ${fmtD(run.week_ending)}</h1>
         <p class="text-slate-400 text-sm mt-1">${fmtD(run.week_start)} — ${fmtD(run.week_ending)}</p></div>
         <div class="flex items-center gap-3">
-        <button onclick="showImportModal('${run.id}','${run.week_ending}')" class="btn dark text-sm">⬆ Import from Spreadsheet</button>
-        <span class="text-sm px-3 py-1.5 rounded-full ${run.status==='finalised'?'bg-green-900 text-green-400':'bg-slate-700 text-slate-400'}">${run.status==='finalised'?'Finalised':'Draft'}</span>
+        ${run.status==='finalised'
+          ?`<button onclick="unfinaliseRun('${run.id}')" class="btn dark text-sm">↩ Un-finalise</button>`
+          :`<button onclick="showImportModal('${run.id}','${run.week_ending}')" class="btn dark text-sm">⬆ Import from Spreadsheet</button>
+           <button onclick="finaliseRun('${run.id}')" class="btn gold text-sm">✓ Finalise &amp; Mark Paid</button>`}
+        <span class="text-sm px-3 py-1.5 rounded-full ${run.status==='finalised'?'bg-green-900 text-green-400':'bg-slate-700 text-slate-400'}">${run.status==='finalised'?'Finalised ✓ Paid':'Draft'}</span>
       </div>
       </div>
       ${!active.length
@@ -272,6 +276,7 @@ async function showCon(){
   function render(){
     const cv=calc(sales,bonuses||[],deds||[],retBal);
     const s=S();
+    const locked=run?.status==='finalised';
     $('app').innerHTML=`
       <div class="p-8 max-w-5xl mx-auto">
         <button onclick="go('run')" class="text-slate-400 hover:text-white text-sm mb-6 block">← Back to Pay Run</button>
@@ -280,6 +285,7 @@ async function showCon(){
           <p class="text-slate-400 text-sm mt-1">Week ending ${fmtD(run?.week_ending)}</p></div>
           <button class="btn gold" onclick="go('inv')">View / Print Invoice</button>
         </div>
+        ${locked?`<div class="mb-6 rounded-lg border border-green-500/40 bg-green-900/20 text-green-300 text-sm px-4 py-3">🔒 This run is finalised and paid. Editing is locked — use <b>Un-finalise</b> on the pay run to make changes.</div>`:''}
 
         <!-- SALES -->
         <div class="card mb-4">
@@ -371,6 +377,7 @@ async function showCon(){
   }
 
   window.updateRetPayout=async(val)=>{
+    if(run?.status==='finalised'){toast('Run finalised — un-finalise first.',false);render();return;}
     const payout=+val||0;
     // Store as a special bonus entry (upsert by description marker)
     const existing=(bonuses||[]).find(b=>b.description==='__RETENTION_PAYOUT__');
@@ -383,9 +390,9 @@ async function showCon(){
     }
     render();
   };
-  window.delSale=async id=>{if(!confirm('Delete this sale?'))return;const{error}=await sb.from('commission_sales').delete().eq('id',id);if(error){err(error);return;}const i=sales.findIndex(s=>s.id===id);if(i>-1)sales.splice(i,1);render();toast('Sale removed');};
-  window.delBonus=async id=>{const{error}=await sb.from('commission_bonuses').delete().eq('id',id);if(error){err(error);return;}const i=(bonuses||[]).findIndex(b=>b.id===id);if(i>-1)bonuses.splice(i,1);render();toast('Bonus removed');};
-  window.delDed=async id=>{const{error}=await sb.from('commission_deductions').delete().eq('id',id);if(error){err(error);return;}const i=(deds||[]).findIndex(d=>d.id===id);if(i>-1)deds.splice(i,1);render();toast('Deduction removed');};
+  window.delSale=async id=>{if(run?.status==='finalised'){toast('Run finalised — un-finalise first.',false);return;}if(!confirm('Delete this sale?'))return;const{error}=await sb.from('commission_sales').delete().eq('id',id);if(error){err(error);return;}const i=sales.findIndex(s=>s.id===id);if(i>-1)sales.splice(i,1);render();toast('Sale removed');};
+  window.delBonus=async id=>{if(run?.status==='finalised'){toast('Run finalised — un-finalise first.',false);return;}const{error}=await sb.from('commission_bonuses').delete().eq('id',id);if(error){err(error);return;}const i=(bonuses||[]).findIndex(b=>b.id===id);if(i>-1)bonuses.splice(i,1);render();toast('Bonus removed');};
+  window.delDed=async id=>{if(run?.status==='finalised'){toast('Run finalised — un-finalise first.',false);return;}const{error}=await sb.from('commission_deductions').delete().eq('id',id);if(error){err(error);return;}const i=(deds||[]).findIndex(d=>d.id===id);if(i>-1)deds.splice(i,1);render();toast('Deduction removed');};
 
   window.addSaleModal=weekEnd=>{
     const prods=products.filter(p=>p.active);
@@ -413,6 +420,7 @@ async function showCon(){
       </div>`);
     window.items=items;window.drawItems=drawItems;drawItems();
     window.saveSale=async()=>{
+      if(run?.status==='finalised'){toast('Run finalised — un-finalise first.',false);closeMod();return;}
       const date=$('mdate')?.value,cust=$('mcust')?.value?.trim();
       if(!date||!cust){toast('Please fill in date and customer name',false);return;}
       const{data:sale,error}=await sb.from('commission_sales').insert({pay_run_id:runId,consultant_id:consId,sale_date:date,customer_name:cust}).select().single();
@@ -439,6 +447,7 @@ async function showCon(){
         <button class="btn dark flex-1" onclick="closeMod()">Cancel</button>
       </div>`);
     window.saveBonus=async()=>{
+      if(run?.status==='finalised'){toast('Run finalised — un-finalise first.',false);closeMod();return;}
       const desc=$('mdesc')?.value?.trim(),amt=+$('mamt')?.value;
       if(!desc||!amt){toast('Please fill in all fields',false);return;}
       const{data,error}=await sb.from('commission_bonuses').insert({pay_run_id:runId,consultant_id:consId,description:desc,amount:amt}).select().single();
@@ -476,6 +485,7 @@ async function showCon(){
       if(t==='pillow')$('mamt').value=(q*pc).toFixed(2);
     };
     window.saveDed=async()=>{
+      if(run?.status==='finalised'){toast('Run finalised — un-finalise first.',false);closeMod();return;}
       const amt=+$('mamt')?.value;if(!amt){toast('Please enter an amount',false);return;}
       const{data,error}=await sb.from('commission_deductions').insert({
         pay_run_id:runId,consultant_id:consId,
@@ -818,8 +828,8 @@ async function showCustomers(){
               <td class="py-2 pr-3 text-slate-400 whitespace-nowrap">${fmtD(s.sale_date)}</td>
               <td class="py-2 pr-3 font-medium">${s.customer_name}</td>
               <td class="py-2 pr-3 text-slate-400 text-xs">${prodStr(s)}</td>
-              <td class="py-2 text-right text-yellow-400">${fmt(s.commission_paid)}</td>
-              <td class="py-2 pl-2"><button onclick="showCancelModal('${s.id}','${s.customer_name.replace(/'/g,"\'")}',${s.commission_paid||0},'${consId}')"
+              <td class="py-2 text-right ${s.paid_date?'text-yellow-400':'text-slate-500'}">${s.paid_date?fmt(s.commission_paid):'Not yet paid'}</td>
+              <td class="py-2 pl-2"><button onclick="showCancelModal('${s.id}','${s.customer_name.replace(/'/g,"\'")}',${s.commission_paid||0},'${consId}',${s.paid_date?'true':'false'})"
                 class="text-xs px-2 py-1 rounded bg-red-900/40 text-red-400 hover:bg-red-900 whitespace-nowrap">Mark Cancelled</button></td>
             </tr>`).join('')}
           </tbody>
@@ -850,22 +860,28 @@ async function showCustomers(){
   else $('app').innerHTML='<div class="p-8 text-slate-500 text-center">No active consultants.</div>';
 }
 
-function showCancelModal(saleId,customerName,commissionPaid,consId){
+function showCancelModal(saleId,customerName,commissionPaid,consId,isPaid){
+  const paid=isPaid===true||isPaid==='true';
   openMod(`<h3 class="font-semibold text-white mb-2">Mark as Cancelled</h3>
-    <p class="text-slate-400 text-sm mb-4">This will deduct the original commission from the retention account.</p>
+    <p class="text-slate-400 text-sm mb-4">${paid
+      ?'This customer has already been paid. The commission below will be clawed back from the consultant\'s retention account.'
+      :'This sale has not been paid yet, so there is nothing to claw back — it will simply be removed from the pay run.'}</p>
     <div class="bg-slate-900 rounded-lg p-4 mb-4 space-y-2 text-sm">
       <div class="flex justify-between"><span class="text-slate-400">Customer</span><span class="font-medium">${customerName}</span></div>
-      <div class="flex justify-between"><span class="text-slate-400">Commission to claw back</span><span class="text-red-400 font-semibold">-${fmt(commissionPaid)}</span></div>
+      ${paid
+        ?`<div class="flex justify-between"><span class="text-slate-400">Commission to claw back</span><span class="text-red-400 font-semibold">-${fmt(commissionPaid)}</span></div>`
+        :`<div class="flex justify-between"><span class="text-slate-400">Status</span><span class="text-slate-300">Not yet paid — no clawback</span></div>`}
     </div>
     <label class="text-xs text-slate-400 block mb-1">Cancellation notes (optional)</label>
     <input type="text" id="mnotes" placeholder="e.g. Poor payment history" class="inp mb-4">
     <div class="flex gap-3">
-      <button class="btn gold flex-1" onclick="confirmCancel('${saleId}',${commissionPaid},'${consId}')">Confirm Cancellation</button>
+      <button class="btn gold flex-1" onclick="confirmCancel('${saleId}',${commissionPaid},'${consId}',${paid})">Confirm Cancellation</button>
       <button class="btn dark flex-1" onclick="closeMod()">Back</button>
     </div>`);
 }
 
-window.confirmCancel=async(saleId,commissionPaid,consId)=>{
+window.confirmCancel=async(saleId,commissionPaid,consId,isPaid)=>{
+  const paid=isPaid===true||isPaid==='true';
   const notes=$('mnotes')?.value?.trim()||null;
   // 1. Mark sale cancelled
   const{error:e1}=await sb.from('commission_sales').update({
@@ -874,6 +890,13 @@ window.confirmCancel=async(saleId,commissionPaid,consId)=>{
     cancellation_notes:notes
   }).eq('id',saleId);
   if(e1){err(e1);return;}
+
+  if(!paid){
+    closeMod();
+    toast('Sale cancelled and removed from the pay run (no clawback — not yet paid).');
+    if(window._custConsId) window.renderCustList(window._custConsId);
+    return;
+  }
 
   // 2. Get current retention balance
   const{data:ret}=await sb.from('commission_retention').select('*').eq('consultant_id',consId).maybeSingle();
@@ -901,6 +924,76 @@ window.confirmCancel=async(saleId,commissionPaid,consId)=>{
 };
 
 // ── Weekly Import from Spreadsheet ────────────────────────────────────────
+// ── Finalise / Un-finalise (mark a run paid, advance retention) ─────
+window.finaliseRun=async(rid)=>{
+  rid=rid||runId;
+  if(!confirm('Finalise this pay run?\n\nThis records exactly what each consultant was paid for each customer, and adds this week\'s 25% to their retention accounts (up to the $5,000 cap). Only do this AFTER you have actually paid everyone.'))return;
+  try{
+    const{data:run,error:re}=await sb.from('commission_pay_runs').select('*').eq('id',rid).single();
+    if(re)throw re;
+    if(run.status==='finalised'){toast('This run is already finalised.',false);return;}
+    const s=S();
+    const today=new Date().toISOString().split('T')[0];
+    const{data:retRows}=await sb.from('commission_retention').select('*');
+    const retMap={};(retRows||[]).forEach(x=>retMap[x.consultant_id]=+x.balance||0);
+    const active=consultants.filter(c=>c.active);
+    for(const c of active){
+      const[{data:sl},{data:bo},{data:de}]=await Promise.all([
+        sb.from('commission_sales').select('*,commission_sale_items(quantity,commission_products(*))').eq('pay_run_id',rid).eq('consultant_id',c.id),
+        sb.from('commission_bonuses').select('*').eq('pay_run_id',rid).eq('consultant_id',c.id),
+        sb.from('commission_deductions').select('*').eq('pay_run_id',rid).eq('consultant_id',c.id),
+      ]);
+      const sales=(sl||[]).map(x=>({...x,items:(x.commission_sale_items||[]).map(i=>({...i,product:i.commission_products}))}));
+      const cv=calc(sales,bo||[],de||[],retMap[c.id]||0);
+      const rate=cv.rate;
+      for(const sale of sales){
+        if(sale.status==='cancelled')continue;
+        let base=0,elig=false;
+        for(const it of(sale.items||[])){const pr=it.product;if(!pr)continue;
+          if(pr.commission_type==='fixed'){base+=pr.fixed_amount*it.quantity;elig=true;}
+          if(pr.commission_type==='tier'){base+=rate*it.quantity;elig=true;}}
+        const paid=base+(elig?s.cash_bonus:0);
+        await sb.from('commission_sales').update({commission_paid:paid,paid_date:today}).eq('id',sale.id);
+      }
+      const opening=retMap[c.id]||0;
+      const newBal=opening+cv.ret-cv.payout;
+      if(cv.ret!==0||cv.payout!==0){
+        await sb.from('commission_retention').upsert({consultant_id:c.id,balance:newBal,updated_at:new Date().toISOString()},{onConflict:'consultant_id'});
+      }
+      if(cv.ret>0){
+        await sb.from('commission_retention_adjustments').insert({consultant_id:c.id,amount:cv.ret,reason:'weekly_retention',pay_run_id:rid,notes:'Retention withheld — week ending '+run.week_ending});
+      }
+      if(cv.payout>0){
+        await sb.from('commission_retention_adjustments').insert({consultant_id:c.id,amount:-cv.payout,reason:'retention_payout',pay_run_id:rid,notes:'Retention released — week ending '+run.week_ending});
+      }
+    }
+    await sb.from('commission_pay_runs').update({status:'finalised'}).eq('id',rid);
+    toast('Pay run finalised. Commissions recorded and retention updated.');
+    showRun();
+  }catch(e){err(e);}
+};
+
+window.unfinaliseRun=async(rid)=>{
+  rid=rid||runId;
+  if(!confirm('Un-finalise this run?\n\nThis reverses the retention added for this week and unlocks the run for editing.\n\nNote: any cancellation clawbacks already taken will NOT be reversed.'))return;
+  try{
+    const{data:run}=await sb.from('commission_pay_runs').select('*').eq('id',rid).single();
+    if(!run||run.status!=='finalised'){toast('This run is not finalised.',false);return;}
+    const{data:adjs}=await sb.from('commission_retention_adjustments').select('*').eq('pay_run_id',rid).in('reason',['weekly_retention','retention_payout']);
+    const byCon={};(adjs||[]).forEach(a=>{byCon[a.consultant_id]=(byCon[a.consultant_id]||0)+(+a.amount||0);});
+    for(const cid of Object.keys(byCon)){
+      const{data:ret}=await sb.from('commission_retention').select('*').eq('consultant_id',cid).maybeSingle();
+      const cur=+ret?.balance||0;
+      await sb.from('commission_retention').upsert({consultant_id:cid,balance:Math.max(0,cur-byCon[cid]),updated_at:new Date().toISOString()},{onConflict:'consultant_id'});
+    }
+    if(adjs&&adjs.length)await sb.from('commission_retention_adjustments').delete().eq('pay_run_id',rid).in('reason',['weekly_retention','retention_payout']);
+    await sb.from('commission_sales').update({commission_paid:null,paid_date:null}).eq('pay_run_id',rid).neq('status','cancelled');
+    await sb.from('commission_pay_runs').update({status:'draft'}).eq('id',rid);
+    toast('Run un-finalised and unlocked.');
+    showRun();
+  }catch(e){err(e);}
+};
+
 function showImportModal(runId,weekEnding){
   openMod(`<h3 class="font-semibold text-white mb-2">Import Sales from Spreadsheet</h3>
     <p class="text-slate-400 text-sm mb-4">Upload your NZ_Sales.xlsx file. The system will import all sales for week ending <strong>${fmtD(weekEnding)}</strong> (sales dated within that Mon–Sun).</p>
