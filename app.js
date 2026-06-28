@@ -332,12 +332,21 @@ function buildConsultantForm() {
 
   // Add a fresh signature card with a unique canvas ID for the consultant view
   const sigHtml = `<div class="card" id="consultant-signature-card">
-    <div class="card-title">Customer signature</div>
+    <div class="card-title">Customer 1 signature</div>
     <div class="card-sub">Have the customer sign in the box below using their finger.</div>
     <canvas id="consultant-signature-pad" style="border:2px solid var(--navy);border-radius:10px;cursor:crosshair;touch-action:none;background:#fafafa;display:block;max-width:100%"></canvas>
     <div style="display:flex;gap:8px;margin-top:10px;align-items:center">
       <button class="btn-outline btn-sm" onclick="clearConsultantSignature()">Clear & redo</button>
       <span id="consultant-sig-status" style="font-size:13px;color:var(--green);font-weight:600;align-self:center"></span>
+    </div>
+    <div id="consultant-sig2-wrap" style="display:none;margin-top:18px;padding-top:18px;border-top:1px solid var(--border)">
+      <div class="card-title" style="font-size:14px">Customer 2 signature</div>
+      <div class="card-sub">Have the second customer sign below.</div>
+      <canvas id="consultant-signature-pad-2" style="border:2px solid var(--navy);border-radius:10px;cursor:crosshair;touch-action:none;background:#fafafa;display:block;max-width:100%"></canvas>
+      <div style="display:flex;gap:8px;margin-top:10px;align-items:center">
+        <button class="btn-outline btn-sm" onclick="clearConsultantSignature2()">Clear & redo</button>
+        <span id="consultant-sig2-status" style="font-size:13px;color:var(--green);font-weight:600;align-self:center"></span>
+      </div>
     </div>
   </div>`;
   // Insert signature card BEFORE the submit button
@@ -618,12 +627,17 @@ function deliveryChange(cb) {
 }
 
 function orderSourceChange(sel) {
-  const note = document.getElementById('cooling-off-note');
-  if (!note) return;
-  if (sel.value === 'referral') {
-    note.textContent = 'This is a solicited (referral) sale — the standard 5-day cooling-off period does not apply.';
-  } else {
-    note.textContent = 'This is an unsolicited sale — the customer has a 5-day cooling-off period.';
+  const root = sel.closest('#consultant-form-container, #s-sales') || document;
+  const note = root.querySelector('#cooling-off-note');
+  const refFields = root.querySelector('#referrer-fields');
+  const coolRow = root.querySelector('#ack-coolingoff-row');
+  const solicited = sel.value === 'referral';
+  if (refFields) refFields.style.display = solicited ? 'block' : 'none';
+  if (coolRow) coolRow.style.display = solicited ? 'none' : 'flex';
+  if (note) {
+    note.textContent = solicited
+      ? 'This is a solicited (referral) sale — the standard 5-day cooling-off period does not apply.'
+      : 'This is an unsolicited sale — the customer has a 5-day cooling-off period.';
   }
 }
 
@@ -653,6 +667,33 @@ async function submitOrder() {
   const tiles = document.querySelectorAll('.ptile.sel');
   if (!tiles.length) { showToast('Please select at least one product', 'error'); return; }
 
+  // Joint purchase validation
+  const isJoint = document.getElementById('f-joint')?.checked;
+  if (isJoint) {
+    const f2 = document.getElementById('f-fname2')?.value.trim();
+    const l2 = document.getElementById('f-lname2')?.value.trim();
+    if (!f2 || !l2) { showToast('Enter the second customer name for a joint purchase', 'error'); return; }
+    const sig2 = document.getElementById('consultant-signature-pad-2') ? consultantSignatureData2 : signatureData2;
+    if (!sig2) { showToast('Capture the second customer signature', 'error'); return; }
+  }
+
+  // Acknowledgement validation
+  const ackDeposit = document.getElementById('f-ack-deposit')?.value.trim();
+  const ackPay = document.getElementById('f-ack-payhistory')?.value.trim();
+  const ackPriv = document.getElementById('f-ack-privacy')?.value.trim();
+  if (!ackDeposit || !ackPay || !ackPriv) {
+    showToast('Customer must initial the deposit, payment-history and privacy acknowledgements', 'error'); return;
+  }
+  const isUnsolicited = document.querySelector('input[name="order-source"]:checked')?.value !== 'referral';
+  if (isUnsolicited) {
+    if (!document.getElementById('f-ack-coolingoff')?.value.trim()) {
+      showToast('Customer must initial the cooling-off acknowledgement for an unsolicited sale', 'error'); return;
+    }
+    if (!document.getElementById('f-coolingoff-explained')?.checked) {
+      showToast('Confirm the cooling-off period has been explained to the customer', 'error'); return;
+    }
+  }
+
   const items = [];
   let total = 0;
   tiles.forEach(t => {
@@ -678,7 +719,9 @@ async function submitOrder() {
     comments:         document.getElementById('f-comments')?.value.trim() || '',
     preferred_delivery_date: document.getElementById('f-delivery-date')?.value || null,
     marketing_consent: document.getElementById('f-marketing-consent')?.checked || false,
-    is_referral:       document.getElementById('f-order-source')?.value === 'referral',
+    is_referral:       document.querySelector('input[name="order-source"]:checked')?.value === 'referral',
+    referrer_name:     document.getElementById('f-referrer-name')?.value.trim() || '',
+    referrer_phone:    document.getElementById('f-referrer-phone')?.value.trim() || '',
     income_pension:    document.getElementById('f-income-pension')?.checked || false,
     income_fulltime:   document.getElementById('f-income-fulltime')?.checked || false,
     income_parttime:   document.getElementById('f-income-parttime')?.checked || false,
@@ -704,7 +747,22 @@ async function submitOrder() {
     loan_term_weeks: pwSubmit,
     items,
     call_status: 'pending',
-    signature_data: (document.getElementById('consultant-signature-pad') ? consultantSignatureData : signatureData) || null
+    signature_data: (document.getElementById('consultant-signature-pad') ? consultantSignatureData : signatureData) || null,
+    signature_data2: (document.getElementById('consultant-signature-pad-2') ? consultantSignatureData2 : signatureData2) || null,
+    customer2_fname: document.getElementById('f-fname2')?.value.trim() || '',
+    customer2_lname: document.getElementById('f-lname2')?.value.trim() || '',
+    customer2_phone: document.getElementById('f-phone2')?.value.trim() || '',
+    employer:        document.getElementById('f-employer')?.value.trim() || '',
+    occupation:      document.getElementById('f-occupation')?.value.trim() || '',
+    annual_income:   document.getElementById('f-annual-income')?.value ? Number(document.getElementById('f-annual-income').value) : null,
+    income_selfemployed: document.getElementById('f-income-selfemployed')?.checked || false,
+    income_other:        document.getElementById('f-income-other')?.checked || false,
+    other_income:    document.getElementById('f-other-income')?.value.trim() || '',
+    ack_deposit_initials:    document.getElementById('f-ack-deposit')?.value.trim() || '',
+    ack_payhistory_initials: document.getElementById('f-ack-payhistory')?.value.trim() || '',
+    ack_privacy_initials:    document.getElementById('f-ack-privacy')?.value.trim() || '',
+    ack_coolingoff_initials: document.getElementById('f-ack-coolingoff')?.value.trim() || '',
+    coolingoff_explained:    document.getElementById('f-coolingoff-explained')?.checked || false
   };
 
   if (sbClient) {
@@ -2207,6 +2265,83 @@ function clearSignature() {
   signatureData = null;
   const status = document.getElementById('sig-status');
   if (status) status.textContent = '';
+}
+
+// ── Second signature + joint purchase ──────────────────────────
+let signatureData2 = null;
+let consultantSignatureData2 = null;
+
+function attachSignaturePad(canvasId, statusId, onData) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) return;
+  if (canvas.dataset.initialized === 'true') return;
+  const parent = canvas.parentElement;
+  const parentWidth = parent ? parent.offsetWidth - 8 : 300;
+  const W = Math.max(parentWidth, 280);
+  const H = 180;
+  canvas.style.width = W + 'px';
+  canvas.style.height = H + 'px';
+  canvas.width = W * window.devicePixelRatio;
+  canvas.height = H * window.devicePixelRatio;
+  const ctx = canvas.getContext('2d');
+  ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+  ctx.strokeStyle = '#1e3a6e';
+  ctx.lineWidth = 2.5;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  canvas.dataset.initialized = 'true';
+  let drawing = false, lastX = 0, lastY = 0;
+  function getPos(e) {
+    const r = canvas.getBoundingClientRect();
+    if (e.touches) return { x: e.touches[0].clientX - r.left, y: e.touches[0].clientY - r.top };
+    return { x: e.clientX - r.left, y: e.clientY - r.top };
+  }
+  function startDraw(e) { e.preventDefault(); drawing = true; const p = getPos(e); lastX = p.x; lastY = p.y; ctx.beginPath(); ctx.arc(lastX, lastY, 1, 0, Math.PI * 2); ctx.fill(); }
+  function draw(e) {
+    if (!drawing) return;
+    e.preventDefault();
+    const p = getPos(e);
+    ctx.beginPath(); ctx.moveTo(lastX, lastY); ctx.lineTo(p.x, p.y); ctx.stroke();
+    lastX = p.x; lastY = p.y;
+    onData(canvas.toDataURL());
+    const s = document.getElementById(statusId);
+    if (s) s.textContent = '✓ Signature captured';
+  }
+  function stopDraw() { drawing = false; }
+  canvas.addEventListener('mousedown', startDraw);
+  canvas.addEventListener('mousemove', draw);
+  canvas.addEventListener('mouseup', stopDraw);
+  canvas.addEventListener('touchstart', startDraw, { passive: false });
+  canvas.addEventListener('touchmove', draw, { passive: false });
+  canvas.addEventListener('touchend', stopDraw);
+}
+
+function clearSignature2() {
+  const canvas = document.getElementById('signature-pad-2');
+  if (canvas) { const ctx = canvas.getContext('2d'); ctx.clearRect(0, 0, canvas.width, canvas.height); }
+  signatureData2 = null;
+  const s = document.getElementById('sig2-status'); if (s) s.textContent = '';
+}
+function clearConsultantSignature2() {
+  const canvas = document.getElementById('consultant-signature-pad-2');
+  if (canvas) { const ctx = canvas.getContext('2d'); ctx.clearRect(0, 0, canvas.width, canvas.height); }
+  consultantSignatureData2 = null;
+  const s = document.getElementById('consultant-sig2-status'); if (s) s.textContent = '';
+}
+
+function toggleJoint(cb) {
+  const root = cb.closest('#consultant-form-container, #s-sales') || document;
+  const fields = root.querySelector('#second-customer-fields');
+  if (fields) fields.style.display = cb.checked ? 'block' : 'none';
+  const isConsultant = !!root.querySelector('#consultant-signature-pad-2');
+  const wrap = root.querySelector('#consultant-sig2-wrap') || root.querySelector('#sig2-wrap');
+  if (wrap) wrap.style.display = cb.checked ? 'block' : 'none';
+  if (cb.checked) {
+    if (isConsultant) setTimeout(() => attachSignaturePad('consultant-signature-pad-2', 'consultant-sig2-status', d => consultantSignatureData2 = d), 120);
+    else setTimeout(() => attachSignaturePad('signature-pad-2', 'sig2-status', d => signatureData2 = d), 120);
+  } else {
+    if (isConsultant) clearConsultantSignature2(); else clearSignature2();
+  }
 }
 
 // Init signature pad when sales form loads

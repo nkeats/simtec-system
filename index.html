@@ -799,18 +799,45 @@ body { background: #eef1f8; color: var(--gt); min-height: 100vh; font-size: 14px
     </div>
 
     <div class="card">
-      <div class="card-title">Order source</div>
-      <div class="card-sub">Determines whether the cooling-off period applies</div>
-      <div class="form-grid">
-        <div class="fg-full">
-          <label class="flabel">How did this customer come to us?</label>
-          <select class="finput" id="f-order-source" onchange="orderSourceChange(this)">
-            <option value="unsolicited">Unsolicited (cold approach / door knock / ad response)</option>
-            <option value="referral">Solicited — referral</option>
-          </select>
+      <div class="card-title">Second customer (joint purchase)</div>
+      <div class="card-sub">For a joint purchase — e.g. Mr &amp; Mrs. Both customers are jointly liable.</div>
+      <div style="margin-top:6px;background:var(--gl);border-radius:10px;padding:14px 18px;border:1.5px solid var(--border);display:flex;align-items:flex-start;gap:12px">
+        <input type="checkbox" id="f-joint" onchange="toggleJoint(this)" style="width:18px;height:18px;cursor:pointer;accent-color:var(--navy);margin-top:2px;flex-shrink:0">
+        <label for="f-joint" style="font-size:13px;color:var(--navy);cursor:pointer;line-height:1.5">
+          <strong>This is a joint purchase</strong> — two people are buying together. Both will be jointly and severally liable for the full debt, and both must sign.
+        </label>
+      </div>
+      <div id="second-customer-fields" style="display:none;margin-top:14px;padding-top:14px;border-top:1px solid var(--border)">
+        <div class="form-grid">
+          <div><label class="flabel">Second customer — First name</label><input class="finput" id="f-fname2" placeholder="Tom" /></div>
+          <div><label class="flabel">Second customer — Last name</label><input class="finput" id="f-lname2" placeholder="Mitchell" /></div>
+          <div><label class="flabel">Second customer — Mobile</label><input class="finput" id="f-phone2" placeholder="021 000 0000" /></div>
         </div>
       </div>
-      <div id="cooling-off-note" style="margin-top:10px;font-size:12px;color:var(--gm);line-height:1.5">This is an unsolicited sale — the customer has a 5-day cooling-off period.</div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Sale type</div>
+      <div class="card-sub">Select one — determines whether the cooling-off period applies</div>
+      <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:6px">
+        <label style="flex:1;min-width:210px;display:flex;align-items:center;gap:10px;border:1.5px solid var(--border);border-radius:10px;padding:12px 14px;cursor:pointer;font-size:14px;color:var(--navy)">
+          <input type="radio" name="order-source" value="unsolicited" checked onchange="orderSourceChange(this)" style="width:18px;height:18px;cursor:pointer;accent-color:var(--navy);flex-shrink:0">
+          <span><strong>Unsolicited</strong><br><span style="font-size:12px;color:var(--gm);font-weight:400">Cold approach / door knock / ad response</span></span>
+        </label>
+        <label style="flex:1;min-width:210px;display:flex;align-items:center;gap:10px;border:1.5px solid var(--border);border-radius:10px;padding:12px 14px;cursor:pointer;font-size:14px;color:var(--navy)">
+          <input type="radio" name="order-source" value="referral" onchange="orderSourceChange(this)" style="width:18px;height:18px;cursor:pointer;accent-color:var(--navy);flex-shrink:0">
+          <span><strong>Solicited</strong><br><span style="font-size:12px;color:var(--gm);font-weight:400">Referred by an existing contact</span></span>
+        </label>
+      </div>
+
+      <div id="referrer-fields" style="display:none;margin-top:14px;padding-top:14px;border-top:1px solid var(--border)">
+        <div class="form-grid">
+          <div><label class="flabel">Referred by — Full name</label><input class="finput" id="f-referrer-name" placeholder="John Smith" /></div>
+          <div><label class="flabel">Referred by — Mobile</label><input class="finput" id="f-referrer-phone" placeholder="021 000 0000" /></div>
+        </div>
+      </div>
+
+      <div id="cooling-off-note" style="margin-top:12px;font-size:12px;color:var(--gm);line-height:1.5">This is an unsolicited sale — the customer has a 5-day cooling-off period.</div>
     </div>
 
     <div class="card">
@@ -829,8 +856,17 @@ body { background: #eef1f8; color: var(--gt); min-height: 100vh; font-size: 14px
             <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--navy);cursor:pointer">
               <input type="checkbox" id="f-income-parttime" style="width:16px;height:16px;cursor:pointer;accent-color:var(--navy)"> Part time
             </label>
+            <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--navy);cursor:pointer">
+              <input type="checkbox" id="f-income-selfemployed" style="width:16px;height:16px;cursor:pointer;accent-color:var(--navy)"> Self-employed
+            </label>
+            <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--navy);cursor:pointer">
+              <input type="checkbox" id="f-income-other" style="width:16px;height:16px;cursor:pointer;accent-color:var(--navy)"> Other
+            </label>
           </div>
         </div>
+        <div><label class="flabel">Employer / business name</label><input class="finput" id="f-employer" placeholder="ACME Ltd" /></div>
+        <div><label class="flabel">Occupation / job title</label><input class="finput" id="f-occupation" placeholder="Driver" /></div>
+        <div><label class="flabel">Annual gross income ($)</label><input class="finput" id="f-annual-income" type="number" min="0" step="1" placeholder="45000" /></div>
         <div><label class="flabel">Weekly income ($)</label><input class="finput" id="f-income-weekly" type="number" min="0" step="1" placeholder="850" /></div>
         <div><label class="flabel">Homeowner?</label>
           <select class="finput" id="f-homeowner">
@@ -839,6 +875,8 @@ body { background: #eef1f8; color: var(--gt); min-height: 100vh; font-size: 14px
             <option value="no">No</option>
           </select>
         </div>
+        <div class="fg-full"><label class="flabel">Other income (source and amount, if any)</label>
+          <input class="finput" id="f-other-income" placeholder="e.g. WINZ supplement $120/wk" /></div>
         <div class="fg-full"><label class="flabel">Income / affordability notes</label>
           <input class="finput" id="f-income-notes" placeholder="Any additional notes..." /></div>
       </div>
@@ -877,14 +915,54 @@ body { background: #eef1f8; color: var(--gt); min-height: 100vh; font-size: 14px
       </div>
     </div>
 
+    <div class="card">
+      <div class="card-title">Customer acknowledgements</div>
+      <div class="card-sub">Read each point to the customer and have them enter their initials.</div>
+
+      <div style="display:flex;align-items:flex-start;gap:14px;padding:12px 0;border-bottom:1px solid var(--border)">
+        <div style="flex:1;font-size:13px;color:var(--navy);line-height:1.5"><strong>10% deposit before delivery.</strong> A minimum 10% deposit of the total purchase price must be paid in full before any delivery takes place.</div>
+        <div style="flex-shrink:0;text-align:center"><label class="flabel" style="margin-bottom:4px">Initials</label><input class="finput" id="f-ack-deposit" maxlength="5" style="width:80px;text-align:center;text-transform:uppercase" placeholder="—" /></div>
+      </div>
+
+      <div style="display:flex;align-items:flex-start;gap:14px;padding:12px 0;border-bottom:1px solid var(--border)">
+        <div style="flex:1;font-size:13px;color:var(--navy);line-height:1.5"><strong>Acceptable payment history before delivery.</strong> Simtec does not run credit checks; delivery proceeds only once an acceptable repayment history is established (typically as the balance nears 10%). Simtec may cancel the order before delivery if the payment history is unacceptable.</div>
+        <div style="flex-shrink:0;text-align:center"><label class="flabel" style="margin-bottom:4px">Initials</label><input class="finput" id="f-ack-payhistory" maxlength="5" style="width:80px;text-align:center;text-transform:uppercase" placeholder="—" /></div>
+      </div>
+
+      <div style="display:flex;align-items:flex-start;gap:14px;padding:12px 0;border-bottom:1px solid var(--border)">
+        <div style="flex:1;font-size:13px;color:var(--navy);line-height:1.5"><strong>Privacy (Privacy Act 2020).</strong> Income, employment and personal details are collected only to assess affordability and manage the account, stored securely, and not sold or disclosed except where reasonably necessary to manage payments. The customer may request access or correction by emailing info@simtectp.com.</div>
+        <div style="flex-shrink:0;text-align:center"><label class="flabel" style="margin-bottom:4px">Initials</label><input class="finput" id="f-ack-privacy" maxlength="5" style="width:80px;text-align:center;text-transform:uppercase" placeholder="—" /></div>
+      </div>
+
+      <div id="ack-coolingoff-row" style="display:flex;align-items:flex-start;gap:14px;padding:12px 0">
+        <div style="flex:1;font-size:13px;color:var(--navy);line-height:1.5"><strong>5-day cooling-off (unsolicited sales).</strong> Under the Fair Trading Act, the customer may cancel this agreement within 5 working days of signing at no cost, by emailing info@simtectp.com.</div>
+        <div style="flex-shrink:0;text-align:center"><label class="flabel" style="margin-bottom:4px">Initials</label><input class="finput" id="f-ack-coolingoff" maxlength="5" style="width:80px;text-align:center;text-transform:uppercase" placeholder="—" /></div>
+      </div>
+
+      <div style="margin-top:8px;background:var(--gl);border-radius:10px;padding:12px 16px;border:1.5px solid var(--border);display:flex;align-items:flex-start;gap:12px">
+        <input type="checkbox" id="f-coolingoff-explained" style="width:18px;height:18px;cursor:pointer;accent-color:var(--navy);margin-top:1px;flex-shrink:0">
+        <label for="f-coolingoff-explained" style="font-size:13px;color:var(--navy);cursor:pointer;line-height:1.5">Consultant confirms the cooling-off period has been explained to the customer.</label>
+      </div>
+    </div>
+
     <!-- SIGNATURE CAPTURE -->
     <div class="card" id="signature-card">
-      <div class="card-title">Customer signature</div>
+      <div class="card-title">Customer 1 signature</div>
       <div class="card-sub">Have the customer sign below before submitting.</div>
       <canvas id="signature-pad" style="width:100%;height:180px;border:1.5px solid var(--border);border-radius:10px;cursor:crosshair;touch-action:none;background:#fafafa;display:block"></canvas>
       <div style="display:flex;gap:8px;margin-top:8px">
         <button class="btn-outline btn-sm" onclick="clearSignature()">Clear signature</button>
         <span id="sig-status" style="font-size:12px;color:var(--gm);align-self:center"></span>
+      </div>
+
+      <div id="sig2-wrap" style="display:none;margin-top:18px;padding-top:18px;border-top:1px solid var(--border)">
+        <div class="card-title" style="font-size:14px">Customer 2 signature</div>
+        <div class="card-sub">Have the second customer sign below.</div>
+        <canvas id="signature-pad-2" style="width:100%;height:180px;border:1.5px solid var(--border);border-radius:10px;cursor:crosshair;touch-action:none;background:#fafafa;display:block"></canvas>
+        <div style="display:flex;gap:8px;margin-top:8px">
+          <button class="btn-outline btn-sm" onclick="clearSignature2()">Clear signature</button>
+          <span id="sig2-status" style="font-size:12px;color:var(--gm);align-self:center"></span>
+        </div>
       </div>
     </div>
 
