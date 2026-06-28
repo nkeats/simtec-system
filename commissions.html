@@ -74,7 +74,7 @@ function calc(sales,bonuses,deds,retBal){
       if(p.commission_type==='fixed'){sc+=p.fixed_amount*it.quantity;elig=true;}
       if(p.commission_type==='tier'){sc+=rate*it.quantity;elig=true;}
     }
-    if(elig)ac+=s.cash_bonus;
+    if(elig&&sale.paid_in_full)ac+=s.cash_bonus;
   }
   const payout=(bonuses||[]).find(b=>b.description==='__RETENTION_PAYOUT__');
   const payoutAmt=+payout?.amount||0;
@@ -270,7 +270,7 @@ async function showCon(){
     for(const it of sale.items){const p=it.product;if(!p)continue;
       if(p.commission_type==='fixed'){c+=p.fixed_amount*it.quantity;el=true;}
       if(p.commission_type==='tier'){c+=r*it.quantity;el=true;}
-    }if(el)c+=S().cash_bonus;return c;
+    }if(el&&sale.paid_in_full)c+=S().cash_bonus;return c;
   }
 
   function render(){
@@ -318,7 +318,7 @@ async function showCon(){
             <button class="btn gold text-xs py-1.5 px-3" onclick="addBonusModal()">+ Add Bonus</button>
           </div>
           ${cv.ac>0?`<div class="flex justify-between text-sm py-1.5 text-slate-400 italic">
-            <span>Auto cash bonuses (${sales.filter(s=>s.items.some(i=>i.product?.cash_bonus_eligible)).length} × ${fmt(s.cash_bonus)})</span>
+            <span>Auto cash bonuses (${s.cash_bonus?Math.round(cv.ac/s.cash_bonus):0} × ${fmt(s.cash_bonus)} — paid-in-full only)</span>
             <span>${fmt(cv.ac)}</span></div>`:''}
           ${(bonuses||[]).filter(b=>b.description!=='__RETENTION_PAYOUT__').map(b=>`<div class="flex items-center justify-between text-sm py-1.5 border-t border-slate-700/50">
             <span class="text-slate-300">${b.description}</span>
@@ -411,6 +411,7 @@ async function showCon(){
       <input type="date" id="mdate" value="${weekEnd||''}" class="inp mb-3">
       <label class="text-xs text-slate-400 block mb-1">Customer Name</label>
       <input type="text" id="mcust" placeholder="Customer surname" class="inp mb-3">
+      <label class="flex items-center gap-2 mb-3 text-sm text-slate-300 cursor-pointer"><input type="checkbox" id="mpaidfull" class="w-4 h-4"> Paid in full (cash) — adds the $100 bonus</label>
       <label class="text-xs text-slate-400 block mb-2">Products</label>
       <div id="mitems"></div>
       <button onclick="items.push({pid:'',qty:1});drawItems()" class="text-yellow-400 text-xs mt-1 hover:text-yellow-300">+ Add another product</button>
@@ -423,7 +424,7 @@ async function showCon(){
       if(run?.status==='finalised'){toast('Run finalised — un-finalise first.',false);closeMod();return;}
       const date=$('mdate')?.value,cust=$('mcust')?.value?.trim();
       if(!date||!cust){toast('Please fill in date and customer name',false);return;}
-      const{data:sale,error}=await sb.from('commission_sales').insert({pay_run_id:runId,consultant_id:consId,sale_date:date,customer_name:cust}).select().single();
+      const{data:sale,error}=await sb.from('commission_sales').insert({pay_run_id:runId,consultant_id:consId,sale_date:date,customer_name:cust,paid_in_full:$('mpaidfull')?.checked||false}).select().single();
       if(error){err(error);return;}
       const validItems=window.items.filter(i=>i.pid);
       if(validItems.length){
@@ -515,7 +516,7 @@ async function showInv(){
   const sales=(rawSales||[]).map(s=>({...s,items:(s.commission_sale_items||[]).map(i=>({...i,product:i.commission_products}))}));
   const retBal=+ret?.balance||0;
   const cv=calc(sales,bons||[],deds||[],retBal);
-  const saleC=sale=>{let c=0,el=false;for(const it of sale.items){const p=it.product;if(!p)continue;if(p.commission_type==='fixed'){c+=p.fixed_amount*it.quantity;el=true;}if(p.commission_type==='tier'){c+=cv.rate*it.quantity;el=true;}}if(el)c+=s.cash_bonus;return c;};
+  const saleC=sale=>{let c=0,el=false;for(const it of sale.items){const p=it.product;if(!p)continue;if(p.commission_type==='fixed'){c+=p.fixed_amount*it.quantity;el=true;}if(p.commission_type==='tier'){c+=cv.rate*it.quantity;el=true;}}if(el&&sale.paid_in_full)c+=s.cash_bonus;return c;};
 
   $('app').innerHTML=`
     <div class="bg-slate-900 border-b border-slate-800 px-8 py-4 flex items-center gap-4 noprint">
@@ -570,7 +571,7 @@ async function showInv(){
         <div style="font-size:8pt;font-weight:bold;color:#0f1e3c;border-bottom:1pt solid #ddd;padding-bottom:1.5mm;margin-bottom:2mm;text-transform:uppercase;letter-spacing:.5px">Bonuses</div>
         <table style="width:100%;border-collapse:collapse;font-size:8pt;margin-bottom:5mm"><tbody>
           ${cv.ac>0?`<tr style="border-bottom:.5pt solid #eee">
-            <td style="padding:1.5mm 3mm;color:#555">Cash bonuses (${sales.filter(s=>s.items.some(i=>i.product?.cash_bonus_eligible)).length} eligible sales × ${fmt(s.cash_bonus)})</td>
+            <td style="padding:1.5mm 3mm;color:#555">Cash bonuses (${s.cash_bonus?Math.round(cv.ac/s.cash_bonus):0} paid-in-full sales × ${fmt(s.cash_bonus)})</td>
             <td style="padding:1.5mm 3mm;text-align:right;font-weight:600;color:#1a3a6b">${fmt(cv.ac)}</td>
           </tr>`:''}
           ${(bons||[]).filter(b=>b.description!=='__RETENTION_PAYOUT__').map(b=>`<tr style="border-bottom:.5pt solid #eee">
@@ -952,7 +953,7 @@ window.finaliseRun=async(rid)=>{
         for(const it of(sale.items||[])){const pr=it.product;if(!pr)continue;
           if(pr.commission_type==='fixed'){base+=pr.fixed_amount*it.quantity;elig=true;}
           if(pr.commission_type==='tier'){base+=rate*it.quantity;elig=true;}}
-        const paid=base+(elig?s.cash_bonus:0);
+        const paid=base+((elig&&sale.paid_in_full)?s.cash_bonus:0);
         await sb.from('commission_sales').update({commission_paid:paid,paid_date:today}).eq('id',sale.id);
       }
       const opening=retMap[c.id]||0;
@@ -1043,6 +1044,8 @@ window.runImport=async(runId,weekEnding)=>{
       const d=new Date(s);return isNaN(d)?null:d;
     };
 
+    const num=v=>{const n=parseFloat(String(v??'').replace(/[^0-9.]/g,''));return isNaN(n)?0:n;};
+    const findCol=(row,label)=>{const k=Object.keys(row).find(k=>k.trim().toLowerCase()===label);return k===undefined?undefined:row[k];};
     let imported=0,skipped=0;
     for(const row of rows){
       if(row['Cancelled Date'])continue;
@@ -1065,6 +1068,9 @@ window.runImport=async(runId,weekEnding)=>{
       const firstname=String(row['First Name']||'').trim();
       const customer=[surname,firstname].filter(Boolean).join(', ');
       const commission=parseFloat(row['C1 Amount'])||0;
+      const contractValue=num(findCol(row,'contract value'));
+      const paidManually=num(findCol(row,'paid manually'));
+      const paidInFull=contractValue>0&&paidManually+0.01>=contractValue;
       const consObj=consultants.find(c=>c.name===cons);
       if(!consObj){skipped++;continue;}
 
@@ -1072,7 +1078,7 @@ window.runImport=async(runId,weekEnding)=>{
       const{data:sale,error:se}=await sb.from('commission_sales').insert({
         pay_run_id:runId,consultant_id:consObj.id,
         sale_date:saleDateStr,customer_name:customer,
-        commission_paid:commission,status:'active',is_historical:false
+        commission_paid:commission,paid_in_full:paidInFull,status:'active',is_historical:false
       }).select().single();
       if(se){console.error(se);skipped++;continue;}
 
