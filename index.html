@@ -743,6 +743,21 @@ body { background: #eef1f8; color: var(--gt); min-height: 100vh; font-size: 14px
           <input type="hidden" id="f-consultant-phone" value="" />
         </div>
 
+        <!-- JOINT PURCHASE -->
+        <div class="fg-full" style="margin-top:2px;background:var(--gl);border-radius:10px;padding:13px 16px;border:1.5px solid var(--border);display:flex;align-items:flex-start;gap:12px">
+          <input type="checkbox" id="f-joint" onchange="toggleJoint(this)" style="width:18px;height:18px;cursor:pointer;accent-color:var(--navy);margin-top:2px;flex-shrink:0">
+          <label for="f-joint" style="font-size:13px;color:var(--navy);cursor:pointer;line-height:1.5">
+            <strong>Joint purchase</strong> — two people buying together. Both are jointly liable for the full debt and both must sign.
+          </label>
+        </div>
+        <div class="fg-full" id="second-customer-fields" style="display:none">
+          <div class="form-grid">
+            <div><label class="flabel">Second customer — First name</label><input class="finput" id="f-fname2" placeholder="Tom" /></div>
+            <div><label class="flabel">Second customer — Last name</label><input class="finput" id="f-lname2" placeholder="Mitchell" /></div>
+            <div><label class="flabel">Second customer — Mobile</label><input class="finput" id="f-phone2" placeholder="021 000 0000" /></div>
+          </div>
+        </div>
+
         <!-- PAYMENT METHOD -->
         <div><label class="flabel">Payment method</label>
           <select class="finput" id="f-paytype" onchange="payChange(this)">
@@ -794,24 +809,6 @@ body { background: #eef1f8; color: var(--gt); min-height: 100vh; font-size: 14px
           <label for="f-marketing-consent" style="font-size:13px;color:var(--navy);cursor:pointer;line-height:1.5">
             <strong>Marketing consent</strong> — The customer consents that Simtec Therapeutic may use photos or testimonials for promotional purposes on various media platforms.
           </label>
-        </div>
-      </div>
-    </div>
-
-    <div class="card">
-      <div class="card-title">Second customer (joint purchase)</div>
-      <div class="card-sub">For a joint purchase — e.g. Mr &amp; Mrs. Both customers are jointly liable.</div>
-      <div style="margin-top:6px;background:var(--gl);border-radius:10px;padding:14px 18px;border:1.5px solid var(--border);display:flex;align-items:flex-start;gap:12px">
-        <input type="checkbox" id="f-joint" onchange="toggleJoint(this)" style="width:18px;height:18px;cursor:pointer;accent-color:var(--navy);margin-top:2px;flex-shrink:0">
-        <label for="f-joint" style="font-size:13px;color:var(--navy);cursor:pointer;line-height:1.5">
-          <strong>This is a joint purchase</strong> — two people are buying together. Both will be jointly and severally liable for the full debt, and both must sign.
-        </label>
-      </div>
-      <div id="second-customer-fields" style="display:none;margin-top:14px;padding-top:14px;border-top:1px solid var(--border)">
-        <div class="form-grid">
-          <div><label class="flabel">Second customer — First name</label><input class="finput" id="f-fname2" placeholder="Tom" /></div>
-          <div><label class="flabel">Second customer — Last name</label><input class="finput" id="f-lname2" placeholder="Mitchell" /></div>
-          <div><label class="flabel">Second customer — Mobile</label><input class="finput" id="f-phone2" placeholder="021 000 0000" /></div>
         </div>
       </div>
     </div>
