@@ -850,6 +850,27 @@ async function loadDashboard() {
         </div>`).join('') || '<div style="color:var(--gm);font-size:13px;padding:12px 0">No follow-ups needed.</div>';
     }
 
+    // Payment holidays (active) — admin only
+    const onHoliday = orders.filter(o => (o.payment_holiday_weeks || 0) > 0 && !o.cancelled_at);
+    const holidaySection = document.getElementById('dash-holiday-section');
+    const holidayList = document.getElementById('dash-holiday-list');
+    if (holidaySection && holidayList) {
+      holidaySection.style.display = (onHoliday.length > 0 && isAdmin()) ? 'block' : 'none';
+      holidayList.innerHTML = onHoliday.map(o => {
+        const wk = o.payment_holiday_weeks || 0;
+        const started = o.payment_holiday_start_date ? formatDate(o.payment_holiday_start_date) : '-';
+        return `
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 0;border-bottom:1px solid var(--border);flex-wrap:wrap;gap:8px">
+          <div>
+            <div style="font-weight:600;color:var(--navy)">${o.fname} ${o.lname}</div>
+            <div style="font-size:12px;color:var(--gm)">${o.phone || '-'} · ${o.email || '-'}</div>
+            <div style="font-size:12px;color:#8a5500;margin-top:2px">${wk} week${wk !== 1 ? 's' : ''} remaining · Started ${started}${o.payment_holiday_reason ? ' · ' + o.payment_holiday_reason : ''}</div>
+          </div>
+          <button class="btn-outline btn-sm" onclick="showOrderManagement('${o.id}')">Manage</button>
+        </div>`;
+      }).join('') || '';
+    }
+
     const qt = document.getElementById('dash-queue-table');
     if (pending.length === 0) {
       qt.innerHTML = `<div style="text-align:center;padding:24px;color:var(--gm);font-size:13px">✅ Queue clear - no pending calls</div>`;
