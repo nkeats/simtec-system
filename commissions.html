@@ -172,13 +172,41 @@ async function createRun(){
 }
 
 window.delRun=async(id,weekEnding)=>{
-  // Find dependent sales so we can clear their line items first
-  const{data:saleRows,error:eLook}=await sb.from('commission_sales').select('id').eq('pay_run_id',id);
+  // Look up the run + its sales
+  const[{data:run},{data:saleRows,error:eLook}]=await Promise.all([
+    sb.from('commission_pay_runs').select('*').eq('id',id).single(),
+    sb.from('commission_sales').select('id').eq('pay_run_id',id),
+  ]);
   if(eLook){err(eLook);return;}
   const saleIds=(saleRows||[]).map(s=>s.id);
   const n=saleIds.length;
-  if(!confirm(`Delete the pay run for week ending ${fmtD(weekEnding)}?\n\nThis permanently removes the run and its ${n} sale${n===1?'':'s'}, plus any bonuses and deductions on it. Retention balances are NOT affected.\n\nThis cannot be undone.`))return;
+  const fin=run&&run.status==='finalised';
+  const msg=fin
+    ?`Delete the FINALISED pay run for week ending ${fmtD(weekEnding)}?\n\nThis will REVERSE the retention added for this week, then permanently remove the run and its ${n} sale${n===1?'':'s'}, bonuses and deductions.\n\nThis cannot be undone.`
+    :`Delete the pay run for week ending ${fmtD(weekEnding)}?\n\nThis permanently removes the run and its ${n} sale${n===1?'':'s'}, plus any bonuses and deductions on it. Retention balances are NOT affected.\n\nThis cannot be undone.`;
+  if(!confirm(msg))return;
   try{
+    // 1. Gather every retention adjustment tied to this run or its sales
+    let adjs=[];
+    const{data:aRun}=await sb.from('commission_retention_adjustments').select('*').eq('pay_run_id',id);
+    adjs=adjs.concat(aRun||[]);
+    if(saleIds.length){
+      const{data:aSale}=await sb.from('commission_retention_adjustments').select('*').in('sale_id',saleIds);
+      (aSale||[]).forEach(a=>{if(!adjs.find(x=>x.id===a.id))adjs.push(a);});
+    }
+    // 2. Reverse their net effect on each consultant's retention balance
+    const byCon={};adjs.forEach(a=>{byCon[a.consultant_id]=(byCon[a.consultant_id]||0)+(+a.amount||0);});
+    for(const cid of Object.keys(byCon)){
+      const{data:ret}=await sb.from('commission_retention').select('*').eq('consultant_id',cid).maybeSingle();
+      const cur=+ret?.balance||0;
+      await sb.from('commission_retention').upsert({consultant_id:cid,balance:Math.max(0,cur-byCon[cid]),updated_at:new Date().toISOString()},{onConflict:'consultant_id'});
+    }
+    // 3. Remove those adjustment rows (clears references + avoids orphans)
+    if(adjs.length){
+      await sb.from('commission_retention_adjustments').delete().eq('pay_run_id',id);
+      if(saleIds.length)await sb.from('commission_retention_adjustments').delete().in('sale_id',saleIds);
+    }
+    // 4. Delete line items, then sales/bonuses/deductions, then the run
     if(saleIds.length){
       const{error:eItems}=await sb.from('commission_sale_items').delete().in('sale_id',saleIds);
       if(eItems)throw eItems;
@@ -189,7 +217,7 @@ window.delRun=async(id,weekEnding)=>{
     }
     const{error:eRun}=await sb.from('commission_pay_runs').delete().eq('id',id);
     if(eRun)throw eRun;
-    toast('Pay run deleted');
+    toast(fin?'Finalised pay run deleted and retention reversed.':'Pay run deleted');
     go('runs');
   }catch(e){err(e);}
 };
