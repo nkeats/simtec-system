@@ -774,17 +774,85 @@ async function showSetup(){
         const msg=$('retmsg_'+id);if(msg){msg.classList.remove('hidden');setTimeout(()=>msg.classList.add('hidden'),2000);}
       };
     }else{
-      $('tabc').innerHTML=`<div class="card">
-        <div class="grid grid-cols-4 px-1 py-2 text-xs text-slate-500 font-medium uppercase">
-          <span>Product</span><span>Type</span><span>Fixed $</span><span>Cash Bonus</span>
+      $('tabc').innerHTML=`
+        <div class="card mb-4">
+          <div class="text-xs text-slate-400 uppercase font-medium mb-3">Add a product</div>
+          <div class="flex flex-wrap items-end gap-3">
+            <div class="flex-1" style="min-width:160px">
+              <label class="text-xs text-slate-500 block mb-1">Product name</label>
+              <input type="text" id="np_name" placeholder="e.g. Mk III Queen" class="inp">
+            </div>
+            <div>
+              <label class="text-xs text-slate-500 block mb-1">Commission type</label>
+              <select id="np_type" class="inp" onchange="document.getElementById('np_fixed').disabled=this.value!=='fixed'">
+                <option value="tier">Tier (weekly rate)</option>
+                <option value="fixed">Fixed amount</option>
+                <option value="zero">Zero (no commission)</option>
+              </select>
+            </div>
+            <div>
+              <label class="text-xs text-slate-500 block mb-1">Fixed $</label>
+              <input type="number" id="np_fixed" value="0" min="0" step="1" class="inp w-24" disabled>
+            </div>
+            <label class="flex items-center gap-2 text-sm text-slate-300 pb-2"><input type="checkbox" id="np_cb" checked class="w-4 h-4"> Cash bonus</label>
+            <button class="btn gold px-4" onclick="addProd()">Add</button>
+          </div>
         </div>
-        ${products.map(p=>`<div class="grid grid-cols-4 px-1 py-3 text-sm items-center border-t border-slate-700">
-          <span class="${p.active?'text-white':'text-slate-500'}">${p.name}</span>
-          <span class="capitalize text-slate-400">${p.commission_type}</span>
-          <span class="text-slate-400">${p.commission_type==='fixed'?fmt(p.fixed_amount):'—'}</span>
-          <span class="${p.cash_bonus_eligible?'text-green-400':'text-slate-600'}">${p.cash_bonus_eligible?'Yes':'No'}</span>
-        </div>`).join('')}
-      </div>`;
+        <p class="text-xs text-slate-500 mb-3">Tip: the product <b>Name</b> must match the order form / import spreadsheet exactly, or sales won't link. Only <b>Mk I King Single</b> should be Zero.</p>
+        <div class="card divide-y divide-slate-700">
+          ${products.map(p=>`
+          <div class="py-4">
+            <div class="flex flex-wrap items-end gap-3">
+              <div class="flex-1" style="min-width:150px">
+                <label class="text-xs text-slate-500 block mb-1 uppercase">Name</label>
+                <input type="text" id="pn_${p.id}" value="${(p.name||'').replace(/"/g,'&quot;')}" class="inp text-sm py-1 ${p.active?'':'opacity-50'}">
+              </div>
+              <div>
+                <label class="text-xs text-slate-500 block mb-1 uppercase">Type</label>
+                <select id="pt_${p.id}" class="inp text-sm py-1" onchange="document.getElementById('pf_${p.id}').disabled=this.value!=='fixed'">
+                  <option value="tier" ${p.commission_type==='tier'?'selected':''}>Tier</option>
+                  <option value="fixed" ${p.commission_type==='fixed'?'selected':''}>Fixed</option>
+                  <option value="zero" ${p.commission_type==='zero'?'selected':''}>Zero</option>
+                </select>
+              </div>
+              <div>
+                <label class="text-xs text-slate-500 block mb-1 uppercase">Fixed $</label>
+                <input type="number" id="pf_${p.id}" value="${p.fixed_amount||0}" min="0" step="1" class="inp w-24 text-sm py-1" ${p.commission_type==='fixed'?'':'disabled'}>
+              </div>
+              <label class="flex items-center gap-2 text-sm text-slate-300 pb-1"><input type="checkbox" id="pc_${p.id}" ${p.cash_bonus_eligible?'checked':''} class="w-4 h-4"> Cash bonus</label>
+              <button onclick="saveProd('${p.id}')" class="btn dark text-xs py-1 px-3">Save</button>
+              <button onclick="togProd('${p.id}',${p.active})" class="text-xs px-2.5 py-1 rounded-full bg-slate-700 text-slate-400 hover:text-${p.active?'red':'green'}-400">${p.active?'Deactivate':'Reactivate'}</button>
+              <span id="pmsg_${p.id}" class="text-xs text-green-400 hidden">Saved</span>
+            </div>
+          </div>`).join('')}
+        </div>`;
+
+      window.addProd=async()=>{
+        const name=$('np_name')?.value?.trim();
+        if(!name){toast('Enter a product name',false);return;}
+        const type=$('np_type')?.value||'tier';
+        const fixed=type==='fixed'?(+$('np_fixed')?.value||0):0;
+        const cb=$('np_cb')?.checked||false;
+        const{error}=await sb.from('commission_products').insert({name,commission_type:type,fixed_amount:fixed,cash_bonus_eligible:cb,active:true});
+        if(error){err(error);return;}
+        toast(`${name} added`);await render();
+      };
+      window.saveProd=async(id)=>{
+        const name=$('pn_'+id)?.value?.trim();
+        if(!name){toast('Product name cannot be blank',false);return;}
+        const type=$('pt_'+id)?.value||'tier';
+        const fixed=type==='fixed'?(+$('pf_'+id)?.value||0):0;
+        const cb=$('pc_'+id)?.checked||false;
+        const{error}=await sb.from('commission_products').update({name,commission_type:type,fixed_amount:fixed,cash_bonus_eligible:cb}).eq('id',id);
+        if(error){err(error);return;}
+        const p=products.find(x=>x.id===id);if(p){p.name=name;p.commission_type=type;p.fixed_amount=fixed;p.cash_bonus_eligible=cb;}
+        const msg=$('pmsg_'+id);if(msg){msg.classList.remove('hidden');setTimeout(()=>msg.classList.add('hidden'),2000);}
+      };
+      window.togProd=async(id,active)=>{
+        const{error}=await sb.from('commission_products').update({active:!active}).eq('id',id);
+        if(error){err(error);return;}
+        await render();
+      };
     }
   }
   await render();
