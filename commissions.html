@@ -17,7 +17,7 @@ select.inp{appearance:auto}
 .gold{background:#eab308;color:#0f172a}.gold:hover:not(:disabled){background:#fbbf24}
 .dark{background:#1e293b;color:#94a3b8;border:1px solid #334155}.dark:hover:not(:disabled){color:#fff}
 .card{background:#1e293b;border:1px solid #334155;border-radius:.75rem;padding:1.25rem}
-@media print{.noprint{display:none!important}body{background:#fff}@page{margin:15mm;size:A4}}
+@media print{@page{size:A4;margin:0}html,body{background:#fff!important;margin:0!important;padding:0!important}#nav,.noprint{display:none!important}.inv-wrap{padding:0!important;margin:0!important;display:block!important}.inv-page{width:210mm!important;min-height:auto!important;box-shadow:none!important;margin:0!important;padding:12mm!important}}
 </style>
 </head>
 <body class="bg-slate-950 text-white min-h-screen">
@@ -553,8 +553,8 @@ async function showInv(){
       <div class="flex-1"></div>
       <button class="btn gold" onclick="window.print()">⬇ Print / Save as PDF</button>
     </div>
-    <div class="py-8 px-4 flex justify-center">
-      <div style="width:210mm;min-height:297mm;background:white;color:#111;font-family:Arial,sans-serif;font-size:9pt;padding:15mm;box-sizing:border-box;box-shadow:0 25px 50px rgba(0,0,0,.5)">
+    <div class="py-8 px-4 flex justify-center inv-wrap">
+      <div class="inv-page" style="width:210mm;min-height:297mm;background:white;color:#111;font-family:Arial,sans-serif;font-size:9pt;padding:15mm;box-sizing:border-box;box-shadow:0 25px 50px rgba(0,0,0,.5)">
         <!-- Header -->
         <div style="border-bottom:2pt solid #0f1e3c;padding-bottom:8mm;margin-bottom:6mm;display:flex;justify-content:space-between;align-items:flex-start">
           <div>
