@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Simtec — Client Page</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/@supabase/supabase-js@2.38.4/dist/umd/supabase.js"></script>
+<style>
+body{font-family:system-ui,sans-serif}
+.inp{display:block;width:100%;padding:.6rem .85rem;background:#1e293b;border:1px solid #334155;border-radius:.6rem;color:#fff;font-size:.95rem;box-sizing:border-box}
+.inp:focus{outline:none;border-color:#eab308}
+.card{background:#1e293b;border:1px solid #334155;border-radius:.75rem;padding:1.1rem 1.25rem}
+.lbl{font-size:.7rem;letter-spacing:.06em;text-transform:uppercase;color:#c9a84c;font-weight:700}
+.k{color:#7c8aa0;font-size:.8rem}
+.v{color:#e6edf6;font-size:.85rem;font-weight:600}
+.sq{width:11px;height:11px;border-radius:2px;display:inline-block}
+.res:hover{background:#243049}
+@media print{.noprint{display:none!important}body{background:#fff;color:#000}.card{border-color:#ccc}}
+</style>
+</head>
+<body class="bg-slate-950 text-white min-h-screen">
+
+<nav class="bg-slate-900 border-b border-slate-800 px-6 py-3 flex items-center gap-3 noprint">
+  <span class="font-bold tracking-wide text-lg">SIMTEC</span>
+  <span class="text-slate-400 text-sm">Client Page</span>
+</nav>
+
+<div class="max-w-5xl mx-auto p-6">
+  <!-- Search -->
+  <div class="noprint mb-6 relative">
+    <input id="q" class="inp" placeholder="🔍  Search a customer by name, mobile, email or address…" autocomplete="off">
+    <div id="results" class="absolute left-0 right-0 mt-1 bg-slate-800 border border-slate-700 rounded-lg overflow-hidden z-20 hidden"></div>
+  </div>
+  <div id="client"></div>
+  <div id="empty" class="text-center text-slate-500 py-20">
+    <div class="text-5xl mb-3">🛏️</div>
+    One search brings up everything about a customer.
+  </div>
+</div>
+
+<script>
+const SUPABASE_URL='https://jvqjoenaungubpoegyvf.supabase.co';
+const SUPABASE_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imp2cWpvZW5hdW5ndWJwb2VneXZmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA1MzQyMjYsImV4cCI6MjA5NjExMDIyNn0.ypVt8578XTdNwBH6TRDn30s1cF_rHTu67qCWYv5XHcQ';
+const sb=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
+
+const $=id=>document.getElementById(id);
+const DAY=86400000;
+const today=new Date();today.setHours(12,0,0,0);
+const fmt=n=>'$'+(+n||0).toLocaleString('en-NZ',{minimumFractionDigits:2,maximumFractionDigits:2});
+const fmtD=d=>d?new Date(d+'T12:00:00').toLocaleDateString('en-NZ',{day:'2-digit',month:'short',year:'numeric'}):'—';
+const esc=s=>(s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const titleCase=s=>(s||'').replace(/_/g,' ').replace(/\b\w/g,m=>m.toUpperCase());
+
+// ── Search ─────────────────────────────────────────────────────────────────
+let tmr=null;
+$('q').addEventListener('input',e=>{
+  clearTimeout(tmr);const q=e.target.value.trim();
+  if(q.length<2){$('results').classList.add('hidden');return;}
+  tmr=setTimeout(()=>search(q),250);
+});
+document.addEventListener('click',e=>{if(!$('results').contains(e.target)&&e.target!==$('q'))$('results').classList.add('hidden');});
+
+async function search(q){
+  const like=`%${q}%`;
+  const {data,error}=await sb.from('sim_customers')
+    .select('id,first_name,last_name,mobile,email,address')
+    .or(`first_name.ilike.${like},last_name.ilike.${like},mobile.ilike.${like},email.ilike.${like},address.ilike.${like}`)
+    .limit(8);
+  const box=$('results');
+  if(error){box.innerHTML=`<div class="px-4 py-3 text-sm text-red-400">${esc(error.message)}</div>`;box.classList.remove('hidden');return;}
+  if(!data||!data.length){box.innerHTML=`<div class="px-4 py-3 text-sm text-slate-500">No matches</div>`;box.classList.remove('hidden');return;}
+  box.innerHTML=data.map(c=>`<div class="res px-4 py-2.5 cursor-pointer border-b border-slate-700/60" onclick="loadClient('${c.id}')">
+      <div class="text-sm font-medium">${esc(c.first_name)} ${esc(c.last_name)}</div>
+      <div class="text-xs text-slate-500">${esc(c.mobile||'')} · ${esc(c.address||'')}</div>
+    </div>`).join('');
+  box.classList.remove('hidden');
+}
+
+// ── Load one client ────────────────────────────────────────────────────────
+async function loadClient(custId){
+  $('results').classList.add('hidden');$('q').value='';
+  const {data:cust}=await sb.from('sim_customers').select('*').eq('id',custId).single();
+  const {data:orders}=await sb.from('sim_orders').select('*').eq('customer_id',custId).order('order_date',{ascending:false});
+  if(!orders||!orders.length){render(cust,null,[],[]);return;}
+  const order=orders[0];
+  const [{data:items},{data:pays}]=await Promise.all([
+    sb.from('sim_order_items').select('*').eq('order_id',order.id).order('line_no'),
+    sb.from('sim_payment_events').select('*').eq('order_id',order.id).order('payment_date')
+  ]);
+  render(cust,order,items||[],pays||[],orders);
+}
+window.loadClient=loadClient;
+
+// ── Payment maths + timeline ───────────────────────────────────────────────
+function analyse(order,pays){
+  const first=order.first_payment_date;
+  const total=order.instalment_count||156;
+  const wkOf=d=>first?Math.round((new Date(d+'T12:00:00')-new Date(first+'T12:00:00'))/(7*DAY))+1:0;
+  const dueDate=w=>first?new Date(new Date(first+'T12:00:00').getTime()+(w-1)*7*DAY):null;
+
+  let paid=0;
+  const wk={};                       // week -> status
+  // first pass: paid + failed
+  for(const p of pays){
+    if(p.direction==='debit'&&p.status==='successful')paid+=(+p.amount||0);
+    if(p.direction==='refund'&&p.status==='successful')paid-=(+p.amount||0);
+    const w=wkOf(p.payment_date);if(w<1)continue;
+    if(p.recovers_payment_id)continue; // handle below
+    if(p.status==='successful'){ if(wk[w]!=='amber')wk[w]='green'; }
+    else if(p.status==='failed'){ if(!wk[w])wk[w]='failed'; }
+  }
+  // recoveries -> mark the recovered week amber
+  for(const p of pays){
+    if(!p.recovers_payment_id)continue;
+    const failed=pays.find(x=>x.payment_id===p.recovers_payment_id);
+    const w=wkOf((failed&&failed.payment_date)||p.payment_date);
+    if(w>=1)wk[w]='amber';
+  }
+
+  let redCount=0,amberCount=0;
+  const cells=[];
+  for(let w=1;w<=total;w++){
+    const due=dueDate(w);const past=due&&due<today;
+    let st=wk[w];
+    let cls,label;
+    if(st==='green'){cls='#1faa5a';label='Paid';}
+    else if(st==='amber'){cls='#e0a010';label='Late — recovered';amberCount++;}
+    else if(st==='failed'){ if(past){cls='#dc2626';label='Missed';redCount++;} else {cls='#475569';label='Upcoming';} }
+    else { cls='#475569'; label='Upcoming'; }
+    cells.push({w,cls,label,due});
+  }
+  const contract=+order.contract_value||0;
+  const threshold=contract*0.10;
+  const pct=contract?paid/contract*100:0;
+  return {paid,contract,balance:contract-paid,pct,threshold,reached:paid>=threshold&&contract>0,
+          cells,redCount,amberCount,total};
+}
+
+function recommend(order,a){
+  const delivered=order.delivery_status==='delivered';
+  const cancelled=order.order_status==='cancelled';
+  const coolStr=order.cooling_off_expires;
+  const coolExpired=coolStr?new Date(coolStr+'T12:00:00')<=today:true;
+  const affOk=order.affordability_passed===true;
+  const historyOk=a.redCount===0;
+  const reasons=[
+    [a.reached, a.reached?`10% deposit threshold reached (${fmt(a.paid)} of ${fmt(a.contract)} — ${a.pct.toFixed(1)}%)`
+                        :`Under 10% deposit threshold (${fmt(a.paid)} of ${fmt(a.contract)} — ${a.pct.toFixed(1)}%; need ${fmt(a.threshold)})`],
+    [historyOk, historyOk?`Payment history satisfactory${a.amberCount?` (${a.amberCount} missed, since recovered)`:''}`
+                         :`${a.redCount} payment(s) currently overdue`],
+    [affOk, affOk?'Affordability assessment passed':'Affordability assessment not passed'],
+    [coolExpired, coolExpired?'Cooling-off period expired':`Cooling-off period not yet expired (until ${fmtD(coolStr)})`]
+  ];
+  let level,title;
+  if(cancelled){level='red';title='ORDER CANCELLED';}
+  else if(delivered){level='blue';title='ALREADY DELIVERED'+(order.delivery_date?' · '+fmtD(order.delivery_date):'');}
+  else if(!historyOk||!affOk){level='red';title='DO NOT DELIVER';}
+  else if(!a.reached||!coolExpired){level='amber';title='HOLD — REVIEW';}
+  else {level='green';title='CLEARED FOR DELIVERY';}
+  return {level,title,reasons,delivered,cancelled};
+}
+
+// ── Render ─────────────────────────────────────────────────────────────────
+function render(cust,order,items,pays,orders){
+  $('empty').classList.add('hidden');
+  if(!cust){$('client').innerHTML='';return;}
+  const name=`${esc(cust.first_name||'')} ${esc(cust.last_name||'')}`.trim();
+  if(!order){
+    $('client').innerHTML=`<div class="card"><div class="text-xl font-bold">${name}</div>
+      <p class="text-slate-500 mt-2 text-sm">No order on file for this customer yet.</p></div>`;return;
+  }
+  const a=analyse(order,pays);
+  const rec=recommend(order,a);
+
+  const itemRows=items.map(it=>`<div class="flex justify-between py-1 text-sm">
+      <span class="text-slate-300">${esc(it.product_name)}${it.quantity>1?` ×${it.quantity}`:''}</span>
+      <span class="text-slate-300">${fmt((+it.unit_price||0)*(it.quantity||1))}</span></div>`).join('');
+
+  const legend=[['#1faa5a','Paid'],['#e0a010','Late — recovered'],['#dc2626','Missed'],['#475569','Upcoming']]
+    .map(([c,l])=>`<span class="inline-flex items-center gap-1.5 mr-4"><span class="sq" style="background:${c}"></span><span class="text-xs text-slate-400">${l}</span></span>`).join('');
+  const grid=a.cells.map(c=>`<span class="sq" title="Week ${c.w}: ${c.label}${c.due?' · '+c.due.toLocaleDateString('en-NZ'):''}" style="background:${c.cls}"></span>`).join('');
+
+  const banner=(()=>{
+    const map={green:['#0f3d2a','#1faa5a','#7ef0b5','✓'],amber:['#3d3110','#e0a010','#ffd97a','!'],
+               red:['#3d1414','#dc2626','#ffb0b0','✕'],blue:['#102a3d','#2a8fb5','#9fdcff','ℹ']};
+    const [bg,bd,fg,ic]=map[rec.level];
+    const reasons=rec.reasons.map(([ok,t])=>`<div class="flex items-start gap-2 text-sm py-0.5">
+        <span style="color:${ok?'#7ef0b5':'#ffb0b0'};font-weight:700">${ok?'✓':'✕'}</span>
+        <span class="text-slate-100">${t}</span></div>`).join('');
+    return `<div class="rounded-xl p-5 mt-5" style="background:${bg};border:2px solid ${bd}">
+      <div class="flex items-center gap-3 mb-2">
+        <span style="color:${fg};font-size:1.6rem;font-weight:800">${ic}</span>
+        <span style="color:${fg};font-size:1.4rem;font-weight:800;letter-spacing:.02em">${rec.title}</span>
+      </div>
+      <div class="text-xs uppercase tracking-wide mb-2" style="color:${fg}">System recommendation — delivery checks</div>
+      ${reasons}
+    </div>`;
+  })();
+
+  const multi=(orders&&orders.length>1)?`<div class="text-xs text-amber-400 mt-1">This customer has ${orders.length} orders — showing the most recent (${esc(order.order_no)}).</div>`:'';
+
+  $('client').innerHTML=`
+    <div class="flex items-end justify-between flex-wrap gap-2 mb-4">
+      <div>
+        <div class="flex items-center gap-3">
+          <h1 class="text-2xl font-bold">${name}</h1>
+          <span class="px-2.5 py-0.5 rounded-full text-xs font-bold ${order.order_status==='active'?'bg-green-900 text-green-300':'bg-slate-700 text-slate-300'}">${(order.order_status||'').toUpperCase()} CUSTOMER</span>
+        </div>${multi}
+      </div>
+      <div class="text-right">
+        <div class="text-slate-400 text-sm font-semibold">Order ${esc(order.order_no||'')}</div>
+        <button onclick="window.print()" class="noprint text-xs mt-1 px-3 py-1 rounded bg-slate-800 border border-slate-700 text-slate-300 hover:text-white">Print</button>
+      </div>
+    </div>
+
+    <div class="grid md:grid-cols-2 gap-4">
+      <div class="card">
+        <div class="lbl mb-2">Customer</div>
+        ${row('Mobile',esc(cust.mobile))}${row('Email',esc(cust.email))}${row('Address',esc(cust.address))}
+        ${row('Consultant',esc(order.consultant_name))}${row('Sale type',titleCase(order.sale_type))}${row('Order date',fmtD(order.order_date))}
+      </div>
+      <div class="card">
+        <div class="lbl mb-2">Order</div>
+        ${itemRows}
+        <div class="flex justify-between border-t border-slate-700 mt-2 pt-2 text-sm font-bold"><span>Total</span><span>${fmt(order.contract_value)}</span></div>
+        ${row('Payment',`${titleCase(order.payment_method)} · ${fmt(order.instalment_amount)}/wk × ${order.instalment_count}`)}
+        ${row('Ezidebit',esc(order.ezidebit_payer_ref))}
+        ${order.delivery_status?row('Delivery',titleCase(order.delivery_status)+(order.delivery_date?' · '+fmtD(order.delivery_date):'')):''}
+      </div>
+    </div>
+
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4">
+      ${stat('Paid to date',fmt(a.paid))}
+      ${stat('Balance owing',fmt(a.balance))}
+      ${stat('% paid',a.pct.toFixed(1)+'%')}
+      ${stat('10% threshold',a.reached?'✓ Reached':'Not yet',a.reached?'#1faa5a':'#e0a010')}
+    </div>
+
+    <div class="card mt-4">
+      <div class="flex items-center justify-between mb-3">
+        <div class="lbl">Repayment history</div>
+        <div class="text-xs text-slate-500">Week ${Math.min(a.cells.filter(c=>c.cls!=='#475569').length,a.total)} of ${a.total}</div>
+      </div>
+      <div class="mb-3">${legend}</div>
+      <div style="display:flex;flex-wrap:wrap;gap:3px;max-width:${26*14}px">${grid}</div>
+      ${a.redCount?`<div class="text-xs text-red-400 mt-3">⚠ ${a.redCount} payment(s) currently overdue.</div>`:
+        a.amberCount?`<div class="text-xs text-slate-400 mt-3">${a.amberCount} missed payment(s), since recovered — no payments currently outstanding.</div>`:
+        `<div class="text-xs text-slate-400 mt-3">All payments on time.</div>`}
+    </div>
+
+    ${banner}
+  `;
+}
+function row(k,v){return `<div class="flex justify-between py-1"><span class="k">${k}</span><span class="v text-right ml-3">${v||'—'}</span></div>`;}
+function stat(k,v,col){return `<div class="card text-center"><div class="lbl mb-1">${k}</div><div class="text-xl font-bold" style="${col?`color:${col}`:''}">${v}</div></div>`;}
+</script>
+</body>
+</html>
