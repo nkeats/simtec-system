@@ -926,8 +926,10 @@ async function showCustomers(){
               <td class="py-2 pr-3 font-medium">${s.customer_name}</td>
               <td class="py-2 pr-3 text-slate-400 text-xs">${prodStr(s)}</td>
               <td class="py-2 text-right ${s.paid_date?'text-yellow-400':'text-slate-500'}">${s.paid_date?fmt(s.commission_paid):'Not yet paid'}</td>
-              <td class="py-2 pl-2"><button onclick="showCancelModal('${s.id}','${s.customer_name.replace(/'/g,"\'")}',${s.commission_paid||0},'${consId}',${s.paid_date?'true':'false'})"
-                class="text-xs px-2 py-1 rounded bg-red-900/40 text-red-400 hover:bg-red-900 whitespace-nowrap">Mark Cancelled</button></td>
+              <td class="py-2 pl-2 whitespace-nowrap text-right">
+                <button onclick="showEditModal('${s.id}','${consId}')" class="text-xs px-2 py-1 rounded bg-slate-700 text-slate-200 hover:bg-slate-600 mr-1">Edit</button>
+                <button onclick="showCancelModal('${s.id}','${s.customer_name.replace(/'/g,"\'")}',${s.commission_paid||0},'${consId}',${s.paid_date?'true':'false'})"
+                class="text-xs px-2 py-1 rounded bg-red-900/40 text-red-400 hover:bg-red-900">Cancel</button></td>
             </tr>`).join('')}
           </tbody>
         </table></div>`}
@@ -1018,6 +1020,120 @@ window.confirmCancel=async(saleId,commissionPaid,consId,isPaid)=>{
   toast(`Cancellation recorded. Retention reduced by ${fmt(commissionPaid)}.`);
   // Refresh customer list
   if(window._custConsId) window.renderCustList(window._custConsId);
+};
+
+// ── Edit / alter a sale (change products & quantities) ─────────────────────
+window.showEditModal=async(saleId,consId)=>{
+  const {data:sale,error}=await sb.from('commission_sales')
+    .select('*,commission_sale_items(id,quantity,product_id,commission_products(name,commission_type,fixed_amount))')
+    .eq('id',saleId).single();
+  if(error){err(error);return;}
+  // other sales in the same pay run (week) — for the weekly tier count
+  const {data:week}=await sb.from('commission_sales')
+    .select('id,status,commission_sale_items(quantity,commission_products(commission_type))')
+    .eq('pay_run_id',sale.pay_run_id).eq('consultant_id',consId);
+  let otherUnits=0;
+  (week||[]).forEach(ws=>{ if(ws.id===saleId||ws.status==='cancelled')return;
+    (ws.commission_sale_items||[]).forEach(it=>{ if(it.commission_products?.commission_type!=='zero')otherUnits+=(+it.quantity||0); }); });
+  const prods=products||[];
+  const rows=(sale.commission_sale_items||[]).map(it=>({product_id:it.product_id,quantity:it.quantity||1}));
+  if(!rows.length)rows.push({product_id:prods[0]&&prods[0].id,quantity:1});
+  // Derive the ACTUAL per-mattress tier rate this sale was paid at, so an edit
+  // subtracts the real amount paid for a mattress (no weekly-volume ripple).
+  const st=S();let origFixed=0,origTier=0,origElig=false;
+  (sale.commission_sale_items||[]).forEach(it=>{const p=it.commission_products;if(!p)return;
+    if(p.commission_type==='fixed'){origFixed+=(+p.fixed_amount||0)*(it.quantity||0);origElig=true;}
+    if(p.commission_type==='tier'){origTier+=(it.quantity||0);origElig=true;}});
+  const origBonus=(sale.paid_in_full&&origElig)?st.cash_bonus:0;
+  let lockedRate=null;
+  if(sale.paid_date&&origTier>0)lockedRate=((+sale.commission_paid||0)-origFixed-origBonus)/origTier;
+  window._edit={saleId,consId,otherUnits,prods,rows,paidInFull:!!sale.paid_in_full,wasPaid:!!sale.paid_date,oldCommission:+sale.commission_paid||0,lockedRate,
+                consName:(consultants.find(c=>c.id===consId)||{}).name||'the consultant',customer:sale.customer_name};
+  renderEditModal();
+};
+function editCalc(){
+  const s=S(),e=window._edit;
+  let rate;
+  if(e.lockedRate!=null)rate=e.lockedRate;            // already paid: use the rate it was actually paid at
+  else{                                                // not yet paid: estimate at current weekly tier (recomputed at finalise)
+    let units=e.otherUnits;
+    for(const r of e.rows){const p=e.prods.find(x=>x.id===r.product_id);if(p&&p.commission_type!=='zero')units+=(+r.quantity||0);}
+    rate=units<=s.tier1_max?s.tier1_amount:units<=s.tier2_max?s.tier2_amount:s.tier3_amount;
+  }
+  let base=0,elig=false;
+  for(const r of e.rows){const p=e.prods.find(x=>x.id===r.product_id);if(!p)continue;const q=+r.quantity||0;
+    if(p.commission_type==='fixed'){base+=(+p.fixed_amount||0)*q;elig=true;}
+    if(p.commission_type==='tier'){base+=rate*q;elig=true;}}
+  const commission=base+((elig&&e.paidInFull)?s.cash_bonus:0);
+  return {commission,rate,diff:commission-e.oldCommission};
+}
+function editReadRows(){
+  const e=window._edit;
+  const sels=document.querySelectorAll('#editRows select');
+  const qts=document.querySelectorAll('#editRows input[type=number]');
+  const rows=[];sels.forEach((s,i)=>rows.push({product_id:s.value,quantity:+qts[i].value||0}));
+  e.rows=rows.length?rows:e.rows;
+  const pf=document.getElementById('editPaidFull');if(pf)e.paidInFull=pf.checked;
+}
+window.editChanged=()=>{editReadRows();editPreview();};
+window.editRow=(i,act)=>{editReadRows();const e=window._edit;
+  if(act==='del'){e.rows.splice(i,1);if(!e.rows.length)e.rows.push({product_id:e.prods[0]&&e.prods[0].id,quantity:1});}
+  renderEditModal();};
+window.editAddRow=()=>{editReadRows();const e=window._edit;e.rows.push({product_id:e.prods[0]&&e.prods[0].id,quantity:1});renderEditModal();};
+function editPreview(){
+  const e=window._edit,c=editCalc(),box=document.getElementById('editPreview');if(!box)return;
+  let note;
+  if(!e.wasPaid)note='<span class="text-slate-400">This sale is not yet paid — its commission will simply update.</span>';
+  else if(Math.abs(c.diff)<0.005)note='<span class="text-slate-400">No change to the commission.</span>';
+  else if(c.diff<0)note=`<span class="text-amber-400">Already paid — saving will claw back ${fmt(-c.diff)} from ${e.consName}'s retention.</span>`;
+  else note=`<span class="text-amber-400">Already paid — saving will add ${fmt(c.diff)} to ${e.consName}'s retention.</span>`;
+  box.innerHTML=`<div class="flex justify-between"><span class="text-slate-400">New commission</span><span class="font-semibold text-yellow-400">${fmt(c.commission)}</span></div>
+    <div class="flex justify-between"><span class="text-slate-400">Was</span><span class="text-slate-300">${fmt(e.oldCommission)}</span></div>
+    <div class="flex justify-between"><span class="text-slate-400">Rate per mattress</span><span class="text-slate-300">${fmt(c.rate)}</span></div>
+    <div class="mt-2 text-xs">${note}</div>`;
+}
+function renderEditModal(){
+  const e=window._edit;
+  const opt=pid=>e.prods.map(p=>`<option value="${p.id}" ${p.id===pid?'selected':''}>${p.name}${p.commission_type==='fixed'?' (fixed $'+p.fixed_amount+')':p.commission_type==='tier'?' (tier)':' (no commission)'}</option>`).join('');
+  const rowsHtml=e.rows.map((r,i)=>`<div class="flex gap-2 mb-2 items-center">
+      <select class="inp" style="flex:2" onchange="editChanged()">${opt(r.product_id)}</select>
+      <input type="number" min="0" class="inp" style="width:64px" value="${r.quantity}" onchange="editChanged()">
+      <button onclick="editRow(${i},'del')" class="text-red-400 px-2" title="Remove">\u2715</button>
+    </div>`).join('');
+  openMod(`<h3 class="font-semibold text-white mb-1">Edit sale</h3>
+    <p class="text-slate-500 text-xs mb-3">${e.customer}</p>
+    <div id="editRows">${rowsHtml}</div>
+    <button onclick="editAddRow()" class="text-xs text-yellow-400 mb-3">+ Add product</button>
+    <label class="flex items-center gap-2 text-sm text-slate-300 mb-3">
+      <input type="checkbox" id="editPaidFull" ${e.paidInFull?'checked':''} onchange="editChanged()"> Paid in full (cash bonus eligible)</label>
+    <div id="editPreview" class="bg-slate-900 rounded-lg p-3 mb-4 space-y-1 text-sm"></div>
+    <div class="flex gap-3">
+      <button class="btn gold flex-1" onclick="saveEditedSale()">Save changes</button>
+      <button class="btn dark flex-1" onclick="closeMod()">Cancel</button>
+    </div>`);
+  editPreview();
+}
+window.saveEditedSale=async()=>{
+  editReadRows();const e=window._edit;
+  const items=e.rows.filter(r=>r.product_id&&(+r.quantity||0)>0);
+  if(!items.length){toast('Add at least one product, or cancel the sale instead.',false);return;}
+  const c=editCalc();
+  try{
+    await sb.from('commission_sale_items').delete().eq('sale_id',e.saleId);
+    for(const r of items)await sb.from('commission_sale_items').insert({sale_id:e.saleId,product_id:r.product_id,quantity:r.quantity});
+    const upd={paid_in_full:e.paidInFull};
+    if(e.wasPaid)upd.commission_paid=c.commission;
+    await sb.from('commission_sales').update(upd).eq('id',e.saleId);
+    if(e.wasPaid&&Math.abs(c.diff)>=0.005){
+      const{data:ret}=await sb.from('commission_retention').select('*').eq('consultant_id',e.consId).maybeSingle();
+      const bal=+ret?.balance||0;
+      await sb.from('commission_retention').upsert({consultant_id:e.consId,balance:Math.max(0,bal+c.diff),updated_at:new Date().toISOString()},{onConflict:'consultant_id'});
+      await sb.from('commission_retention_adjustments').insert({consultant_id:e.consId,amount:c.diff,reason:'sale_adjustment',sale_id:e.saleId,notes:`Sale edited — commission ${c.diff<0?'reduced':'increased'} by ${fmt(Math.abs(c.diff))}`});
+    }
+    closeMod();
+    toast(e.wasPaid&&Math.abs(c.diff)>=0.005?`Sale updated. Retention ${c.diff<0?'reduced':'increased'} by ${fmt(Math.abs(c.diff))}.`:'Sale updated.');
+    if(window.renderCustList)window.renderCustList(e.consId);
+  }catch(ex){err(ex);}
 };
 
 // ── Weekly Import from Spreadsheet ────────────────────────────────────────
