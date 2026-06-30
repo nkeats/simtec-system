@@ -266,14 +266,15 @@ async function showRun(){
               <div class="font-semibold text-white">${c.name}</div>
               <span class="text-slate-500 group-hover:text-yellow-400">→</span>
             </div>
-            ${s&&s.sc>0?`<div class="space-y-1 text-sm">
+            ${s&&(s.sc>0||s.ac>0||s.mb>0||s.td>0||s.net!==0)?`<div class="space-y-1 text-sm">
               <div class="flex justify-between"><span class="text-slate-400">Commission</span><span>${fmt(s.sc)}</span></div>
               <div class="flex justify-between"><span class="text-slate-400">Bonuses</span><span>${fmt(s.ac+s.mb)}</span></div>
               <div class="flex justify-between"><span class="text-slate-400">Deductions</span><span>-${fmt(s.ret+s.td)}</span></div>
               <div class="border-t border-slate-600 pt-1.5 flex justify-between font-semibold">
                 <span class="text-slate-300">Net Pay</span><span class="text-yellow-400">${fmt(s.net)}</span>
               </div>
-            </div>`:'<p class="text-slate-500 text-sm">No sales entered</p>'}
+              <div class="flex justify-between text-xs pt-1"><span class="text-slate-500">Retention balance</span><span class="text-slate-400">${fmt(s.retAfter)}</span></div>
+            </div>`:'<p class="text-slate-500 text-sm">No sales or bonuses</p>'}
           </button>`;}).join('')}</div>`
       }
     </div>`;
