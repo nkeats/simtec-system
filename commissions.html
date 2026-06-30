@@ -51,6 +51,7 @@ const S=()=>({...DEF,...settings}); // safe settings with defaults
 const fmt=n=>'$'+(+n||0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,',');
 const fmtD=d=>d?new Date(d+'T12:00:00').toLocaleDateString('en-NZ',{day:'2-digit',month:'short',year:'numeric'}):'';
 const toMon=d=>{const dt=new Date(d+'T12:00:00');const dy=dt.getDay();dt.setDate(dt.getDate()+(dy===0?-6:1-dy));return dt.toISOString().split('T')[0]};
+const weekMS=d=>{const dt=new Date(d+'T12:00:00');const dy=dt.getDay();const mon=new Date(dt);mon.setDate(dt.getDate()+(dy===0?-6:1-dy));const sun=new Date(mon);sun.setDate(mon.getDate()+6);const iso=x=>x.toISOString().split('T')[0];return{start:iso(mon),ending:iso(sun)};};
 const $=id=>document.getElementById(id);
 const go=(p,r,c)=>{page=p;runId=r||runId;consId=c||consId;renderNav();renderApp()};
 const openMod=html=>{$('mbox').innerHTML=html;$('moverlay').classList.remove('hidden')};
@@ -153,20 +154,30 @@ async function showRuns(){
 }
 
 function newRun(){
-  const today=new Date().toISOString().split('T')[0];
+  const t=new Date(new Date().toISOString().split('T')[0]+'T12:00:00');
+  t.setDate(t.getDate()-t.getDay());           // most recent Sunday (today if Sunday)
+  const sun=t.toISOString().split('T')[0];
   openMod(`<h3 class="font-semibold text-white mb-4">New Pay Run</h3>
-    <label class="text-xs text-slate-400 block mb-1">Week Ending (Sunday)</label>
-    <input type="date" id="md" value="${today}" class="inp mb-4">
+    <label class="text-xs text-slate-400 block mb-1">Week ending — any day you pick snaps to Mon–Sun</label>
+    <input type="date" id="md" value="${sun}" class="inp mb-2" onchange="previewWeek()" oninput="previewWeek()">
+    <div id="weekPrev" class="text-xs text-slate-400 mb-4"></div>
     <div class="flex gap-3">
       <button class="btn gold flex-1" onclick="createRun()">Create</button>
       <button class="btn dark flex-1" onclick="closeMod()">Cancel</button>
     </div>`);
+  previewWeek();
 }
+window.previewWeek=()=>{
+  const el=$('md'),box=$('weekPrev');if(!box)return;
+  const v=el&&el.value;if(!v){box.textContent='';return;}
+  const w=weekMS(v);
+  box.innerHTML=`This run covers <span class="text-yellow-400">${fmtD(w.start)}</span> to <span class="text-yellow-400">${fmtD(w.ending)}</span> (Mon–Sun).`;
+};
 async function createRun(){
   const d=$('md')?.value;
   if(!d){toast('Please select a date',false);return;}
-  const mon=toMon(d);
-  const{error}=await sb.from('commission_pay_runs').insert({week_start:mon,week_ending:d,status:'draft'});
+  const w=weekMS(d);
+  const{error}=await sb.from('commission_pay_runs').insert({week_start:w.start,week_ending:w.ending,status:'draft'});
   if(error){err(error);return;}
   closeMod();settings=null;toast('Pay run created');go('runs');
 }
