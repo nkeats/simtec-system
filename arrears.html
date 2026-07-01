@@ -123,6 +123,7 @@ async function load(){
       custId:cust.id||o.customer_id,
       name:`${cust.first_name||''} ${cust.last_name||''}`.trim()||'(no name)',
       mobile:cust.mobile||'', product,
+      consultant:o.consultant_name||'',
       weeks:a.redCount, arrears:a.redCount*inst, amber:a.amberCount,
       paid:a.paid, contract:a.contract, balance:a.balance, pct:a.pct,
       lastPaid, delivered:o.delivery_status==='delivered', deliveryStatus:o.delivery_status||'pending',
@@ -169,6 +170,7 @@ function render(){
           </div>
           <div class="text-xs text-slate-500 mt-0.5">${esc(r.mobile)}</div>
           <div class="text-xs text-slate-400 mt-1">${esc(r.product)}</div>
+          ${r.consultant?`<div class="text-xs text-slate-500 mt-1">Consultant: <span class="text-slate-300">${esc(r.consultant)}</span></div>`:''}
         </div>
         <div class="text-center px-2">
           <div class="k">Weeks behind</div>
