@@ -546,16 +546,20 @@ async function showCon(){
 async function showInv(){
   const con=consultants.find(c=>c.id===consId);
   const s=S();
-  const[{data:run},{data:rawSales},{data:bons},{data:deds},{data:ret}]=await Promise.all([
+  const[{data:run},{data:rawSales},{data:bons},{data:deds},{data:ret},{data:gstRow}]=await Promise.all([
     sb.from('commission_pay_runs').select('*').eq('id',runId).single(),
     sb.from('commission_sales').select('*,commission_sale_items(id,quantity,product_id,commission_products(*))').eq('pay_run_id',runId).eq('consultant_id',consId).order('sale_date'),
     sb.from('commission_bonuses').select('*').eq('pay_run_id',runId).eq('consultant_id',consId),
     sb.from('commission_deductions').select('*').eq('pay_run_id',runId).eq('consultant_id',consId),
     sb.from('commission_retention').select('*').eq('consultant_id',consId).maybeSingle(),
+    sb.from('commission_consultants').select('gst_registered,gst_rate').eq('id',consId).maybeSingle(),
   ]);
   const sales=(rawSales||[]).map(s=>({...s,items:(s.commission_sale_items||[]).map(i=>({...i,product:i.commission_products}))}));
   const retBal=+ret?.balance||0;
   const cv=calc(sales,bons||[],deds||[],retBal);
+  const gstReg=!!gstRow?.gst_registered;
+  const gstRate=+gstRow?.gst_rate||15;
+  const gstAmt=gstReg?cv.net*gstRate/100:0;
   const saleC=sale=>{let c=0,el=false;for(const it of sale.items){const p=it.product;if(!p)continue;if(p.commission_type==='fixed'){c+=p.fixed_amount*it.quantity;el=true;}if(p.commission_type==='tier'){c+=cv.rate*it.quantity;el=true;}}if(el&&sale.paid_in_full)c+=s.cash_bonus;return c;};
 
   $('app').innerHTML=`
@@ -639,13 +643,25 @@ async function showInv(){
         </tbody></table>`:''}
 
         <!-- Net payable -->
-        <div style="border:2pt solid #0f1e3c;border-radius:3mm;padding:4mm 5mm;margin-bottom:5mm;background:#f8f9ff;display:flex;justify-content:space-between;align-items:center">
+        <div style="border:2pt solid #0f1e3c;border-radius:3mm;padding:4mm 5mm;margin-bottom:${gstReg?'2mm':'5mm'};background:#f8f9ff;display:flex;justify-content:space-between;align-items:center">
           <div>
-            <div style="font-weight:bold;font-size:12pt;color:#0f1e3c">NET AMOUNT PAYABLE</div>
+            <div style="font-weight:bold;font-size:12pt;color:#0f1e3c">${gstReg?'NET (EXCL GST)':'NET AMOUNT PAYABLE'}</div>
             <div style="font-size:7.5pt;color:#666;margin-top:.5mm">Week ending ${fmtD(run?.week_ending)}</div>
           </div>
-          <div style="font-size:20pt;font-weight:bold;color:#1a3a6b">${fmt(cv.net)}</div>
+          <div style="font-size:${gstReg?'15pt':'20pt'};font-weight:bold;color:#1a3a6b">${fmt(cv.net)}</div>
         </div>
+        ${gstReg?`
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:0 5mm 3mm 5mm;font-size:9pt">
+          <div style="color:#555">GST (${gstRate}%)</div>
+          <div style="font-weight:600;color:#1a3a6b">${fmt(gstAmt)}</div>
+        </div>
+        <div style="border:2pt solid #0f1e3c;border-radius:3mm;padding:4mm 5mm;margin-bottom:5mm;background:#eef3ff;display:flex;justify-content:space-between;align-items:center">
+          <div>
+            <div style="font-weight:bold;font-size:12pt;color:#0f1e3c">TOTAL PAYABLE (incl GST)</div>
+            <div style="font-size:7.5pt;color:#666;margin-top:.5mm">GST-registered — ${gstRate}%</div>
+          </div>
+          <div style="font-size:20pt;font-weight:bold;color:#1a3a6b">${fmt(cv.net+gstAmt)}</div>
+        </div>`:''}
 
         <!-- Retention -->
         <div style="background:#f5f5f5;border:1pt solid #ddd;border-radius:2mm;padding:3mm 4mm;font-size:8pt">
@@ -770,6 +786,14 @@ async function showSetup(){
                 <button onclick="saveRetBal('${c.id}')" class="btn dark text-xs py-1 px-3">Update</button>
                 <span id="retmsg_${c.id}" class="text-xs text-green-400 hidden">Saved</span>
               </div>
+              <div class="flex items-center gap-3 mt-2">
+                <label class="flex items-center gap-1.5 text-xs text-slate-400"><input type="checkbox" id="gstreg_${c.id}" ${c.gst_registered?'checked':''} onchange="saveGst('${c.id}')"> GST registered</label>
+                <select id="gstrate_${c.id}" onchange="saveGst('${c.id}')" class="inp text-sm py-1 w-32" ${c.gst_registered?'':'disabled'}>
+                  <option value="15" ${(+c.gst_rate||15)===15?'selected':''}>15% (NZ)</option>
+                  <option value="10" ${(+c.gst_rate)===10?'selected':''}>10% (AU)</option>
+                </select>
+                <span id="gstmsg_${c.id}" class="text-xs text-green-400 hidden">Saved</span>
+              </div>
             </div>`).join('')}
         </div>`;
 
@@ -792,6 +816,15 @@ async function showSetup(){
         const{error}=await sb.from('commission_retention').upsert({consultant_id:id,balance:val,updated_at:new Date().toISOString()},{onConflict:'consultant_id'});
         if(error){err(error);return;}
         const msg=$('retmsg_'+id);if(msg){msg.classList.remove('hidden');setTimeout(()=>msg.classList.add('hidden'),2000);}
+      };
+      window.saveGst=async(id)=>{
+        const reg=$('gstreg_'+id)?.checked||false;
+        const rate=+($('gstrate_'+id)?.value||15);
+        const sel=$('gstrate_'+id);if(sel)sel.disabled=!reg;
+        const{error}=await sb.from('commission_consultants').update({gst_registered:reg,gst_rate:rate}).eq('id',id);
+        if(error){err(error);return;}
+        const c=consultants.find(x=>x.id===id);if(c){c.gst_registered=reg;c.gst_rate=rate;}
+        const msg=$('gstmsg_'+id);if(msg){msg.classList.remove('hidden');setTimeout(()=>msg.classList.add('hidden'),2000);}
       };
     }else{
       $('tabc').innerHTML=`
