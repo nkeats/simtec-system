@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Simtec — Arrears Texts</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/@supabase/supabase-js@2.38.4/dist/umd/supabase.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<style>
+body{font-family:system-ui,sans-serif}
+.card{background:#1e293b;border:1px solid #334155;border-radius:.75rem;padding:1.1rem 1.25rem}
+.lbl{font-size:.7rem;letter-spacing:.06em;text-transform:uppercase;color:#c9a84c;font-weight:700}
+.k{color:#7c8aa0;font-size:.78rem}
+.btn{padding:.6rem 1.1rem;border-radius:.6rem;font-size:.9rem;font-weight:700;cursor:pointer;border:1px solid #334155;background:#1e293b;color:#cbd5e1}
+.gold{background:#c9a84c;color:#1a2438;border:none}
+.inp{display:block;width:100%;padding:.6rem .8rem;background:#0f172a;border:1px solid #334155;border-radius:.6rem;color:#fff;box-sizing:border-box}
+.drop{border:2px dashed #334155;border-radius:.9rem;padding:2rem;text-align:center;color:#7c8aa0;cursor:pointer}
+.drop:hover{border-color:#c9a84c;color:#cbd5e1}
+</style>
+</head>
+<body class="bg-slate-950 text-white min-h-screen">
+
+<nav class="bg-slate-900 border-b border-slate-800 px-6 py-3 flex items-center gap-3">
+  <span class="font-bold tracking-wide text-lg">SIMTEC</span>
+  <span class="text-slate-400 text-sm">Arrears texts</span>
+</nav>
+
+<div class="max-w-4xl mx-auto p-6">
+
+  <div id="cfgwarn"></div>
+
+  <div class="card mb-4">
+    <div class="lbl mb-2">The message every defaulter receives</div>
+    <div class="text-slate-200 text-sm bg-slate-900 rounded-lg p-3" id="msgpreview"></div>
+    <div class="k mt-2">The customer's first name fills in automatically. This wording is locked.</div>
+  </div>
+
+  <div class="card mb-4">
+    <div class="lbl mb-3">Step 1 — Upload today's Ezidebit report</div>
+    <label class="drop block" for="pdf">📄 Drop the Ezidebit PDF here, or click to choose<input id="pdf" type="file" accept="application/pdf" class="hidden"></label>
+    <div id="parsestate" class="k mt-3"></div>
+    <button class="btn mt-3" onclick="loadSample()" style="font-size:.8rem">Try with sample data (no PDF)</button>
+  </div>
+
+  <div id="review"></div>
+
+  <div class="card mt-6">
+    <div class="lbl mb-2">Send a test to yourself first</div>
+    <div class="flex gap-2">
+      <input id="testmob" class="inp" placeholder="Your mobile, e.g. 021 555 0192" style="flex:1">
+      <button class="btn gold" onclick="sendTest()">Send test</button>
+    </div>
+    <div id="teststate" class="k mt-2"></div>
+  </div>
+
+</div>
+
+<script>
+// ===== CONFIG =================================================================
+// Paste your Make.com webhook URL here (the scenario that sends one SMS via
+// Twilio per request). Until this is set, sending is disabled.
+const SEND_WEBHOOK = '';
+// Locked message. First name fills in as ${name}. Straight apostrophes on purpose.
+const MESSAGE = name => `Hi ${name}, this is Simtec Therapeutic. You've missed a payment - it's important, so reach out to us right now. We're here to listen and support you, and will work with you to get things back on track. Don't delay - call us on 09 886 9897 and we'll help.`;
+// =============================================================================
+
+const SUPABASE_URL='https://jvqjoenaungubpoegyvf.supabase.co';
+const SUPABASE_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imp2cWpvZW5hdW5ndWJwb2VneXZmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA1MzQyMjYsImV4cCI6MjA5NjExMDIyNn0.ypVt8578XTdNwBH6TRDn30s1cF_rHTu67qCWYv5XHcQ';
+const sb=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
+const $=id=>document.getElementById(id);
+const esc=s=>(s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const norm=s=>(s||'').replace(/[^a-z0-9]/gi,'').toLowerCase();
+const firstName=n=>((n||'').trim().split(/\s+/)[0])||'there';
+if(window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+$('msgpreview').textContent=MESSAGE('[first name]');
+if(!SEND_WEBHOOK) $('cfgwarn').innerHTML=`<div class="card mb-4" style="border-color:#b45309;background:#3a2e0c">
+  <div class="font-semibold text-amber-300">Sending is switched off until set up</div>
+  <div class="text-amber-100/80 text-sm mt-1">Paste your Make.com webhook URL into the CONFIG block at the top of this file, then re-deploy. Everything else (upload, matching, review, the test) works now.</div></div>`;
+
+// Build a lookup of Ezidebit payer ref -> customer mobile, from orders.
+let custMap={};
+async function loadCustomers(){
+  const {data,error}=await sb.from('sim_orders')
+    .select('id,ezidebit_payer_ref,sim_customers(first_name,last_name,mobile)')
+    .not('ezidebit_payer_ref','is',null);
+  if(error){console.error(error);return;}
+  custMap={};
+  (data||[]).forEach(o=>{const k=norm(o.ezidebit_payer_ref);const c=o.sim_customers||{};
+    custMap[k]={name:`${c.first_name||''} ${c.last_name||''}`.trim(),mobile:c.mobile||'',order_id:o.id};});
+}
+loadCustomers();
+
+// ---- PDF upload -> text -----------------------------------------------------
+$('pdf').addEventListener('change',async e=>{
+  const f=e.target.files[0];if(!f)return;
+  $('parsestate').textContent='Reading PDF…';
+  try{
+    const buf=await f.arrayBuffer();
+    const pdf=await pdfjsLib.getDocument({data:buf}).promise;
+    let text='';
+    for(let p=1;p<=pdf.numPages;p++){const pg=await pdf.getPage(p);const c=await pg.getTextContent();text+=c.items.map(i=>i.str).join(' ')+'\n';}
+    const rows=detectFailedRows(text);
+    if(!rows.length){
+      $('parsestate').innerHTML=`Read ${pdf.numPages} page(s), ${text.length} characters. <span style="color:#fbbf24">No failed rows detected yet — the parser rule is completed once we've seen a real dishonour on the report.</span>`;
+      return;
+    }
+    $('parsestate').textContent=`Found ${rows.length} dishonoured payment(s).`;
+    review(matchRows(rows));
+  }catch(err){$('parsestate').innerHTML=`<span style="color:#f87171">${esc(err.message)}</span>`;}
+});
+
+// ---- Detect failed rows -----------------------------------------------------
+// TODO (tomorrow): fill this in once we've seen how a dishonour is written on a
+// real report. It should return an array of {payer_ref, name, amount, reason}.
+// Everything downstream (matching, review, send, log) is already built.
+function detectFailedRows(text){
+  return []; // parser rule pending a real failed-payment sample
+}
+
+// ---- Matching ---------------------------------------------------------------
+function matchRows(rows){
+  return rows.map(r=>{const c=custMap[norm(r.payer_ref)];
+    return {payer_ref:r.payer_ref, reason:r.reason||'', amount:r.amount||'',
+            name:(c&&c.name)||r.name||'', mobile:(c&&c.mobile)||'', order_id:(c&&c.order_id)||null,
+            matched:!!(c&&c.mobile)};});
+}
+
+// ---- Review + send ----------------------------------------------------------
+let current=[];
+function review(list){
+  current=list;
+  const ok=list.filter(r=>r.matched), no=list.filter(r=>!r.matched);
+  let html=`<div class="card"><div class="lbl mb-3">Step 2 — Review, then send (${ok.length} ready)</div>`;
+  if(ok.length){
+    html+=`<table class="w-full text-sm"><thead><tr class="text-left text-slate-500 border-b border-slate-700">
+      <th class="pb-2">Customer</th><th class="pb-2">Mobile</th><th class="pb-2">Message preview</th></tr></thead><tbody>`;
+    html+=ok.map(r=>`<tr class="border-b border-slate-800">
+      <td class="py-2 pr-3 font-medium">${esc(r.name)}</td>
+      <td class="py-2 pr-3 text-slate-300">${esc(r.mobile)}</td>
+      <td class="py-2 text-slate-400 text-xs">${esc(MESSAGE(firstName(r.name)))}</td></tr>`).join('');
+    html+=`</tbody></table>
+      <button class="btn gold mt-4" onclick="sendAll()">Send all ${ok.length} texts</button>`;
+  }else{
+    html+=`<div class="k">Nothing matched to a mobile yet.</div>`;
+  }
+  html+=`</div>`;
+  if(no.length){
+    html+=`<div class="card mt-4" style="border-color:#7f1d1d">
+      <div class="lbl mb-2" style="color:#f87171">Couldn't match to a customer (${no.length}) — follow up manually</div>
+      ${no.map(r=>`<div class="text-sm text-slate-300 py-1">${esc(r.name||'(no name)')} · payer ref ${esc(r.payer_ref)}</div>`).join('')}
+      <div class="k mt-2">These have no Ezidebit reference on a customer record, so no mobile could be found.</div></div>`;
+  }
+  $('review').innerHTML=html;
+}
+
+async function postOne(name,mobile,message){
+  if(!SEND_WEBHOOK) throw new Error('Webhook not set');
+  const res=await fetch(SEND_WEBHOOK,{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({name,mobile,message})});
+  if(!res.ok) throw new Error('Send failed ('+res.status+')');
+  return res;
+}
+
+async function sendAll(){
+  const ok=current.filter(r=>r.matched);
+  if(!ok.length) return;
+  if(!SEND_WEBHOOK){alert('Set the Make.com webhook URL at the top of the file first.');return;}
+  if(!confirm(`Send ${ok.length} arrears text(s) now?`)) return;
+  let sent=0,failed=0;
+  for(const r of ok){
+    const msg=MESSAGE(firstName(r.name));
+    let status='sent',resp='';
+    try{await postOne(r.name,r.mobile,msg);sent++;}
+    catch(e){status='failed';resp=e.message;failed++;}
+    await sb.from('sms_log').insert({customer_name:r.name,mobile:r.mobile,payer_ref:r.payer_ref,order_id:r.order_id,message:msg,status,provider_response:resp});
+  }
+  $('review').innerHTML=`<div class="card"><div class="font-semibold text-green-400">Done</div>
+    <div class="text-slate-200 mt-1">Sent ${sent}${failed?`, ${failed} failed`:''}. All logged.</div></div>`;
+}
+
+// ---- Test send + sample -----------------------------------------------------
+window.sendTest=async()=>{
+  const m=$('testmob').value.trim();if(!m){$('teststate').textContent='Enter a mobile first.';return;}
+  if(!SEND_WEBHOOK){$('teststate').innerHTML='<span style="color:#fbbf24">Set the webhook URL first (top of file).</span>';return;}
+  $('teststate').textContent='Sending test…';
+  try{await postOne('Test',m,MESSAGE('there'));$('teststate').innerHTML='<span style="color:#4ade80">Test sent — check your phone.</span>';}
+  catch(e){$('teststate').innerHTML=`<span style="color:#f87171">${esc(e.message)}</span>`;}
+};
+window.loadSample=()=>{
+  const first=Object.keys(custMap)[0];
+  const rows=[{payer_ref:first?custMap[first]&&Object.keys(custMap)[0]:'558-998-400',name:'',reason:'Insufficient funds',amount:'39.10'},
+              {payer_ref:'000-000-000',name:'Unmatched Example',reason:'Insufficient funds',amount:'39.10'}];
+  if(first){rows[0].payer_ref=first;}
+  $('parsestate').textContent='Sample data loaded (2 rows) — matching and review shown below.';
+  review(matchRows(rows));
+};
+</script>
+</body>
+</html>
