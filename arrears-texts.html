@@ -58,9 +58,9 @@ body{font-family:system-ui,sans-serif}
 
 <script>
 // ===== CONFIG =================================================================
-// Paste your Make.com webhook URL here (the scenario that sends one SMS via
-// Twilio per request). Until this is set, sending is disabled.
-const SEND_WEBHOOK = '';
+// Sending goes through the Supabase Edge Function "hyper-handler", which
+// holds the Twilio credentials securely (never in this page). Deploy that
+// function and set its secrets — see the setup notes.
 // Locked message. First name fills in as ${name}. Straight apostrophes on purpose.
 const MESSAGE = name => `Hi ${name}, this is Simtec Therapeutic. You've missed a payment - it's important, so reach out to us right now. We're here to listen and support you, and will work with you to get things back on track. Don't delay - call us on 09 886 9897 and we'll help.`;
 // =============================================================================
@@ -75,9 +75,8 @@ const firstName=n=>((n||'').trim().split(/\s+/)[0])||'there';
 if(window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 
 $('msgpreview').textContent=MESSAGE('[first name]');
-if(!SEND_WEBHOOK) $('cfgwarn').innerHTML=`<div class="card mb-4" style="border-color:#b45309;background:#3a2e0c">
-  <div class="font-semibold text-amber-300">Sending is switched off until set up</div>
-  <div class="text-amber-100/80 text-sm mt-1">Paste your Make.com webhook URL into the CONFIG block at the top of this file, then re-deploy. Everything else (upload, matching, review, the test) works now.</div></div>`;
+$('cfgwarn').innerHTML=`<div class="card mb-4" style="border-color:#334155">
+  <div class="k">Texts send via the Supabase function <b>hyper-handler</b>. If a send errors, that function isn't deployed yet or its Twilio secrets aren't set. Everything else (upload, matching, review) works regardless.</div></div>`;
 
 // Build a lookup of Ezidebit payer ref -> customer mobile, from orders.
 let custMap={};
@@ -156,17 +155,15 @@ function review(list){
 }
 
 async function postOne(name,mobile,message){
-  if(!SEND_WEBHOOK) throw new Error('Webhook not set');
-  const res=await fetch(SEND_WEBHOOK,{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({name,mobile,message})});
-  if(!res.ok) throw new Error('Send failed ('+res.status+')');
-  return res;
+  const {data,error}=await sb.functions.invoke('hyper-handler',{body:{mobile,message}});
+  if(error) throw new Error(error.message||'Send failed');
+  if(data&&data.error) throw new Error(data.error);
+  return data;
 }
 
 async function sendAll(){
   const ok=current.filter(r=>r.matched);
   if(!ok.length) return;
-  if(!SEND_WEBHOOK){alert('Set the Make.com webhook URL at the top of the file first.');return;}
   if(!confirm(`Send ${ok.length} arrears text(s) now?`)) return;
   let sent=0,failed=0;
   for(const r of ok){
@@ -183,7 +180,6 @@ async function sendAll(){
 // ---- Test send + sample -----------------------------------------------------
 window.sendTest=async()=>{
   const m=$('testmob').value.trim();if(!m){$('teststate').textContent='Enter a mobile first.';return;}
-  if(!SEND_WEBHOOK){$('teststate').innerHTML='<span style="color:#fbbf24">Set the webhook URL first (top of file).</span>';return;}
   $('teststate').textContent='Sending test…';
   try{await postOne('Test',m,MESSAGE('there'));$('teststate').innerHTML='<span style="color:#4ade80">Test sent — check your phone.</span>';}
   catch(e){$('teststate').innerHTML=`<span style="color:#f87171">${esc(e.message)}</span>`;}
