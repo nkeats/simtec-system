@@ -87,7 +87,7 @@ async function loadCustomers(){
   if(error){console.error(error);return;}
   custMap={};
   (data||[]).forEach(o=>{const k=norm(o.ezidebit_payer_ref);const c=o.sim_customers||{};
-    custMap[k]={name:`${c.first_name||''} ${c.last_name||''}`.trim(),mobile:c.mobile||'',order_id:o.id};});
+    custMap[k]={name:`${c.first_name||''} ${c.last_name||''}`.trim(),firstName:(c.first_name||'').trim(),mobile:c.mobile||'',order_id:o.id};});
 }
 loadCustomers();
 
@@ -111,18 +111,34 @@ $('pdf').addEventListener('change',async e=>{
 });
 
 // ---- Detect failed rows -----------------------------------------------------
-// TODO (tomorrow): fill this in once we've seen how a dishonour is written on a
-// real report. It should return an array of {payer_ref, name, amount, reason}.
-// Everything downstream (matching, review, send, log) is already built.
+// Reads an Ezidebit Payment Settlement Report. Each row starts with a payer ID
+// (e.g. 561-467-697); a dishonour has Result "Failed". Returns the failed rows.
 function detectFailedRows(text){
-  return []; // parser rule pending a real failed-payment sample
+  const rows=[];
+  const t=(text||'').replace(/\s+/g,' ');
+  const ids=[...t.matchAll(/\d{3}-\d{3}-\d{3}/g)];
+  for(let i=0;i<ids.length;i++){
+    const start=ids[i].index, end=(i+1<ids.length)?ids[i+1].index:t.length;
+    const chunk=t.slice(start,end);
+    const payer_ref=ids[i][0];
+    if(!/\bFailed\b/.test(chunk)) continue;            // dishonours only
+    const amtM=chunk.match(/\$\s?([\d,]+\.\d{2})/);
+    if(!amtM) continue;                                 // excludes the header Client ID line
+    const after=chunk.slice(payer_ref.length).trim();
+    const crM=after.match(/[A-Z][A-Z0-9\- ]*\d{4,}/);   // client contract ref marks the end of the name
+    let name=(crM?after.slice(0,crM.index):after.split(/\bFailed\b/)[0]).trim().replace(/[,;]\s*$/,'');
+    rows.push({payer_ref, name, amount:amtM[1], reason:'Dishonour'});
+  }
+  return rows;
 }
 
 // ---- Matching ---------------------------------------------------------------
 function matchRows(rows){
   return rows.map(r=>{const c=custMap[norm(r.payer_ref)];
+    const rptFirst=(r.name||'').includes(',')?(r.name.split(',')[1]||'').trim().split(/\s+/)[0]:(r.name||'').split(/\s+/)[0];
     return {payer_ref:r.payer_ref, reason:r.reason||'', amount:r.amount||'',
-            name:(c&&c.name)||r.name||'', mobile:(c&&c.mobile)||'', order_id:(c&&c.order_id)||null,
+            name:(c&&c.name)||r.name||'', firstName:(c&&c.firstName)||rptFirst||'there',
+            mobile:(c&&c.mobile)||'', order_id:(c&&c.order_id)||null,
             matched:!!(c&&c.mobile)};});
 }
 
@@ -138,7 +154,7 @@ function review(list){
     html+=ok.map(r=>`<tr class="border-b border-slate-800">
       <td class="py-2 pr-3 font-medium">${esc(r.name)}</td>
       <td class="py-2 pr-3 text-slate-300">${esc(r.mobile)}</td>
-      <td class="py-2 text-slate-400 text-xs">${esc(MESSAGE(firstName(r.name)))}</td></tr>`).join('');
+      <td class="py-2 text-slate-400 text-xs">${esc(MESSAGE(r.firstName))}</td></tr>`).join('');
     html+=`</tbody></table>
       <button class="btn gold mt-4" onclick="sendAll()">Send all ${ok.length} texts</button>`;
   }else{
@@ -167,7 +183,7 @@ async function sendAll(){
   if(!confirm(`Send ${ok.length} arrears text(s) now?`)) return;
   let sent=0,failed=0;
   for(const r of ok){
-    const msg=MESSAGE(firstName(r.name));
+    const msg=MESSAGE(r.firstName);
     let status='sent',resp='';
     try{await postOne(r.name,r.mobile,msg);sent++;}
     catch(e){status='failed';resp=e.message;failed++;}
