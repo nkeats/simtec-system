@@ -91,6 +91,8 @@ async function loadClient(custId){
   render(cust,order,items||[],pays||[],orders);
 }
 window.loadClient=loadClient;
+// Deep-link: client.html?c=<customerId> opens straight to that customer
+{const _c=new URLSearchParams(location.search).get('c');if(_c)loadClient(_c);}
 
 // ── Payment maths + timeline ───────────────────────────────────────────────
 function analyse(order,pays){
