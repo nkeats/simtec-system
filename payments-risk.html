@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Simtec — Payments &amp; Risk</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  :root{--navy:#122347;--navy2:#1c3363;--gold:#c6a15b;--ink:#1a2334;--line:#d9e0ea;--bg:#eef1f5;
+        --red:#c0332e;--redbg:#fdecec;--amber:#b8860b;--amberbg:#fff6da;--green:#1c6b34;--greenbg:#e7f6ec;--grey:#7a8798;--greybg:#eef1f4;}
+  *{box-sizing:border-box}
+  body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(--bg);color:var(--ink);margin:0}
+  header{background:var(--navy);color:#fff;padding:16px 22px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+  header h1{font-size:18px;margin:0;font-weight:600}
+  header .sub{font-size:12px;color:#b9c6de;margin-left:auto}
+  .wrap{max-width:1080px;margin:20px auto;padding:0 14px}
+  .tiles{display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap}
+  .tile{flex:1;min-width:140px;background:#fff;border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+  .tile .n{font-size:26px;font-weight:700}
+  .tile .l{font-size:12px;color:#6b7889;text-transform:uppercase;letter-spacing:.06em;margin-top:2px}
+  .tile.red .n{color:var(--red)} .tile.amber .n{color:var(--amber)} .tile.green .n{color:var(--green)}
+  .bar{display:flex;gap:10px;align-items:center;margin-bottom:12px;flex-wrap:wrap}
+  input[type=search]{flex:1;min-width:200px;padding:10px 12px;border:1px solid #cbd4df;border-radius:8px;font-size:15px}
+  .legend{font-size:12px;color:#6b7889}
+  .dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:5px;vertical-align:middle}
+  .dot.red{background:var(--red)} .dot.amber{background:var(--amber)} .dot.green{background:var(--green)} .dot.grey{background:var(--grey)}
+  .card{background:#fff;border:1px solid var(--line);border-radius:12px;overflow:hidden}
+  table{width:100%;border-collapse:collapse;font-size:14px}
+  th,td{padding:10px 12px;text-align:left;border-bottom:1px solid var(--line)}
+  th{background:#f3f6fa;color:var(--navy);font-size:12px;text-transform:uppercase;letter-spacing:.04em;cursor:default;white-space:nowrap}
+  td.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+  tr.row{cursor:pointer} tr.row:hover{background:#f7fafc}
+  .pill{display:inline-flex;align-items:center;gap:6px;font-weight:600;font-size:12.5px;padding:3px 9px;border-radius:20px;white-space:nowrap}
+  .pill.red{background:var(--redbg);color:var(--red)} .pill.amber{background:var(--amberbg);color:var(--amber)}
+  .pill.green{background:var(--greenbg);color:var(--green)} .pill.grey{background:var(--greybg);color:var(--grey)}
+  .deliv{font-weight:600} .deliv.yes{color:var(--green)} .deliv.no{color:#98a4b3}
+  .behind{color:var(--red);font-weight:600}
+  .hist{background:#fafbfc}
+  .hist td{padding:0}
+  .histinner{padding:12px 16px}
+  .histinner h4{margin:0 0 8px;font-size:12px;color:var(--navy);text-transform:uppercase;letter-spacing:.05em}
+  .pay{display:flex;justify-content:space-between;max-width:320px;padding:3px 0;font-size:13px;border-bottom:1px dotted #e3e8ef}
+  .muted{color:#8a97a6}
+  #status{padding:20px;color:#6b7889}
+  @media(max-width:760px){.hide{display:none}}
+</style>
+</head>
+<body>
+<header>
+  <h1>Simtec — Payments &amp; Risk</h1>
+  <span class="sub" id="asof"></span>
+</header>
+
+<div class="wrap">
+  <div class="tiles" id="tiles"></div>
+  <div class="bar">
+    <input type="search" id="search" placeholder="Search name or mobile…">
+    <span class="legend">
+      <span class="dot red"></span>Delivered &amp; behind &nbsp;
+      <span class="dot amber"></span>Behind, not delivered &nbsp;
+      <span class="dot green"></span>On track &nbsp;
+      <span class="dot grey"></span>No plan / unknown
+    </span>
+  </div>
+  <div class="card">
+    <div id="status">Loading customers…</div>
+    <table id="tbl" style="display:none">
+      <thead><tr>
+        <th>Status</th><th>Customer</th><th class="hide">Mobile</th><th>Delivered</th>
+        <th class="num">Contract</th><th class="num">Paid</th><th class="num hide">Expected</th><th class="num">Behind by</th>
+      </tr></thead>
+      <tbody id="body"></tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+const sb = supabase.createClient("https://jvqjoenaungubpoegyvf.supabase.co","sb_publishable_J4MYTdJJyEaWe-GadpwdYA_upPT2rKw");
+const $=id=>document.getElementById(id);
+const TERM_YEARS=3;
+const PERIODS={weekly:{per:7,total:156,word:"wk"},fortnightly:{per:14,total:78,word:"fn"},monthly:{per:30.44,total:36,word:"mo"}};
+const fmt=n=>n==null?"—":"$"+Math.round(n).toLocaleString();
+const today=new Date();
+
+let RECORDS=[];
+
+function computeStatus(o){
+  const contract=o.contract_value!=null?Number(o.contract_value):null;
+  const paid=o.amount_paid_to_date!=null?Number(o.amount_paid_to_date):0;
+  const delivered=(o.delivery_status||"")==="delivered";
+  const freq=PERIODS[o.payment_frequency]||PERIODS.weekly;
+  const startStr=o.first_payment_date||o.order_date;
+  let expected=null, behindBy=0, periodsBehind=0, cls="grey", label="No plan";
+
+  if(contract==null || contract<=0){ return {cls:"grey",label:"No contract value",contract,paid,expected:null,behindBy:0,delivered,periodsBehind:0,freq}; }
+  if(paid>=contract*0.999){ return {cls:"green",label:"Paid up",contract,paid,expected:contract,behindBy:0,delivered,periodsBehind:0,freq}; }
+
+  if(startStr){
+    const start=new Date(startStr);
+    const days=(today-start)/86400000;
+    const elapsed=Math.max(0, days/freq.per);
+    const perAmt=contract/freq.total;
+    expected=Math.min(contract, perAmt*elapsed);
+    behindBy=expected-paid;
+    periodsBehind=perAmt>0? behindBy/perAmt : 0;
+    const tol=perAmt*1.0; // one payment grace
+    if(behindBy<=tol){ cls="green"; label = paid>=expected? "On track" : "On track"; }
+    else if(!delivered){ cls="amber"; label="Behind"; }
+    else { cls="red"; label="Behind — delivered"; }
+  } else {
+    // no start date and not paid up
+    cls = delivered ? "amber" : "grey";
+    label = delivered ? "Delivered, no payments seen" : "No payment plan yet";
+  }
+  return {cls,label,contract,paid,expected,behindBy:Math.max(0,behindBy),delivered,periodsBehind:Math.max(0,periodsBehind),freq};
+}
+
+const ORDER={red:0,amber:1,green:2,grey:3};
+
+async function load(){
+  try{
+    const {data:orders,error}=await sb.from("sim_orders")
+      .select("id,customer_id,order_date,first_payment_date,payment_frequency,contract_value,amount_paid_to_date,delivery_status,ezidebit_payer_ref,order_status")
+      .eq("order_status","active");
+    if(error) throw error;
+    const ids=[...new Set((orders||[]).map(o=>o.customer_id).filter(Boolean))];
+    let cmap={};
+    for(let i=0;i<ids.length;i+=200){
+      const {data:cs}=await sb.from("sim_customers").select("id,first_name,last_name,mobile").in("id",ids.slice(i,i+200));
+      (cs||[]).forEach(c=>cmap[c.id]=c);
+    }
+    RECORDS=(orders||[]).map(o=>{
+      const c=cmap[o.customer_id]||{};
+      const s=computeStatus(o);
+      return {...o, name:[c.first_name,c.last_name].filter(Boolean).join(" ")||"(no name)", mobile:c.mobile||"", s};
+    });
+    RECORDS.sort((a,b)=> (ORDER[a.s.cls]-ORDER[b.s.cls]) || (b.s.behindBy-a.s.behindBy));
+    render();
+  }catch(e){
+    $("status").textContent="Couldn't load: "+(e.message||e);
+  }
+}
+
+function render(){
+  const q=$("search").value.trim().toLowerCase();
+  const rows=RECORDS.filter(r=>!q || r.name.toLowerCase().includes(q) || (r.mobile||"").includes(q));
+  const cnt={red:0,amber:0,green:0,grey:0};
+  RECORDS.forEach(r=>cnt[r.s.cls]++);
+  $("tiles").innerHTML=`
+    <div class="tile red"><div class="n">${cnt.red}</div><div class="l">Delivered &amp; behind</div></div>
+    <div class="tile amber"><div class="n">${cnt.amber}</div><div class="l">Behind (undelivered)</div></div>
+    <div class="tile green"><div class="n">${cnt.green}</div><div class="l">On track / paid up</div></div>
+    <div class="tile"><div class="n">${RECORDS.length}</div><div class="l">Active customers</div></div>`;
+  $("asof").textContent="As of "+today.toLocaleDateString();
+
+  if(!rows.length){ $("status").style.display="block"; $("status").textContent="No matches."; $("tbl").style.display="none"; return; }
+  $("status").style.display="none"; $("tbl").style.display="table";
+
+  $("body").innerHTML=rows.map(r=>{
+    const s=r.s;
+    const behind = s.behindBy>1 ? `<span class="behind">${fmt(s.behindBy)}</span> <span class="muted">(${s.periodsBehind.toFixed(0)} ${s.freq.word})</span>` : '<span class="muted">—</span>';
+    return `<tr class="row" data-id="${r.id}" data-ref="${r.ezidebit_payer_ref||''}">
+      <td><span class="pill ${s.cls}"><span class="dot ${s.cls}"></span>${s.label}</span></td>
+      <td>${r.name}</td>
+      <td class="hide">${r.mobile}</td>
+      <td><span class="deliv ${s.delivered?'yes':'no'}">${s.delivered?'✓ Yes':'– No'}</span></td>
+      <td class="num">${fmt(s.contract)}</td>
+      <td class="num">${fmt(s.paid)}</td>
+      <td class="num hide">${fmt(s.expected)}</td>
+      <td class="num">${behind}</td>
+    </tr>
+    <tr class="hist" id="h-${r.id}" style="display:none"><td colspan="8"><div class="histinner" id="hi-${r.id}">Loading payments…</div></td></tr>`;
+  }).join("");
+
+  document.querySelectorAll("tr.row").forEach(tr=>tr.addEventListener("click",()=>toggleHist(tr.dataset.id, tr.dataset.ref)));
+}
+
+async function toggleHist(id, ref){
+  const h=$("h-"+id); const inner=$("hi-"+id);
+  if(h.style.display!=="none"){ h.style.display="none"; return; }
+  document.querySelectorAll("tr.hist").forEach(x=>x.style.display="none");
+  h.style.display="table-row";
+  if(inner.dataset.loaded){ return; }
+  if(!ref){ inner.innerHTML='<span class="muted">No Ezidebit reference on this customer — no payment history to show.</span>'; inner.dataset.loaded="1"; return; }
+  try{
+    const {data}=await sb.from("sim_payments").select("payment_date,amount").eq("payer_ref",ref).order("payment_date",{ascending:false}).limit(15);
+    if(!data||!data.length){ inner.innerHTML='<span class="muted">No payments recorded for this customer yet.</span>'; }
+    else{
+      inner.innerHTML='<h4>Recent payments</h4>'+data.map(p=>`<div class="pay"><span>${p.payment_date}</span><span>${fmt(p.amount)}</span></div>`).join("");
+    }
+    inner.dataset.loaded="1";
+  }catch(e){ inner.innerHTML='<span class="muted">Couldn\'t load payments: '+(e.message||e)+'</span>'; }
+}
+
+$("search").addEventListener("input", render);
+load();
+</script>
+</body>
+</html>
