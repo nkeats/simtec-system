@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Simtec — Home</title>
+<style>
+  :root{--navy:#122347;--navy2:#1c3363;--gold:#c6a15b;--ink:#1a2334;--line:#dde3ec;--bg:#eef1f5;}
+  *{box-sizing:border-box}
+  body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;color:var(--ink);background:var(--bg);margin:0}
+  header{background:var(--navy);color:#fff;padding:26px 22px}
+  header .brand{font-weight:700;font-size:24px;letter-spacing:.5px}
+  header .brand small{color:var(--gold);font-size:12px;letter-spacing:.22em;display:block;font-weight:600;margin-top:2px}
+  header .tag{color:#b9c6de;font-size:13px;margin-top:8px}
+  .wrap{max-width:960px;margin:26px auto;padding:0 16px}
+  .group{margin-bottom:26px}
+  .group h2{font-size:12px;text-transform:uppercase;letter-spacing:.1em;color:var(--navy);margin:0 0 12px;padding-left:10px;border-left:3px solid var(--gold)}
+  .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:14px}
+  a.card{display:block;background:#fff;border:1px solid var(--line);border-radius:12px;padding:16px 18px;text-decoration:none;color:inherit;transition:transform .08s,box-shadow .08s,border-color .08s}
+  a.card:hover{transform:translateY(-2px);box-shadow:0 6px 18px rgba(18,35,71,.10);border-color:var(--gold)}
+  a.card .t{font-weight:700;font-size:15.5px;color:var(--navy)}
+  a.card .d{font-size:13px;color:#6b7889;margin-top:4px;line-height:1.4}
+  footer{max-width:960px;margin:0 auto 40px;padding:0 16px;color:#8a97a6;font-size:12px}
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">Simtec Operating System<small>THERAPEUTIC</small></div>
+  <div class="tag">Everything in one place. Choose a module to get started.</div>
+</header>
+
+<div class="wrap">
+
+  <div class="group">
+    <h2>Customers &amp; Sales</h2>
+    <div class="cards">
+      <a class="card" href="add-customer.html"><div class="t">Add customer / sale</div><div class="d">Enter a new customer, their sale and products.</div></a>
+      <a class="card" href="index.html"><div class="t">Sales order form</div><div class="d">Full point-of-sale contract with signatures.</div></a>
+      <a class="card" href="client.html"><div class="t">Customer lookup</div><div class="d">Search a customer and view their history.</div></a>
+    </div>
+  </div>
+
+  <div class="group">
+    <h2>Payments &amp; Risk</h2>
+    <div class="cards">
+      <a class="card" href="payments-risk.html"><div class="t">Payments &amp; risk</div><div class="d">Traffic-light board — who's behind, delivered first.</div></a>
+      <a class="card" href="arrears.html"><div class="t">Arrears overview</div><div class="d">Worst-first arrears list with click-through.</div></a>
+      <a class="card" href="arrears-texts.html"><div class="t">Arrears texts</div><div class="d">Upload the dishonour report and send reminders.</div></a>
+    </div>
+  </div>
+
+  <div class="group">
+    <h2>Delivery</h2>
+    <div class="cards">
+      <a class="card" href="delivery.html"><div class="t">Delivery (office)</div><div class="d">Book, plan and track deliveries.</div></a>
+      <a class="card" href="driver.html"><div class="t">Driver run sheet</div><div class="d">Today's route for the driver (tablet).</div></a>
+    </div>
+  </div>
+
+  <div class="group">
+    <h2>Commissions</h2>
+    <div class="cards">
+      <a class="card" href="commissions.html"><div class="t">Commissions</div><div class="d">Pay runs, invoices, retention and clawbacks.</div></a>
+    </div>
+  </div>
+
+</div>
+
+<footer>Simtec Therapeutic — internal system. Links open each module; not every module may be deployed yet.</footer>
+</body>
+</html>

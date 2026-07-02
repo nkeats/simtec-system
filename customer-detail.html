@@ -17,6 +17,9 @@
   .btns{margin-left:auto;display:flex;gap:8px}
   button{background:var(--navy);color:#fff;border:none;border-radius:8px;padding:9px 16px;font-size:14px;font-weight:600;cursor:pointer}
   button.ghost{background:#fff;color:var(--navy);border:1px solid #cbd4df}
+  button.danger{background:#c0332e}
+  button.danger:hover{background:#a82a26}
+  .cancelbanner{background:#fdecec;color:#a02020;border:1px solid #f2bdbd;border-radius:10px;padding:11px 15px;margin-top:12px;font-weight:600;font-size:14px}
   .head{background:var(--navy);color:#fff;border-radius:12px;padding:18px 20px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
   .head h1{margin:0;font-size:22px}
   .badge{margin-left:auto;font-weight:700;font-size:13px;padding:5px 12px;border-radius:20px;background:#fff}
@@ -50,6 +53,7 @@
     <div class="brand">SIMTEC<small>THERAPEUTIC</small></div>
     <div class="btns">
       <button class="ghost" onclick="history.length>1?history.back():window.close()">Back</button>
+      <span id="statusBtns"></span>
       <button onclick="window.print()">Print</button>
     </div>
   </div>
@@ -156,12 +160,46 @@ function render(o,c,items,pays){
   const history=`<div class="card full"><h2>Payment history${pays.length?` — ${pays.length} payments, ${fmt(totalPaidLedger)}`:""}</h2>
     <table><thead><tr><th>Date</th><th class="num">Amount</th></tr></thead><tbody>${payRows}</tbody></table></div>`;
 
+  const cancelled = (o.order_status||"")==="cancelled";
+  const badgeCls = cancelled ? "grey" : p.cls;
+  const badgeLabel = cancelled ? "Cancelled" : p.label;
+  const banner = cancelled
+    ? `<div class="cancelbanner">Cancelled${o.cancellation_date?" on "+auDate(o.cancellation_date):""}${o.cancellation_reason?" — "+o.cancellation_reason:""}</div>`
+    : "";
+
   document.getElementById("content").innerHTML=`
-    <div class="head"><h1>${name}</h1><span class="badge ${p.cls}">${p.label}</span></div>
+    <div class="head"><h1>${name}</h1><span class="badge ${badgeCls}">${badgeLabel}</span></div>
+    ${banner}
     <div class="cards">${contact}${sale}${money}${delivery}${products}${history}</div>`;
   document.title="Simtec — "+name;
+
+  document.getElementById("statusBtns").innerHTML = cancelled
+    ? `<button class="ghost" onclick="reactivate()">Reactivate</button>`
+    : `<button class="danger" onclick="cancelCust()">Cancel customer</button>`;
 }
 function kv(k,v){ return `<div class="kv"><span class="k">${k}</span><span class="v">${v}</span></div>`; }
+
+async function cancelCust(){
+  const reason = prompt("Reason for cancelling this customer? (optional)");
+  if(reason===null) return; // user backed out
+  if(!confirm("Cancel this customer? They'll be removed from the risk dashboard and other active views. You can reactivate later.")) return;
+  const {error} = await sb.from("sim_orders").update({
+    order_status:"cancelled",
+    cancellation_date:new Date().toISOString().slice(0,10),
+    cancellation_reason:(reason||"").trim()||null
+  }).eq("id",orderId);
+  if(error){ alert("Couldn't cancel: "+error.message); return; }
+  run();
+}
+
+async function reactivate(){
+  if(!confirm("Reactivate this customer? They'll show on active views again.")) return;
+  const {error} = await sb.from("sim_orders").update({
+    order_status:"active", cancellation_date:null, cancellation_reason:null
+  }).eq("id",orderId);
+  if(error){ alert("Couldn't reactivate: "+error.message); return; }
+  run();
+}
 
 run();
 </script>
