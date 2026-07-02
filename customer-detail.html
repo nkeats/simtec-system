@@ -36,6 +36,8 @@
   th{background:#f3f6fa;color:var(--navy);font-size:12px;text-transform:uppercase;letter-spacing:.04em}
   td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
   .muted{color:#8a97a6}
+  .missed{background:#fdecec;color:#a02020;border:1px solid #f2bdbd;border-radius:8px;padding:10px 13px;margin-bottom:11px;font-size:13.5px;line-height:1.5}
+  @media print{.missed{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
   .big{font-size:20px;font-weight:700}
   #err{padding:30px;text-align:center;color:#a02020}
   @media print{
@@ -155,10 +157,26 @@ function render(o,c,items,pays){
     <table><thead><tr><th>Range</th><th>Size</th><th class="num">Qty</th></tr></thead><tbody>${prodRows}</tbody></table></div>`;
 
   const payRows = pays.length
-    ? pays.slice(0,40).map(x=>`<tr><td>${auDate(x.payment_date)}</td><td class="num">${fmt(x.amount)}</td></tr>`).join("")
+    ? pays.slice(0,60).map(x=>`<tr><td>${auDate(x.payment_date)}</td><td class="num">${fmt(x.amount)}</td></tr>`).join("")
     : `<tr><td colspan="2" class="muted">No payments recorded yet.</td></tr>`;
   const totalPaidLedger = pays.reduce((s,x)=>s+Number(x.amount||0),0);
+
+  let missedBlock="";
+  if(p.cls==="red"||p.cls==="amber"){
+    const startStr=o.first_payment_date||o.order_date;
+    if(startStr){
+      const due=[]; let d=new Date(startStr); const now=new Date();
+      while(d<=now && due.length<500){ due.push(new Date(d)); d=new Date(d.getTime()+p.freq.per*86400000); }
+      const missedN=Math.min(due.length, Math.max(1, Math.round(p.periodsBehind)));
+      if(missedN>0){
+        const missedDates=due.slice(due.length-missedN).map(x=>auDate(x.toISOString().slice(0,10)));
+        missedBlock=`<div class="missed"><b>Behind by about ${missedN} payment${missedN>1?"s":""}</b> (based on the ${cap(o.payment_frequency||"weekly")} plan). Due dates not covered by payments to date: ${missedDates.join(", ")}.</div>`;
+      }
+    }
+  }
+
   const history=`<div class="card full"><h2>Payment history${pays.length?` — ${pays.length} payments, ${fmt(totalPaidLedger)}`:""}</h2>
+    ${missedBlock}
     <table><thead><tr><th>Date</th><th class="num">Amount</th></tr></thead><tbody>${payRows}</tbody></table></div>`;
 
   const cancelled = (o.order_status||"")==="cancelled";
