@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Simtec — Add Customer / Sale</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  :root{
+    --navy:#122347; --navy2:#1c3363; --gold:#c6a15b; --ink:#1a2334;
+    --line:#d9e0ea; --bg:#eef1f5; --ok:#1c6b34; --okbg:#e7f6ec; --err:#a02020; --errbg:#fdecec; --warn:#8a6d00; --warnbg:#fff6da;
+  }
+  *{box-sizing:border-box}
+  body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(--bg);color:var(--ink);margin:0}
+  header{background:var(--navy);color:#fff;padding:16px 22px;display:flex;align-items:center;gap:12px}
+  header h1{font-size:18px;margin:0;font-weight:600;letter-spacing:.3px}
+  header .tag{margin-left:auto;font-size:12px;color:#b9c6de}
+  .wrap{max-width:920px;margin:22px auto;padding:0 16px}
+  .card{background:#fff;border:1px solid var(--line);border-radius:12px;padding:20px 22px;margin-bottom:18px}
+  .card h2{font-size:13px;text-transform:uppercase;letter-spacing:.08em;color:var(--navy);margin:0 0 16px;padding-bottom:10px;border-bottom:2px solid var(--gold);display:inline-block}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:14px 18px}
+  .grid.three{grid-template-columns:1fr 1fr 1fr}
+  label{display:block;font-weight:600;font-size:12.5px;margin-bottom:5px;color:#3a4759}
+  .req label::after{content:" *";color:var(--gold)}
+  input,select{width:100%;padding:10px 11px;border:1px solid #cbd4df;border-radius:8px;font-size:15px;font-family:inherit;background:#fff}
+  input:focus,select:focus{outline:2px solid var(--navy2);border-color:var(--navy2)}
+  .hint{font-size:11.5px;color:#7a8798;margin-top:4px}
+  .full{grid-column:1/-1}
+  table.prod{width:100%;border-collapse:collapse;margin-top:4px}
+  table.prod th,table.prod td{border:1px solid var(--line);padding:7px;text-align:center}
+  table.prod th{background:#f3f6fa;font-size:12px;color:var(--navy)}
+  table.prod td.rl{text-align:left;font-weight:600;background:#f8fafc;white-space:nowrap}
+  table.prod input{width:60px;padding:7px 6px;text-align:center}
+  table.prod td.na{background:#f1f3f6}
+  .extras{display:flex;gap:22px;flex-wrap:wrap;margin-top:14px;align-items:end}
+  .extras .fld{width:120px}
+  .actions{display:flex;align-items:center;gap:16px;margin-top:4px}
+  button{background:var(--navy);color:#fff;border:none;border-radius:9px;padding:13px 26px;font-size:15px;font-weight:600;cursor:pointer}
+  button:hover{background:var(--navy2)}
+  button:disabled{opacity:.5;cursor:default}
+  button.ghost{background:#fff;color:var(--navy);border:1px solid #cbd4df}
+  #msg{display:none;padding:12px 14px;border-radius:8px;font-size:14px;margin-bottom:16px;white-space:pre-wrap}
+  .ok{background:var(--okbg);color:var(--ok);border:1px solid #b6e0c4}
+  .err{background:var(--errbg);color:var(--err);border:1px solid #f2bdbd}
+  .warn{background:var(--warnbg);color:var(--warn);border:1px solid #ecd98a}
+  .recent{font-size:14px}
+  .recent .row{display:flex;gap:12px;padding:10px 0;border-bottom:1px solid var(--line)}
+  .recent .row:last-child{border-bottom:none}
+  .recent .nm{font-weight:600;flex:1}
+  .recent .meta{color:#6b7889;font-size:13px}
+  .empty{color:#7a8798;font-size:13.5px;padding:6px 0}
+  @media(max-width:640px){.grid,.grid.three{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<header>
+  <h1>Simtec — Add Customer / Sale</h1>
+  <span class="tag" id="count"></span>
+</header>
+
+<div class="wrap">
+  <div id="msg"></div>
+
+  <div class="card">
+    <h2>Customer</h2>
+    <div class="grid">
+      <div class="req"><label for="first">First name</label><input id="first" autocomplete="off"></div>
+      <div class="req"><label for="last">Last name</label><input id="last" autocomplete="off"></div>
+      <div class="req"><label for="mobile">Mobile</label><input id="mobile" type="tel" placeholder="021 234 5678"><div class="hint" id="mobileHint"></div></div>
+      <div><label for="email">Email</label><input id="email" type="email" autocomplete="off"></div>
+      <div class="full"><label for="address">Street address</label><input id="address" autocomplete="off"></div>
+      <div><label for="city">Suburb / City</label><input id="city" autocomplete="off"></div>
+      <div><label for="postcode">Postcode</label><input id="postcode" autocomplete="off"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Sale</h2>
+    <div class="grid three">
+      <div class="req"><label for="orderDate">Sale date</label><input id="orderDate" type="date"></div>
+      <div class="req"><label for="consultant">Consultant</label><input id="consultant" list="consultants" autocomplete="off"><datalist id="consultants"></datalist></div>
+      <div><label for="saleType">Sale type</label>
+        <select id="saleType"><option value="">—</option><option value="solicited">Solicited</option><option value="unsolicited">Unsolicited</option></select></div>
+
+      <div><label for="payMethod">Payment method</label>
+        <select id="payMethod">
+          <option value="">—</option>
+          <option value="weekly_dd">Weekly direct debit</option>
+          <option value="fortnightly_dd">Fortnightly direct debit</option>
+          <option value="deposit_50">50% deposit</option>
+          <option value="pay_in_full">Pay in full</option>
+          <option value="cash">Cash</option>
+        </select></div>
+      <div><label for="payFreq">Payment frequency</label>
+        <select id="payFreq"><option value="">—</option><option value="weekly">Weekly</option><option value="fortnightly">Fortnightly</option></select></div>
+      <div><label for="payerRef">Ezidebit Payer ID</label><input id="payerRef" placeholder="551-000-000" autocomplete="off"></div>
+
+      <div class="req"><label for="contract">Total sale value ($)</label><input id="contract" type="number" min="0" step="0.01"></div>
+      <div><label for="paid">Amount paid to date ($)</label><input id="paid" type="number" min="0" step="0.01" value="0"></div>
+      <div><label for="deposit">Deposit amount ($)</label><input id="deposit" type="number" min="0" step="0.01" value="0"></div>
+
+      <div><label for="firstPay">First payment date</label><input id="firstPay" type="date"></div>
+      <div><label for="delDate">Delivery date</label><input id="delDate" type="date"></div>
+      <div><label for="delStatus">Delivery status</label>
+        <select id="delStatus">
+          <option value="pending">Pending</option>
+          <option value="scheduled">Scheduled</option>
+          <option value="delivered">Delivered</option>
+          <option value="on_hold">On hold</option>
+          <option value="cancelled">Cancelled</option>
+        </select></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Products</h2>
+    <table class="prod" id="prodTable"></table>
+    <div class="extras">
+      <div class="fld"><label for="pillow">Pillows</label><input id="pillow" type="number" min="0" step="1" placeholder="0"></div>
+      <div class="fld"><label for="delivery">Delivery fee</label><input id="delivery" type="number" min="0" step="1" placeholder="0"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="actions">
+      <button id="save">Save customer &amp; sale</button>
+      <button class="ghost" id="clear" type="button">Clear form</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Recently added</h2>
+    <div class="recent" id="recent"><div class="empty">Nothing yet — saved customers will appear here.</div></div>
+  </div>
+</div>
+
+<script>
+const SUPABASE_URL = "https://jvqjoenaungubpoegyvf.supabase.co";
+const SUPABASE_KEY = "sb_publishable_J4MYTdJJyEaWe-GadpwdYA_upPT2rKw";
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+const $ = id => document.getElementById(id);
+const msg = $("msg");
+function show(text, cls){ msg.style.display="block"; msg.className=cls; msg.textContent=text; window.scrollTo({top:0,behavior:"smooth"}); }
+function clearMsg(){ msg.style.display="none"; }
+
+// ---- product grid ----
+const SIZES = ["King Single","Queen","Super King","Cal King"];
+const RANGES = [
+  {name:"Mk I",      sizes:["King Single","Queen","Super King"]},
+  {name:"Mk II",     sizes:["King Single","Queen","Super King","Cal King"]},
+  {name:"Mk III",    sizes:["King Single","Queen","Super King","Cal King"]},
+  {name:"BB (Base)", sizes:["King Single","Queen","Super King","Cal King"]},
+  {name:"MP",        sizes:["King Single","Queen","Super King","Cal King"]},
+];
+const ABBR = {"King Single":"KS","Queen":"Q","Super King":"SK","Cal King":"CK"};
+(function buildGrid(){
+  let h = "<tr><th style='text-align:left'>Range</th>" + SIZES.map(s=>`<th>${s}</th>`).join("") + "</tr>";
+  for(const r of RANGES){
+    h += `<tr><td class="rl">${r.name}</td>`;
+    for(const s of SIZES){
+      if(r.sizes.includes(s)){
+        h += `<td><input type="number" min="0" step="1" placeholder="0" data-range="${r.name}" data-size="${s}"></td>`;
+      } else {
+        h += `<td class="na">—</td>`;
+      }
+    }
+    h += "</tr>";
+  }
+  $("prodTable").innerHTML = h;
+})();
+
+// ---- phone normalise / validate ----
+function normNZ(raw){
+  if(!raw) return {e164:"", flag:"missing"};
+  const digits = String(raw).replace(/\D/g,"");
+  if(!digits) return {e164:"", flag:"missing"};
+  let nsn;
+  if(String(raw).trim().startsWith("+64") || digits.startsWith("64")) nsn = digits.slice(2);
+  else if(digits.startsWith("0")) nsn = digits.slice(1);
+  else nsn = digits;
+  const e164 = "+64" + nsn;
+  let flag;
+  if(nsn[0]==="2" && nsn.length>=8 && nsn.length<=10) flag="ok";
+  else if("346789".includes(nsn[0])) flag="landline";
+  else flag="check";
+  return {e164, flag};
+}
+$("mobile").addEventListener("input", ()=>{
+  const {e164,flag} = normNZ($("mobile").value);
+  const el = $("mobileHint");
+  if(!$("mobile").value){ el.textContent=""; el.style.color=""; return; }
+  if(flag==="ok"){ el.textContent="Will be saved as "+e164; el.style.color="#1c6b34"; }
+  else if(flag==="landline"){ el.textContent="Looks like a landline ("+e164+") — texts won't reach it"; el.style.color="#8a6d00"; }
+  else { el.textContent="Doesn't look like a valid NZ number ("+e164+")"; el.style.color="#a02020"; }
+});
+
+// auto-fill frequency from method
+$("payMethod").addEventListener("change", ()=>{
+  const m=$("payMethod").value;
+  if(m==="weekly_dd") $("payFreq").value="weekly";
+  else if(m==="fortnightly_dd") $("payFreq").value="fortnightly";
+});
+
+// ---- consultants ----
+const FALLBACK_CONSULTANTS = ["Yazan Othman","Kenzie Lam Sam","Stacey Numanga","PJ Tonga","Anovale Tovio","Brooke Komene","Kono Harris","Rita Neli","Tame Cooper","Matt"];
+const TEAM = {"Kenzie Lam Sam":"Kenzie Lam Sam","Anovale Tovio":"Kenzie Lam Sam","PJ Tonga":"Kenzie Lam Sam","Rita Neli":"Kenzie Lam Sam","Tame Cooper":"Kenzie Lam Sam","Yazan Othman":"Yazan Othman","Brooke Komene":"Yazan Othman","Kono Harris":"Yazan Othman","Stacey Numanga":"Yazan Othman"};
+async function loadConsultants(){
+  let names = FALLBACK_CONSULTANTS;
+  try{
+    const {data} = await sb.from("commission_consultants").select("name");
+    if(data && data.length) names = [...new Set(data.map(d=>d.name).filter(Boolean))].sort();
+  }catch(e){}
+  $("consultants").innerHTML = names.map(n=>`<option value="${n}">`).join("");
+}
+
+// ---- recent list ----
+async function loadRecent(){
+  try{
+    const {count} = await sb.from("sim_customers").select("id",{count:"exact",head:true});
+    if(typeof count==="number") $("count").textContent = count + " customers in system";
+  }catch(e){}
+  try{
+    const {data:orders} = await sb.from("sim_orders")
+      .select("id,customer_id,consultant_name,contract_value,order_date")
+      .order("created_at",{ascending:false}).limit(8);
+    if(!orders || !orders.length){ return; }
+    const ids = [...new Set(orders.map(o=>o.customer_id).filter(Boolean))];
+    let custMap = {};
+    if(ids.length){
+      const {data:custs} = await sb.from("sim_customers").select("id,first_name,last_name,mobile").in("id",ids);
+      (custs||[]).forEach(c=>custMap[c.id]=c);
+    }
+    const rows = orders.map(o=>{
+      const c = custMap[o.customer_id] || {};
+      const nm = [c.first_name,c.last_name].filter(Boolean).join(" ") || "(no name)";
+      const val = o.contract_value!=null ? "$"+Number(o.contract_value).toLocaleString() : "";
+      const meta = [o.consultant_name, val, o.order_date].filter(Boolean).join(" · ");
+      return `<div class="row"><span class="nm">${nm}</span><span class="meta">${meta}</span></div>`;
+    }).join("");
+    $("recent").innerHTML = rows;
+  }catch(e){}
+}
+
+// ---- save ----
+$("save").addEventListener("click", save);
+async function save(){
+  clearMsg();
+  const first=$("first").value.trim(), last=$("last").value.trim();
+  const {e164, flag} = normNZ($("mobile").value);
+  const consultant=$("consultant").value.trim();
+  const orderDate=$("orderDate").value || null;
+  const contract = $("contract").value===""? null : Number($("contract").value);
+
+  if(!first || !last){ return show("Enter the customer's first and last name.","err"); }
+  if(flag==="missing" || flag==="check"){ return show("Enter a valid mobile number before saving.","err"); }
+  if(!consultant){ return show("Choose or type the consultant for this sale.","err"); }
+  if(!orderDate){ return show("Set the sale date.","err"); }
+  if(contract===null){ return show("Enter the total sale value.","err"); }
+
+  const btn=$("save"); btn.disabled=true; const original=btn.textContent; btn.textContent="Saving…";
+  try{
+    // 1. customer
+    const address = [$("address").value.trim(), $("city").value.trim(), $("postcode").value.trim()].filter(Boolean).join(", ");
+    const {data:cust,error:e1} = await sb.from("sim_customers")
+      .insert({first_name:first,last_name:last,mobile:e164,email:$("email").value.trim()||null,address:address||null})
+      .select("id").single();
+    if(e1) throw new Error("Saving customer: "+e1.message);
+
+    // 2. order
+    const method=$("payMethod").value||null;
+    const order = {
+      customer_id:cust.id, order_date:orderDate, consultant_name:consultant,
+      team_leader_name:TEAM[consultant]||null,
+      sale_type:$("saleType").value||null,
+      payment_method:method,
+      payment_frequency:$("payFreq").value||null,
+      contract_value:contract,
+      amount_paid_to_date:$("paid").value===""?0:Number($("paid").value),
+      deposit_amount:$("deposit").value===""?0:Number($("deposit").value),
+      ezidebit_payer_ref:$("payerRef").value.trim()||null,
+      first_payment_date:$("firstPay").value||null,
+      delivery_date:$("delDate").value||null,
+      delivery_status:$("delStatus").value,
+      order_status:"active",
+      paid_in_full: method==="pay_in_full"
+    };
+    const {data:ord,error:e2} = await sb.from("sim_orders").insert(order).select("id").single();
+    if(e2) throw new Error("Saving sale: "+e2.message);
+
+    // 3. product lines
+    const items=[];
+    document.querySelectorAll('#prodTable input[data-range]').forEach(inp=>{
+      const q=parseInt(inp.value,10);
+      if(q>0) items.push({order_id:ord.id, product_range:inp.dataset.range, product_size:inp.dataset.size,
+        product_code:({"Mk I":"M1","Mk II":"M2","Mk III":"M3","BB (Base)":"BB","MP":"MP"}[inp.dataset.range]||"")+"-"+ABBR[inp.dataset.size], quantity:q});
+    });
+    const pil=parseInt($("pillow").value,10); if(pil>0) items.push({order_id:ord.id,product_range:"Pillow",product_size:null,product_code:"PIL",quantity:pil});
+    const del=parseInt($("delivery").value,10); if(del>0) items.push({order_id:ord.id,product_range:"Delivery",product_size:null,product_code:"DEL",quantity:del});
+    if(items.length){
+      const {error:e3} = await sb.from("sim_order_items").insert(items);
+      if(e3) throw new Error("Customer and sale saved, but product lines failed: "+e3.message);
+    }
+
+    let note = flag==="landline" ? "  (Heads up: the number looks like a landline — it won't receive texts.)" : "";
+    show(`Saved ${first} ${last}.` + note, "ok");
+    clearForm(true);
+    loadRecent();
+  }catch(err){
+    show(String(err.message||err), "err");
+  }finally{
+    btn.disabled=false; btn.textContent=original;
+  }
+}
+
+$("clear").addEventListener("click", ()=>clearForm(false));
+function clearForm(keepDate){
+  ["first","last","mobile","email","address","city","postcode","payerRef","contract","firstPay","delDate"].forEach(id=>$(id).value="");
+  $("paid").value="0"; $("deposit").value="0"; $("pillow").value=""; $("delivery").value="";
+  $("saleType").value=""; $("payMethod").value=""; $("payFreq").value=""; $("delStatus").value="pending";
+  $("mobileHint").textContent="";
+  document.querySelectorAll('#prodTable input[data-range]').forEach(i=>i.value="");
+  if(!keepDate) $("consultant").value="";
+}
+
+// init
+$("orderDate").value = new Date().toISOString().slice(0,10);
+loadConsultants();
+loadRecent();
+</script>
+</body>
+</html>
