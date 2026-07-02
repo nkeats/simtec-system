@@ -66,7 +66,7 @@
     <div id="status">Loading customers…</div>
     <table id="tbl" style="display:none">
       <thead><tr>
-        <th>Status</th><th>Customer</th><th class="hide">Mobile</th><th>Delivered</th>
+        <th>Status</th><th>Customer</th><th class="hide">Consultant</th><th class="hide">Mobile</th><th>Delivered</th>
         <th class="num">Contract</th><th class="num">Paid</th><th class="num hide">Expected</th><th class="num">Behind by</th>
       </tr></thead>
       <tbody id="body"></tbody>
@@ -126,7 +126,7 @@ const ORDER={red:0,amber:1,green:2,grey:3};
 async function load(){
   try{
     const {data:orders,error}=await sb.from("sim_orders")
-      .select("id,customer_id,order_date,first_payment_date,payment_frequency,contract_value,amount_paid_to_date,delivery_status,ezidebit_payer_ref,order_status")
+      .select("id,customer_id,order_date,first_payment_date,payment_frequency,contract_value,amount_paid_to_date,delivery_status,ezidebit_payer_ref,order_status,consultant_name")
       .eq("order_status","active");
     if(error) throw error;
     const ids=[...new Set((orders||[]).map(o=>o.customer_id).filter(Boolean))];
@@ -165,37 +165,22 @@ function render(){
   $("body").innerHTML=rows.map(r=>{
     const s=r.s;
     const behind = s.behindBy>1 ? `<span class="behind">${fmt(s.behindBy)}</span> <span class="muted">(${s.periodsBehind.toFixed(0)} ${s.freq.word})</span>` : '<span class="muted">—</span>';
-    return `<tr class="row" data-id="${r.id}" data-ref="${r.ezidebit_payer_ref||''}">
+    return `<tr class="row" data-id="${r.id}">
       <td><span class="pill ${s.cls}"><span class="dot ${s.cls}"></span>${s.label}</span></td>
       <td>${r.name}</td>
+      <td class="hide">${r.consultant_name||'<span class="muted">—</span>'}</td>
       <td class="hide">${r.mobile}</td>
       <td><span class="deliv ${s.delivered?'yes':'no'}">${s.delivered?'✓ Yes':'– No'}</span></td>
       <td class="num">${fmt(s.contract)}</td>
       <td class="num">${fmt(s.paid)}</td>
       <td class="num hide">${fmt(s.expected)}</td>
       <td class="num">${behind}</td>
-    </tr>
-    <tr class="hist" id="h-${r.id}" style="display:none"><td colspan="8"><div class="histinner" id="hi-${r.id}">Loading payments…</div></td></tr>`;
+    </tr>`;
   }).join("");
 
-  document.querySelectorAll("tr.row").forEach(tr=>tr.addEventListener("click",()=>toggleHist(tr.dataset.id, tr.dataset.ref)));
-}
-
-async function toggleHist(id, ref){
-  const h=$("h-"+id); const inner=$("hi-"+id);
-  if(h.style.display!=="none"){ h.style.display="none"; return; }
-  document.querySelectorAll("tr.hist").forEach(x=>x.style.display="none");
-  h.style.display="table-row";
-  if(inner.dataset.loaded){ return; }
-  if(!ref){ inner.innerHTML='<span class="muted">No Ezidebit reference on this customer — no payment history to show.</span>'; inner.dataset.loaded="1"; return; }
-  try{
-    const {data}=await sb.from("sim_payments").select("payment_date,amount").eq("payer_ref",ref).order("payment_date",{ascending:false}).limit(15);
-    if(!data||!data.length){ inner.innerHTML='<span class="muted">No payments recorded for this customer yet.</span>'; }
-    else{
-      inner.innerHTML='<h4>Recent payments</h4>'+data.map(p=>`<div class="pay"><span>${auDate(p.payment_date)}</span><span>${fmt(p.amount)}</span></div>`).join("");
-    }
-    inner.dataset.loaded="1";
-  }catch(e){ inner.innerHTML='<span class="muted">Couldn\'t load payments: '+(e.message||e)+'</span>'; }
+  document.querySelectorAll("tr.row").forEach(tr=>tr.addEventListener("click",()=>{
+    window.open("customer-detail.html?id="+tr.dataset.id, "_blank");
+  }));
 }
 
 $("search").addEventListener("input", render);
