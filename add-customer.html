@@ -140,6 +140,12 @@ const SUPABASE_KEY = "sb_publishable_J4MYTdJJyEaWe-GadpwdYA_upPT2rKw";
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
 const $ = id => document.getElementById(id);
+function auDate(v){
+  if(!v) return "";
+  if(typeof v==="string"){ const m=v.match(/^(\d{4})-(\d{2})-(\d{2})/); if(m) return m[3]+"/"+m[2]+"/"+m[1]; const dt=new Date(v); if(isNaN(dt)) return v; v=dt; }
+  const d=String(v.getDate()).padStart(2,"0"), mo=String(v.getMonth()+1).padStart(2,"0");
+  return d+"/"+mo+"/"+v.getFullYear();
+}
 const msg = $("msg");
 function show(text, cls){ msg.style.display="block"; msg.className=cls; msg.textContent=text; window.scrollTo({top:0,behavior:"smooth"}); }
 function clearMsg(){ msg.style.display="none"; }
@@ -235,7 +241,7 @@ async function loadRecent(){
       const c = custMap[o.customer_id] || {};
       const nm = [c.first_name,c.last_name].filter(Boolean).join(" ") || "(no name)";
       const val = o.contract_value!=null ? "$"+Number(o.contract_value).toLocaleString() : "";
-      const meta = [o.consultant_name, val, o.order_date].filter(Boolean).join(" · ");
+      const meta = [o.consultant_name, val, auDate(o.order_date)].filter(Boolean).join(" · ");
       return `<div class="row"><span class="nm">${nm}</span><span class="meta">${meta}</span></div>`;
     }).join("");
     $("recent").innerHTML = rows;

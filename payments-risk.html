@@ -80,6 +80,12 @@ const $=id=>document.getElementById(id);
 const TERM_YEARS=3;
 const PERIODS={weekly:{per:7,total:156,word:"wk"},fortnightly:{per:14,total:78,word:"fn"},monthly:{per:30.44,total:36,word:"mo"}};
 const fmt=n=>n==null?"—":"$"+Math.round(n).toLocaleString();
+function auDate(v){
+  if(!v) return "";
+  if(typeof v==="string"){ const m=v.match(/^(\d{4})-(\d{2})-(\d{2})/); if(m) return m[3]+"/"+m[2]+"/"+m[1]; const dt=new Date(v); if(isNaN(dt)) return v; v=dt; }
+  const d=String(v.getDate()).padStart(2,"0"), m=String(v.getMonth()+1).padStart(2,"0");
+  return d+"/"+m+"/"+v.getFullYear();
+}
 const today=new Date();
 
 let RECORDS=[];
@@ -151,7 +157,7 @@ function render(){
     <div class="tile amber"><div class="n">${cnt.amber}</div><div class="l">Behind (undelivered)</div></div>
     <div class="tile green"><div class="n">${cnt.green}</div><div class="l">On track / paid up</div></div>
     <div class="tile"><div class="n">${RECORDS.length}</div><div class="l">Active customers</div></div>`;
-  $("asof").textContent="As of "+today.toLocaleDateString();
+  $("asof").textContent="As of "+auDate(today);
 
   if(!rows.length){ $("status").style.display="block"; $("status").textContent="No matches."; $("tbl").style.display="none"; return; }
   $("status").style.display="none"; $("tbl").style.display="table";
@@ -186,7 +192,7 @@ async function toggleHist(id, ref){
     const {data}=await sb.from("sim_payments").select("payment_date,amount").eq("payer_ref",ref).order("payment_date",{ascending:false}).limit(15);
     if(!data||!data.length){ inner.innerHTML='<span class="muted">No payments recorded for this customer yet.</span>'; }
     else{
-      inner.innerHTML='<h4>Recent payments</h4>'+data.map(p=>`<div class="pay"><span>${p.payment_date}</span><span>${fmt(p.amount)}</span></div>`).join("");
+      inner.innerHTML='<h4>Recent payments</h4>'+data.map(p=>`<div class="pay"><span>${auDate(p.payment_date)}</span><span>${fmt(p.amount)}</span></div>`).join("");
     }
     inner.dataset.loaded="1";
   }catch(e){ inner.innerHTML='<span class="muted">Couldn\'t load payments: '+(e.message||e)+'</span>'; }
