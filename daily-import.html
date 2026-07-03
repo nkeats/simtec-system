@@ -90,6 +90,14 @@ if(new URLSearchParams(location.search).get("embed")){
   document.getElementById("hdr").style.display="none";
   document.body.style.background="transparent";
   document.querySelector(".wrap").style.margin="0 auto";
+  // tell the parent page how tall we are, so the iframe can size to content
+  function reportHeight(){
+    const h=Math.max(document.body.scrollHeight, document.documentElement.scrollHeight);
+    parent.postMessage({simtecEmbedHeight:h}, "*");
+  }
+  window.addEventListener("load", reportHeight);
+  new ResizeObserver(reportHeight).observe(document.body);
+  setInterval(reportHeight, 800);
 }
 pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
 const $=id=>document.getElementById(id);

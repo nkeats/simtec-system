@@ -6,7 +6,6 @@
 <title>Simtec — Arrears Texts</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://unpkg.com/@supabase/supabase-js@2.38.4/dist/umd/supabase.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <style>
 body{font-family:system-ui,sans-serif}
 .card{background:#1e293b;border:1px solid #334155;border-radius:.75rem;padding:1.1rem 1.25rem}
@@ -15,20 +14,17 @@ body{font-family:system-ui,sans-serif}
 .btn{padding:.6rem 1.1rem;border-radius:.6rem;font-size:.9rem;font-weight:700;cursor:pointer;border:1px solid #334155;background:#1e293b;color:#cbd5e1}
 .gold{background:#c9a84c;color:#1a2438;border:none}
 .inp{display:block;width:100%;padding:.6rem .8rem;background:#0f172a;border:1px solid #334155;border-radius:.6rem;color:#fff;box-sizing:border-box}
-.drop{border:2px dashed #334155;border-radius:.9rem;padding:2rem;text-align:center;color:#7c8aa0;cursor:pointer}
-.drop:hover{border-color:#c9a84c;color:#cbd5e1}
 </style>
 </head>
 <body class="bg-slate-950 text-white min-h-screen">
 
 <nav class="bg-slate-900 border-b border-slate-800 px-6 py-3 flex items-center gap-3">
-  <span class="font-bold tracking-wide text-lg">SIMTEC</span>
+  <a href="home.html" class="text-slate-400 text-sm hover:text-white">‹ Home</a>
+  <span class="font-bold tracking-wide text-lg ml-2">SIMTEC</span>
   <span class="text-slate-400 text-sm">Arrears texts</span>
 </nav>
 
 <div class="max-w-4xl mx-auto p-6">
-
-  <div id="cfgwarn"></div>
 
   <div class="card mb-4">
     <div class="lbl mb-2">The message every defaulter receives</div>
@@ -37,10 +33,10 @@ body{font-family:system-ui,sans-serif}
   </div>
 
   <div class="card mb-4">
-    <div class="lbl mb-3">Step 1 — Upload today's Ezidebit report</div>
-    <label class="drop block" for="pdf">📄 Drop the Ezidebit PDF here, or click to choose<input id="pdf" type="file" accept="application/pdf" class="hidden"></label>
-    <div id="parsestate" class="k mt-3"></div>
-    <button class="btn mt-3" onclick="loadSample()" style="font-size:.8rem">Try with sample data (no PDF)</button>
+    <div class="lbl mb-2">Latest Ezidebit report <span id="reportdate" class="text-slate-400 normal-case font-normal"></span></div>
+    <div id="parsestate" class="k">Loading…</div>
+    <button class="btn mt-3" onclick="loadDishonours()" style="font-size:.8rem">Refresh</button>
+    <div class="k mt-2">Dishonours come from the report you upload on the Home page — this screen just reads them. Cancelled and on-hold customers are left out automatically.</div>
   </div>
 
   <div id="review"></div>
@@ -57,13 +53,8 @@ body{font-family:system-ui,sans-serif}
 </div>
 
 <script>
-// ===== CONFIG =================================================================
-// Sending goes through the Supabase Edge Function "hyper-handler", which
-// holds the Twilio credentials securely (never in this page). Deploy that
-// function and set its secrets — see the setup notes.
 // Locked message. First name fills in as ${name}. Straight apostrophes on purpose.
 const MESSAGE = name => `Hi ${name}, this is Simtec Therapeutic. You've missed a payment - it's important, so reach out to us right now. We're here to listen and support you, and will work with you to get things back on track. Don't delay - call us on 09 886 9897 and we'll help.`;
-// =============================================================================
 
 const SUPABASE_URL='https://jvqjoenaungubpoegyvf.supabase.co';
 const SUPABASE_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imp2cWpvZW5hdW5ndWJwb2VneXZmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA1MzQyMjYsImV4cCI6MjA5NjExMDIyNn0.ypVt8578XTdNwBH6TRDn30s1cF_rHTu67qCWYv5XHcQ';
@@ -71,101 +62,96 @@ const sb=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
 const $=id=>document.getElementById(id);
 const esc=s=>(s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const norm=s=>(s||'').replace(/[^a-z0-9]/gi,'').toLowerCase();
-const firstName=n=>((n||'').trim().split(/\s+/)[0])||'there';
-if(window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+function auDate(v){if(!v)return'';const m=String(v).match(/^(\d{4})-(\d{2})-(\d{2})/);return m?m[3]+'/'+m[2]+'/'+m[1]:v;}
 
 $('msgpreview').textContent=MESSAGE('[first name]');
-$('cfgwarn').innerHTML=`<div class="card mb-4" style="border-color:#334155">
-  <div class="k">Texts send via the Supabase function <b>hyper-handler</b>. If a send errors, that function isn't deployed yet or its Twilio secrets aren't set. Everything else (upload, matching, review) works regardless.</div></div>`;
 
-// Build a lookup of Ezidebit payer ref -> customer mobile, from orders.
+// ---- Build payer ref -> ACTIVE customer (skip cancelled / on-hold / paid-in-full) ----
 let custMap={};
 async function loadCustomers(){
-  const {data,error}=await sb.from('sim_orders')
-    .select('id,ezidebit_payer_ref,sim_customers(first_name,last_name,mobile)')
-    .not('ezidebit_payer_ref','is',null);
+  const {data:orders,error}=await sb.from('sim_orders')
+    .select('id,customer_id,ezidebit_payer_ref,order_status,paid_in_full')
+    .not('ezidebit_payer_ref','is',null).eq('order_status','active');
   if(error){console.error(error);return;}
-  custMap={};
-  (data||[]).forEach(o=>{const k=norm(o.ezidebit_payer_ref);const c=o.sim_customers||{};
-    custMap[k]={name:`${c.first_name||''} ${c.last_name||''}`.trim(),firstName:(c.first_name||'').trim(),mobile:c.mobile||'',order_id:o.id};});
-}
-loadCustomers();
-
-// ---- PDF upload -> text -----------------------------------------------------
-$('pdf').addEventListener('change',async e=>{
-  const f=e.target.files[0];if(!f)return;
-  $('parsestate').textContent='Reading PDF…';
-  try{
-    const buf=await f.arrayBuffer();
-    const pdf=await pdfjsLib.getDocument({data:buf}).promise;
-    let text='';
-    for(let p=1;p<=pdf.numPages;p++){const pg=await pdf.getPage(p);const c=await pg.getTextContent();text+=c.items.map(i=>i.str).join(' ')+'\n';}
-    const rows=detectFailedRows(text);
-    if(!rows.length){
-      $('parsestate').innerHTML=`Read ${pdf.numPages} page(s), ${text.length} characters. <span style="color:#fbbf24">No failed rows detected yet — the parser rule is completed once we've seen a real dishonour on the report.</span>`;
-      return;
-    }
-    $('parsestate').textContent=`Found ${rows.length} dishonoured payment(s).`;
-    review(matchRows(rows));
-  }catch(err){$('parsestate').innerHTML=`<span style="color:#f87171">${esc(err.message)}</span>`;}
-});
-
-// ---- Detect failed rows -----------------------------------------------------
-// Reads an Ezidebit Payment Settlement Report. Each row starts with a payer ID
-// (e.g. 561-467-697); a dishonour has Result "Failed". Returns the failed rows.
-function detectFailedRows(text){
-  const rows=[];
-  const t=(text||'').replace(/\s+/g,' ');
-  const ids=[...t.matchAll(/\d{3}-\d{3}-\d{3}/g)];
-  for(let i=0;i<ids.length;i++){
-    const start=ids[i].index, end=(i+1<ids.length)?ids[i+1].index:t.length;
-    const chunk=t.slice(start,end);
-    const payer_ref=ids[i][0];
-    if(!/\bFailed\b/.test(chunk)) continue;            // dishonours only
-    const amtM=chunk.match(/\$\s?([\d,]+\.\d{2})/);
-    if(!amtM) continue;                                 // excludes the header Client ID line
-    const after=chunk.slice(payer_ref.length).trim();
-    const crM=after.match(/[A-Z][A-Z0-9\- ]*\d{4,}/);   // client contract ref marks the end of the name
-    let name=(crM?after.slice(0,crM.index):after.split(/\bFailed\b/)[0]).trim().replace(/[,;]\s*$/,'');
-    rows.push({payer_ref, name, amount:amtM[1], reason:'Dishonour'});
+  const ids=[...new Set((orders||[]).map(o=>o.customer_id).filter(Boolean))];
+  const cust={};
+  for(let i=0;i<ids.length;i+=200){
+    const {data:cs}=await sb.from('sim_customers').select('id,first_name,last_name,mobile').in('id',ids.slice(i,i+200));
+    (cs||[]).forEach(c=>cust[c.id]=c);
   }
-  return rows;
+  custMap={};
+  (orders||[]).forEach(o=>{
+    if(o.paid_in_full) return;
+    const c=cust[o.customer_id]||{};
+    custMap[norm(o.ezidebit_payer_ref)]={
+      name:`${c.first_name||''} ${c.last_name||''}`.trim(),
+      firstName:(c.first_name||'').trim(), mobile:c.mobile||'', order_id:o.id};
+  });
 }
 
-// ---- Matching ---------------------------------------------------------------
+// ---- Load the LATEST report's dishonours from the database ----
+async function loadDishonours(){
+  $('parsestate').textContent='Loading latest report…';
+  await loadCustomers();
+  const {data:latest}=await sb.from('sim_dishonours').select('settlement_date').order('settlement_date',{ascending:false}).limit(1);
+  if(!latest||!latest.length){ $('reportdate').textContent=''; $('parsestate').textContent='No dishonours in the system yet — upload a report on the Home page first.'; $('review').innerHTML=''; return; }
+  const sd=latest[0].settlement_date;
+  const {data:dis}=await sb.from('sim_dishonours').select('payer_ref,dishonour_date,amount,failed_reason').eq('settlement_date',sd).order('dishonour_date',{ascending:false});
+  const rows=dis||[];
+  // pull the full failure history for these payers, to count repeats
+  const payers=[...new Set(rows.map(r=>r.payer_ref))];
+  const hist={};
+  for(let i=0;i<payers.length;i+=100){
+    const {data:h}=await sb.from('sim_dishonours').select('payer_ref,dishonour_date').in('payer_ref',payers.slice(i,i+100));
+    (h||[]).forEach(d=>{(hist[d.payer_ref]=hist[d.payer_ref]||[]).push(d.dishonour_date);});
+  }
+  rows.forEach(r=>{
+    const ds=(hist[r.payer_ref]||[]).map(x=>new Date(x)).sort((a,b)=>a-b);
+    r.failCount=ds.length||1;
+    r.failWeeks=ds.length>1?Math.max(1,Math.round((ds[ds.length-1]-ds[0])/6048e5)):0;
+  });
+  $('reportdate').textContent='— settlement '+auDate(sd);
+  $('parsestate').textContent=`${rows.length} dishonour(s) on the latest report.`;
+  review(matchRows(rows));
+}
+
 function matchRows(rows){
   return rows.map(r=>{const c=custMap[norm(r.payer_ref)];
-    const rptFirst=(r.name||'').includes(',')?(r.name.split(',')[1]||'').trim().split(/\s+/)[0]:(r.name||'').split(/\s+/)[0];
-    return {payer_ref:r.payer_ref, reason:r.reason||'', amount:r.amount||'',
-            name:(c&&c.name)||r.name||'', firstName:(c&&c.firstName)||rptFirst||'there',
+    return {payer_ref:r.payer_ref, reason:r.failed_reason||'Dishonour', amount:r.amount||'',
+            failCount:r.failCount||1, failWeeks:r.failWeeks||0,
+            name:(c&&c.name)||'', firstName:(c&&c.firstName)||'there',
             mobile:(c&&c.mobile)||'', order_id:(c&&c.order_id)||null,
             matched:!!(c&&c.mobile)};});
 }
+const failLabel=r=>{const c=r.failCount||1,w=r.failWeeks||0;const txt=w?`${c}× in ${w} wk`:`${c}×`;
+  const col=c>=3?'#f87171':(c>=2?'#fbbf24':'#7c8aa0');return `<span style="color:${col};font-weight:${c>=2?700:400}">${txt}</span>`;};
 
-// ---- Review + send ----------------------------------------------------------
+// ---- Review + send ----
 let current=[];
 function review(list){
   current=list;
-  const ok=list.filter(r=>r.matched), no=list.filter(r=>!r.matched);
-  let html=`<div class="card"><div class="lbl mb-3">Step 2 — Review, then send (${ok.length} ready)</div>`;
+  const ok=list.filter(r=>r.matched).sort((a,b)=>b.failCount-a.failCount), no=list.filter(r=>!r.matched);
+  let html=`<div class="card"><div class="lbl mb-3">Review, then send (${ok.length} ready)</div>`;
   if(ok.length){
+    html+=`<div class="k mb-2">Repeat failures are highlighted — a single miss is auto-rescheduled by Ezidebit, so focus on the amber/red ones.</div>`;
     html+=`<table class="w-full text-sm"><thead><tr class="text-left text-slate-500 border-b border-slate-700">
-      <th class="pb-2">Customer</th><th class="pb-2">Mobile</th><th class="pb-2">Message preview</th></tr></thead><tbody>`;
+      <th class="pb-2">Customer</th><th class="pb-2">Failures</th><th class="pb-2">Mobile</th><th class="pb-2">Message preview</th></tr></thead><tbody>`;
     html+=ok.map(r=>`<tr class="border-b border-slate-800">
       <td class="py-2 pr-3 font-medium">${esc(r.name)}</td>
+      <td class="py-2 pr-3">${failLabel(r)}</td>
       <td class="py-2 pr-3 text-slate-300">${esc(r.mobile)}</td>
       <td class="py-2 text-slate-400 text-xs">${esc(MESSAGE(r.firstName))}</td></tr>`).join('');
     html+=`</tbody></table>
       <button class="btn gold mt-4" onclick="sendAll()">Send all ${ok.length} texts</button>`;
   }else{
-    html+=`<div class="k">Nothing matched to a mobile yet.</div>`;
+    html+=`<div class="k">Nothing to send — no active customer on this report has a mobile to text.</div>`;
   }
   html+=`</div>`;
   if(no.length){
     html+=`<div class="card mt-4" style="border-color:#7f1d1d">
-      <div class="lbl mb-2" style="color:#f87171">Couldn't match to a customer (${no.length}) — follow up manually</div>
-      ${no.map(r=>`<div class="text-sm text-slate-300 py-1">${esc(r.name||'(no name)')} · payer ref ${esc(r.payer_ref)}</div>`).join('')}
-      <div class="k mt-2">These have no Ezidebit reference on a customer record, so no mobile could be found.</div></div>`;
+      <div class="lbl mb-2" style="color:#f87171">Couldn't match to an active customer (${no.length}) — follow up manually</div>
+      ${no.map(r=>`<div class="text-sm text-slate-300 py-1">payer ref ${esc(r.payer_ref)}${r.name?' · '+esc(r.name):''}</div>`).join('')}
+      <div class="k mt-2">These have no active customer record with a mobile (new, cancelled, on-hold, or missing payer ref).</div></div>`;
   }
   $('review').innerHTML=html;
 }
@@ -193,21 +179,14 @@ async function sendAll(){
     <div class="text-slate-200 mt-1">Sent ${sent}${failed?`, ${failed} failed`:''}. All logged.</div></div>`;
 }
 
-// ---- Test send + sample -----------------------------------------------------
 window.sendTest=async()=>{
   const m=$('testmob').value.trim();if(!m){$('teststate').textContent='Enter a mobile first.';return;}
   $('teststate').textContent='Sending test…';
   try{await postOne('Test',m,MESSAGE('there'));$('teststate').innerHTML='<span style="color:#4ade80">Test sent — check your phone.</span>';}
   catch(e){$('teststate').innerHTML=`<span style="color:#f87171">${esc(e.message)}</span>`;}
 };
-window.loadSample=()=>{
-  const first=Object.keys(custMap)[0];
-  const rows=[{payer_ref:first?custMap[first]&&Object.keys(custMap)[0]:'558-998-400',name:'',reason:'Insufficient funds',amount:'39.10'},
-              {payer_ref:'000-000-000',name:'Unmatched Example',reason:'Insufficient funds',amount:'39.10'}];
-  if(first){rows[0].payer_ref=first;}
-  $('parsestate').textContent='Sample data loaded (2 rows) — matching and review shown below.';
-  review(matchRows(rows));
-};
+
+loadDishonours();
 </script>
 </body>
 </html>
