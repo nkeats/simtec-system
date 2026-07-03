@@ -44,7 +44,7 @@ let settings=null,consultants=[],products=[];
 
 // ── Defaults ───────────────────────────────────────────────────────────────
 const DEF={tier1_max:4,tier1_amount:200,tier2_max:9,tier2_amount:300,
-  tier3_amount:400,cash_bonus:100,retention_rate:0.25,retention_cap:5000,pillow_charge:40};
+  tier3_amount:400,cash_bonus:100,retention_rate:0.25,retention_cap:5000,pillow_charge:40,override_rate:60};
 const S=()=>({...DEF,...settings}); // safe settings with defaults
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -693,8 +693,31 @@ window.printInvoice=(weekEnding)=>{
   window.print();
   setTimeout(()=>{document.title=orig;},1500);
 };
-function showSettings(){
+async function showSettings(){
   const s={...DEF,...settings};
+  // ── TL override data (admin only) ──
+  let ovTls=[],ovTotals={};
+  async function loadOverrides(){
+    try{
+      const[{data:cons},{data:ovs}]=await Promise.all([
+        sb.from('commission_consultants').select('id,name,is_team_leader').eq('is_team_leader',true).order('name'),
+        sb.from('commission_overrides').select('team_leader_id,amount'),
+      ]);
+      ovTls=cons||[];ovTotals={};
+      (ovs||[]).forEach(o=>{ovTotals[o.team_leader_id]=(ovTotals[o.team_leader_id]||0)+(+o.amount||0);});
+    }catch(e){ovTls=[];ovTotals={};} // table may not exist yet (run commission_overrides_setup.sql)
+  }
+  function ovListHTML(){
+    if(!ovTls.length)return '<p class="text-slate-500 text-sm py-2">No team leaders found. Mark a consultant as a team leader in Consultants &amp; Products.</p>';
+    return ovTls.map(t=>{const bal=+(ovTotals[t.id]||0);return `<div class="flex items-center justify-between py-2.5 border-t border-slate-700/50">
+        <div class="font-medium">${t.name||''}</div>
+        <div class="flex items-center gap-3">
+          <span class="font-semibold ${bal>0?'text-yellow-400':'text-slate-500'}">${fmt(bal)}</span>
+          <button class="btn dark text-xs py-1 px-3" ${bal<=0?'disabled style="opacity:.4;cursor:default"':''} onclick="recordOverridePayout('${t.id}')">Record payout</button>
+        </div>
+      </div>`;}).join('');
+  }
+  await loadOverrides();
   $('app').innerHTML=`
     <div class="p-8 max-w-2xl mx-auto">
       <h1 class="text-2xl font-bold mb-8">Commission Rates</h1>
@@ -724,9 +747,31 @@ function showSettings(){
             <div><label class="text-xs text-slate-400 block mb-1">Stop withholding at (cap)</label><div class="flex items-center gap-1"><span class="text-slate-500">$</span><input type="number" id="rcap" value="${s.retention_cap}" class="inp w-28"></div></div>
           </div>
         </div>
+        <div class="card" style="border:1px solid rgba(234,179,8,.35)">
+          <div class="flex items-center justify-between mb-1">
+            <h3 class="font-semibold text-sm uppercase tracking-wide">Team Leader Overrides</h3>
+            <span class="text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full bg-yellow-900/40 text-yellow-400">admin only</span>
+          </div>
+          <p class="text-xs text-slate-500 mb-4">Accrues on every commissionable sale (including a team leader's own). Paid as a lump sum at awards night — use <b>Record payout</b> to reset a total to zero once paid.</p>
+          <div class="grid grid-cols-2 gap-4 mb-2">
+            <div><label class="text-xs text-slate-400 block mb-1">Override per commissionable sale</label><div class="flex items-center gap-1"><span class="text-slate-500">$</span><input type="number" id="ovrate" value="${s.override_rate}" class="inp w-28"></div></div>
+          </div>
+          <div class="mt-3"><div class="text-xs text-slate-400 mb-1">Running total owed</div><div id="ovlist">${ovListHTML()}</div></div>
+        </div>
         <button class="btn gold px-8 py-2.5" onclick="saveSettings()">Save Rates</button>
       </div>
     </div>`;
+
+  window.recordOverridePayout=async(tlId)=>{
+    const tl=ovTls.find(t=>t.id===tlId);const bal=+(ovTotals[tlId]||0);
+    if(bal<=0){toast('Nothing owed to pay out.',false);return;}
+    if(!confirm(`Record override payout for ${tl?tl.name:'this team leader'}?\n\nThis pays out ${fmt(bal)} and resets their running total to $0. Only do this after you have actually paid them.`))return;
+    const{error}=await sb.from('commission_overrides').insert({team_leader_id:tlId,amount:-bal,reason:'payout',notes:'Override payout — reset to zero '+new Date().toISOString().split('T')[0]});
+    if(error){err(error);return;}
+    await loadOverrides();
+    if($('ovlist'))$('ovlist').innerHTML=ovListHTML();
+    toast(`Payout of ${fmt(bal)} recorded. ${tl?tl.name:'Team leader'} reset to $0.`);
+  };
 
   window.saveSettings=async()=>{
     const upd={id:1,tier1_max:+$('t1max').value,tier1_amount:+$('t1amt').value,
@@ -734,6 +779,7 @@ function showSettings(){
       tier3_amount:+$('t3amt').value,cash_bonus:+$('cbonus').value,
       pillow_charge:+$('pillc').value,
       retention_rate:+$('rrate').value/100,retention_cap:+$('rcap').value,
+      override_rate:+$('ovrate').value,
       updated_at:new Date().toISOString()};
     const{error}=await sb.from('commission_settings').upsert(upd);
     if(error){err(error);return;}
@@ -1069,8 +1115,21 @@ window.confirmCancel=async(saleId,commissionPaid,consId,isPaid)=>{
     notes:`Cancellation clawback${notes?' — '+notes:''}`
   });
 
+  // 5. TL override — reverse exactly what was accrued for this sale (paid sales only).
+  // Looks up this sale's accrual rows so the reversal hits the correct team leader by the same amount.
+  let ovReversed=0;
+  try{
+    const{data:ovRows}=await sb.from('commission_overrides').select('*').eq('sale_id',saleId).gt('amount',0);
+    const accrued=(ovRows||[]).reduce((a,r)=>a+(+r.amount||0),0);
+    if(accrued>0){
+      const tl=ovRows[0].team_leader_id;
+      await sb.from('commission_overrides').insert({team_leader_id:tl,consultant_id:consId,sale_id:saleId,amount:-accrued,reason:'cancellation_reversal',notes:`Override reversed on cancellation${notes?' — '+notes:''}`});
+      ovReversed=accrued;
+    }
+  }catch(e){console.error('override reversal',e);}
+
   closeMod();
-  toast(`Cancellation recorded. Retention reduced by ${fmt(commissionPaid)}.`);
+  toast(`Cancellation recorded. Retention reduced by ${fmt(commissionPaid)}${ovReversed?`, override reduced by ${fmt(ovReversed)}`:''}.`);
   // Refresh customer list
   if(window._custConsId) window.renderCustList(window._custConsId);
 };
@@ -1203,7 +1262,11 @@ window.finaliseRun=async(rid)=>{
     const{data:retRows}=await sb.from('commission_retention').select('*');
     const retMap={};(retRows||[]).forEach(x=>retMap[x.consultant_id]=+x.balance||0);
     const active=consultants.filter(c=>c.active);
+    // TL override: map consultant name -> id (to resolve each consultant's team leader), and the per-sale override amount
+    const nameToId={};consultants.forEach(x=>{if(x.name)nameToId[x.name.trim().toLowerCase()]=x.id;});
+    const ovRate=+s.override_rate||0;
     for(const c of active){
+      const tlId=c.team_leader?nameToId[c.team_leader.trim().toLowerCase()]:null; // this consultant's team leader (override accrues here)
       const[{data:sl},{data:bo},{data:de}]=await Promise.all([
         sb.from('commission_sales').select('*,commission_sale_items(quantity,commission_products(*))').eq('pay_run_id',rid).eq('consultant_id',c.id),
         sb.from('commission_bonuses').select('*').eq('pay_run_id',rid).eq('consultant_id',c.id),
@@ -1220,6 +1283,11 @@ window.finaliseRun=async(rid)=>{
           if(pr.commission_type==='tier'){base+=rate*it.quantity;elig=true;}}
         const paid=base+((elig&&sale.paid_in_full)?s.cash_bonus:0);
         await sb.from('commission_sales').update({commission_paid:paid,paid_date:today}).eq('id',sale.id);
+        // TL override — accrue for every commissionable sale (elig), including a team leader's own sales.
+        // Skipped automatically for Mk I King Single-only sales (not elig) and when the consultant has no team leader set (e.g. Matt).
+        if(elig&&tlId&&ovRate>0){
+          await sb.from('commission_overrides').insert({team_leader_id:tlId,consultant_id:c.id,sale_id:sale.id,pay_run_id:rid,amount:ovRate,reason:'finalise_accrual',notes:'Override accrued — week ending '+run.week_ending});
+        }
       }
       const opening=retMap[c.id]||0;
       const newBal=opening+cv.ret-cv.payout;
@@ -1253,6 +1321,8 @@ window.unfinaliseRun=async(rid)=>{
       await sb.from('commission_retention').upsert({consultant_id:cid,balance:Math.max(0,cur-byCon[cid]),updated_at:new Date().toISOString()},{onConflict:'consultant_id'});
     }
     if(adjs&&adjs.length)await sb.from('commission_retention_adjustments').delete().eq('pay_run_id',rid).in('reason',['weekly_retention','retention_payout']);
+    // TL override — remove this run's accruals (mirrors the retention reversal above)
+    await sb.from('commission_overrides').delete().eq('pay_run_id',rid).eq('reason','finalise_accrual');
     await sb.from('commission_sales').update({commission_paid:null,paid_date:null}).eq('pay_run_id',rid).neq('status','cancelled');
     await sb.from('commission_pay_runs').update({status:'draft'}).eq('id',rid);
     toast('Run un-finalised and unlocked.');
