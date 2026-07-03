@@ -30,7 +30,7 @@
   .none{padding:18px;color:#1c6b34}
   .load{padding:18px;color:#8a97a6}
   /* import iframe */
-  iframe{width:100%;border:none;height:760px;display:block;background:#fff}
+  iframe{width:100%;border:none;height:230px;display:block;background:#fff}
   /* menu */
   .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:13px}
   a.card{display:block;background:#fff;border:1px solid var(--line);border-radius:12px;padding:15px 17px;text-decoration:none;color:inherit;transition:.08s}
@@ -60,7 +60,7 @@
   <!-- DAILY IMPORT -->
   <div class="sec">
     <h2>Upload today's Ezidebit report</h2>
-    <div class="panel"><iframe src="daily-import.html?embed=1" title="Daily import"></iframe></div>
+    <div class="panel"><iframe id="importFrame" src="daily-import.html?embed=1" title="Daily import"></iframe></div>
   </div>
 
   <!-- MENU -->
@@ -89,6 +89,13 @@
 
 <script>
 const sb = supabase.createClient("https://jvqjoenaungubpoegyvf.supabase.co","sb_publishable_J4MYTdJJyEaWe-GadpwdYA_upPT2rKw");
+// auto-size the embedded importer frame to its content
+window.addEventListener("message", e=>{
+  if(e.data && e.data.simtecEmbedHeight){
+    const f=document.getElementById("importFrame");
+    if(f) f.style.height=(e.data.simtecEmbedHeight+8)+"px";
+  }
+});
 const fmt=n=>n==null?"—":"$"+Math.round(n).toLocaleString();
 const PERIODS={weekly:{per:7,total:156,word:"wk"},fortnightly:{per:14,total:78,word:"fn"},monthly:{per:30.44,total:36,word:"mo"}};
 const today=new Date();
