@@ -4,68 +4,138 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Simtec — Home</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
-  :root{--navy:#122347;--navy2:#1c3363;--gold:#c6a15b;--ink:#1a2334;--line:#dde3ec;--bg:#eef1f5;}
+  :root{--navy:#122347;--navy2:#1c3363;--gold:#c6a15b;--ink:#1a2334;--line:#dde3ec;--bg:#eef1f5;
+        --red:#c0332e;--redbg:#fdecec;--grey:#7a8798;}
   *{box-sizing:border-box}
   body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;color:var(--ink);background:var(--bg);margin:0}
-  header{background:var(--navy);color:#fff;padding:26px 22px}
-  header .brand{font-weight:700;font-size:24px;letter-spacing:.5px}
+  header{background:var(--navy);color:#fff;padding:24px 22px}
+  header .brand{font-weight:700;font-size:23px;letter-spacing:.5px}
   header .brand small{color:var(--gold);font-size:12px;letter-spacing:.22em;display:block;font-weight:600;margin-top:2px}
-  header .tag{color:#b9c6de;font-size:13px;margin-top:8px}
-  .wrap{max-width:960px;margin:26px auto;padding:0 16px}
-  .group{margin-bottom:26px}
-  .group h2{font-size:12px;text-transform:uppercase;letter-spacing:.1em;color:var(--navy);margin:0 0 12px;padding-left:10px;border-left:3px solid var(--gold)}
-  .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:14px}
-  a.card{display:block;background:#fff;border:1px solid var(--line);border-radius:12px;padding:16px 18px;text-decoration:none;color:inherit;transition:transform .08s,box-shadow .08s,border-color .08s}
-  a.card:hover{transform:translateY(-2px);box-shadow:0 6px 18px rgba(18,35,71,.10);border-color:var(--gold)}
-  a.card .t{font-weight:700;font-size:15.5px;color:var(--navy)}
-  a.card .d{font-size:13px;color:#6b7889;margin-top:4px;line-height:1.4}
-  footer{max-width:960px;margin:0 auto 40px;padding:0 16px;color:#8a97a6;font-size:12px}
+  .wrap{max-width:980px;margin:22px auto;padding:0 16px}
+  .sec{margin-bottom:26px}
+  .sec h2{font-size:12px;text-transform:uppercase;letter-spacing:.09em;color:var(--navy);margin:0 0 12px;padding-left:10px;border-left:3px solid var(--gold)}
+  .panel{background:#fff;border:1px solid var(--line);border-radius:12px;overflow:hidden}
+  /* urgent */
+  .urgent-head{display:flex;align-items:center;gap:10px;padding:14px 18px;border-bottom:1px solid var(--line)}
+  .urgent-head .dot{width:12px;height:12px;border-radius:50%;background:var(--red)}
+  .urgent-head .n{font-weight:800;color:var(--red);font-size:20px}
+  .urgent-head .l{color:#6b7889;font-size:13px}
+  table{width:100%;border-collapse:collapse;font-size:14px}
+  th,td{padding:10px 14px;text-align:left;border-bottom:1px solid var(--line)}
+  th{background:#faf7f1;color:var(--navy);font-size:11.5px;text-transform:uppercase;letter-spacing:.04em}
+  tr.row{cursor:pointer} tr.row:hover{background:#fff8f8}
+  td.num{text-align:right;font-variant-numeric:tabular-nums;color:var(--red);font-weight:700}
+  .none{padding:18px;color:#1c6b34}
+  .load{padding:18px;color:#8a97a6}
+  /* import iframe */
+  iframe{width:100%;border:none;height:560px;display:block;background:#fff}
+  /* menu */
+  .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:13px}
+  a.card{display:block;background:#fff;border:1px solid var(--line);border-radius:12px;padding:15px 17px;text-decoration:none;color:inherit;transition:.08s}
+  a.card:hover{transform:translateY(-2px);box-shadow:0 6px 16px rgba(18,35,71,.10);border-color:var(--gold)}
+  a.card .t{font-weight:700;font-size:15px;color:var(--navy)}
+  a.card .d{font-size:12.5px;color:#6b7889;margin-top:3px}
+  .grp{margin-bottom:16px}
+  .grp .gl{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:#94a1b3;margin:0 0 8px;font-weight:700}
 </style>
 </head>
 <body>
 <header>
   <div class="brand">Simtec Operating System<small>THERAPEUTIC</small></div>
-  <div class="tag">Everything in one place. Choose a module to get started.</div>
 </header>
 
 <div class="wrap">
 
-  <div class="group">
-    <h2>Customers &amp; Sales</h2>
-    <div class="cards">
-      <a class="card" href="add-customer.html"><div class="t">Add customer / sale</div><div class="d">Enter a new customer, their sale and products.</div></a>
-      <a class="card" href="index.html"><div class="t">Sales order form</div><div class="d">Full point-of-sale contract with signatures.</div></a>
-      <a class="card" href="client.html"><div class="t">Customer lookup</div><div class="d">Search a customer and view their history.</div></a>
+  <!-- URGENT ARREARS -->
+  <div class="sec">
+    <h2>Urgent — delivered &amp; behind</h2>
+    <div class="panel">
+      <div class="urgent-head"><span class="dot"></span><span class="n" id="urgentN">–</span><span class="l">customers who have their product and are behind on payments</span></div>
+      <div id="urgentBody"><div class="load">Loading…</div></div>
     </div>
   </div>
 
-  <div class="group">
-    <h2>Payments &amp; Risk</h2>
-    <div class="cards">
-      <a class="card" href="payments-risk.html"><div class="t">Payments &amp; risk</div><div class="d">Traffic-light board — who's behind, delivered first.</div></a>
-      <a class="card" href="arrears.html"><div class="t">Arrears overview</div><div class="d">Worst-first arrears list with click-through.</div></a>
-      <a class="card" href="arrears-texts.html"><div class="t">Arrears texts</div><div class="d">Upload the dishonour report and send reminders.</div></a>
-    </div>
+  <!-- DAILY IMPORT -->
+  <div class="sec">
+    <h2>Upload today's Ezidebit report</h2>
+    <div class="panel"><iframe src="daily-import.html?embed=1" title="Daily import"></iframe></div>
   </div>
 
-  <div class="group">
-    <h2>Delivery</h2>
-    <div class="cards">
+  <!-- MENU -->
+  <div class="sec">
+    <h2>All modules</h2>
+    <div class="grp"><div class="gl">Customers &amp; Sales</div><div class="cards">
+      <a class="card" href="add-customer.html"><div class="t">Add customer / sale</div><div class="d">Enter a new customer, sale and products.</div></a>
+      <a class="card" href="index.html"><div class="t">Sales order form</div><div class="d">Full point-of-sale contract.</div></a>
+      <a class="card" href="client.html"><div class="t">Customer lookup</div><div class="d">Search a customer and view history.</div></a>
+    </div></div>
+    <div class="grp"><div class="gl">Payments &amp; Risk</div><div class="cards">
+      <a class="card" href="payments-risk.html"><div class="t">Payments &amp; risk</div><div class="d">Full traffic-light board.</div></a>
+      <a class="card" href="arrears-texts.html"><div class="t">Arrears texts</div><div class="d">Review and send arrears reminders.</div></a>
+      <a class="card" href="arrears.html"><div class="t">Arrears overview</div><div class="d">Worst-first arrears list.</div></a>
+    </div></div>
+    <div class="grp"><div class="gl">Delivery</div><div class="cards">
       <a class="card" href="delivery.html"><div class="t">Delivery (office)</div><div class="d">Book, plan and track deliveries.</div></a>
-      <a class="card" href="driver.html"><div class="t">Driver run sheet</div><div class="d">Today's route for the driver (tablet).</div></a>
-    </div>
-  </div>
-
-  <div class="group">
-    <h2>Commissions</h2>
-    <div class="cards">
-      <a class="card" href="commissions.html"><div class="t">Commissions</div><div class="d">Pay runs, invoices, retention and clawbacks.</div></a>
-    </div>
+      <a class="card" href="driver.html"><div class="t">Driver run sheet</div><div class="d">Today's route for the driver.</div></a>
+    </div></div>
+    <div class="grp"><div class="gl">Commissions</div><div class="cards">
+      <a class="card" href="commissions.html"><div class="t">Commissions</div><div class="d">Pay runs, invoices, clawbacks.</div></a>
+    </div></div>
   </div>
 
 </div>
 
-<footer>Simtec Therapeutic — internal system. Links open each module; not every module may be deployed yet.</footer>
+<script>
+const sb = supabase.createClient("https://jvqjoenaungubpoegyvf.supabase.co","sb_publishable_J4MYTdJJyEaWe-GadpwdYA_upPT2rKw");
+const fmt=n=>n==null?"—":"$"+Math.round(n).toLocaleString();
+const PERIODS={weekly:{per:7,total:156,word:"wk"},fortnightly:{per:14,total:78,word:"fn"},monthly:{per:30.44,total:36,word:"mo"}};
+const today=new Date();
+
+function isBehindDelivered(o){
+  const contract=o.contract_value!=null?Number(o.contract_value):null;
+  const paid=o.amount_paid_to_date!=null?Number(o.amount_paid_to_date):0;
+  if((o.delivery_status||"")!=="delivered") return null;
+  if(contract==null||contract<=0) return null;
+  if(paid>=contract*0.999) return null;
+  const start=o.first_payment_date||o.order_date; if(!start) return null;
+  const f=PERIODS[o.payment_frequency]||PERIODS.weekly;
+  const perAmt=contract/f.total;
+  const expected=Math.min(contract, perAmt*Math.max(0,(today-new Date(start))/86400000/f.per));
+  const behindBy=expected-paid;
+  if(behindBy<=perAmt) return null;               // within one payment = ok
+  return {behindBy, periods:perAmt>0?behindBy/perAmt:0, word:f.word};
+}
+
+async function loadUrgent(){
+  try{
+    const {data:orders}=await sb.from("sim_orders")
+      .select("id,customer_id,order_date,first_payment_date,payment_frequency,contract_value,amount_paid_to_date,delivery_status,consultant_name,order_status")
+      .eq("order_status","active");
+    const rows=[];
+    for(const o of (orders||[])){ const b=isBehindDelivered(o); if(b) rows.push({o,b}); }
+    // names
+    const ids=[...new Set(rows.map(r=>r.o.customer_id).filter(Boolean))];
+    const nm={};
+    for(let i=0;i<ids.length;i+=200){
+      const {data:cs}=await sb.from("sim_customers").select("id,first_name,last_name,mobile").in("id",ids.slice(i,i+200));
+      (cs||[]).forEach(c=>nm[c.id]={name:[c.first_name,c.last_name].filter(Boolean).join(" ")||"(no name)",mobile:c.mobile||""});
+    }
+    rows.sort((a,b)=>b.b.behindBy-a.b.behindBy);
+    document.getElementById("urgentN").textContent=rows.length;
+    const body=document.getElementById("urgentBody");
+    if(!rows.length){ body.innerHTML=`<div class="none">Nothing urgent — no delivered customers are behind right now.</div>`; return; }
+    body.innerHTML=`<table><thead><tr><th>Customer</th><th>Consultant</th><th>Mobile</th><th class="num">Behind by</th></tr></thead><tbody>`+
+      rows.map(r=>{const c=nm[r.o.customer_id]||{};
+        return `<tr class="row" onclick="location.href='customer-detail.html?id=${r.o.id}'">
+          <td>${c.name||""}</td><td>${r.o.consultant_name||'<span style="color:#98a4b3">—</span>'}</td>
+          <td style="color:#6b7889">${c.mobile||""}</td>
+          <td class="num">${fmt(r.b.behindBy)} (${r.b.periods.toFixed(0)} ${r.b.word})</td></tr>`;
+      }).join("")+`</tbody></table>`;
+  }catch(e){ document.getElementById("urgentBody").innerHTML=`<div class="load">Couldn't load: ${e.message||e}</div>`; }
+}
+loadUrgent();
+</script>
 </body>
 </html>

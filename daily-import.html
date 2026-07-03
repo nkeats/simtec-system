@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Simtec — Daily Import</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<style>
+  :root{--navy:#122347;--navy2:#1c3363;--gold:#c6a15b;--ink:#1a2334;--line:#d9e0ea;--bg:#eef1f5;
+        --green:#1c6b34;--greenbg:#e7f6ec;--red:#c0332e;--redbg:#fdecec;--amber:#b8860b;--amberbg:#fff6da;--grey:#7a8798;}
+  *{box-sizing:border-box}
+  body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;color:var(--ink);background:var(--bg);margin:0}
+  header{background:var(--navy);color:#fff;padding:16px 22px;display:flex;align-items:center;gap:12px}
+  header h1{font-size:18px;margin:0;font-weight:600}
+  header a.home{color:#b9c6de;text-decoration:none;font-size:13px;font-weight:600}
+  header a.home:hover{color:#fff}
+  .wrap{max-width:920px;margin:22px auto;padding:0 16px}
+  .card{background:#fff;border:1px solid var(--line);border-radius:12px;padding:20px 22px;margin-bottom:16px}
+  .drop{border:2px dashed #c2ccda;border-radius:12px;padding:30px;text-align:center;color:#6b7889;cursor:pointer;background:#fafbfc}
+  .drop:hover{border-color:var(--gold);background:#fff}
+  .drop b{color:var(--navy)}
+  input[type=file]{display:none}
+  .tiles{display:flex;gap:12px;flex-wrap:wrap;margin:4px 0 6px}
+  .tile{flex:1;min-width:130px;border:1px solid var(--line);border-radius:10px;padding:12px 14px}
+  .tile .n{font-size:22px;font-weight:700}
+  .tile .l{font-size:11px;color:#6b7889;text-transform:uppercase;letter-spacing:.05em}
+  .tile.green .n{color:var(--green)} .tile.red .n{color:var(--red)} .tile.amber .n{color:var(--amber)} .tile.grey .n{color:var(--grey)}
+  h2{font-size:13px;text-transform:uppercase;letter-spacing:.07em;color:var(--navy);border-bottom:2px solid var(--gold);padding-bottom:7px;display:inline-block;margin:2px 0 12px}
+  table{width:100%;border-collapse:collapse;font-size:13.5px}
+  th,td{padding:7px 9px;border-bottom:1px solid var(--line);text-align:left}
+  th{background:#f3f6fa;color:var(--navy);font-size:11.5px;text-transform:uppercase}
+  td.num{text-align:right;font-variant-numeric:tabular-nums}
+  button{background:var(--navy);color:#fff;border:none;border-radius:9px;padding:13px 24px;font-size:15px;font-weight:600;cursor:pointer}
+  button:hover{background:var(--navy2)} button:disabled{opacity:.5;cursor:default}
+  button.ghost{background:#fff;color:var(--navy);border:1px solid #cbd4df}
+  #msg{display:none;padding:12px 14px;border-radius:8px;font-size:14px;margin-bottom:14px;white-space:pre-wrap}
+  .ok{background:var(--greenbg);color:var(--green);border:1px solid #b6e0c4}
+  .err{background:var(--redbg);color:var(--red);border:1px solid #f2bdbd}
+  .warn{background:var(--amberbg);color:var(--amber);border:1px solid #ecd98a}
+  .muted{color:#8a97a6}
+  .actions{display:flex;gap:12px;align-items:center;margin-top:6px}
+  details{margin-top:8px} summary{cursor:pointer;color:var(--navy);font-weight:600;font-size:13px}
+</style>
+</head>
+<body>
+<header id="hdr">
+  <a href="home.html" class="home">‹ Home</a>
+  <h1>Simtec — Daily Import</h1>
+</header>
+
+<div class="wrap">
+  <div id="msg"></div>
+
+  <div class="card">
+    <h2>Ezidebit settlement report</h2>
+    <p class="muted" style="margin-top:0">Upload the daily <b>Payment Settlement Report</b> PDF. It updates paid balances, records dishonours, and applies refunds — all from this one file.</p>
+    <label class="drop" id="drop">
+      <b>Click to choose the PDF</b><br><span class="muted">or drag it here</span>
+      <input type="file" id="file" accept="application/pdf">
+    </label>
+  </div>
+
+  <div class="card" id="preview" style="display:none">
+    <h2>Preview <span class="muted" id="pvdate" style="font-size:12px;text-transform:none;letter-spacing:0"></span></h2>
+    <div class="tiles">
+      <div class="tile green"><div class="n" id="t_paid">0</div><div class="l">Payments</div></div>
+      <div class="tile red"><div class="n" id="t_fail">0</div><div class="l">Dishonours</div></div>
+      <div class="tile amber"><div class="n" id="t_ref">0</div><div class="l">Refunds</div></div>
+      <div class="tile grey"><div class="n" id="t_dupe">0</div><div class="l">Already imported</div></div>
+    </div>
+    <div id="summary" style="font-size:14px;margin:6px 0 4px"></div>
+
+    <details id="unmatchedWrap" style="display:none"><summary>Couldn't match to a customer (<span id="unmatchedN">0</span>)</summary>
+      <table style="margin-top:6px"><tbody id="unmatched"></tbody></table></details>
+
+    <details><summary>Dishonours in this report</summary>
+      <table style="margin-top:6px"><thead><tr><th>Date</th><th>Customer</th><th class="num">Amount</th></tr></thead><tbody id="dishList"></tbody></table></details>
+
+    <div class="actions" style="margin-top:16px">
+      <button id="apply">Apply to system</button>
+      <button class="ghost" id="cancel">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const sb = supabase.createClient("https://jvqjoenaungubpoegyvf.supabase.co","sb_publishable_J4MYTdJJyEaWe-GadpwdYA_upPT2rKw");
+if(new URLSearchParams(location.search).get("embed")){
+  document.getElementById("hdr").style.display="none";
+  document.body.style.background="transparent";
+  document.querySelector(".wrap").style.margin="0 auto";
+}
+pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+const $=id=>document.getElementById(id);
+function show(t,c){$("msg").style.display="block";$("msg").className=c;$("msg").textContent=t;window.scrollTo({top:0,behavior:"smooth"});}
+function clearMsg(){$("msg").style.display="none";}
+const fmt=n=>(n==null)?"—":"$"+Number(n).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
+function auDate(v){if(!v)return"";const m=String(v).match(/^(\d{4})-(\d{2})-(\d{2})/);if(m)return m[3]+"/"+m[2]+"/"+m[1];return v;}
+function iso(dmy){const m=String(dmy).match(/(\d{2})\/(\d{2})\/(\d{4})/);return m?`${m[3]}-${m[2]}-${m[1]}`:null;}
+
+let PARSED=null; // {settle, paid:[], refunds:[], dishonours:[], all:[]}
+
+// ---- read PDF text ----
+async function pdfText(file){
+  const buf = await file.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({data:buf}).promise;
+  let out="";
+  for(let p=1;p<=pdf.numPages;p++){
+    const page=await pdf.getPage(p);
+    const tc=await page.getTextContent();
+    out += tc.items.map(i=>i.str).join(" ") + "\n";
+  }
+  return out;
+}
+
+// ---- parse settlement report ----
+function parse(text){
+  const cut=text.indexOf("Total Amount Cleared"); if(cut!==-1) text=text.slice(0,cut);
+  const val=s=>parseFloat(s.replace(/\$/g,"").replace(/,/g,"").replace(/\s/g,""));
+  const rowRe=/(\d{2}\/\d{2}\/\d{4})\s+(\d{2}\/\d{2}\/\d{4})\s+(\d{3}-\d{3}-\d{3})/g;
+  const ms=[...text.matchAll(rowRe)];
+  const paid=[],refunds=[],dishonours=[];
+  let settle=null;
+  for(let i=0;i<ms.length;i++){
+    const m=ms[i]; const trans=m[1], settleD=m[2], payer=m[3];
+    settle=settleD;
+    const span=text.slice(m.index, i+1<ms.length?ms[i+1].index:text.length);
+    const res=span.match(/\b(Paid|Failed|Refund)\b/); if(!res) continue;
+    const amts=(span.match(/-?\$?\s?[\d,]+\.\d{2}/g)||[]).map(val);
+    if(amts.length<3) continue;
+    const payamt=amts[0], fees=amts[1], cleared=amts[2];
+    const rec={payer,trans:iso(trans),settle:iso(settleD),payamt,fees,cleared};
+    if(res[1]==="Paid"){ paid.push(rec); }
+    else if(res[1]==="Refund"){ refunds.push(rec); }
+    else { // Failed
+      const rr=span.match(/Dishonour[^$]*?(?=\s*-?\$)/); // reason up to amounts
+      rec.reason=(rr?rr[0]:"Dishonour").replace(/\s+/g," ").trim();
+      dishonours.push(rec);
+    }
+  }
+  return {settle:iso(settle),paid,refunds,dishonours};
+}
+
+// ---- build dedup key ----
+const keyOf=(r,result)=>`${r.settle}|${r.payer}|${r.payamt.toFixed(2)}|${result}`;
+
+async function onFile(file){
+  clearMsg(); $("preview").style.display="none";
+  if(!file) return;
+  if(file.type!=="application/pdf"){ show("Please choose a PDF file.","err"); return; }
+  show("Reading the report…","warn");
+  try{
+    const text=await pdfText(file);
+    const p=parse(text);
+    if(!p.paid.length && !p.dishonours.length && !p.refunds.length){
+      show("Couldn't find any transactions in that PDF. Is it the Payment Settlement Report?","err"); return;
+    }
+    // match payers to orders
+    const {data:orders}=await sb.from("sim_orders").select("id,ezidebit_payer_ref,amount_paid_to_date").not("ezidebit_payer_ref","is",null);
+    const omap={}; (orders||[]).forEach(o=>{ if(o.ezidebit_payer_ref) omap[o.ezidebit_payer_ref.trim()]=o; });
+    // fetch existing dedup keys for this settlement date
+    const [pk,dk]=await Promise.all([
+      sb.from("sim_payments").select("dedup_key").eq("settlement_date",p.settle).not("dedup_key","is",null),
+      sb.from("sim_dishonours").select("dedup_key").eq("settlement_date",p.settle).not("dedup_key","is",null),
+    ]);
+    const existPay=new Set((pk.data||[]).map(r=>r.dedup_key));
+    const existDis=new Set((dk.data||[]).map(r=>r.dedup_key));
+    // names for matched
+    const ids=[...new Set(Object.values(omap).map(o=>o.id))];
+    const cmap={};
+    // fetch customer names via orders->customers
+    const {data:ordCust}=await sb.from("sim_orders").select("id,customer_id").in("id",ids.slice(0,1000));
+    const custIds=[...new Set((ordCust||[]).map(o=>o.customer_id).filter(Boolean))];
+    const c2name={};
+    for(let i=0;i<custIds.length;i+=200){
+      const {data:cs}=await sb.from("sim_customers").select("id,first_name,last_name").in("id",custIds.slice(i,i+200));
+      (cs||[]).forEach(c=>c2name[c.id]=[c.first_name,c.last_name].filter(Boolean).join(" "));
+    }
+    const ord2name={}; (ordCust||[]).forEach(o=>ord2name[o.id]=c2name[o.customer_id]||"");
+    const nameFor=payer=>{ const o=omap[payer]; return o?(ord2name[o.id]||"(unnamed)"):null; };
+
+    PARSED={...p, omap, existPay, existDis, nameFor};
+    renderPreview();
+  }catch(e){ show("Error reading PDF: "+(e.message||e),"err"); }
+}
+
+function renderPreview(){
+  const p=PARSED;
+  const newPaid=p.paid.filter(r=>!p.existPay.has(keyOf(r,"paid")));
+  const newRef =p.refunds.filter(r=>!p.existPay.has(keyOf(r,"refund")));
+  const newDis =p.dishonours.filter(r=>!p.existDis.has(keyOf(r,"dishonour")));
+  const dupe = (p.paid.length-newPaid.length)+(p.refunds.length-newRef.length)+(p.dishonours.length-newDis.length);
+
+  const paidTotal=newPaid.reduce((s,r)=>s+r.payamt,0);
+  const refTotal =newRef.reduce((s,r)=>s+r.payamt,0);
+  const unmatched=[...newPaid,...newRef,...newDis].filter(r=>!p.omap[r.payer]);
+
+  clearMsg();
+  $("preview").style.display="block";
+  $("pvdate").textContent = p.settle?("— settlement "+auDate(p.settle)):"";
+  $("t_paid").textContent=newPaid.length;
+  $("t_fail").textContent=newDis.length;
+  $("t_ref").textContent=newRef.length;
+  $("t_dupe").textContent=dupe;
+  $("summary").innerHTML=`Ready to apply: <b>${newPaid.length} payments</b> (${fmt(paidTotal)}), <b>${newDis.length} dishonours</b>, <b>${newRef.length} refunds</b> (${fmt(refTotal)}). `
+    + (dupe?`<span class="muted">${dupe} already imported — will be skipped.</span>`:``);
+
+  const um=[...new Set(unmatched.map(r=>r.payer))];
+  if(um.length){ $("unmatchedWrap").style.display="block"; $("unmatchedN").textContent=um.length;
+    $("unmatched").innerHTML=um.map(x=>`<tr><td>${x}</td><td class="muted">not found in customers</td></tr>`).join(""); }
+  else { $("unmatchedWrap").style.display="none"; }
+
+  $("dishList").innerHTML = newDis.length
+    ? newDis.map(r=>`<tr><td>${auDate(r.trans)}</td><td>${p.nameFor(r.payer)||('<span class="muted">'+r.payer+' (no match)</span>')}</td><td class="num">${fmt(r.payamt)}</td></tr>`).join("")
+    : `<tr><td colspan="3" class="muted">No new dishonours.</td></tr>`;
+
+  PARSED.newPaid=newPaid; PARSED.newRef=newRef; PARSED.newDis=newDis;
+}
+
+async function apply(){
+  const p=PARSED; if(!p) return;
+  $("apply").disabled=true; $("apply").textContent="Applying…";
+  try{
+    // 1. insert payments + refunds
+    const payRows=[...p.newPaid.map(r=>({...r,result:"paid"})),...p.newRef.map(r=>({...r,result:"refund"}))]
+      .map(r=>({payer_ref:r.payer,payment_date:r.trans,settlement_date:r.settle,amount:r.payamt,fees:r.fees,cleared:r.cleared,result:r.result,source:"ezidebit",dedup_key:keyOf(r,r.result)}));
+    if(payRows.length){ const {error}=await sb.from("sim_payments").insert(payRows); if(error) throw new Error("Payments: "+error.message); }
+
+    // 2. insert dishonours
+    const disRows=p.newDis.map(r=>({payer_ref:r.payer,dishonour_date:r.trans,settlement_date:r.settle,amount:r.payamt,failed_reason:r.reason||null,dedup_key:keyOf(r,"dishonour")}));
+    if(disRows.length){ const {error}=await sb.from("sim_dishonours").insert(disRows); if(error) throw new Error("Dishonours: "+error.message); }
+
+    // 3. update balances (net delta per matched order)
+    const delta={}; // orderId -> {order, add}
+    [...p.newPaid,...p.newRef].forEach(r=>{ const o=p.omap[r.payer]; if(!o) return; if(!delta[o.id]) delta[o.id]={o,add:0}; delta[o.id].add+=r.payamt; });
+    let updated=0;
+    for(const id in delta){
+      const {o,add}=delta[id];
+      const newVal=Number(o.amount_paid_to_date||0)+add;
+      const {error}=await sb.from("sim_orders").update({amount_paid_to_date:newVal}).eq("id",id);
+      if(!error) updated++;
+    }
+
+    const paidTotal=p.newPaid.reduce((s,r)=>s+r.payamt,0)+p.newRef.reduce((s,r)=>s+r.payamt,0);
+    $("preview").style.display="none";
+    show(`Done. Applied ${p.newPaid.length} payments and ${p.newRef.length} refunds (net ${fmt(paidTotal)}) across ${updated} customers, and recorded ${p.newDis.length} dishonours.\nThe risk board, profiles and arrears now reflect this report.`,"ok");
+    PARSED=null; $("file").value="";
+  }catch(e){ show("Something went wrong applying: "+(e.message||e)+"\nSafe to re-upload — anything already applied is skipped.","err"); }
+  finally{ $("apply").disabled=false; $("apply").textContent="Apply to system"; }
+}
+
+// wire up
+$("file").addEventListener("change",e=>onFile(e.target.files[0]));
+$("drop").addEventListener("dragover",e=>{e.preventDefault();});
+$("drop").addEventListener("drop",e=>{e.preventDefault(); if(e.dataTransfer.files[0]) onFile(e.dataTransfer.files[0]);});
+$("apply").addEventListener("click",apply);
+$("cancel").addEventListener("click",()=>{ $("preview").style.display="none"; PARSED=null; $("file").value=""; clearMsg(); });
+</script>
+</body>
+</html>
