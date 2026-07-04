@@ -253,6 +253,15 @@ async function showRun(){
     sb.from('commission_retention').select('*'),
   ]);
   if(re)throw re;
+  // Gather: pull any unassigned auto-fed sales for this week into the draft run
+  // (sales arrive from the orders feed with pay_run_id = null; opening the week's run claims them)
+  if(run&&run.status!=='finalised'){
+    await sb.from('commission_sales').update({pay_run_id:runId})
+      .is('pay_run_id',null)
+      .neq('status','cancelled')
+      .gte('sale_date',run.week_start)
+      .lte('sale_date',run.week_ending);
+  }
   const retMap={};(ret||[]).forEach(x=>retMap[x.consultant_id]=+x.balance||0);
   const active=consultants.filter(c=>c.active);
 
