@@ -1,11 +1,8 @@
-/* ============================================================================
- * auth.js — Simtec shared login gate
- * ==========================================================================*/
+/* auth.js — Simtec shared login gate */
 (function () {
   var me = document.currentScript;
   window.__SIMTEC_ROLES__ = (me && me.dataset && me.dataset.roles)
-    ? me.dataset.roles.split(',').map(function (s) { return s.trim(); }).filter(Boolean)
-    : null;
+    ? me.dataset.roles.split(',').map(function (s) { return s.trim(); }).filter(Boolean) : null;
   try {
     var st = document.createElement('style');
     st.id = 'simtec-auth-hide';
@@ -17,7 +14,6 @@
 (async function () {
   var URL_ = "https://jvqjoenaungubpoegyvf.supabase.co";
   var KEY_ = "sb_publishable_J4MYTdJJyEaWe-GadpwdYA_upPT2rKw";
-
   function reveal() { var s = document.getElementById('simtec-auth-hide'); if (s) s.remove(); }
   function toLogin() { location.replace('login.html'); }
 
@@ -26,7 +22,6 @@
   if (typeof supabase === 'undefined') { reveal(); return; }
 
   var _sb = supabase.createClient(URL_, KEY_);
-
   var sess = await _sb.auth.getSession();
   var session = sess && sess.data ? sess.data.session : null;
   if (!session) { toLogin(); return; }
@@ -36,17 +31,17 @@
     var res = await _sb.from('profiles').select('role,active,consultant_name,full_name,email').eq('id', session.user.id).maybeSingle();
     prof = res.data;
   } catch (e) {}
-  if (!prof || prof.active === false) { await _sb.auth.signOut(); toLogin(); return; }
+  if (prof && prof.active === false) { await _sb.auth.signOut(); toLogin(); return; }
 
-  var role = prof.role || 'office';
+  var role = (prof && prof.role) ? prof.role : null;
   window.SIMTEC_USER = {
-    id: session.user.id, email: prof.email || session.user.email,
-    role: role, consultant_name: prof.consultant_name || null, full_name: prof.full_name || null
+    id: session.user.id, email: (prof && prof.email) || session.user.email,
+    role: role, consultant_name: (prof && prof.consultant_name) || null, full_name: (prof && prof.full_name) || null
   };
   window.SIMTEC_SB = _sb;
 
   var allowed = window.__SIMTEC_ROLES__;
-  if (Array.isArray(allowed) && allowed.indexOf(role) === -1) {
+  if (role && Array.isArray(allowed) && allowed.indexOf(role) === -1) {
     reveal();
     document.body.innerHTML =
       '<div style="max-width:440px;margin:90px auto;padding:0 20px;font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;text-align:center;color:#1a2334">' +
@@ -63,14 +58,12 @@
   function addLogout() {
     if (document.getElementById('simtec-logout')) return;
     var b = document.createElement('button');
-    b.id = 'simtec-logout';
-    b.textContent = 'Log out';
-    b.title = window.SIMTEC_USER.email + ' (' + role + ')';
+    b.id = 'simtec-logout'; b.textContent = 'Log out';
+    b.title = window.SIMTEC_USER.email + ' (' + (role || 'no role') + ')';
     b.style.cssText = 'position:fixed;top:10px;right:12px;z-index:99999;background:#c6a15b;color:#122347;border:none;border-radius:7px;padding:7px 15px;font:700 12.5px -apple-system,Segoe UI,Roboto,Arial,sans-serif;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.28)';
     b.onclick = async function () { b.disabled = true; await _sb.auth.signOut(); toLogin(); };
     document.body.appendChild(b);
   }
   if (document.body) addLogout(); else document.addEventListener('DOMContentLoaded', addLogout);
-
   reveal();
 })();
