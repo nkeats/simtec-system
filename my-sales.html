@@ -7,8 +7,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="auth.js?v=3" data-roles="admin,manager,consultant"></script>
 <style>
-  :root{--navy:#122347;--navy2:#1c3363;--gold:#c6a15b;--ink:#1a2334;--line:#d9e0ea;--bg:#eef1f5;
-        --red:#c0332e;--amber:#b8860b;--green:#1c6b34;--grey:#7a8798;}
+  :root{--navy:#122347;--navy2:#1c3363;--gold:#c6a15b;--ink:#1a2334;--line:#d9e0ea;--bg:#eef1f5;--grey:#7a8798;}
   *{box-sizing:border-box}
   body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(--bg);color:var(--ink);margin:0}
   header{background:var(--navy);color:#fff;padding:18px 22px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
@@ -21,7 +20,6 @@
   .tile{background:#fff;border:1px solid var(--line);border-radius:12px;padding:16px 18px}
   .tile .l{font-size:11.5px;text-transform:uppercase;letter-spacing:.06em;color:#6b7889}
   .tile .n{font-size:28px;font-weight:800;color:var(--navy);margin-top:3px}
-  .tile .n span{font-size:15px;font-weight:600;color:#6b7889}
   .award{background:linear-gradient(135deg,#122347,#1c3363);color:#fff;border-radius:12px;padding:18px 20px;margin-bottom:18px}
   .award .l{font-size:11.5px;text-transform:uppercase;letter-spacing:.08em;color:var(--gold);font-weight:700}
   .award .name{font-size:22px;font-weight:800;margin:2px 0 4px}
@@ -34,7 +32,6 @@
   .card h2{font-size:13px;text-transform:uppercase;letter-spacing:.07em;color:var(--navy);margin:0;padding:16px 18px 12px}
   table{width:100%;border-collapse:collapse;font-size:14px}
   th,td{padding:10px 14px;text-align:left;border-bottom:1px solid var(--line)}
-  th{background:#f3f6fa;color:var(--navy);font-size:11.5px;text-transform:uppercase;letter-spacing:.04em}
   td.num{text-align:right;font-variant-numeric:tabular-nums}
   tr.sale{cursor:pointer} tr.sale:hover{background:#f7fafc}
   tr.det td{background:#fafbfc;padding:0}
@@ -42,8 +39,6 @@
   .kv{display:flex;justify-content:space-between;gap:12px;font-size:13.5px;padding:3px 0;border-bottom:1px dotted #e6ebf1}
   .kv .k{color:#6b7889} .kv .v{font-weight:600;text-align:right}
   .full{grid-column:1/-1}
-  .pill{display:inline-block;font-size:11px;font-weight:700;padding:2px 9px;border-radius:20px}
-  .p-green{background:#e7f6ec;color:var(--green)} .p-amber{background:#fff6da;color:var(--amber)} .p-red{background:#fdecec;color:var(--red)} .p-grey{background:#eef1f4;color:var(--grey)}
   .muted{color:var(--grey)} #state{padding:30px;text-align:center;color:#6b7889}
   @media(max-width:640px){.detin{grid-template-columns:1fr}}
 </style>
@@ -55,14 +50,11 @@
   <select id="pick" style="display:none" onchange="loadFor(this.value)"></select>
 </header>
 
-<div class="wrap">
-  <div id="body"><div id="state">Loading…</div></div>
-</div>
+<div class="wrap"><div id="body"><div id="state">Loading…</div></div></div>
 
 <script>
 const sb = supabase.createClient("https://jvqjoenaungubpoegyvf.supabase.co","sb_publishable_J4MYTdJJyEaWe-GadpwdYA_upPT2rKw");
 const $=id=>document.getElementById(id);
-const fmt=n=>"$"+Math.round(+n||0).toLocaleString();
 const esc=s=>(s||"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 function auDate(v){ if(!v) return "—"; const m=String(v).match(/^(\d{4})-(\d{2})-(\d{2})/); return m? m[3]+"/"+m[2]+"/"+m[1] : v; }
 function weekStart(d){ const dt=new Date(d+"T12:00:00"); const off=(dt.getDay()+6)%7; dt.setDate(dt.getDate()-off); return dt.toISOString().slice(0,10); }
@@ -78,15 +70,12 @@ const AWARDS=[
   {name:"Grand Diamond", type:"consec", span:6, target:10, desc:"6 straight weeks of 10+ sales"},
 ];
 
-// wait for the login gate to tell us who this is
+// wait for the login gate to identify the user
 (function init(){
   const u=window.SIMTEC_USER;
   if(!u){ return setTimeout(init,80); }
-  if(u.consultant_name){
-    $("who").textContent=u.consultant_name;
-    loadFor(u.consultant_name);
-  } else {
-    // admin/manager: pick a consultant
+  if(u.consultant_name){ $("who").textContent=u.consultant_name; loadFor(u.consultant_name); }
+  else {
     $("who").style.display="none";
     sb.from("commission_consultants").select("name").order("name").then(({data})=>{
       const names=[...new Set((data||[]).map(d=>d.name).filter(Boolean))];
@@ -100,114 +89,100 @@ const AWARDS=[
 async function loadFor(name){
   if(!name){ $("body").innerHTML='<div id="state">Choose a consultant to view.</div>'; return; }
   $("body").innerHTML='<div id="state">Loading…</div>';
-  const { data:orders, error } = await sb.from("sim_orders")
-    .select("*, sim_customers(first_name,last_name,mobile,email,address), sim_order_items(product_name,quantity,unit_price,line_no)")
-    .eq("consultant_name", name)
-    .neq("order_status","cancelled")
-    .order("order_date",{ascending:false});
-  if(error){ $("body").innerHTML='<div id="state" style="color:#c0332e">Couldn\u2019t load: '+esc(error.message)+'</div>'; return; }
-  render(name, orders||[]);
+  // 1) the consultant record (id + overseas award baseline)
+  const { data:cons } = await sb.from("commission_consultants").select("id,award_baseline").eq("name",name).maybeSingle();
+  if(!cons){ $("body").innerHTML='<div id="state">No consultant record found for '+esc(name)+'.</div>'; return; }
+  // 2) their complete sales record (drives counts + awards)
+  const { data:sales, error:se } = await sb.from("commission_sales")
+    .select("id,sale_date,status,cancelled_date,customer_name,sim_order_id")
+    .eq("consultant_id", cons.id).order("sale_date",{ascending:false});
+  if(se){ $("body").innerHTML='<div id="state" style="color:#c0332e">Couldn\u2019t load sales: '+esc(se.message)+'</div>'; return; }
+  // 3) their customers in the operating system (drives the contact list)
+  const { data:orders } = await sb.from("sim_orders")
+    .select("id,order_date,order_status,contract_value,customer_id, sim_customers(first_name,last_name,mobile,email,address), sim_order_items(product_name,quantity,line_no)")
+    .eq("consultant_name", name).order("order_date",{ascending:false});
+  render(name, sales||[], orders||[], cons.award_baseline);
 }
 
-// ---- award maths ----
-function weeklySeries(orders){
-  const perWeek={};
-  const seen={}; // week -> set of customer ids (one customer = one sale)
-  orders.forEach(o=>{
-    if(!o.order_date) return;
-    const w=weekStart(o.order_date);
-    (seen[w]=seen[w]||new Set()).add(o.customer_id||o.id);
-  });
+// ---- award maths (one customer = one sale; permanent if live at pay day) ----
+function payDayFor(d){ const x=new Date(weekStart(d)+"T12:00:00"); x.setDate(x.getDate()+9); return x.toISOString().slice(0,10); }
+function eligible(s){
+  if(!s.sale_date) return false;
+  if((s.status||"active")!=="cancelled") return true;
+  if(!s.cancelled_date) return true;
+  return s.cancelled_date > payDayFor(s.sale_date);
+}
+function weeklySeries(sales){
+  const seen={};
+  sales.forEach(s=>{ if(!s.sale_date) return; const w=weekStart(s.sale_date); const key=(s.customer_name||"").toLowerCase().trim()||s.id; (seen[w]=seen[w]||new Set()).add(key); });
   const weeks=Object.keys(seen); if(!weeks.length) return [];
-  weeks.forEach(w=>perWeek[w]=seen[w].size);
-  // build a continuous Monday series from first week to current week
-  const first=weeks.sort()[0];
-  const series=[]; let d=new Date(first+"T12:00:00"); const end=new Date(THIS_WEEK+"T12:00:00");
-  while(d<=end){ const k=d.toISOString().slice(0,10); series.push({week:k, count:perWeek[k]||0}); d.setDate(d.getDate()+7); }
+  const first=weeks.sort()[0]; const series=[]; let d=new Date(first+"T12:00:00"); const end=new Date(THIS_WEEK+"T12:00:00");
+  while(d<=end){ const k=d.toISOString().slice(0,10); series.push({week:k, count:(seen[k]?seen[k].size:0)}); d.setDate(d.getDate()+7); }
   return series;
 }
-function bestSingle(series){ return series.reduce((m,x)=>Math.max(m,x.count),0); }
-function bestConsec(series,target){ let best=0,run=0; series.forEach(x=>{ run = x.count>=target ? run+1 : 0; best=Math.max(best,run); }); return best; }
-function bestWindow(series,span,target){ let best=0; for(let i=0;i+span<=series.length;i++){ let s=0; for(let j=0;j<span;j++) s+=series[i+j].count; best=Math.max(best,s);} if(series.length<span){best=series.reduce((a,x)=>a+x.count,0);} return best; }
-function awardMet(a,series){
-  if(a.type==="single") return bestSingle(series)>=a.target;
-  if(a.type==="consec") return bestConsec(series,a.target)>=a.span;
-  if(a.type==="window") return bestWindow(series,a.span,a.target)>=a.target;
-  return false;
-}
-function awardProgress(a,series){
-  if(a.type==="single"){ const b=bestSingle(series); return {have:b, need:a.target, label:`Best week: ${b} of ${a.target}`}; }
-  if(a.type==="consec"){ const b=bestConsec(series,a.target); return {have:b, need:a.span, label:`Best run: ${b} of ${a.span} weeks at ${a.target}+`}; }
-  if(a.type==="window"){ const b=bestWindow(series,a.span,a.target); return {have:b, need:a.target, label:`Best ${a.span} weeks: ${b} of ${a.target}`}; }
+function bestSingle(s){ return s.reduce((m,x)=>Math.max(m,x.count),0); }
+function bestConsec(s,t){ let b=0,r=0; s.forEach(x=>{ r=x.count>=t?r+1:0; b=Math.max(b,r); }); return b; }
+function bestWindow(s,span,t){ let b=0; for(let i=0;i+span<=s.length;i++){ let sum=0; for(let j=0;j<span;j++) sum+=s[i+j].count; b=Math.max(b,sum);} if(s.length<span) b=s.reduce((a,x)=>a+x.count,0); return b; }
+function met(a,s){ if(a.type==="single")return bestSingle(s)>=a.target; if(a.type==="consec")return bestConsec(s,a.target)>=a.span; if(a.type==="window")return bestWindow(s,a.span,a.target)>=a.target; return false; }
+function prog(a,s){
+  if(a.type==="single"){ const b=bestSingle(s); return {have:b,need:a.target,label:`Best week: ${b} of ${a.target}`}; }
+  if(a.type==="consec"){ const b=bestConsec(s,a.target); return {have:b,need:a.span,label:`Best run: ${b} of ${a.span} weeks at ${a.target}+`}; }
+  if(a.type==="window"){ const b=bestWindow(s,a.span,a.target); return {have:b,need:a.target,label:`Best ${a.span} weeks: ${b} of ${a.target}`}; }
   return {have:0,need:1,label:""};
 }
 
-function payStatus(o){
-  const contract=+o.contract_value||0, paid=+o.amount_paid_to_date||0;
-  if(contract<=0) return {cls:"p-grey", txt:"No value"};
-  if(paid>=contract*0.999) return {cls:"p-green", txt:"Paid up"};
-  if((o.delivery_status||"")==="delivered") return {cls:"p-amber", txt:fmt(paid)+" of "+fmt(contract)};
-  return {cls:"p-grey", txt:fmt(paid)+" of "+fmt(contract)};
-}
+function render(name, sales, orders, baseline){
+  const elig = sales.filter(eligible);
+  const series = weeklySeries(elig);
+  const thisWeek = elig.filter(s=>s.sale_date && weekStart(s.sale_date)===THIS_WEEK).length;
+  const last4 = series.slice(-4).reduce((a,x)=>a+x.count,0);
 
-function render(name, orders){
-  const series=weeklySeries(orders);
-  const thisWeekCount = series.length ? (series[series.length-1].week===THIS_WEEK ? series[series.length-1].count : 0) : 0;
-  const thisWeekVal = orders.filter(o=>o.order_date && weekStart(o.order_date)===THIS_WEEK).reduce((s,o)=>s+(+o.contract_value||0),0);
-  const totalCustomers = new Set(orders.map(o=>o.customer_id||o.id)).size;
-
-  // next award (first not met, walking in order)
-  let next=null, achieved=0;
-  for(const a of AWARDS){ if(awardMet(a,series)) achieved++; else { next=a; break; } }
+  // awards achieved: computed from history, floored by the overseas baseline
+  let achieved=0; for(const a of AWARDS){ if(met(a,series)) achieved++; else break; }
+  const baseIdx = baseline ? AWARDS.findIndex(a=>a.name===baseline) : -1;
+  achieved = Math.max(achieved, baseIdx+1);
+  const next = achieved < AWARDS.length ? AWARDS[achieved] : null;
 
   let awardHTML;
   if(!next){
     awardHTML=`<div class="award max"><div class="l">Top honour reached</div><div class="name">Grand Diamond 💎</div><div class="desc">Every award earned. Outstanding.</div></div>`;
   } else {
-    const p=awardProgress(next,series);
-    const pct=Math.max(4,Math.min(100, Math.round(p.have/p.need*100)));
-    awardHTML=`<div class="award"><div class="l">Next award${achieved?` · ${achieved} earned so far`:""}</div>
+    const p=prog(next,series); const pct=Math.max(4,Math.min(100,Math.round(p.have/p.need*100)));
+    awardHTML=`<div class="award"><div class="l">Next award${achieved?` · ${achieved} earned`:""}</div>
       <div class="name">${next.name}</div><div class="desc">${next.desc}</div>
-      <div class="bar"><div style="width:${pct}%"></div></div>
-      <div class="prog">${p.label}</div></div>`;
+      <div class="bar"><div style="width:${pct}%"></div></div><div class="prog">${p.label}</div></div>`;
   }
 
-  const rows = orders.map((o,i)=>{
-    const c=o.sim_customers||{};
-    const cname=`${c.first_name||""} ${c.last_name||""}`.trim()||"(no name)";
+  // customer contact list (operating-system customers, active only)
+  const active = orders.filter(o=>(o.order_status||"active")!=="cancelled");
+  const rows = active.map((o,i)=>{
+    const c=o.sim_customers||{}; const cname=`${c.first_name||""} ${c.last_name||""}`.trim()||"(no name)";
     const items=(o.sim_order_items||[]).slice().sort((a,b)=>(a.line_no||0)-(b.line_no||0));
-    const prod=items.map(it=>(it.quantity>1?it.quantity+"× ":"")+it.product_name).join(", ")||"—";
-    const ps=payStatus(o);
-    const det=`<tr class="det" id="det${i}" style="display:none"><td colspan="4"><div class="detin">
-      <div class="kv"><span class="k">Mobile</span><span class="v">${esc(c.mobile)||"—"}</span></div>
+    const pd=items.map(it=>(it.quantity>1?it.quantity+"× ":"")+it.product_name).join(", ")||"—";
+    const det=`<tr class="det" id="det${i}" style="display:none"><td colspan="3"><div class="detin">
+      <div class="kv"><span class="k">Phone</span><span class="v">${esc(c.mobile)||"—"}</span></div>
       <div class="kv"><span class="k">Email</span><span class="v">${esc(c.email)||"—"}</span></div>
       <div class="kv full"><span class="k">Address</span><span class="v">${esc(c.address)||"—"}</span></div>
-      <div class="kv"><span class="k">Payment method</span><span class="v">${esc((o.payment_method||"").replace(/_/g," "))||"—"}</span></div>
-      <div class="kv"><span class="k">Frequency</span><span class="v">${esc(o.payment_frequency)||"—"}</span></div>
-      <div class="kv"><span class="k">Total value</span><span class="v">${fmt(o.contract_value)}</span></div>
-      <div class="kv"><span class="k">Paid to date</span><span class="v">${fmt(o.amount_paid_to_date)}</span></div>
-      <div class="kv"><span class="k">Delivery</span><span class="v">${esc((o.delivery_status||"pending"))}${o.delivery_date?" · "+auDate(o.delivery_date):""}</span></div>
-      <div class="kv"><span class="k">Ezidebit ref</span><span class="v">${esc(o.ezidebit_payer_ref)||"—"}</span></div>
-      <div class="kv full"><span class="k">Products</span><span class="v">${esc(prod)}</span></div>
+      <div class="kv full"><span class="k">Products</span><span class="v">${esc(pd)}</span></div>
     </div></td></tr>`;
     return `<tr class="sale" onclick="tog(${i})">
       <td><b>${esc(cname)}</b><div class="muted" style="font-size:12px">${esc(c.mobile)||""}</div></td>
-      <td>${auDate(o.order_date)}</td>
-      <td class="num">${fmt(o.contract_value)}</td>
-      <td><span class="pill ${ps.cls}">${ps.txt}</span></td>
+      <td>${auDate(o.order_date)}</td><td class="num">$${Math.round(+o.contract_value||0).toLocaleString()}</td>
     </tr>${det}`;
   }).join("");
 
+  const gap = elig.length > active.length;
   $("body").innerHTML=`
     <div class="tiles">
-      <div class="tile"><div class="l">Sales this week</div><div class="n">${thisWeekCount}</div></div>
-      <div class="tile"><div class="l">Value this week</div><div class="n">${fmt(thisWeekVal)}</div></div>
+      <div class="tile"><div class="l">Sales this week</div><div class="n">${thisWeek}</div></div>
+      <div class="tile"><div class="l">Sales · last 4 weeks</div><div class="n">${last4}</div></div>
     </div>
     ${awardHTML}
     <div class="card">
-      <h2>My customers · ${orders.length} order${orders.length!==1?"s":""} · ${totalCustomers} customer${totalCustomers!==1?"s":""} all-time</h2>
-      ${orders.length ? `<table><thead><tr><th>Customer</th><th>Sale date</th><th class="num">Value</th><th>Payments</th></tr></thead><tbody>${rows}</tbody></table>`
-        : `<div id="state">No sales on record yet.</div>`}
+      <h2>My customers · ${active.length} in the system</h2>
+      ${active.length ? `<table><thead><tr><th>Customer</th><th>Sale date</th><th class="num">Value</th></tr></thead><tbody>${rows}</tbody></table>`
+        : `<div id="state">No customers to show here yet.</div>`}
+      ${gap ? `<div style="padding:10px 18px;font-size:12px;color:#7a8798;border-top:1px solid #eef1f4">Your sales count above comes from the pay record. A few older/imported sales aren\u2019t in the operating system yet, so they don\u2019t appear in this contact list — new sales entered here will.</div>` : ""}
     </div>`;
 }
 window.tog=i=>{ const d=$("det"+i); if(d) d.style.display = d.style.display==="none" ? "table-row" : "none"; };
