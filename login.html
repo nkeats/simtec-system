@@ -51,7 +51,15 @@ function show(t,cls){ const m=$("msg"); m.style.display="block"; m.className=cls
 function clearMsg(){ $("msg").style.display="none"; }
 
 // If already logged in, go straight to the hub
-(async()=>{ const {data:{session}} = await sb.auth.getSession(); if(session) location.replace("home.html"); })();
+// where should this user land? consultants go to My Sales; everyone else to the hub.
+async function landing(userId){
+  try{ const {data}=await sb.from("profiles").select("role").eq("id",userId).maybeSingle();
+    return (data && data.role==="consultant") ? "my-sales.html" : "home.html"; }
+  catch(e){ return "home.html"; }
+}
+
+// If already logged in, go straight to the right place
+(async()=>{ const {data:{session}} = await sb.auth.getSession(); if(session) location.replace(await landing(session.user.id)); })();
 
 async function login(){
   clearMsg();
@@ -64,7 +72,7 @@ async function login(){
     // block disabled accounts
     const {data:prof}=await sb.from("profiles").select("active").eq("id",data.user.id).maybeSingle();
     if(prof && prof.active===false){ await sb.auth.signOut(); throw new Error("This account has been disabled. Contact an administrator."); }
-    location.replace("home.html");
+    location.replace(await landing(data.user.id));
   }catch(e){
     show(e.message==="Invalid login credentials" ? "Wrong email or password." : (e.message||"Couldn't log in."),"err");
     btn.disabled=false; btn.textContent=orig;

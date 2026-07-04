@@ -70,12 +70,13 @@
   var allowed = window.__SIMTEC_ROLES__;
   if (role && Array.isArray(allowed) && allowed.indexOf(role) === -1) {
     reveal();
+    var landing = role === 'consultant' ? 'my-sales.html' : 'home.html';
     document.body.innerHTML =
       '<div style="max-width:440px;margin:90px auto;padding:0 20px;font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;text-align:center;color:#1a2334">' +
       '<div style="font-size:24px;font-weight:800;color:#122347;letter-spacing:.5px">SIMTEC</div>' +
       '<h2 style="color:#122347;margin-top:22px">No access</h2>' +
       '<p style="color:#6b7889">Your account doesn\u2019t have permission for this page.</p>' +
-      '<p style="margin-top:18px"><a href="home.html" style="color:#1c3363;font-weight:600">Back to home</a>' +
+      '<p style="margin-top:18px"><a href="' + landing + '" style="color:#1c3363;font-weight:600">Back to your home</a>' +
       ' &nbsp;·&nbsp; <a href="#" id="_simlo" style="color:#1c3363;font-weight:600">Log out</a></p></div>';
     var lo = document.getElementById('_simlo');
     if (lo) lo.onclick = async function (e) { e.preventDefault(); await _sb.auth.signOut(); toLogin(); };
