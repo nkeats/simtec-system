@@ -1,13 +1,5 @@
 /* ============================================================================
  * auth.js — Simtec shared login gate
- * ----------------------------------------------------------------------------
- * Add ONE line to any page you want protected, right AFTER the supabase-js
- * <script> tag, e.g.:
- *   <script src="auth.js" data-roles="admin,manager,office"></script>
- * - No data-roles  -> any logged-in user may view.
- * - data-roles=...  -> only those roles may view; others see "No access".
- * Not logged in     -> bounced to login.html.  Adds a Log out button.
- * Do NOT add this to login.html or reset-password.html.
  * ==========================================================================*/
 (function () {
   var me = document.currentScript;
@@ -48,11 +40,8 @@
 
   var role = prof.role || 'office';
   window.SIMTEC_USER = {
-    id: session.user.id,
-    email: prof.email || session.user.email,
-    role: role,
-    consultant_name: prof.consultant_name || null,
-    full_name: prof.full_name || null
+    id: session.user.id, email: prof.email || session.user.email,
+    role: role, consultant_name: prof.consultant_name || null, full_name: prof.full_name || null
   };
   window.SIMTEC_SB = _sb;
 
@@ -77,7 +66,7 @@
     b.id = 'simtec-logout';
     b.textContent = 'Log out';
     b.title = window.SIMTEC_USER.email + ' (' + role + ')';
-    b.style.cssText = 'position:fixed;top:10px;right:12px;z-index:99999;background:#122347;color:#fff;border:1px solid #c6a15b;border-radius:7px;padding:6px 13px;font:600 12px -apple-system,Segoe UI,Roboto,Arial,sans-serif;cursor:pointer;box-shadow:0 2px 6px rgba(0,0,0,.15)';
+    b.style.cssText = 'position:fixed;top:10px;right:12px;z-index:99999;background:#c6a15b;color:#122347;border:none;border-radius:7px;padding:7px 15px;font:700 12.5px -apple-system,Segoe UI,Roboto,Arial,sans-serif;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.28)';
     b.onclick = async function () { b.disabled = true; await _sb.auth.signOut(); toLogin(); };
     document.body.appendChild(b);
   }
