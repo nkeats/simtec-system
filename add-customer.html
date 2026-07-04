@@ -98,12 +98,10 @@
         <select id="payFreq"><option value="">—</option><option value="weekly">Weekly</option><option value="fortnightly">Fortnightly</option><option value="monthly">Monthly</option></select></div>
       <div><label for="payerRef">Ezidebit Payer ID</label><input id="payerRef" placeholder="551-000-000" autocomplete="off"></div>
 
-      <div class="req"><label for="contract">Total sale value ($)</label><input id="contract" type="number" min="0" step="0.01"></div>
-      <div><label for="paid">Amount paid to date ($)</label><input id="paid" type="number" min="0" step="0.01" value="0"></div>
+      <div class="req"><label for="contract">Total sale value ($)</label><input id="contract" type="number" min="0" step="0.01" readonly><div class="hint" id="totalHint">Calculated from the products below.</div></div>
       <div><label for="deposit">Deposit amount ($)</label><input id="deposit" type="number" min="0" step="0.01" value="0"></div>
 
       <div><label for="firstPay">First payment date</label><input id="firstPay" type="date"></div>
-      <div><label for="delDate">Delivery date</label><input id="delDate" type="date"></div>
       <div><label for="delStatus">Delivery status</label>
         <select id="delStatus">
           <option value="pending">Pending</option>
@@ -157,7 +155,7 @@ function clearMsg(){ msg.style.display="none"; }
 const SIZES = ["King Single","Queen","Super King","Cal King"];
 const RANGES = [
   {name:"Mk I",      sizes:["King Single","Queen","Super King"]},
-  {name:"Mk II",     sizes:["King Single","Queen","Super King","Cal King"]},
+  {name:"Mk II",     sizes:["King Single","Queen","Super King"]},
   {name:"Mk III",    sizes:["King Single","Queen","Super King","Cal King"]},
   {name:"BB (Base)", sizes:["King Single","Queen","Super King","Cal King"]},
   {name:"MP",        sizes:["King Single","Queen","Super King","Cal King"]},
@@ -178,6 +176,49 @@ const ABBR = {"King Single":"KS","Queen":"Q","Super King":"SK","Cal King":"CK"};
   }
   $("prodTable").innerHTML = h;
 })();
+
+// ---- pricing / auto-calculated total ----
+const PRICES = {}; // config key -> retail price
+function sizeKey(size){ return ({"King Single":"king_single","Queen":"queen","Super King":"super_king","Cal King":"california_king"})[size] || ""; }
+function cellConfigKey(range,size){
+  const rk = ({"Mk I":"mk1","Mk II":"mk2","Mk III":"mk3","BB (Base)":"base","MP":"protector"})[range];
+  return rk ? rk+"_"+sizeKey(size) : null;
+}
+function recalcTotal(){
+  if(!Object.keys(PRICES).length) return;          // prices didn't load → leave total editable
+  let total=0, missing=false;
+  document.querySelectorAll('#prodTable input[data-range]').forEach(inp=>{
+    const q=parseInt(inp.value,10); if(!q||q<0) return;
+    const key=cellConfigKey(inp.dataset.range,inp.dataset.size);
+    const price=key?PRICES[key]:null;
+    if(price==null){ missing=true; return; }
+    total += q*price;
+  });
+  const pil=parseInt($("pillow").value,10);   if(pil>0){ const p=PRICES["pillow"];   if(p==null) missing=true; else total+=pil*p; }
+  const del=parseInt($("delivery").value,10); if(del>0){ const p=PRICES["delivery"]; if(p==null) missing=true; else total+=del*p; }
+  $("contract").value = total.toFixed(2);
+  $("contract").readOnly = !missing;               // locked when everything is priced; editable if a price is missing
+  $("contract").style.background = missing ? "#fff" : "#f3f6fa";
+  const hnt=$("totalHint");
+  if(hnt) hnt.textContent = missing
+    ? "⚠ A selected product has no price in the products config — check the total."
+    : "Calculated from the products above.";
+}
+async function loadPrices(){
+  try{
+    const {data}=await sb.from("config").select("key,value").eq("category","products");
+    (data||[]).forEach(r=>{ const rt=r.value && r.value.retail; if(rt!=null) PRICES[r.key]=Number(rt); });
+  }catch(e){}
+  if(Object.keys(PRICES).length){
+    $("contract").readOnly=true; $("contract").style.background="#f3f6fa"; recalcTotal();
+  }else{
+    $("contract").readOnly=false;
+    const hnt=$("totalHint"); if(hnt) hnt.textContent="Enter the total manually (product prices unavailable).";
+  }
+  document.querySelectorAll('#prodTable input[data-range]').forEach(inp=>inp.addEventListener("input",recalcTotal));
+  $("pillow").addEventListener("input",recalcTotal);
+  $("delivery").addEventListener("input",recalcTotal);
+}
 
 // ---- phone normalise / validate ----
 function normNZ(raw){
@@ -265,7 +306,7 @@ async function save(){
   if(flag==="missing" || flag==="check"){ return show("Enter a valid mobile number before saving.","err"); }
   if(!consultant){ return show("Choose or type the consultant for this sale.","err"); }
   if(!orderDate){ return show("Set the sale date.","err"); }
-  if(contract===null){ return show("Enter the total sale value.","err"); }
+  if(!contract || contract<=0){ return show("Add at least one product — the total is $0.","err"); }
 
   const btn=$("save"); btn.disabled=true; const original=btn.textContent; btn.textContent="Saving…";
   try{
@@ -285,11 +326,10 @@ async function save(){
       payment_method:method,
       payment_frequency:$("payFreq").value||null,
       contract_value:contract,
-      amount_paid_to_date:$("paid").value===""?0:Number($("paid").value),
+      amount_paid_to_date:0,
       deposit_amount:$("deposit").value===""?0:Number($("deposit").value),
       ezidebit_payer_ref:$("payerRef").value.trim()||null,
       first_payment_date:$("firstPay").value||null,
-      delivery_date:$("delDate").value||null,
       delivery_status:$("delStatus").value,
       order_status:"active",
       paid_in_full: method==="pay_in_full"
@@ -324,17 +364,19 @@ async function save(){
 
 $("clear").addEventListener("click", ()=>clearForm(false));
 function clearForm(keepDate){
-  ["first","last","mobile","email","address","city","postcode","payerRef","contract","firstPay","delDate"].forEach(id=>$(id).value="");
-  $("paid").value="0"; $("deposit").value="0"; $("pillow").value=""; $("delivery").value="";
+  ["first","last","mobile","email","address","city","postcode","payerRef","contract","firstPay"].forEach(id=>$(id).value="");
+  $("deposit").value="0"; $("pillow").value=""; $("delivery").value="";
   $("saleType").value=""; $("payMethod").value=""; $("payFreq").value=""; $("delStatus").value="pending";
   $("mobileHint").textContent="";
   document.querySelectorAll('#prodTable input[data-range]').forEach(i=>i.value="");
+  recalcTotal();
   if(!keepDate) $("consultant").value="";
 }
 
 // init
 $("orderDate").value = new Date().toISOString().slice(0,10);
 loadConsultants();
+loadPrices();
 loadRecent();
 </script>
 </body>
