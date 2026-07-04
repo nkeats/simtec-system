@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Simtec — Home</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="auth.js" data-roles="admin,manager,office"></script>
+<script src="auth.js?v=2" data-roles="admin,manager,office"></script>
 <style>
   :root{--navy:#122347;--navy2:#1c3363;--gold:#c6a15b;--ink:#1a2334;--line:#dde3ec;--bg:#eef1f5;
         --red:#c0332e;--redbg:#fdecec;--grey:#7a8798;}
@@ -61,7 +61,7 @@
   <!-- DAILY IMPORT -->
   <div class="sec">
     <h2>Upload today's Ezidebit report</h2>
-    <div class="panel"><iframe id="importFrame" src="daily-import.html?embed=1" title="Daily import"></iframe></div>
+    <div class="panel"><iframe id="importFrame" src="daily-import.html?embed=1&v=2" title="Daily import"></iframe></div>
   </div>
 
   <!-- MENU -->
@@ -104,7 +104,8 @@ const sb = supabase.createClient("https://jvqjoenaungubpoegyvf.supabase.co","sb_
 window.addEventListener("message", e=>{
   if(e.data && e.data.simtecEmbedHeight){
     const f=document.getElementById("importFrame");
-    if(f) f.style.height=(e.data.simtecEmbedHeight+8)+"px";
+    const nh=e.data.simtecEmbedHeight+8;
+    if(f && Math.abs((parseInt(f.style.height)||0)-nh)>2) f.style.height=nh+"px";
   }
 });
 const fmt=n=>n==null?"—":"$"+Math.round(n).toLocaleString();
