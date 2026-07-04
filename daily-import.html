@@ -90,7 +90,9 @@ const sb = supabase.createClient("https://jvqjoenaungubpoegyvf.supabase.co","sb_
 if(new URLSearchParams(location.search).get("embed")){
   document.getElementById("hdr").style.display="none";
   document.body.style.background="transparent";
-  document.querySelector(".wrap").style.margin="0 auto";
+  var _es=document.createElement("style");
+  _es.textContent=".wrap{margin:0!important;padding:0!important;max-width:100%!important}#msg{margin:0 0 8px!important}.card{margin:0!important;border:none!important;box-shadow:none!important;padding:6px 6px 4px!important}.card h2{margin-top:0}.drop{padding:20px!important}";
+  document.head.appendChild(_es);
   // tell the parent page how tall we are, so the iframe can size to content
   function reportHeight(){
     const h=Math.max(document.body.scrollHeight, document.documentElement.scrollHeight);

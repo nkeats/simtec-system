@@ -31,7 +31,8 @@
   var KEY_ = "sb_publishable_J4MYTdJJyEaWe-GadpwdYA_upPT2rKw";
 
   function reveal() { var s = document.getElementById('simtec-auth-hide'); if (s) s.remove(); }
-  function toLogin() { location.replace('login.html'); }
+  var inFrame = (function () { try { return window.top !== window.self; } catch (e) { return true; } })();
+  function toLogin() { if (inFrame) { reveal(); return; } location.replace('login.html'); }
 
   // wait briefly for the supabase library to be present
   var tries = 0;
@@ -87,12 +88,12 @@
     var b = document.createElement('button');
     b.id = 'simtec-logout';
     b.textContent = 'Log out';
-    b.title = window.SIMTEC_USER.email + ' (' + role + ')';
+    b.title = window.SIMTEC_USER.email + ' (' + (role || 'no role') + ')';
     b.style.cssText = 'position:fixed;top:10px;right:12px;z-index:99999;background:#c6a15b;color:#122347;border:none;border-radius:7px;padding:7px 15px;font:700 12.5px -apple-system,Segoe UI,Roboto,Arial,sans-serif;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.28)';
     b.onclick = async function () { b.disabled = true; await _sb.auth.signOut(); toLogin(); };
     document.body.appendChild(b);
   }
-  if (document.body) addLogout(); else document.addEventListener('DOMContentLoaded', addLogout);
+  if (!inFrame) { if (document.body) addLogout(); else document.addEventListener('DOMContentLoaded', addLogout); }
 
   reveal();
 })();
