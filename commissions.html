@@ -285,8 +285,7 @@ async function showRun(){
         <div class="flex items-center gap-3">
         ${run.status==='finalised'
           ?`<button onclick="unfinaliseRun('${run.id}')" class="btn dark text-sm">↩ Un-finalise</button>`
-          :`<button onclick="showImportModal('${run.id}','${run.week_ending}')" class="btn dark text-sm">⬆ Import from Spreadsheet</button>
-           <button onclick="finaliseRun('${run.id}')" class="btn gold text-sm">✓ Finalise &amp; Mark Paid</button>`}
+          :`<button onclick="finaliseRun('${run.id}')" class="btn gold text-sm">✓ Finalise &amp; Mark Paid</button>`}
         <span class="text-sm px-3 py-1.5 rounded-full ${run.status==='finalised'?'bg-green-900 text-green-400':'bg-slate-700 text-slate-400'}">${run.status==='finalised'?'Finalised ✓ Paid':'Draft'}</span>
       </div>
       </div>
