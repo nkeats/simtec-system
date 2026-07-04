@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Simtec — Log in</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  :root{--navy:#122347;--navy2:#1c3363;--gold:#c6a15b;--ink:#1a2334;--line:#d9e0ea;--bg:#eef1f5;--err:#a02020;--errbg:#fdecec;--ok:#1c6b34;--okbg:#e7f6ec;}
+  *{box-sizing:border-box}
+  body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(--bg);color:var(--ink);margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
+  .card{background:#fff;border:1px solid var(--line);border-radius:14px;width:100%;max-width:380px;padding:34px 30px;box-shadow:0 10px 30px rgba(18,35,71,.08)}
+  .brand{text-align:center;margin-bottom:26px}
+  .brand .t{font-size:24px;font-weight:800;color:var(--navy);letter-spacing:.5px}
+  .brand .s{font-size:11px;letter-spacing:.24em;color:var(--gold);font-weight:700;margin-top:2px}
+  .brand .sys{font-size:12.5px;color:#6b7889;margin-top:8px}
+  label{display:block;font-weight:600;font-size:12.5px;margin:14px 0 5px;color:#3a4759}
+  input{width:100%;padding:11px 12px;border:1px solid #cbd4df;border-radius:8px;font-size:15px}
+  input:focus{outline:2px solid var(--navy2);border-color:var(--navy2)}
+  button{width:100%;background:var(--navy);color:#fff;border:none;border-radius:9px;padding:13px;font-size:15px;font-weight:600;cursor:pointer;margin-top:20px}
+  button:hover{background:var(--navy2)} button:disabled{opacity:.5;cursor:default}
+  .link{display:block;text-align:center;margin-top:16px;font-size:13px;color:var(--navy2);text-decoration:none;cursor:pointer}
+  .link:hover{text-decoration:underline}
+  #msg{display:none;margin-top:16px;padding:10px 12px;border-radius:8px;font-size:13.5px}
+  .err{background:var(--errbg);color:var(--err);border:1px solid #f2bdbd}
+  .ok{background:var(--okbg);color:var(--ok);border:1px solid #b6e0c4}
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="brand">
+    <div class="t">SIMTEC</div>
+    <div class="s">THERAPEUTIC</div>
+    <div class="sys">Operating System</div>
+  </div>
+  <div id="form">
+    <label for="email">Email</label>
+    <input id="email" type="email" autocomplete="username" placeholder="you@simtectp.com">
+    <label for="pwd">Password</label>
+    <input id="pwd" type="password" autocomplete="current-password" placeholder="••••••••">
+    <button id="login">Log in</button>
+    <a class="link" id="forgot">Forgot password?</a>
+  </div>
+  <div id="msg"></div>
+</div>
+
+<script>
+const sb = supabase.createClient("https://jvqjoenaungubpoegyvf.supabase.co","sb_publishable_J4MYTdJJyEaWe-GadpwdYA_upPT2rKw");
+const $=id=>document.getElementById(id);
+function show(t,cls){ const m=$("msg"); m.style.display="block"; m.className=cls; m.textContent=t; }
+function clearMsg(){ $("msg").style.display="none"; }
+
+// If already logged in, go straight to the hub
+(async()=>{ const {data:{session}} = await sb.auth.getSession(); if(session) location.replace("home.html"); })();
+
+async function login(){
+  clearMsg();
+  const email=$("email").value.trim(), pwd=$("pwd").value;
+  if(!email || !pwd){ return show("Enter your email and password.","err"); }
+  const btn=$("login"); btn.disabled=true; const orig=btn.textContent; btn.textContent="Logging in…";
+  try{
+    const {data,error}=await sb.auth.signInWithPassword({email,password:pwd});
+    if(error) throw error;
+    // block disabled accounts
+    const {data:prof}=await sb.from("profiles").select("active").eq("id",data.user.id).maybeSingle();
+    if(prof && prof.active===false){ await sb.auth.signOut(); throw new Error("This account has been disabled. Contact an administrator."); }
+    location.replace("home.html");
+  }catch(e){
+    show(e.message==="Invalid login credentials" ? "Wrong email or password." : (e.message||"Couldn't log in."),"err");
+    btn.disabled=false; btn.textContent=orig;
+  }
+}
+$("login").addEventListener("click", login);
+$("pwd").addEventListener("keydown", e=>{ if(e.key==="Enter") login(); });
+
+$("forgot").addEventListener("click", async()=>{
+  clearMsg();
+  const email=$("email").value.trim();
+  if(!email){ return show("Type your email above first, then click Forgot password.","err"); }
+  try{
+    const redirectTo = new URL("reset-password.html", location.href).href;
+    const {error}=await sb.auth.resetPasswordForEmail(email,{redirectTo});
+    if(error) throw error;
+    show("If that email has an account, a reset link is on its way. Check your inbox (and spam).","ok");
+  }catch(e){ show(e.message||"Couldn't send the reset email.","err"); }
+});
+</script>
+</body>
+</html>

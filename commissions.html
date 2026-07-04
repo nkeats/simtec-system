@@ -253,6 +253,15 @@ async function showRun(){
     sb.from('commission_retention').select('*'),
   ]);
   if(re)throw re;
+  // Gather: pull any unassigned auto-fed sales for this week into the draft run
+  // (sales arrive from the orders feed with pay_run_id = null; opening the week's run claims them)
+  if(run&&run.status!=='finalised'){
+    await sb.from('commission_sales').update({pay_run_id:runId})
+      .is('pay_run_id',null)
+      .neq('status','cancelled')
+      .gte('sale_date',run.week_start)
+      .lte('sale_date',run.week_ending);
+  }
   const retMap={};(ret||[]).forEach(x=>retMap[x.consultant_id]=+x.balance||0);
   const active=consultants.filter(c=>c.active);
 
@@ -276,8 +285,7 @@ async function showRun(){
         <div class="flex items-center gap-3">
         ${run.status==='finalised'
           ?`<button onclick="unfinaliseRun('${run.id}')" class="btn dark text-sm">↩ Un-finalise</button>`
-          :`<button onclick="showImportModal('${run.id}','${run.week_ending}')" class="btn dark text-sm">⬆ Import from Spreadsheet</button>
-           <button onclick="finaliseRun('${run.id}')" class="btn gold text-sm">✓ Finalise &amp; Mark Paid</button>`}
+          :`<button onclick="finaliseRun('${run.id}')" class="btn gold text-sm">✓ Finalise &amp; Mark Paid</button>`}
         <span class="text-sm px-3 py-1.5 rounded-full ${run.status==='finalised'?'bg-green-900 text-green-400':'bg-slate-700 text-slate-400'}">${run.status==='finalised'?'Finalised ✓ Paid':'Draft'}</span>
       </div>
       </div>

@@ -119,13 +119,13 @@ async function run(){
     if(!o) return;
     let c={};
     if(o.customer_id){ const {data}=await sb.from("sim_customers").select("*").eq("id",o.customer_id).single(); c=data||{}; }
-    const {data:items}=await sb.from("sim_order_items").select("product_range,product_size,quantity").eq("order_id",id);
+    const {data:items}=await sb.from("sim_order_items").select("product_name,quantity").eq("order_id",id).order("line_no");
     document.getElementById("c_name").textContent=[c.first_name,c.last_name].filter(Boolean).join(" ")||"";
     document.getElementById("c_phone").textContent=c.mobile||"";
     document.getElementById("c_addr").textContent=c.address||"";
     document.getElementById("c_deldate").textContent=auDate(o.delivery_date);
     if(items && items.length){
-      document.getElementById("items").innerHTML=items.map(i=>`<tr><td>${i.product_range||""}</td><td>${i.product_size||""}</td><td class="num">${i.quantity}</td></tr>`).join("");
+      document.getElementById("items").innerHTML=items.map(i=>`<tr><td colspan="2">${i.product_name||""}</td><td class="num">${i.quantity}</td></tr>`).join("");
     }
     document.title="Docket — "+([c.first_name,c.last_name].filter(Boolean).join(" ")||"customer");
   }catch(e){ /* leave blank docket */ }
