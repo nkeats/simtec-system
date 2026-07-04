@@ -104,7 +104,7 @@ async function run(){
     if(error||!o) throw new Error("Customer record not found.");
     let cust={};
     if(o.customer_id){ const {data}=await sb.from("sim_customers").select("*").eq("id",o.customer_id).single(); cust=data||{}; }
-    const {data:items}=await sb.from("sim_order_items").select("product_range,product_size,quantity").eq("order_id",orderId);
+    const {data:items}=await sb.from("sim_order_items").select("product_name,quantity,unit_price").eq("order_id",orderId).order("line_no");
     let pays=[];
     if(o.ezidebit_payer_ref){ const {data}=await sb.from("sim_payments").select("payment_date,amount").eq("payer_ref",o.ezidebit_payer_ref).order("payment_date",{ascending:false}); pays=data||[]; }
     render(o,cust,items||[],pays);
@@ -152,10 +152,10 @@ function render(o,c,items,pays){
   </div>`;
 
   const prodRows = items.length
-    ? items.map(i=>`<tr><td>${i.product_range||""}</td><td>${i.product_size||"—"}</td><td class="num">${i.quantity}</td></tr>`).join("")
+    ? items.map(i=>`<tr><td>${i.product_name||""}</td><td class="num">${i.quantity}</td><td class="num">${i.unit_price!=null?fmt(i.unit_price):""}</td></tr>`).join("")
     : `<tr><td colspan="3" class="muted">No product lines recorded.</td></tr>`;
   const products=`<div class="card full"><h2>Products</h2>
-    <table><thead><tr><th>Range</th><th>Size</th><th class="num">Qty</th></tr></thead><tbody>${prodRows}</tbody></table></div>`;
+    <table><thead><tr><th>Product</th><th class="num">Qty</th><th class="num">Unit price</th></tr></thead><tbody>${prodRows}</tbody></table></div>`;
 
   const payRows = pays.length
     ? pays.slice(0,60).map(x=>`<tr><td>${auDate(x.payment_date)}</td><td class="num">${fmt(x.amount)}</td></tr>`).join("")
