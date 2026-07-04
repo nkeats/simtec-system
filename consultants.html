@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Simtec — Consultants & Teams</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="auth.js?v=3" data-roles="admin,manager"></script>
+<style>
+  :root{--navy:#122347;--navy2:#1c3363;--gold:#c6a15b;--ink:#1a2334;--line:#d9e0ea;--bg:#eef1f5;--ok:#1c6b34;--okbg:#e7f6ec;--err:#a02020;--errbg:#fdecec;--grey:#7a8798;}
+  *{box-sizing:border-box}
+  body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(--bg);color:var(--ink);margin:0}
+  header{background:var(--navy);color:#fff;padding:16px 22px;display:flex;align-items:center;gap:14px}
+  header a.back{color:#b9c6de;text-decoration:none;font-size:13px;font-weight:600} header a.back:hover{color:#fff}
+  header h1{font-size:18px;margin:0;font-weight:600}
+  .wrap{max-width:900px;margin:22px auto;padding:0 16px}
+  .card{background:#fff;border:1px solid var(--line);border-radius:12px;padding:20px 22px;margin-bottom:18px}
+  .card h2{font-size:13px;text-transform:uppercase;letter-spacing:.08em;color:var(--navy);margin:0 0 16px;padding-bottom:10px;border-bottom:2px solid var(--gold);display:inline-block}
+  .grid{display:grid;grid-template-columns:1.4fr 1fr auto;gap:14px;align-items:end}
+  label{display:block;font-weight:600;font-size:12.5px;margin-bottom:5px;color:#3a4759}
+  input,select{width:100%;padding:10px 11px;border:1px solid #cbd4df;border-radius:8px;font-size:15px;background:#fff}
+  input:focus,select:focus{outline:2px solid var(--navy2);border-color:var(--navy2)}
+  .chk{display:flex;align-items:center;gap:8px;font-size:14px;margin-top:8px}
+  .chk input{width:auto}
+  button{background:var(--navy);color:#fff;border:none;border-radius:9px;padding:11px 20px;font-size:14.5px;font-weight:600;cursor:pointer}
+  button:hover{background:var(--navy2)} button:disabled{opacity:.5;cursor:default}
+  button.mini{padding:6px 11px;font-size:12.5px;border-radius:7px}
+  button.ghost{background:#fff;color:var(--navy);border:1px solid #cbd4df}
+  table{width:100%;border-collapse:collapse;font-size:14px}
+  th,td{padding:10px 12px;text-align:left;border-bottom:1px solid var(--line);vertical-align:middle}
+  th{background:#f3f6fa;color:var(--navy);font-size:11.5px;text-transform:uppercase;letter-spacing:.04em}
+  td select{padding:6px 8px;font-size:13.5px}
+  .badge{display:inline-block;font-size:11px;font-weight:700;padding:3px 9px;border-radius:20px}
+  .tl{background:#efe7d2;color:#7a5c17} .con{background:#eef1f4;color:var(--grey)}
+  .muted{color:var(--grey);font-size:13px}
+  #msg{display:none;padding:12px 14px;border-radius:8px;font-size:14px;margin-bottom:16px}
+  .msgok{background:var(--okbg);color:var(--ok);border:1px solid #b6e0c4}
+  .msgerr{background:var(--errbg);color:var(--err);border:1px solid #f2bdbd}
+  @media(max-width:640px){.grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<header>
+  <a href="home.html" class="back">‹ Home</a>
+  <h1>Consultants &amp; Teams</h1>
+</header>
+
+<div class="wrap">
+  <div id="msg"></div>
+
+  <div class="card">
+    <h2>Add a consultant</h2>
+    <div class="grid">
+      <div><label for="name">Full name</label><input id="name" autocomplete="off" placeholder="e.g. Jordan Smith"></div>
+      <div><label for="tl">Team leader</label><select id="tl"><option value="">— none —</option></select></div>
+      <div><button id="add" onclick="addConsultant()">Add</button></div>
+    </div>
+    <div class="chk"><input type="checkbox" id="isTL"><label for="isTL" style="margin:0">This person is a team leader</label></div>
+    <div class="muted" style="margin-top:8px">Adding a consultant here creates their sales/commission record. To give them a login, use <b>User Access</b> and set their consultant name to match.</div>
+  </div>
+
+  <div class="card">
+    <h2>Consultants</h2>
+    <div id="listState" class="muted">Loading…</div>
+    <table id="tbl" style="display:none">
+      <thead><tr><th>Name</th><th>Role</th><th>Team leader</th><th></th></tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+const sb = supabase.createClient("https://jvqjoenaungubpoegyvf.supabase.co","sb_publishable_J4MYTdJJyEaWe-GadpwdYA_upPT2rKw");
+const $=id=>document.getElementById(id);
+const esc=s=>(s||"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+function show(t,ok){ const m=$("msg"); m.style.display="block"; m.className=ok?"msgok":"msgerr"; m.textContent=t; window.scrollTo({top:0,behavior:"smooth"}); }
+function clearMsg(){ $("msg").style.display="none"; }
+
+let LIST=[];
+
+async function load(){
+  const { data, error } = await sb.from("commission_consultants").select("id,name,team_leader,is_team_leader").order("name");
+  if(error){ $("listState").textContent="Couldn't load: "+error.message; return; }
+  LIST=data||[];
+  const leaders = LIST.filter(c=>c.is_team_leader).map(c=>c.name).sort();
+
+  // team-leader dropdown for the add form
+  $("tl").innerHTML='<option value="">— none —</option>'+leaders.map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join("");
+
+  $("listState").style.display="none"; $("tbl").style.display="table";
+  $("rows").innerHTML = LIST.map(c=>{
+    const tlOpts='<option value="">— none —</option>'+leaders.filter(n=>n!==c.name).map(n=>`<option value="${esc(n)}"${c.team_leader===n?" selected":""}>${esc(n)}</option>`).join("");
+    return `<tr>
+      <td><b>${esc(c.name)}</b></td>
+      <td><span class="badge ${c.is_team_leader?"tl":"con"}">${c.is_team_leader?"Team leader":"Consultant"}</span></td>
+      <td>${c.is_team_leader?'<span class="muted">—</span>':`<select onchange="setLeader('${c.id}',this.value)">${tlOpts}</select>`}</td>
+      <td><button class="mini ghost" onclick="toggleTL('${c.id}',${c.is_team_leader?"false":"true"})">${c.is_team_leader?"Make consultant":"Make team leader"}</button></td>
+    </tr>`;
+  }).join("");
+}
+
+async function addConsultant(){
+  clearMsg();
+  const name=$("name").value.trim();
+  if(!name){ return show("Enter a name.",false); }
+  if(LIST.some(c=>c.name.toLowerCase()===name.toLowerCase())){ return show("A consultant with that name already exists.",false); }
+  const btn=$("add"); btn.disabled=true;
+  try{
+    const isTL=$("isTL").checked;
+    const { error } = await sb.from("commission_consultants").insert({
+      name, is_team_leader: isTL,
+      team_leader: isTL ? name : ($("tl").value||null)   // a leader earns override on their own sales too
+    });
+    if(error) throw error;
+    show(`Added ${name}.`, true);
+    $("name").value=""; $("tl").value=""; $("isTL").checked=false;
+    load();
+  }catch(e){ show(e.message||"Couldn't add.",false); }
+  finally{ btn.disabled=false; }
+}
+
+async function setLeader(id, leader){
+  clearMsg();
+  const { error } = await sb.from("commission_consultants").update({team_leader: leader||null}).eq("id",id);
+  if(error) show(error.message,false); else { show("Team leader updated.",true); load(); }
+}
+async function toggleTL(id, makeTL){
+  clearMsg();
+  const on = (makeTL===true||makeTL==="true");
+  const c = LIST.find(x=>x.id===id);
+  // A team leader also earns override on their OWN sales. The pay run resolves
+  // override via the team_leader field, so a leader's team_leader = themselves.
+  const patch = on ? {is_team_leader:true, team_leader: c?c.name:null} : {is_team_leader:false, team_leader:null};
+  const { error } = await sb.from("commission_consultants").update(patch).eq("id",id);
+  if(error) show(error.message,false); else { show(on?"Promoted to team leader — earns override on their own and their team's sales from the next pay run.":"Set back to consultant.",true); load(); }
+}
+
+load();
+</script>
+</body>
+</html>
