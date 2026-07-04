@@ -46,6 +46,7 @@ let settings=null,consultants=[],products=[];
 const DEF={tier1_max:4,tier1_amount:200,tier2_max:9,tier2_amount:300,
   tier3_amount:400,cash_bonus:100,retention_rate:0.25,retention_cap:5000,pillow_charge:40,override_rate:60};
 const S=()=>({...DEF,...settings}); // safe settings with defaults
+const GIVEAWAY_ITEMS=['Pillow','Mattress protector','Other']; // fixed list (stock system will key off this)
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 const fmt=n=>'$'+(+n||0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,',');
@@ -87,12 +88,23 @@ function calc(sales,bonuses,deds,retBal){
   return{units,rate,sc,ac,mb,gs,gross,ret,td,payout:payoutAmt,net:gross-ret-td+payoutAmt,retAfter:retBal+ret-payoutAmt};
 }
 
+// Giveaway balances: balance owed = SUM(giveaways) − SUM(repayments in finalised runs)
+function givBalances(giveaways,repayDeds,finalisedRunIds){
+  const fin=new Set(finalisedRunIds||[]);
+  const m={};
+  const b=id=>m[id]||(m[id]={taken:0,repaid:0,balance:0});
+  (giveaways||[]).forEach(g=>{b(g.consultant_id).taken+=(+g.amount||0);});
+  (repayDeds||[]).forEach(d=>{if(fin.has(d.pay_run_id))b(d.consultant_id).repaid+=(+d.amount||0);});
+  Object.values(m).forEach(x=>x.balance=x.taken-x.repaid);
+  return m;
+}
+
 // ── Nav ────────────────────────────────────────────────────────────────────
 function renderNav(){
   $('nav').innerHTML=`
     <div class="flex items-center gap-2 mr-4"><div class="w-1.5 h-5 bg-yellow-500 rounded-sm"></div>
     <span class="font-bold text-sm tracking-wide">SIMTEC COMMISSIONS</span></div>
-    ${[['runs','Pay Runs'],['customers','Customer History'],['setup','Consultants & Products'],['settings','Commission Rates']].map(([p,l])=>
+    ${[['runs','Pay Runs'],['customers','Customer History'],['giveaways','Giveaways'],['setup','Consultants & Products'],['settings','Commission Rates']].map(([p,l])=>
       `<button onclick="go('${p}')" class="text-sm font-medium pb-0.5 border-b-2 transition-colors ${page===p?'border-yellow-500 text-yellow-400':'border-transparent text-slate-400 hover:text-white'}">${l}</button>`
     ).join('')}`;
 }
@@ -116,6 +128,7 @@ async function renderApp(){
     }
     if(page==='runs')    await showRuns();
     else if(page==='customers') await showCustomers();
+    else if(page==='giveaways') await showGiveaways();
     else if(page==='run')await showRun();
     else if(page==='con')await showCon();
     else if(page==='inv')await showInv();
@@ -294,15 +307,23 @@ async function showRun(){
 // ── Consultant detail ──────────────────────────────────────────────────────
 async function showCon(){
   const con=consultants.find(c=>c.id===consId);
-  const[{data:run},{data:rawSales},{data:bonuses},{data:deds},{data:ret}]=await Promise.all([
+  const[{data:run},{data:rawSales},{data:bonuses},{data:deds},{data:ret},{data:givRows},{data:givRepayRows},{data:finRows}]=await Promise.all([
     sb.from('commission_pay_runs').select('*').eq('id',runId).single(),
     sb.from('commission_sales').select('*,commission_sale_items(id,quantity,product_id,commission_products(*))').eq('pay_run_id',runId).eq('consultant_id',consId).order('sale_date'),
     sb.from('commission_bonuses').select('*').eq('pay_run_id',runId).eq('consultant_id',consId),
     sb.from('commission_deductions').select('*').eq('pay_run_id',runId).eq('consultant_id',consId),
     sb.from('commission_retention').select('*').eq('consultant_id',consId).maybeSingle(),
+    sb.from('commission_giveaways').select('amount').eq('consultant_id',consId),
+    sb.from('commission_deductions').select('amount,pay_run_id').eq('consultant_id',consId).eq('deduction_type','giveaway_repayment'),
+    sb.from('commission_pay_runs').select('id').eq('status','finalised'),
   ]);
   const sales=(rawSales||[]).map(s=>({...s,items:(s.commission_sale_items||[]).map(i=>({...i,product:i.commission_products}))}));
   const retBal=+ret?.balance||0;
+  // Giveaways owed before this run's repayment (finalised repayments from other runs already applied)
+  const givTaken=(givRows||[]).reduce((a,g)=>a+(+g.amount||0),0);
+  const finSet=new Set((finRows||[]).map(r=>r.id));
+  const priorRepaid=(givRepayRows||[]).reduce((a,d)=>a+((finSet.has(d.pay_run_id)&&d.pay_run_id!==runId)?(+d.amount||0):0),0);
+  const givBefore=givTaken-priorRepaid;
 
   function saleComm(sale){
     const s=S();let c=0,el=false;
@@ -376,13 +397,30 @@ async function showCon(){
           </div>
           ${cv.ret>0?`<div class="flex justify-between text-sm py-1.5 text-slate-400 italic">
             <span>Retention (${s.retention_rate*100}% of ${fmt(cv.gs)})</span><span>-${fmt(cv.ret)}</span></div>`:''}
-          ${(deds||[]).map(d=>`<div class="flex items-center justify-between text-sm py-1.5 border-t border-slate-700/50">
+          ${(deds||[]).filter(d=>d.deduction_type!=='giveaway_repayment').map(d=>`<div class="flex items-center justify-between text-sm py-1.5 border-t border-slate-700/50">
             <span class="text-slate-300">${d.description||d.deduction_type}${d.quantity>1?` ×${d.quantity}`:''} <span class="text-xs text-slate-500">(${d.deduction_type})</span></span>
             <div class="flex items-center gap-3"><span class="text-red-400 font-medium">-${fmt(d.amount)}</span>
             <button onclick="delDed('${d.id}')" class="text-slate-600 hover:text-red-400 text-xs">✕</button></div>
           </div>`).join('')}
-          ${!deds?.length&&cv.ret===0?'<p class="text-slate-500 text-sm text-center py-3">No deductions</p>':''}
+          ${!((deds||[]).some(d=>d.deduction_type!=='giveaway_repayment'))&&cv.ret===0?'<p class="text-slate-500 text-sm text-center py-3">No deductions</p>':''}
         </div>
+
+        <!-- GIVEAWAYS -->
+        ${(()=>{const givDed=(deds||[]).find(d=>d.deduction_type==='giveaway_repayment');const givRepayNow=+givDed?.amount||0;const givAfter=givBefore-givRepayNow;return `
+        <div class="card mb-4">
+          <div class="flex items-center justify-between mb-2">
+            <h3 class="font-semibold text-sm uppercase tracking-wide">Giveaways</h3>
+            <span class="text-xs text-slate-500">Owed before this run: <b class="${givBefore>0?'text-yellow-400':'text-slate-400'}">${fmt(givBefore)}</b></span>
+          </div>
+          <div class="flex items-center justify-between text-sm">
+            <span class="text-slate-400">Repay this run</span>
+            <div class="flex items-center gap-2"><span class="text-slate-500">$</span>
+              <input type="number" id="givrepay" value="${givRepayNow}" min="0" step="0.01" class="inp w-24 text-sm py-1" onchange="updateGivRepay(this.value)" ${locked?'disabled':''}>
+            </div>
+          </div>
+          <div class="flex items-center justify-between text-sm mt-1"><span class="text-slate-400">Balance after this run</span><span class="${givAfter>0?'text-yellow-400':'text-slate-500'}">${fmt(givAfter)}</span></div>
+          <p class="text-xs text-slate-500 mt-2">Prints on the invoice and comes off this week's pay. Leave $0 for none.</p>
+        </div>`;})()}
 
         <!-- SUMMARY -->
         <div class="border border-yellow-500/30 rounded-xl p-6 bg-slate-800/50">
@@ -427,6 +465,20 @@ async function showCon(){
     }else if(payout>0){
       const{data,error}=await sb.from('commission_bonuses').insert({pay_run_id:runId,consultant_id:consId,description:'__RETENTION_PAYOUT__',amount:payout}).select().single();
       if(!error)(bonuses||(bonuses=[])).push(data);
+    }
+    render();
+  };
+  window.updateGivRepay=async(val)=>{
+    if(run?.status==='finalised'){toast('Run finalised — un-finalise first.',false);render();return;}
+    const amt=Math.max(0,+val||0);
+    const existing=(deds||[]).find(d=>d.deduction_type==='giveaway_repayment');
+    if(existing){
+      if(amt===0){await sb.from('commission_deductions').delete().eq('id',existing.id);deds.splice(deds.indexOf(existing),1);}
+      else{await sb.from('commission_deductions').update({amount:amt}).eq('id',existing.id);existing.amount=amt;}
+    }else if(amt>0){
+      const{data,error}=await sb.from('commission_deductions').insert({pay_run_id:runId,consultant_id:consId,deduction_type:'giveaway_repayment',description:'Giveaway repayment',amount:amt,quantity:1}).select().single();
+      if(error){err(error);return;}
+      (deds||(deds=[])).push(data);
     }
     render();
   };
@@ -502,9 +554,7 @@ async function showCon(){
     openMod(`<h3 class="font-semibold text-white mb-4">Add Deduction</h3>
       <label class="text-xs text-slate-400 block mb-1">Type</label>
       <select id="mtype" class="inp mb-3" onchange="updDed()">
-        <option value="pillow">Pillow / Giveaway</option>
         <option value="advance">Advance Repayment</option>
-        <option value="giveaway">Product Giveaway</option>
         <option value="retainer">Retainer</option>
         <option value="other">Other</option>
       </select>
@@ -693,6 +743,111 @@ window.printInvoice=(weekEnding)=>{
   window.print();
   setTimeout(()=>{document.title=orig;},1500);
 };
+// ── Giveaways (stock taken, running balance owed) ───────────────────────────
+async function showGiveaways(){
+  const[{data:cons},{data:givs},{data:repays},{data:finRuns}]=await Promise.all([
+    sb.from('commission_consultants').select('*').eq('active',true).order('name'),
+    sb.from('commission_giveaways').select('*'),
+    sb.from('commission_deductions').select('consultant_id,amount,pay_run_id').eq('deduction_type','giveaway_repayment'),
+    sb.from('commission_pay_runs').select('id').eq('status','finalised'),
+  ]);
+  const active=cons||[], allGivs=givs||[];
+  const bal=givBalances(allGivs,repays||[],(finRuns||[]).map(r=>r.id));
+  const rate=+S().pillow_charge||0;
+  const byCons={};allGivs.forEach(g=>{(byCons[g.consultant_id]||(byCons[g.consultant_id]=[])).push(g);});
+
+  $('app').innerHTML=`
+    <div class="p-8 max-w-3xl mx-auto">
+      <div class="flex items-center justify-between mb-2">
+        <h1 class="text-2xl font-bold">Giveaways</h1>
+        <button class="btn gold" onclick="recordGivModal()">+ Record giveaway</button>
+      </div>
+      <p class="text-sm text-slate-500 mb-6">Charged at <b>${fmt(rate)}</b> per item (edit the rate in Commission Rates). Balance owed drops when you allocate a repayment in a pay run and that run is finalised. Admin / managers record giveaways.</p>
+      <div class="card">
+        <table class="w-full text-sm">
+          <thead><tr class="text-left text-xs uppercase tracking-wide text-slate-500 border-b border-slate-700">
+            <th class="py-2">Consultant</th><th class="py-2 text-right">Taken</th><th class="py-2 text-right">Repaid</th><th class="py-2 text-right">Balance owed</th><th class="py-2 text-right">&nbsp;</th>
+          </tr></thead>
+          <tbody>
+          ${active.map(c=>{const b=bal[c.id]||{taken:0,repaid:0,balance:0};return `<tr class="border-b border-slate-800">
+            <td class="py-2.5 font-medium">${c.name}</td>
+            <td class="py-2.5 text-right text-slate-400">${fmt(b.taken)}</td>
+            <td class="py-2.5 text-right text-slate-400">${fmt(b.repaid)}</td>
+            <td class="py-2.5 text-right font-semibold ${b.balance>0?'text-yellow-400':'text-slate-500'}">${fmt(b.balance)}</td>
+            <td class="py-2.5 text-right whitespace-nowrap">
+              <button class="text-xs text-slate-400 hover:text-white underline mr-3" onclick="openingModal('${c.id}')">Opening bal.</button>
+              <button class="text-xs text-slate-400 hover:text-white underline" onclick="givHistory('${c.id}')">History</button>
+            </td>
+          </tr>`;}).join('')}
+          </tbody>
+        </table>
+        ${!active.length?'<p class="text-slate-500 text-sm text-center py-4">No active consultants.</p>':''}
+      </div>
+    </div>`;
+
+  window.recordGivModal=()=>{
+    const rt=+S().pillow_charge||0;
+    openMod(`<h3 class="font-semibold text-white mb-4">Record giveaway</h3>
+      <label class="text-xs text-slate-400 block mb-1">Consultant</label>
+      <select id="gcons" class="inp mb-3">${active.map(c=>`<option value="${c.id}">${c.name}</option>`).join('')}</select>
+      <label class="text-xs text-slate-400 block mb-1">Item</label>
+      <select id="gitem" class="inp mb-3">${GIVEAWAY_ITEMS.map(i=>`<option value="${i}">${i}</option>`).join('')}</select>
+      <label class="text-xs text-slate-400 block mb-1">Quantity</label>
+      <input type="number" id="gqty" value="1" min="1" class="inp mb-3 w-24" oninput="gUpd()">
+      <label class="text-xs text-slate-400 block mb-1">Date taken</label>
+      <input type="date" id="gdate" value="${new Date().toISOString().split('T')[0]}" class="inp mb-3">
+      <label class="text-xs text-slate-400 block mb-1">Amount charged ($)</label>
+      <input type="number" id="gamt" value="${rt}" min="0" step="0.01" class="inp mb-3">
+      <label class="text-xs text-slate-400 block mb-1">Notes (optional)</label>
+      <input type="text" id="gnotes" class="inp mb-4" placeholder="e.g. to close the sale">
+      <div class="flex gap-3"><button class="btn gold flex-1" onclick="saveGiv()">Save</button><button class="btn dark flex-1" onclick="closeMod()">Cancel</button></div>`);
+    window.gUpd=()=>{const q=+$('gqty').value||1;$('gamt').value=(q*(+S().pillow_charge||0)).toFixed(2);};
+    window.saveGiv=async()=>{
+      const q=+$('gqty').value||1, amt=+$('gamt').value;
+      if(amt<0){toast('Amount cannot be negative',false);return;}
+      const{error}=await sb.from('commission_giveaways').insert({consultant_id:$('gcons').value,kind:'giveaway',item:$('gitem').value,quantity:q,unit_charge:+S().pillow_charge||0,amount:amt,taken_date:$('gdate').value,notes:$('gnotes').value.trim()||null});
+      if(error){err(error);return;}
+      closeMod();toast('Giveaway recorded');go('giveaways');
+    };
+  };
+
+  window.openingModal=(cid)=>{
+    const c=active.find(x=>x.id===cid);
+    openMod(`<h3 class="font-semibold text-white mb-2">Opening balance — ${c?c.name:''}</h3>
+      <p class="text-slate-400 text-sm mb-4">What this consultant already owed for giveaways before this system started. Adds to their balance.</p>
+      <label class="text-xs text-slate-400 block mb-1">Opening amount owed ($)</label>
+      <input type="number" id="oamt" value="0" min="0" step="0.01" class="inp mb-3">
+      <label class="text-xs text-slate-400 block mb-1">Notes (optional)</label>
+      <input type="text" id="onotes" class="inp mb-4" placeholder="e.g. opening balance as at ${fmtD(new Date().toISOString().split('T')[0])}">
+      <div class="flex gap-3"><button class="btn gold flex-1" onclick="saveOpening('${cid}')">Save</button><button class="btn dark flex-1" onclick="closeMod()">Cancel</button></div>`);
+    window.saveOpening=async(id)=>{
+      const amt=+$('oamt').value;if(!amt){toast('Enter an amount',false);return;}
+      const{error}=await sb.from('commission_giveaways').insert({consultant_id:id,kind:'opening',item:'Opening balance',amount:amt,taken_date:new Date().toISOString().split('T')[0],notes:$('onotes').value.trim()||null});
+      if(error){err(error);return;}
+      closeMod();toast('Opening balance set');go('giveaways');
+    };
+  };
+
+  window.givHistory=(cid)=>{
+    const rows=(byCons[cid]||[]).slice().sort((a,b)=>(b.taken_date||'').localeCompare(a.taken_date||''));
+    const c=active.find(x=>x.id===cid);
+    openMod(`<h3 class="font-semibold text-white mb-3">History — ${c?c.name:''}</h3>
+      <div class="max-h-80 overflow-auto">
+      ${rows.length?rows.map(g=>`<div class="flex items-center justify-between text-sm py-2 border-b border-slate-700/50">
+        <div><div class="text-slate-200">${g.item||g.kind}${g.quantity>1?` ×${g.quantity}`:''}</div><div class="text-xs text-slate-500">${fmtD(g.taken_date)}${g.notes?' — '+g.notes:''}</div></div>
+        <div class="flex items-center gap-3"><span class="text-yellow-400">${fmt(g.amount)}</span><button class="text-slate-600 hover:text-red-400 text-xs" onclick="delGiv('${g.id}')">✕</button></div>
+      </div>`).join(''):'<p class="text-slate-500 text-sm py-3">Nothing recorded yet.</p>'}
+      </div>
+      <div class="mt-4"><button class="btn dark w-full" onclick="closeMod()">Close</button></div>`);
+  };
+  window.delGiv=async(id)=>{
+    if(!confirm('Remove this entry? This changes the balance owed.'))return;
+    const{error}=await sb.from('commission_giveaways').delete().eq('id',id);
+    if(error){err(error);return;}
+    closeMod();toast('Entry removed');go('giveaways');
+  };
+}
+
 async function showSettings(){
   const s={...DEF,...settings};
   // ── TL override data (admin only) ──
