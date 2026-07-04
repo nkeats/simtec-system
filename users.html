@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Simtec — User Access</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="auth.js?v=3" data-roles="admin"></script>
+<script src="auth.js" data-roles="admin"></script>
 <style>
   :root{--navy:#122347;--navy2:#1c3363;--gold:#c6a15b;--ink:#1a2334;--line:#d9e0ea;--bg:#eef1f5;--ok:#1c6b34;--okbg:#e7f6ec;--err:#a02020;--errbg:#fdecec;--grey:#7a8798;}
   *{box-sizing:border-box}
@@ -88,7 +88,12 @@ function clearMsg(){ $("msg").style.display="none"; }
 function esc(s){ return (s||"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
 
 async function call(action, extra){
-  const { data, error } = await sb.functions.invoke("manage-users", { body: Object.assign({ action }, extra||{}) });
+  const { data:{ session } } = await sb.auth.getSession();
+  const token = session ? session.access_token : "";
+  const { data, error } = await sb.functions.invoke("manage-users", {
+    body: Object.assign({ action }, extra||{}),
+    headers: { "x-user-token": token }
+  });
   if(error){
     // try to surface the function's own message
     let m = error.message || "Request failed";
