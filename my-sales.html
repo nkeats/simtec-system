@@ -109,8 +109,16 @@ async function loadFor(name){
     .eq("consultant_id", cons.id).order("sale_date",{ascending:false});
   if(se){ $("body").innerHTML='<div id="state" style="color:#c0332e">Couldn\u2019t load sales: '+esc(se.message)+'</div>'; return; }
   const { data:orders } = await sb.from("sim_orders")
-    .select("id,order_date,order_status,contract_value,customer_id, sim_customers(first_name,last_name,mobile,email,address), sim_order_items(product_name,quantity,line_no)")
+    .select("id,order_date,order_status,contract_value,customer_id, sim_customers(first_name,last_name,mobile,email,address)")
     .eq("consultant_name", name).order("order_date",{ascending:false});
+  // product lines fetched separately (same pattern the customer-detail/docket screens use)
+  const oids=(orders||[]).map(o=>o.id);
+  const byOrder={};
+  if(oids.length){
+    const { data:items } = await sb.from("sim_order_items").select("order_id,product_name,quantity,line_no").in("order_id",oids);
+    (items||[]).forEach(it=>{ (byOrder[it.order_id]=byOrder[it.order_id]||[]).push(it); });
+  }
+  (orders||[]).forEach(o=>{ o._items=byOrder[o.id]||[]; });
   render(name, sales||[], orders||[], BASELINES[name.toLowerCase().trim()]||null);
 }
 
@@ -166,7 +174,7 @@ function render(name, sales, orders, baseline){
   const active = orders.filter(o=>(o.order_status||"active")!=="cancelled");
   const rows = active.map((o,i)=>{
     const c=o.sim_customers||{}; const cname=`${c.first_name||""} ${c.last_name||""}`.trim()||"(no name)";
-    const items=(o.sim_order_items||[]).slice().sort((a,b)=>(a.line_no||0)-(b.line_no||0));
+    const items=(o._items||[]).slice().sort((a,b)=>(a.line_no||0)-(b.line_no||0));
     const pd=items.map(it=>(it.quantity>1?it.quantity+"× ":"")+it.product_name).join(", ")||"—";
     const det=`<tr class="det" id="det${i}" style="display:none"><td colspan="3"><div class="detin">
       <div class="kv"><span class="k">Phone</span><span class="v">${esc(c.mobile)||"—"}</span></div>
