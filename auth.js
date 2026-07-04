@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 /* ============================================================================
  * auth.js — Simtec shared login gate
  * ----------------------------------------------------------------------------
@@ -19,13 +18,6 @@
   window.__SIMTEC_ROLES__ = (me && me.dataset && me.dataset.roles)
     ? me.dataset.roles.split(',').map(function (s) { return s.trim(); }).filter(Boolean)
     : null;
-=======
-/* auth.js — Simtec shared login gate */
-(function () {
-  var me = document.currentScript;
-  window.__SIMTEC_ROLES__ = (me && me.dataset && me.dataset.roles)
-    ? me.dataset.roles.split(',').map(function (s) { return s.trim(); }).filter(Boolean) : null;
->>>>>>> 97b76b60a18560d63136e3b1204b711d353ffb6c
   try {
     var st = document.createElement('style');
     st.id = 'simtec-auth-hide';
@@ -37,7 +29,6 @@
 (async function () {
   var URL_ = "https://jvqjoenaungubpoegyvf.supabase.co";
   var KEY_ = "sb_publishable_J4MYTdJJyEaWe-GadpwdYA_upPT2rKw";
-<<<<<<< HEAD
 
   function reveal() { var s = document.getElementById('simtec-auth-hide'); if (s) s.remove(); }
   function toLogin() { location.replace('login.html'); }
@@ -49,39 +40,22 @@
 
   var _sb = supabase.createClient(URL_, KEY_);
 
-=======
-  function reveal() { var s = document.getElementById('simtec-auth-hide'); if (s) s.remove(); }
-  function toLogin() { location.replace('login.html'); }
-
-  var tries = 0;
-  while (typeof supabase === 'undefined' && tries < 60) { await new Promise(function (r) { setTimeout(r, 40); }); tries++; }
-  if (typeof supabase === 'undefined') { reveal(); return; }
-
-  var _sb = supabase.createClient(URL_, KEY_);
->>>>>>> 97b76b60a18560d63136e3b1204b711d353ffb6c
   var sess = await _sb.auth.getSession();
   var session = sess && sess.data ? sess.data.session : null;
   if (!session) { toLogin(); return; }
 
-<<<<<<< HEAD
   // load the user's profile (role + active flag)
-=======
->>>>>>> 97b76b60a18560d63136e3b1204b711d353ffb6c
   var prof = null;
   try {
     var res = await _sb.from('profiles').select('role,active,consultant_name,full_name,email').eq('id', session.user.id).maybeSingle();
     prof = res.data;
   } catch (e) {}
-<<<<<<< HEAD
   // ONLY a definitely-disabled account gets bounced. A missing profile or a read
   // error must NOT sign you out — that could cause a login loop.
-=======
->>>>>>> 97b76b60a18560d63136e3b1204b711d353ffb6c
   if (prof && prof.active === false) { await _sb.auth.signOut(); toLogin(); return; }
 
   var role = (prof && prof.role) ? prof.role : null;
   window.SIMTEC_USER = {
-<<<<<<< HEAD
     id: session.user.id,
     email: (prof && prof.email) || session.user.email,
     role: role,
@@ -92,13 +66,6 @@
 
   // role gate — enforced only when we actually know the role (transient read
   // failures let the logged-in user through rather than lock them out).
-=======
-    id: session.user.id, email: (prof && prof.email) || session.user.email,
-    role: role, consultant_name: (prof && prof.consultant_name) || null, full_name: (prof && prof.full_name) || null
-  };
-  window.SIMTEC_SB = _sb;
-
->>>>>>> 97b76b60a18560d63136e3b1204b711d353ffb6c
   var allowed = window.__SIMTEC_ROLES__;
   if (role && Array.isArray(allowed) && allowed.indexOf(role) === -1) {
     reveal();
@@ -114,7 +81,6 @@
     return;
   }
 
-<<<<<<< HEAD
   // inject a Log out button
   function addLogout() {
     if (document.getElementById('simtec-logout')) return;
@@ -122,21 +88,11 @@
     b.id = 'simtec-logout';
     b.textContent = 'Log out';
     b.title = window.SIMTEC_USER.email + ' (' + role + ')';
-=======
-  function addLogout() {
-    if (document.getElementById('simtec-logout')) return;
-    var b = document.createElement('button');
-    b.id = 'simtec-logout'; b.textContent = 'Log out';
-    b.title = window.SIMTEC_USER.email + ' (' + (role || 'no role') + ')';
->>>>>>> 97b76b60a18560d63136e3b1204b711d353ffb6c
     b.style.cssText = 'position:fixed;top:10px;right:12px;z-index:99999;background:#c6a15b;color:#122347;border:none;border-radius:7px;padding:7px 15px;font:700 12.5px -apple-system,Segoe UI,Roboto,Arial,sans-serif;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.28)';
     b.onclick = async function () { b.disabled = true; await _sb.auth.signOut(); toLogin(); };
     document.body.appendChild(b);
   }
   if (document.body) addLogout(); else document.addEventListener('DOMContentLoaded', addLogout);
-<<<<<<< HEAD
 
-=======
->>>>>>> 97b76b60a18560d63136e3b1204b711d353ffb6c
   reveal();
 })();

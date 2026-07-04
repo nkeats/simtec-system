@@ -84,9 +84,19 @@
     <div class="grp"><div class="gl">Commissions</div><div class="cards">
       <a class="card" href="commissions.html"><div class="t">Commissions</div><div class="d">Pay runs, invoices, clawbacks.</div></a>
     </div></div>
+    <div class="grp" id="adminGrp" style="display:none"><div class="gl">Admin</div><div class="cards">
+      <a class="card" href="users.html"><div class="t">User Access</div><div class="d">Add staff, set roles, switch access on or off.</div></a>
+    </div></div>
   </div>
 
 </div>
+
+<script>
+// reveal the Admin section only for admins (auth.js sets window.SIMTEC_USER)
+(function(){var n=0;var t=setInterval(function(){n++;var u=window.SIMTEC_USER;
+  if(u){clearInterval(t); if(u.role==='admin'){var g=document.getElementById('adminGrp'); if(g) g.style.display='';}}
+  else if(n>50){clearInterval(t);}},60);})();
+</script>
 
 <script>
 const sb = supabase.createClient("https://jvqjoenaungubpoegyvf.supabase.co","sb_publishable_J4MYTdJJyEaWe-GadpwdYA_upPT2rKw");

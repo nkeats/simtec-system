@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Simtec — User Access</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="auth.js" data-roles="admin"></script>
+<style>
+  :root{--navy:#122347;--navy2:#1c3363;--gold:#c6a15b;--ink:#1a2334;--line:#d9e0ea;--bg:#eef1f5;--ok:#1c6b34;--okbg:#e7f6ec;--err:#a02020;--errbg:#fdecec;--grey:#7a8798;}
+  *{box-sizing:border-box}
+  body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(--bg);color:var(--ink);margin:0}
+  header{background:var(--navy);color:#fff;padding:16px 22px;display:flex;align-items:center;gap:12px}
+  header h1{font-size:18px;margin:0;font-weight:600}
+  header a.home{color:#b9c6de;text-decoration:none;font-size:13px;font-weight:600}
+  header a.home:hover{color:#fff}
+  .wrap{max-width:960px;margin:22px auto;padding:0 16px}
+  .card{background:#fff;border:1px solid var(--line);border-radius:12px;padding:20px 22px;margin-bottom:18px}
+  .card h2{font-size:13px;text-transform:uppercase;letter-spacing:.08em;color:var(--navy);margin:0 0 16px;padding-bottom:10px;border-bottom:2px solid var(--gold);display:inline-block}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:14px 18px}
+  label{display:block;font-weight:600;font-size:12.5px;margin-bottom:5px;color:#3a4759}
+  input,select{width:100%;padding:10px 11px;border:1px solid #cbd4df;border-radius:8px;font-size:15px;background:#fff}
+  input:focus,select:focus{outline:2px solid var(--navy2);border-color:var(--navy2)}
+  .full{grid-column:1/-1}
+  button{background:var(--navy);color:#fff;border:none;border-radius:9px;padding:12px 22px;font-size:15px;font-weight:600;cursor:pointer}
+  button:hover{background:var(--navy2)} button:disabled{opacity:.5;cursor:default}
+  button.mini{padding:6px 11px;font-size:12.5px;border-radius:7px}
+  button.ghost{background:#fff;color:var(--navy);border:1px solid #cbd4df}
+  table{width:100%;border-collapse:collapse;font-size:14px}
+  th,td{padding:10px 12px;text-align:left;border-bottom:1px solid var(--line);vertical-align:middle}
+  th{background:#f3f6fa;color:var(--navy);font-size:11.5px;text-transform:uppercase;letter-spacing:.04em}
+  td select{padding:6px 8px;font-size:13.5px;width:auto}
+  .badge{display:inline-block;font-size:11px;font-weight:700;padding:3px 9px;border-radius:20px}
+  .on{background:var(--okbg);color:var(--ok)} .off{background:#f0f0f0;color:var(--grey)}
+  .muted{color:var(--grey);font-size:13px}
+  #msg{display:none;padding:12px 14px;border-radius:8px;font-size:14px;margin-bottom:16px}
+  .msgok{background:var(--okbg);color:var(--ok);border:1px solid #b6e0c4}
+  .msgerr{background:var(--errbg);color:var(--err);border:1px solid #f2bdbd}
+  #consultantRow{display:none}
+  @media(max-width:640px){.grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<header>
+  <a href="home.html" class="home">‹ Home</a>
+  <h1>Simtec — User Access</h1>
+</header>
+
+<div class="wrap">
+  <div id="msg"></div>
+
+  <div class="card">
+    <h2>Add a person</h2>
+    <div class="grid">
+      <div><label for="name">Full name</label><input id="name" autocomplete="off"></div>
+      <div><label for="email">Email</label><input id="email" type="email" autocomplete="off" placeholder="name@simtectp.com"></div>
+      <div><label for="role">Role</label>
+        <select id="role" onchange="onRole()">
+          <option value="office">Office</option>
+          <option value="manager">Manager</option>
+          <option value="admin">Admin</option>
+          <option value="driver">Driver</option>
+          <option value="consultant">Consultant</option>
+        </select></div>
+      <div id="consultantRow"><label for="consultant">Consultant record</label>
+        <select id="consultant"><option value="">— pick their consultant name —</option></select></div>
+      <div class="full"><button id="add" onclick="addUser()">Send invite &amp; create login</button>
+        <span class="muted" style="margin-left:12px">They'll get an email to set their own password.</span></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>People</h2>
+    <div id="listState" class="muted">Loading…</div>
+    <table id="tbl" style="display:none">
+      <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Consultant</th><th>Status</th><th></th></tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+const sb = supabase.createClient("https://jvqjoenaungubpoegyvf.supabase.co","sb_publishable_J4MYTdJJyEaWe-GadpwdYA_upPT2rKw");
+const $=id=>document.getElementById(id);
+const ROLES=["office","manager","admin","driver","consultant"];
+function show(t,ok){ const m=$("msg"); m.style.display="block"; m.className=ok?"msgok":"msgerr"; m.textContent=t; window.scrollTo({top:0,behavior:"smooth"}); }
+function clearMsg(){ $("msg").style.display="none"; }
+function esc(s){ return (s||"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
+
+async function call(action, extra){
+  const { data, error } = await sb.functions.invoke("manage-users", { body: Object.assign({ action }, extra||{}) });
+  if(error){
+    // try to surface the function's own message
+    let m = error.message || "Request failed";
+    try{ const ctx = await error.context?.json?.(); if(ctx&&ctx.error) m = ctx.error; }catch(e){}
+    throw new Error(m);
+  }
+  if(data && data.error) throw new Error(data.error);
+  return data;
+}
+
+function onRole(){ $("consultantRow").style.display = $("role").value==="consultant" ? "block" : "none"; }
+
+async function loadConsultants(){
+  try{
+    const { data } = await sb.from("commission_consultants").select("name").order("name");
+    const names=[...new Set((data||[]).map(d=>d.name).filter(Boolean))];
+    $("consultant").innerHTML = '<option value="">— pick their consultant name —</option>' + names.map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join("");
+  }catch(e){}
+}
+
+async function loadList(){
+  try{
+    const d = await call("list");
+    const users = d.users||[];
+    $("listState").style.display="none"; $("tbl").style.display="table";
+    $("rows").innerHTML = users.map(u=>`<tr data-id="${u.id}">
+      <td>${esc(u.full_name)||'<span class="muted">—</span>'}</td>
+      <td>${esc(u.email)}</td>
+      <td><select onchange="changeRole('${u.id}', this.value)">${ROLES.map(r=>`<option value="${r}"${u.role===r?" selected":""}>${r[0].toUpperCase()+r.slice(1)}</option>`).join("")}</select></td>
+      <td>${u.role==="consultant" ? esc(u.consultant_name)||'<span class="muted">not linked</span>' : '<span class="muted">—</span>'}</td>
+      <td><span class="badge ${u.active?"on":"off"}">${u.active?"Active":"Off"}</span></td>
+      <td><button class="mini ghost" onclick="toggleActive('${u.id}', ${u.active?"false":"true"})">${u.active?"Deactivate":"Reactivate"}</button></td>
+    </tr>`).join("");
+  }catch(e){
+    $("listState").style.display="block"; $("listState").textContent="Couldn't load users: "+e.message;
+  }
+}
+
+async function addUser(){
+  clearMsg();
+  const email=$("email").value.trim(), role=$("role").value, name=$("name").value.trim();
+  if(!email){ return show("Enter an email.",false); }
+  if(role==="consultant" && !$("consultant").value){ return show("Pick which consultant this login is for.",false); }
+  const btn=$("add"); btn.disabled=true; const orig=btn.textContent; btn.textContent="Sending…";
+  try{
+    await call("invite", {
+      email, role, full_name:name || null,
+      consultant_name: role==="consultant" ? $("consultant").value : null,
+      redirectTo: new URL("reset-password.html", location.href).href
+    });
+    show(`Invite sent to ${email}. They'll get an email to set their password.`, true);
+    $("name").value=""; $("email").value=""; $("role").value="office"; $("consultant").value=""; onRole();
+    loadList();
+  }catch(e){ show(e.message, false); }
+  finally{ btn.disabled=false; btn.textContent=orig; }
+}
+
+async function changeRole(id, role){
+  clearMsg();
+  try{
+    const extra = { id, role };
+    if(role!=="consultant") extra.consultant_name = null;  // clear link when leaving consultant role
+    await call("update", extra);
+    show("Role updated.", true); loadList();
+  }catch(e){ show(e.message, false); loadList(); }
+}
+async function toggleActive(id, active){
+  clearMsg();
+  try{ await call("setActive", { id, active: active===true||active==="true" }); loadList(); }
+  catch(e){ show(e.message, false); }
+}
+
+// init
+loadConsultants();
+loadList();
+</script>
+</body>
+</html>
