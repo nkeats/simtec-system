@@ -184,6 +184,15 @@ function cellConfigKey(range,size){
   const rk = ({"Mk I":"mk1","Mk II":"mk2","Mk III":"mk3","BB (Base)":"base","MP":"protector"})[range];
   return rk ? rk+"_"+sizeKey(size) : null;
 }
+function productName(range,size){
+  const ns = size==="Cal King" ? "California King" : size;
+  if(range==="Mk I"||range==="Mk II"||range==="Mk III") return range+" "+ns;
+  if(range==="BB (Base)") return ns+" Bed Base";
+  if(range==="MP") return ns+" Protector";
+  if(range==="Pillow") return "Pillow";
+  if(range==="Delivery") return "Delivery fee";
+  return range;
+}
 function recalcTotal(){
   if(!Object.keys(PRICES).length) return;          // prices didn't load → leave total editable
   let total=0, missing=false;
@@ -337,15 +346,15 @@ async function save(){
     const {data:ord,error:e2} = await sb.from("sim_orders").insert(order).select("id").single();
     if(e2) throw new Error("Saving sale: "+e2.message);
 
-    // 3. product lines
-    const items=[];
+    // 3. product lines — write the full product_name (delivery/arrears screens AND
+    //    the commission feed both match on product_name), plus unit price + line number.
+    const items=[]; let ln=0;
+    const addLine=(name,priceKey,qty)=>{ if(qty>0){ items.push({order_id:ord.id, line_no:++ln, product_name:name, quantity:qty, unit_price:(priceKey&&PRICES[priceKey]!=null)?PRICES[priceKey]:null}); } };
     document.querySelectorAll('#prodTable input[data-range]').forEach(inp=>{
-      const q=parseInt(inp.value,10);
-      if(q>0) items.push({order_id:ord.id, product_range:inp.dataset.range, product_size:inp.dataset.size,
-        product_code:({"Mk I":"M1","Mk II":"M2","Mk III":"M3","BB (Base)":"BB","MP":"MP"}[inp.dataset.range]||"")+"-"+ABBR[inp.dataset.size], quantity:q});
+      addLine(productName(inp.dataset.range,inp.dataset.size), cellConfigKey(inp.dataset.range,inp.dataset.size), parseInt(inp.value,10));
     });
-    const pil=parseInt($("pillow").value,10); if(pil>0) items.push({order_id:ord.id,product_range:"Pillow",product_size:null,product_code:"PIL",quantity:pil});
-    const del=parseInt($("delivery").value,10); if(del>0) items.push({order_id:ord.id,product_range:"Delivery",product_size:null,product_code:"DEL",quantity:del});
+    addLine("Pillow","pillow",parseInt($("pillow").value,10));
+    addLine("Delivery fee","delivery",parseInt($("delivery").value,10));
     if(items.length){
       const {error:e3} = await sb.from("sim_order_items").insert(items);
       if(e3) throw new Error("Customer and sale saved, but product lines failed: "+e3.message);
