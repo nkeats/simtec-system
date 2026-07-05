@@ -90,7 +90,7 @@ const fmt=n=>(n==null||n==="")?"—":"$"+Number(n).toLocaleString(undefined,{max
 function auDate(v){ if(!v) return "—"; const m=String(v).match(/^(\d{4})-(\d{2})-(\d{2})/); if(m) return m[3]+"/"+m[2]+"/"+m[1]; const d=new Date(v); return isNaN(d)?v:String(d.getDate()).padStart(2,"0")+"/"+String(d.getMonth()+1).padStart(2,"0")+"/"+d.getFullYear(); }
 const cap=s=>s?s.charAt(0).toUpperCase()+s.slice(1):"—";
 const PM={weekly_dd:"Weekly direct debit",fortnightly_dd:"Fortnightly direct debit",deposit_50:"50% deposit",pay_in_full:"Pay in full",cash:"Cash"};
-const DS={pending:"Pending",scheduled:"Scheduled",delivered:"Delivered",on_hold:"On hold",cancelled:"Cancelled"};
+const DS={pending:"Pending",scheduled:"Scheduled",partial:"Part-delivered",delivered:"Delivered",on_hold:"On hold",cancelled:"Cancelled"};
 const CXT={customer_request:"customer requested",company_overcommit:"we cancelled — over-committed",company_other:"we cancelled"};
 const PERIODS={weekly:{per:7,total:156,word:"wk"},fortnightly:{per:14,total:78,word:"fn"},monthly:{per:30.44,total:36,word:"mo"}};
 
@@ -126,7 +126,7 @@ async function run(){
     }
     let cust={};
     if(o.customer_id){ const {data}=await sb.from("sim_customers").select("*").eq("id",o.customer_id).single(); cust=data||{}; }
-    const {data:items}=await sb.from("sim_order_items").select("product_name,quantity,unit_price").eq("order_id",orderId).order("line_no");
+    const {data:items}=await sb.from("sim_order_items").select("id,product_name,quantity,unit_price,delivered,delivered_date").eq("order_id",orderId).order("line_no");
     let pays=[];
     if(o.ezidebit_payer_ref){ const {data}=await sb.from("sim_payments").select("payment_date,amount").eq("payer_ref",o.ezidebit_payer_ref).order("payment_date",{ascending:false}); pays=data||[]; }
     let comms=[];
@@ -185,11 +185,21 @@ function render(o,c,items,pays,comms){
       : (isAdmin ? `<div style="margin-top:10px"><button onclick="authoriseDelivery()" style="background:#1c6b34;color:#fff;border:none;border-radius:8px;padding:9px 15px;font-size:13.5px;font-weight:600;cursor:pointer">✓ Authorise delivery (override)</button><div style="font-size:11.5px;color:#8794a6;margin-top:5px">Clears this customer for delivery regardless of payment history.</div></div>` : "")}
   </div>`;
 
+  const isStaff = (window.SIMTEC_USER && ['admin','manager','office'].includes(window.SIMTEC_USER.role));
+  const skip = n => /delivery fee|protector|pillow/i.test(n||"");   // accessories aren't "delivered" items
   const prodRows = items.length
-    ? items.map(i=>`<tr><td>${i.product_name||""}</td><td class="num">${i.quantity}</td><td class="num">${i.unit_price!=null?fmt(i.unit_price):""}</td></tr>`).join("")
-    : `<tr><td colspan="3" class="muted">No product lines recorded.</td></tr>`;
+    ? items.map(i=>{
+        const delivCell = skip(i.product_name)
+          ? `<td class="num muted">—</td>`
+          : i.delivered
+            ? `<td class="num"><span style="color:var(--green);font-weight:700">✓ ${i.delivered_date?auDate(i.delivered_date):"Delivered"}</span>${isStaff?` <button onclick="markItem('${i.id}',false)" style="margin-left:6px;font-size:11px;background:none;border:1px solid var(--line);border-radius:5px;padding:1px 6px;cursor:pointer;color:var(--sub)">undo</button>`:""}</td>`
+            : `<td class="num">${isStaff?`<button onclick="markItem('${i.id}',true)" style="background:#1c6b34;color:#fff;border:none;border-radius:6px;padding:3px 9px;font-size:12px;cursor:pointer">Mark delivered</button>`:`<span class="muted">Not delivered</span>`}</td>`;
+        return `<tr><td>${i.product_name||""}</td><td class="num">${i.quantity}</td><td class="num">${i.unit_price!=null?fmt(i.unit_price):""}</td>${delivCell}</tr>`;
+      }).join("")
+    : `<tr><td colspan="4" class="muted">No product lines recorded.</td></tr>`;
   const products=`<div class="card full"><h2>Products</h2>
-    <table><thead><tr><th>Product</th><th class="num">Qty</th><th class="num">Unit price</th></tr></thead><tbody>${prodRows}</tbody></table></div>`;
+    <table><thead><tr><th>Product</th><th class="num">Qty</th><th class="num">Unit price</th><th class="num">Delivery</th></tr></thead><tbody>${prodRows}</tbody></table>
+    <div style="font-size:11.5px;color:var(--sub);margin-top:8px">Mattresses can be delivered separately — mark each as it goes out. The order shows as <b>Part-delivered</b> until all mattresses are delivered.</div></div>`;
 
   const payRows = pays.length
     ? pays.slice(0,60).map(x=>`<tr><td>${auDate(x.payment_date)}</td><td class="num">${fmt(x.amount)}</td></tr>`).join("")
@@ -250,6 +260,24 @@ function render(o,c,items,pays,comms){
       `<option value="on_hold"${st==="on_hold"?" selected":""}>On hold</option>` +
       `<option value="cancelled"${st==="cancelled"?" selected":""}>Cancelled</option>` +
     `</select>`;
+}
+async function markItem(itemId, val){
+  if(!(window.SIMTEC_USER && ['admin','manager','office'].includes(window.SIMTEC_USER.role))){ alert("Staff only."); return; }
+  const who = (window.SIMTEC_USER.full_name||window.SIMTEC_USER.email||"staff");
+  const patch = val ? {delivered:true, delivered_date:new Date().toISOString().slice(0,10), delivered_by:who}
+                    : {delivered:false, delivered_date:null, delivered_by:null};
+  const {error}=await sb.from("sim_order_items").update(patch).eq("id",itemId);
+  if(error){ alert("Couldn't update: "+error.message); return; }
+  // recompute the order's overall delivery_status from its mattress lines
+  const {data:its}=await sb.from("sim_order_items").select("product_name,delivered").eq("order_id",orderId);
+  const mattresses=(its||[]).filter(i=>!/delivery fee|protector|pillow/i.test(i.product_name||""));
+  let status="pending";
+  if(mattresses.length){
+    const done=mattresses.filter(i=>i.delivered).length;
+    status = done===0 ? "pending" : done===mattresses.length ? "delivered" : "partial";
+  }
+  await sb.from("sim_orders").update({delivery_status:status}).eq("id",orderId);
+  run();
 }
 async function authoriseDelivery(){
   if(!(window.SIMTEC_USER&&window.SIMTEC_USER.role==='admin')){ alert("Admins only."); return; }
