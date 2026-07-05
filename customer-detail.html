@@ -21,6 +21,17 @@
   button.danger{background:#c0332e}
   button.danger:hover{background:#a82a26}
   .cancelbanner{background:#fdecec;color:#a02020;border:1px solid #f2bdbd;border-radius:10px;padding:11px 15px;margin-top:12px;font-weight:600;font-size:14px}
+  .modalbg{display:none;position:fixed;inset:0;background:rgba(10,20,40,.55);z-index:1000;align-items:center;justify-content:center;padding:20px}
+  .modal{background:#fff;border-radius:14px;max-width:440px;width:100%;padding:24px;box-shadow:0 20px 50px rgba(0,0,0,.3)}
+  .modal h3{margin:0 0 16px;color:#122347;font-size:18px}
+  .modal .ml{display:block;font-weight:600;font-size:12.5px;color:#3a4759;margin:14px 0 5px}
+  .modal .mi{width:100%;padding:10px 11px;border:1px solid #cbd4df;border-radius:8px;font-size:14.5px;font-family:inherit}
+  .modal .mchk{display:flex;align-items:center;gap:8px;font-size:14px;margin-top:14px;color:#1a2334}
+  .modal .mchk input{width:auto}
+  .mbtns{display:flex;gap:10px;justify-content:flex-end;margin-top:22px}
+  .mbtns button{padding:10px 18px;border-radius:9px;font-size:14.5px;font-weight:600;cursor:pointer;border:none}
+  .mghost{background:#fff;color:#122347;border:1px solid #cbd4df !important}
+  .mdanger{background:#a02020;color:#fff}
   .holdbanner{background:#fff6da;color:#8a6d00;border:1px solid #ecd98a;border-radius:10px;padding:11px 15px;margin-top:12px;font-weight:600;font-size:14px}
   .head{background:var(--navy);color:#fff;border-radius:12px;padding:18px 20px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
   .head h1{margin:0;font-size:22px}
@@ -75,6 +86,7 @@ function auDate(v){ if(!v) return "—"; const m=String(v).match(/^(\d{4})-(\d{2
 const cap=s=>s?s.charAt(0).toUpperCase()+s.slice(1):"—";
 const PM={weekly_dd:"Weekly direct debit",fortnightly_dd:"Fortnightly direct debit",deposit_50:"50% deposit",pay_in_full:"Pay in full",cash:"Cash"};
 const DS={pending:"Pending",scheduled:"Scheduled",delivered:"Delivered",on_hold:"On hold",cancelled:"Cancelled"};
+const CXT={customer_request:"customer requested",company_overcommit:"we cancelled — over-committed",company_other:"we cancelled"};
 const PERIODS={weekly:{per:7,total:156,word:"wk"},fortnightly:{per:14,total:78,word:"fn"},monthly:{per:30.44,total:36,word:"mo"}};
 
 function position(o){
@@ -187,7 +199,7 @@ function render(o,c,items,pays){
   const badgeCls = isCancelled ? "grey" : (isHold ? "amber" : p.cls);
   const badgeLabel = isCancelled ? "Cancelled" : (isHold ? "On hold" : p.label);
   let banner = "";
-  if(isCancelled) banner = `<div class="cancelbanner">Cancelled${o.cancellation_date?" on "+auDate(o.cancellation_date):""}${o.cancellation_reason?" — "+o.cancellation_reason:""}</div>`;
+  if(isCancelled){ const ct=CXT[o.cancellation_type]||""; banner = `<div class="cancelbanner">Cancelled${o.cancellation_date?" on "+auDate(o.cancellation_date):""}${ct?" · "+ct:""}${o.refunded?" · refunded":""}${o.cancellation_reason?" — "+o.cancellation_reason:""}</div>`; }
   else if(isHold) banner = `<div class="holdbanner">On hold — excluded from risk and arrears until set back to active.</div>`;
 
   document.getElementById("content").innerHTML=`
@@ -207,25 +219,49 @@ function render(o,c,items,pays){
 function kv(k,v){ return `<div class="kv"><span class="k">${k}</span><span class="v">${v}</span></div>`; }
 
 async function onStatusChange(newStatus){
-  let patch = { order_status:newStatus };
-  if(newStatus==="cancelled"){
-    const reason = prompt("Reason for cancelling this customer? (optional)");
-    if(reason===null){ run(); return; }
-    if(!confirm("Cancel this customer? They'll be removed from risk, arrears and other active views. You can set them back later.")){ run(); return; }
-    patch.cancellation_date = new Date().toISOString().slice(0,10);
-    patch.cancellation_reason = (reason||"").trim()||null;
-  } else if(newStatus==="on_hold"){
+  if(newStatus==="cancelled"){ openCancel(); return; }   // handled by the dialog below
+  let patch = { order_status:newStatus, cancellation_date:null, cancellation_reason:null, cancellation_type:null, refunded:null };
+  if(newStatus==="on_hold"){
     if(!confirm("Put this customer on hold? They'll be paused from risk and arrears until set back to active.")){ run(); return; }
-    patch.cancellation_date = null; patch.cancellation_reason = null;
-  } else {
-    patch.cancellation_date = null; patch.cancellation_reason = null;
   }
   const {error} = await sb.from("sim_orders").update(patch).eq("id",orderId);
   if(error){ alert("Couldn't update status: "+error.message); run(); return; }
   run();
 }
+function openCancel(){ document.getElementById("cxNotes").value=""; document.getElementById("cxRefund").checked=false; document.getElementById("cxType").value="customer_request"; document.getElementById("cancelModal").style.display="flex"; }
+function closeCancel(){ document.getElementById("cancelModal").style.display="none"; run(); }
+async function confirmCancel(){
+  const patch = {
+    order_status:"cancelled",
+    cancellation_date:new Date().toISOString().slice(0,10),
+    cancellation_type:document.getElementById("cxType").value,
+    refunded:document.getElementById("cxRefund").checked,
+    cancellation_reason:(document.getElementById("cxNotes").value||"").trim()||null
+  };
+  const {error} = await sb.from("sim_orders").update(patch).eq("id",orderId);
+  if(error){ alert("Couldn't cancel: "+error.message); return; }
+  document.getElementById("cancelModal").style.display="none"; run();
+}
 
 run();
 </script>
+<div id="cancelModal" class="modalbg">
+  <div class="modal">
+    <h3>Cancel this customer</h3>
+    <label class="ml">Who initiated the cancellation?</label>
+    <select id="cxType" class="mi">
+      <option value="customer_request">Customer requested it</option>
+      <option value="company_overcommit">We cancelled — customer was over-committed / couldn't afford it</option>
+      <option value="company_other">We cancelled — other reason</option>
+    </select>
+    <label class="mchk"><input type="checkbox" id="cxRefund"> Money was refunded to the customer</label>
+    <label class="ml">Notes (optional)</label>
+    <textarea id="cxNotes" class="mi" rows="3"></textarea>
+    <div class="mbtns">
+      <button class="mghost" onclick="closeCancel()">Back</button>
+      <button class="mdanger" onclick="confirmCancel()">Cancel customer</button>
+    </div>
+  </div>
+</div>
 </body>
 </html>

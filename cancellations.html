@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Simtec — Cancellations</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="auth.js?v=3" data-roles="admin,manager"></script>
+<style>
+  :root{--navy:#122347;--navy2:#1c3363;--gold:#c6a15b;--ink:#1a2334;--line:#d9e0ea;--bg:#eef1f5;--red:#c0332e;--amber:#b8860b;--grey:#7a8798;}
+  *{box-sizing:border-box}
+  body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(--bg);color:var(--ink);margin:0}
+  header{background:var(--navy);color:#fff;padding:16px 22px;display:flex;align-items:center;gap:14px}
+  header a.back{color:#b9c6de;text-decoration:none;font-size:13px;font-weight:600} header a.back:hover{color:#fff}
+  header h1{font-size:18px;margin:0;font-weight:600}
+  .wrap{max-width:980px;margin:22px auto;padding:0 16px}
+  .card{background:#fff;border:1px solid var(--line);border-radius:12px;overflow:hidden;margin-bottom:18px}
+  .card h2{font-size:13px;text-transform:uppercase;letter-spacing:.07em;color:var(--navy);margin:0;padding:16px 18px 12px}
+  .card h2 .sub{text-transform:none;letter-spacing:0;color:var(--grey);font-weight:400;font-size:12px}
+  table{width:100%;border-collapse:collapse;font-size:14px}
+  th,td{padding:10px 14px;text-align:left;border-bottom:1px solid var(--line)}
+  th{background:#f3f6fa;color:var(--navy);font-size:11.5px;text-transform:uppercase;letter-spacing:.04em}
+  td.num{text-align:right;font-variant-numeric:tabular-nums}
+  .pill{display:inline-block;font-size:11px;font-weight:700;padding:2px 9px;border-radius:20px}
+  .p-red{background:#fdecec;color:var(--red)} .p-amber{background:#fff6da;color:var(--amber)} .p-grey{background:#eef1f4;color:var(--grey)}
+  .big{font-weight:800;color:var(--red)}
+  .muted{color:var(--grey)} #state{padding:30px;text-align:center;color:#6b7889}
+  .filters{display:flex;gap:8px;padding:0 18px 14px;flex-wrap:wrap}
+  .filters button{padding:7px 13px;border:1px solid #cbd4df;background:#fff;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;color:#3a4759}
+  .filters button.on{background:var(--navy);color:#fff;border-color:var(--navy)}
+</style>
+</head>
+<body>
+<header>
+  <a href="home.html" class="back">‹ Home</a>
+  <h1>Cancellations</h1>
+</header>
+
+<div class="wrap">
+  <div class="card">
+    <h2>By consultant <span class="sub">— over-committed = we cancelled & refunded because the customer couldn't afford it</span></h2>
+    <div id="summaryState" class="muted" style="padding:0 18px 16px">Loading…</div>
+    <table id="sumTbl" style="display:none">
+      <thead><tr><th>Consultant</th><th class="num">Over-committed</th><th class="num">Customer-requested</th><th class="num">Other</th><th class="num">Total cancelled</th></tr></thead>
+      <tbody id="sumRows"></tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>All cancellations</h2>
+    <div class="filters" id="filters">
+      <button data-f="all" class="on" onclick="setFilter('all')">All</button>
+      <button data-f="company_overcommit" onclick="setFilter('company_overcommit')">Over-committed</button>
+      <button data-f="customer_request" onclick="setFilter('customer_request')">Customer-requested</button>
+      <button data-f="company_other" onclick="setFilter('company_other')">Other</button>
+    </div>
+    <div id="listState" class="muted" style="padding:0 18px 16px">Loading…</div>
+    <table id="listTbl" style="display:none">
+      <thead><tr><th>Customer</th><th>Consultant</th><th>Cancelled</th><th>Type</th><th>Refunded</th><th class="num">Value</th></tr></thead>
+      <tbody id="listRows"></tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+const sb = supabase.createClient("https://jvqjoenaungubpoegyvf.supabase.co","sb_publishable_J4MYTdJJyEaWe-GadpwdYA_upPT2rKw");
+const $=id=>document.getElementById(id);
+const esc=s=>(s||"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const fmt=n=>"$"+Math.round(+n||0).toLocaleString();
+function auDate(v){ if(!v) return "—"; const m=String(v).match(/^(\d{4})-(\d{2})-(\d{2})/); return m? m[3]+"/"+m[2]+"/"+m[1] : v; }
+const TYPE={company_overcommit:{t:"Over-committed",c:"p-red"},customer_request:{t:"Customer requested",c:"p-grey"},company_other:{t:"We cancelled",c:"p-amber"}};
+let ALL=[], filter="all";
+
+async function load(){
+  const { data, error } = await sb.from("sim_orders")
+    .select("id,consultant_name,cancellation_date,cancellation_type,refunded,cancellation_reason,contract_value, sim_customers(first_name,last_name)")
+    .eq("order_status","cancelled").order("cancellation_date",{ascending:false});
+  if(error){ $("summaryState").textContent="Couldn't load: "+error.message; $("listState").textContent=""; return; }
+  ALL=data||[];
+  renderSummary(); renderList();
+}
+
+function renderSummary(){
+  const by={};
+  ALL.forEach(o=>{
+    const k=o.consultant_name||"(unknown)";
+    by[k]=by[k]||{oc:0,cr:0,ot:0,total:0};
+    by[k].total++;
+    if(o.cancellation_type==="company_overcommit") by[k].oc++;
+    else if(o.cancellation_type==="customer_request") by[k].cr++;
+    else by[k].ot++;
+  });
+  const rows=Object.keys(by).sort((a,b)=>by[b].oc-by[a].oc || by[b].total-by[a].total);
+  $("summaryState").style.display="none"; $("sumTbl").style.display="table";
+  $("sumRows").innerHTML = rows.length ? rows.map(k=>{
+    const s=by[k];
+    return `<tr><td><b>${esc(k)}</b></td>
+      <td class="num ${s.oc?'big':''}">${s.oc||"—"}</td>
+      <td class="num">${s.cr||"—"}</td>
+      <td class="num">${s.ot||"—"}</td>
+      <td class="num">${s.total}</td></tr>`;
+  }).join("") : `<tr><td colspan="5" class="muted">No cancellations recorded yet.</td></tr>`;
+}
+
+function renderList(){
+  const list = filter==="all" ? ALL : ALL.filter(o=>(o.cancellation_type||"company_other")===filter || (filter==="company_other" && !o.cancellation_type));
+  $("listState").style.display="none"; $("listTbl").style.display="table";
+  $("listRows").innerHTML = list.length ? list.map(o=>{
+    const c=o.sim_customers||{}; const name=`${c.first_name||""} ${c.last_name||""}`.trim()||"(no name)";
+    const ty=TYPE[o.cancellation_type]||{t:"Not recorded",c:"p-grey"};
+    return `<tr>
+      <td><b>${esc(name)}</b>${o.cancellation_reason?`<div class="muted" style="font-size:12px">${esc(o.cancellation_reason)}</div>`:""}</td>
+      <td>${esc(o.consultant_name)||"—"}</td>
+      <td>${auDate(o.cancellation_date)}</td>
+      <td><span class="pill ${ty.c}">${ty.t}</span></td>
+      <td>${o.refunded?'<span class="pill p-amber">Refunded</span>':'<span class="muted">—</span>'}</td>
+      <td class="num">${fmt(o.contract_value)}</td>
+    </tr>`;
+  }).join("") : `<tr><td colspan="6" class="muted">None in this filter.</td></tr>`;
+}
+window.setFilter=f=>{ filter=f; document.querySelectorAll("#filters button").forEach(b=>b.classList.toggle("on",b.dataset.f===f)); renderList(); };
+
+load();
+</script>
+</body>
+</html>
