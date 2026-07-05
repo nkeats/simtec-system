@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Simtec — Settings</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="auth.js?v=3" data-roles="admin"></script>
+<style>
+  :root{--navy:#122347;--navy2:#1c3363;--gold:#c6a15b;--ink:#1a2334;--line:#d9e0ea;--bg:#eef1f5;--red:#c0332e;--ok:#1c6b34;--grey:#7a8798;}
+  *{box-sizing:border-box}
+  body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(--bg);color:var(--ink);margin:0}
+  header{background:var(--navy);color:#fff;padding:16px 22px;display:flex;align-items:center;gap:14px}
+  header a.back{color:#b9c6de;text-decoration:none;font-size:13px;font-weight:600} header a.back:hover{color:#fff}
+  header h1{font-size:18px;margin:0;font-weight:600}
+  .wrap{max-width:920px;margin:22px auto;padding:0 16px}
+  .card{background:#fff;border:1px solid var(--line);border-radius:12px;margin-bottom:20px;overflow:hidden}
+  .card h2{font-size:13px;text-transform:uppercase;letter-spacing:.07em;color:var(--navy);margin:0;padding:16px 18px 6px}
+  .card .sub{padding:0 18px 12px;color:var(--grey);font-size:12.5px}
+  table{width:100%;border-collapse:collapse;font-size:14px}
+  th,td{padding:8px 14px;text-align:left;border-bottom:1px solid var(--line);vertical-align:middle}
+  th{background:#f3f6fa;color:var(--navy);font-size:11.5px;text-transform:uppercase;letter-spacing:.04em}
+  input{width:110px;padding:7px 9px;border:1px solid #cbd4df;border-radius:7px;font-size:14px;font-family:inherit}
+  select{padding:7px 9px;border:1px solid #cbd4df;border-radius:7px;font-size:14px;font-family:inherit;background:#fff}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px 22px;padding:14px 18px}
+  .fld{display:flex;flex-direction:column;gap:4px}
+  .fld label{font-size:12px;color:#3a4759;font-weight:600}
+  .fld input{width:100%}
+  .bar{display:flex;justify-content:space-between;align-items:center;padding:12px 18px;border-top:1px solid var(--line);background:#fafbfc}
+  .bar .msg{font-size:13px;color:var(--ok);font-weight:600}
+  button.save{background:var(--navy);color:#fff;border:none;border-radius:8px;padding:9px 18px;font-size:14px;font-weight:600;cursor:pointer}
+  button.save:hover{background:var(--navy2)}
+  .muted{color:var(--grey)} #state{padding:24px;text-align:center;color:#6b7889}
+  .rule{color:var(--grey);font-size:12.5px}
+</style>
+</head>
+<body>
+<header>
+  <a href="home.html" class="back">‹ Home</a>
+  <h1>Settings</h1>
+</header>
+
+<div class="wrap">
+  <div id="state">Loading…</div>
+
+  <!-- PRODUCT PRICES -->
+  <div class="card" id="pricesCard" style="display:none">
+    <h2>Product prices</h2>
+    <div class="sub">Retail price used to total a sale on the add-customer form.</div>
+    <table><thead><tr><th>Product</th><th>Retail ($)</th><th>Cost ($)</th></tr></thead><tbody id="priceRows"></tbody></table>
+    <div class="bar"><span class="msg" id="pricesMsg"></span><button class="save" onclick="savePrices()">Save prices</button></div>
+  </div>
+
+  <!-- COMMISSION SETTINGS -->
+  <div class="card" id="commCard" style="display:none">
+    <h2>Commission settings</h2>
+    <div class="sub">Weekly tiers, cash bonus, retention and the team-leader override.</div>
+    <div class="grid" id="commGrid"></div>
+    <div class="bar"><span class="msg" id="commMsg"></span><button class="save" onclick="saveComm()">Save commission settings</button></div>
+  </div>
+
+  <!-- AWARDS -->
+  <div class="card" id="awardsCard" style="display:none">
+    <h2>Awards</h2>
+    <div class="sub">The name and rule of each award stay fixed — only the numbers change.</div>
+    <table><thead><tr><th>Award</th><th>Rule</th><th>Target</th><th>Weeks</th></tr></thead><tbody id="awardRows"></tbody></table>
+    <div class="bar"><span class="msg" id="awardsMsg"></span><button class="save" onclick="saveAwards()">Save awards</button></div>
+  </div>
+
+  <!-- BASELINES -->
+  <div class="card" id="baseCard" style="display:none">
+    <h2>Consultant starting awards</h2>
+    <div class="sub">The award a consultant already holds (e.g. earned before joining). They climb up from here.</div>
+    <table><thead><tr><th>Consultant</th><th>Starting award</th></tr></thead><tbody id="baseRows"></tbody></table>
+    <div class="bar"><span class="msg" id="baseMsg"></span><button class="save" onclick="saveBaselines()">Save starting awards</button></div>
+  </div>
+</div>
+
+<script>
+const sb = supabase.createClient("https://jvqjoenaungubpoegyvf.supabase.co","sb_publishable_J4MYTdJJyEaWe-GadpwdYA_upPT2rKw");
+const $=id=>document.getElementById(id);
+const esc=s=>(s||"").toString().replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const num=v=>{ const n=parseFloat(v); return isNaN(n)?null:n; };
+
+let PRICES=[], COMM=null, AWARDS=[], CONS=[];
+
+function awRule(a){
+  if(a.type==="single") return `${a.target}+ sales in a single week`;
+  if(a.type==="consec")  return `${a.span} straight weeks of ${a.target}+`;
+  if(a.type==="window")  return `${a.target} over any ${a.span} weeks`;
+  return "";
+}
+
+async function load(){
+  const [{data:cfg},{data:cs},{data:aw},{data:cons}] = await Promise.all([
+    sb.from("config").select("key,value").eq("category","products"),
+    sb.from("commission_settings").select("*").eq("id",1).maybeSingle(),
+    sb.from("commission_awards").select("*").order("sort_order"),
+    sb.from("commission_consultants").select("id,name,award_baseline").order("name")
+  ]);
+  PRICES=(cfg||[]).map(r=>({key:r.key, value:r.value||{}})).sort((a,b)=>(a.value.name||a.key).localeCompare(b.value.name||b.key));
+  COMM=cs||{};
+  AWARDS=aw||[];
+  CONS=cons||[];
+  $("state").style.display="none";
+  renderPrices(); renderComm(); renderAwards(); renderBaselines();
+}
+
+// ---- prices ----
+function renderPrices(){
+  $("pricesCard").style.display="";
+  $("priceRows").innerHTML = PRICES.map((p,i)=>`
+    <tr><td>${esc(p.value.name||p.key)}</td>
+      <td><input id="pr${i}" type="number" step="1" value="${p.value.retail!=null?p.value.retail:''}"></td>
+      <td><input id="pc${i}" type="number" step="1" value="${p.value.cost!=null?p.value.cost:''}"></td></tr>`).join("");
+}
+async function savePrices(){
+  $("pricesMsg").textContent="Saving…";
+  try{
+    for(let i=0;i<PRICES.length;i++){
+      const p=PRICES[i];
+      const v=Object.assign({}, p.value, {retail:num($("pr"+i).value), cost:num($("pc"+i).value)});
+      const {error}=await sb.from("config").update({value:v}).eq("category","products").eq("key",p.key);
+      if(error) throw error;
+      p.value=v;
+    }
+    $("pricesMsg").textContent="Saved.";
+  }catch(e){ $("pricesMsg").style.color="var(--red)"; $("pricesMsg").textContent="Error: "+(e.message||e); }
+}
+
+// ---- commission settings ----
+const COMM_FIELDS=[
+  ["tier1_max","Tier 1 up to (mattresses)"],["tier1_amount","Tier 1 $/mattress"],
+  ["tier2_max","Tier 2 up to (mattresses)"],["tier2_amount","Tier 2 $/mattress"],
+  ["tier3_amount","Tier 3 $/mattress (above tier 2)"],
+  ["cash_bonus","Cash bonus ($ per eligible paid-in-full sale)"],
+  ["retention_rate","Retention withheld (%)"],["retention_cap","Retention cap ($)"],
+  ["override_rate","Team-leader override ($/sale)"],["pillow_charge","Pillow charge ($)"]
+];
+function renderComm(){
+  $("commCard").style.display="";
+  $("commGrid").innerHTML = COMM_FIELDS.map(([k,label])=>{
+    let val = COMM[k];
+    if(k==="retention_rate" && val!=null) val = Math.round(val*100);   // 0.25 -> 25
+    return `<div class="fld"><label>${label}</label><input id="cf_${k}" type="number" step="1" value="${val!=null?val:''}"></div>`;
+  }).join("");
+}
+async function saveComm(){
+  $("commMsg").textContent="Saving…";
+  const upd={id:1};
+  COMM_FIELDS.forEach(([k])=>{ let v=num($("cf_"+k).value); if(k==="retention_rate"&&v!=null) v=v/100; upd[k]=v; });
+  const {error}=await sb.from("commission_settings").upsert(upd);
+  if(error){ $("commMsg").style.color="var(--red)"; $("commMsg").textContent="Error: "+error.message; return; }
+  COMM=Object.assign(COMM,upd); $("commMsg").textContent="Saved.";
+}
+
+// ---- awards ----
+function renderAwards(){
+  $("awardsCard").style.display="";
+  $("awardRows").innerHTML = AWARDS.map((a,i)=>`
+    <tr><td><b>${esc(a.name)}</b></td>
+      <td class="rule">${awRule(a)}</td>
+      <td><input id="at${i}" type="number" step="1" value="${a.target!=null?a.target:''}"></td>
+      <td>${a.type==="single" ? '<span class="muted">—</span>' : `<input id="as${i}" type="number" step="1" value="${a.span!=null?a.span:''}">`}</td>
+    </tr>`).join("");
+}
+async function saveAwards(){
+  $("awardsMsg").textContent="Saving…";
+  try{
+    for(let i=0;i<AWARDS.length;i++){
+      const a=AWARDS[i];
+      const patch={target:num($("at"+i).value)};
+      if(a.type!=="single"){ patch.span=num($("as"+i).value); }
+      const {error}=await sb.from("commission_awards").update(patch).eq("id",a.id);
+      if(error) throw error;
+      Object.assign(a,patch);
+    }
+    $("awardsMsg").textContent="Saved. (Consultants see the new numbers next time they open My Sales.)";
+  }catch(e){ $("awardsMsg").style.color="var(--red)"; $("awardsMsg").textContent="Error: "+(e.message||e); }
+}
+
+// ---- baselines ----
+function renderBaselines(){
+  $("baseCard").style.display="";
+  const opts = ['<option value="">— none —</option>'].concat(AWARDS.map(a=>a.name)).join("");
+  const optFor=v=>['<option value="">— none —</option>'].concat(AWARDS.map(a=>`<option value="${esc(a.name)}"${a.name===v?" selected":""}>${esc(a.name)}</option>`)).join("");
+  $("baseRows").innerHTML = CONS.map((c,i)=>`
+    <tr><td><b>${esc(c.name)}</b></td>
+      <td><select id="bl${i}">${optFor(c.award_baseline||"")}</select></td></tr>`).join("");
+}
+async function saveBaselines(){
+  $("baseMsg").textContent="Saving…";
+  try{
+    for(let i=0;i<CONS.length;i++){
+      const c=CONS[i]; const v=$("bl"+i).value||null;
+      if(v===(c.award_baseline||null)) continue;
+      const {error}=await sb.from("commission_consultants").update({award_baseline:v}).eq("id",c.id);
+      if(error) throw error;
+      c.award_baseline=v;
+    }
+    $("baseMsg").textContent="Saved.";
+  }catch(e){ $("baseMsg").style.color="var(--red)"; $("baseMsg").textContent="Error: "+(e.message||e); }
+}
+
+load();
+</script>
+</body>
+</html>

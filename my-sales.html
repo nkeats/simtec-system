@@ -67,7 +67,7 @@ function weekStart(d){ const dt=new Date(d+"T12:00:00"); const off=(dt.getDay()+
 const TODAY=new Date().toISOString().slice(0,10);
 const THIS_WEEK=weekStart(TODAY);
 
-const AWARDS=[
+let AWARDS=[
   {name:"Initial",       type:"single", target:10, desc:"10+ sales in a single week"},
   {name:"Pearl",         type:"consec", span:3, target:8,  desc:"3 straight weeks of 8+ sales"},
   {name:"Ruby",          type:"single", target:15, desc:"15+ sales in a single week (team-leader level)"},
@@ -81,6 +81,19 @@ const BASELINES={
   "kenzie lam sam":"Sapphire", "yazan othman":"Sapphire",
   "kono harris":"Initial", "stacey numanga":"Initial", "pj tonga":"Initial"
 };
+function awDesc(a){
+  if(a.type==="single") return `${a.target}+ sales in a single week`;
+  if(a.type==="consec") return `${a.span} straight weeks of ${a.target}+ sales`;
+  if(a.type==="window") return `${a.target} sales over any ${a.span}-week period`;
+  return "";
+}
+let _awardsLoaded=false;
+async function loadAwards(){
+  if(_awardsLoaded) return;
+  const { data } = await sb.from("commission_awards").select("name,type,span,target,sort_order").order("sort_order");
+  if(data && data.length){ AWARDS = data.map(r=>({name:r.name,type:r.type,span:r.span,target:r.target,desc:awDesc(r)})); }
+  _awardsLoaded=true;
+}
 
 (function init(){
   const u=window.SIMTEC_USER;
@@ -102,7 +115,8 @@ const BASELINES={
 async function loadFor(name){
   if(!name){ $("body").innerHTML='<div id="state">Choose a consultant to view.</div>'; return; }
   $("body").innerHTML='<div id="state">Loading…</div>';
-  const { data:cons } = await sb.from("commission_consultants").select("id").eq("name",name).maybeSingle();
+  await loadAwards();
+  const { data:cons } = await sb.from("commission_consultants").select("id,award_baseline").eq("name",name).maybeSingle();
   if(!cons){ $("body").innerHTML='<div id="state">No consultant record found for '+esc(name)+'.</div>'; return; }
   const { data:sales, error:se } = await sb.from("commission_sales")
     .select("id,sale_date,status,cancelled_date,customer_name,sim_order_id")
@@ -119,7 +133,7 @@ async function loadFor(name){
     (items||[]).forEach(it=>{ (byOrder[it.order_id]=byOrder[it.order_id]||[]).push(it); });
   }
   (orders||[]).forEach(o=>{ o._items=byOrder[o.id]||[]; });
-  render(name, sales||[], orders||[], BASELINES[name.toLowerCase().trim()]||null);
+  render(name, sales||[], orders||[], cons.award_baseline || BASELINES[name.toLowerCase().trim()] || null);
 }
 
 // A sale drops off the award count only if cancelled BEFORE THE END OF THE
