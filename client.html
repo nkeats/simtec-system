@@ -91,54 +91,49 @@ async function loadClient(custId){
   const {data:orders}=await sb.from('sim_orders').select('*').eq('customer_id',custId).order('order_date',{ascending:false});
   if(!orders||!orders.length){render(cust,null,[],[]);return;}
   const order=orders[0];
-  const [{data:items},{data:pays}]=await Promise.all([
+  const ref=order.ezidebit_payer_ref;
+  const [{data:items},{data:pays},{data:dishons}]=await Promise.all([
     sb.from('sim_order_items').select('*').eq('order_id',order.id).order('line_no'),
-    sb.from('sim_payment_events').select('*').eq('order_id',order.id).order('payment_date')
+    ref? sb.from('sim_payments').select('payment_date,amount,result').eq('payer_ref',ref).order('payment_date') : Promise.resolve({data:[]}),
+    ref? sb.from('sim_dishonours').select('dishonour_date,amount').eq('payer_ref',ref) : Promise.resolve({data:[]})
   ]);
-  render(cust,order,items||[],pays||[],orders);
+  render(cust,order,items||[],pays||[],orders,dishons||[]);
 }
 window.loadClient=loadClient;
 // Deep-link: client.html?c=<customerId> opens straight to that customer
 {const _c=new URLSearchParams(location.search).get('c');if(_c)loadClient(_c);}
 
-// ── Payment maths + timeline ───────────────────────────────────────────────
-function analyse(order,pays){
+// ── Payment maths + timeline (from sim_payments + sim_dishonours) ───────────
+function analyse(order,pays,dishons){
+  dishons=dishons||[];
   const first=order.first_payment_date;
   const total=order.instalment_count||156;
-  const wkOf=d=>first?Math.round((new Date(d+'T12:00:00')-new Date(first+'T12:00:00'))/(7*DAY))+1:0;
+  const inst=+order.instalment_amount||0;
+  const LAG=5;                        // 5-day settlement lag before a week counts as due
   const dueDate=w=>first?new Date(new Date(first+'T12:00:00').getTime()+(w-1)*7*DAY):null;
+  const lagCut=new Date(today.getTime()-LAG*DAY);
 
+  // amount paid = successful payments minus refunds
   let paid=0;
-  const wk={};                       // week -> status
-  // first pass: paid + failed
-  for(const p of pays){
-    if(p.direction==='debit'&&p.status==='successful')paid+=(+p.amount||0);
-    if(p.direction==='refund'&&p.status==='successful')paid-=(+p.amount||0);
-    const w=wkOf(p.payment_date);if(w<1)continue;
-    if(p.recovers_payment_id)continue; // handle below
-    if(p.status==='successful'){ if(wk[w]!=='amber')wk[w]='green'; }
-    else if(p.status==='failed'){ if(!wk[w])wk[w]='failed'; }
-  }
-  // recoveries -> mark the recovered week amber
-  for(const p of pays){
-    if(!p.recovers_payment_id)continue;
-    const failed=pays.find(x=>x.payment_id===p.recovers_payment_id);
-    const w=wkOf((failed&&failed.payment_date)||p.payment_date);
-    if(w>=1)wk[w]='amber';
-  }
+  for(const p of pays){ if(p.result==='refund') paid-=(+p.amount||0); else paid+=(+p.amount||0); }
+  if(paid<0)paid=0;
 
-  let redCount=0,amberCount=0;
-  const cells=[];
+  // paid covers the first N weeks; behind = due weeks past the lag not yet covered
+  const weeksCovered = inst>0 ? Math.floor((paid+0.01)/inst) : 0;
+  let dueWeeks=0;
+  for(let w=1;w<=total;w++){ const d=dueDate(w); if(d && d<lagCut) dueWeeks=w; else break; }
+
+  const cells=[]; let redCount=0;
   for(let w=1;w<=total;w++){
-    const due=dueDate(w);const past=due&&due<today;
-    let st=wk[w];
-    let cls,label;
-    if(st==='green'){cls='#1faa5a';label='Paid';}
-    else if(st==='amber'){cls='#e0a010';label='Late — recovered';amberCount++;}
-    else if(st==='failed'){ if(past){cls='#dc2626';label='Missed';redCount++;} else {cls='#475569';label='Upcoming';} }
+    const due=dueDate(w); let cls,label;
+    if(w<=weeksCovered){ cls='#1faa5a'; label='Paid'; }
+    else if(w<=dueWeeks){ cls='#dc2626'; label='Behind'; redCount++; }
     else { cls='#475569'; label='Upcoming'; }
     cells.push({w,cls,label,due});
   }
+  // caught up but had dishonours in the past → note them as "missed, since recovered"
+  const amberCount = (redCount===0 && dishons.length) ? dishons.length : 0;
+
   const contract=+order.contract_value||0;
   const threshold=contract*0.10;
   const pct=contract?paid/contract*100:0;
@@ -171,7 +166,7 @@ function recommend(order,a){
 }
 
 // ── Render ─────────────────────────────────────────────────────────────────
-function render(cust,order,items,pays,orders){
+function render(cust,order,items,pays,orders,dishons){
   $('empty').classList.add('hidden');
   if(!cust){$('client').innerHTML='';return;}
   const name=`${esc(cust.first_name||'')} ${esc(cust.last_name||'')}`.trim();
@@ -179,14 +174,14 @@ function render(cust,order,items,pays,orders){
     $('client').innerHTML=`<div class="card"><div class="text-xl font-bold">${name}</div>
       <p class="text-slate-500 mt-2 text-sm">No order on file for this customer yet.</p></div>`;return;
   }
-  const a=analyse(order,pays);
+  const a=analyse(order,pays,dishons);
   const rec=recommend(order,a);
 
   const itemRows=items.map(it=>`<div class="flex justify-between py-1 text-sm">
       <span class="text-slate-300">${esc(it.product_name)}${it.quantity>1?` ×${it.quantity}`:''}</span>
       <span class="text-slate-300">${fmt((+it.unit_price||0)*(it.quantity||1))}</span></div>`).join('');
 
-  const legend=[['#1faa5a','Paid'],['#e0a010','Late — recovered'],['#dc2626','Missed'],['#475569','Upcoming']]
+  const legend=[['#1faa5a','Paid'],['#dc2626','Behind'],['#475569','Upcoming']]
     .map(([c,l])=>`<span class="inline-flex items-center gap-1.5 mr-4"><span class="sq" style="background:${c}"></span><span class="text-xs text-slate-400">${l}</span></span>`).join('');
   const grid=a.cells.map(c=>`<span class="sq" title="Week ${c.w}: ${c.label}${c.due?' · '+c.due.toLocaleDateString('en-NZ'):''}" style="background:${c.cls}"></span>`).join('');
 
