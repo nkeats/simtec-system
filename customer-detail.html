@@ -174,11 +174,15 @@ function render(o,c,items,pays,comms){
     ${kv("Paid in full",o.paid_in_full?"Yes":"No")}
   </div>`;
 
+  const isAdmin = (window.SIMTEC_USER&&window.SIMTEC_USER.role==='admin');
   const delivery=`<div class="card"><h2>Delivery</h2>
     ${kv("Status",DS[o.delivery_status]||o.delivery_status||"—")}
     ${kv("Delivery date",auDate(o.delivery_date))}
     ${o.driver_name?kv("Driver",o.driver_name):""}
     ${kv("Order status",cap(o.order_status))}
+    ${o.delivery_authorised
+      ? kv("Delivery clearance",`<span style="color:var(--green);font-weight:700">✓ Authorised${o.delivery_authorised_by?" by "+o.delivery_authorised_by:""}</span>`)
+      : (isAdmin ? `<div style="margin-top:10px"><button onclick="authoriseDelivery()" style="background:#1c6b34;color:#fff;border:none;border-radius:8px;padding:9px 15px;font-size:13.5px;font-weight:600;cursor:pointer">✓ Authorise delivery (override)</button><div style="font-size:11.5px;color:#8794a6;margin-top:5px">Clears this customer for delivery regardless of payment history.</div></div>` : "")}
   </div>`;
 
   const prodRows = items.length
@@ -246,6 +250,14 @@ function render(o,c,items,pays,comms){
       `<option value="on_hold"${st==="on_hold"?" selected":""}>On hold</option>` +
       `<option value="cancelled"${st==="cancelled"?" selected":""}>Cancelled</option>` +
     `</select>`;
+}
+async function authoriseDelivery(){
+  if(!(window.SIMTEC_USER&&window.SIMTEC_USER.role==='admin')){ alert("Admins only."); return; }
+  if(!confirm("Authorise this customer for delivery, overriding the payment-history check? This is recorded against your name.")) return;
+  const who = (window.SIMTEC_USER.full_name||window.SIMTEC_USER.email||"admin");
+  const {error}=await sb.from("sim_orders").update({delivery_authorised:true,delivery_authorised_by:who,delivery_authorised_at:new Date().toISOString()}).eq("id",orderId);
+  if(error){ alert("Couldn't authorise: "+error.message); return; }
+  run();
 }
 async function reinstate(){
   if(!confirm("Reinstate this customer as Active? This clears the cancellation and returns them to risk and arrears.")) return;

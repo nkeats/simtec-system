@@ -50,35 +50,34 @@ const digits=s=>(s||'').replace(/[^0-9+]/g,'');
 
 // Payment check used ONLY to hold back a stop that is no longer cleared.
 // Nothing financial is ever shown on this screen.
-const PERIODS={weekly:{per:7,total:156,word:"wk"},fortnightly:{per:14,total:78,word:"fn"},monthly:{per:30.44,total:36,word:"mo"}};
-function analyse(order){
-  const contract=+order.contract_value||0;
-  const paid=+order.amount_paid_to_date||0;
-  const start=order.first_payment_date||order.order_date;
-  const f=PERIODS[order.payment_frequency]||PERIODS.weekly;
-  const total=f.total;
-  const perAmt=total?contract/total:0;
-  const elapsed=start?Math.max(0,(today-new Date(start))/DAY/f.per):0;
-  const elapsedW=Math.min(total,Math.floor(elapsed));
-  const weeksCovered=perAmt>0?Math.min(total,Math.floor((paid+0.01)/perAmt)):0;
-  const expected=Math.min(contract,perAmt*elapsed);
-  const behindBy=Math.max(0,expected-paid);
-  const redCount=behindBy>perAmt?Math.max(0,elapsedW-weeksCovered):0;
-  return {reached:paid>=contract*0.10&&contract>0,redCount};
+let RULES=[];
+function ruleFor(depositPct){
+  let r=RULES[0]||{weekly:8,fortnightly:4,monthly:2,miss_allowed:1};
+  for(const x of RULES){ if(depositPct*100 >= x.min_deposit_pct) r=x; }
+  return r;
 }
-function cleared(o,payAcct,a){
+function cleared(o,payAcct,counts){
   if(o.order_status==='cancelled')return false;
+  if(o.delivery_authorised===true) return true;                     // admin override
   const c=o.cooling_off_expires; const coolOk=c?new Date(c+'T12:00:00')<=today:true;
   if(!coolOk) return false;
-  const contract=+payAcct.contract_value||0, paid=+payAcct.amount_paid_to_date||0;
+  if(o.affordability_passed===false) return false;
+  const contract=+payAcct.contract_value||0;
   const isCash=(payAcct.payment_method||'').toLowerCase()==='cash';
-  if(payAcct.paid_in_full || isCash || (contract>0 && paid>=contract*0.5)) return true;   // ready immediately
-  const reached = contract>0 && paid>=contract*0.10;
-  return reached && o.affordability_passed===true && a.redCount===0;
+  const depositPct = contract>0 ? (+payAcct.deposit_amount||0)/contract : 0;
+  if(payAcct.paid_in_full || isCash || depositPct>=0.5) return true;
+  const rule=ruleFor(depositPct);
+  const freq=payAcct.payment_frequency||'weekly';
+  const required = rule[freq]!=null ? rule[freq] : rule.weekly;
+  const ref=payAcct.ezidebit_payer_ref;
+  const cc = ref && counts[ref] ? counts[ref] : {paid_count:0,dishonour_count:0};
+  if(cc.dishonour_count > rule.miss_allowed) return false;
+  return cc.paid_count >= required;
 }
 
 async function load(){
   $('state').style.display='';$('state').textContent='Loading today\u2019s run…';
+  const {data:rules}=await sb.from('delivery_rules').select('*').order('min_deposit_pct'); RULES=rules||[];
   const {data:orders,error}=await sb.from('sim_orders')
     .select('*, sim_customers(first_name,last_name,mobile,address), sim_order_items(product_name,quantity)')
     .eq('delivery_date',todayStr);
@@ -87,9 +86,12 @@ async function load(){
   const pvIds=[...new Set((orders||[]).map(o=>o.paid_via_order_id).filter(Boolean))];
   let payerMap={};
   if(pvIds.length){
-    const {data:po}=await sb.from('sim_orders').select('id,contract_value,amount_paid_to_date,first_payment_date,payment_frequency,order_date,cooling_off_expires,affordability_passed,payment_method,paid_in_full').in('id',pvIds);
+    const {data:po}=await sb.from('sim_orders').select('id,contract_value,amount_paid_to_date,first_payment_date,payment_frequency,order_date,cooling_off_expires,affordability_passed,payment_method,paid_in_full,deposit_amount,ezidebit_payer_ref').in('id',pvIds);
     (po||[]).forEach(p=>payerMap[p.id]=p);
   }
+  const refs=[...new Set((orders||[]).map(o=>{const pa=o.paid_via_order_id?(payerMap[o.paid_via_order_id]||o):o; return pa.ezidebit_payer_ref;}).filter(Boolean))];
+  let counts={};
+  if(refs.length){ const {data:cd}=await sb.rpc('sim_delivery_counts',{refs}); (cd||[]).forEach(r=>counts[r.payer_ref]={paid_count:r.paid_count,dishonour_count:r.dishonour_count}); }
   const run=[],doneList=[];
   for(const o of (orders||[])){
     const cust=o.sim_customers||{};
@@ -102,8 +104,7 @@ async function load(){
     };
     if(o.delivery_status==='delivered'){doneList.push(stop);continue;}
     const payAcct = o.paid_via_order_id ? (payerMap[o.paid_via_order_id]||o) : o;   // judge payments on payer
-    const a=analyse(payAcct);
-    if(!cleared(o,payAcct,a))continue;               // held back for the office — not shown to the driver
+    if(!cleared(o,payAcct,counts))continue;               // held back for the office — not shown to the driver
     run.push(stop);
   }
   run.sort((x,y)=>suburb(x.address).localeCompare(suburb(y.address))||x.address.localeCompare(y.address));

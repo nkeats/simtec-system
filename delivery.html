@@ -69,38 +69,37 @@ const esc=s=>(s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"
 const titleCase=s=>(s||'').replace(/_/g,' ').replace(/\b\w/g,m=>m.toUpperCase());
 const suburb=a=>{const p=(a||'').split(',');return (p[1]||p[0]||'').trim();};
 
-const PERIODS={weekly:{per:7,total:156},fortnightly:{per:14,total:78},monthly:{per:30.44,total:36}};
-function analyse(order){
-  const contract=+order.contract_value||0;
-  const paid=+order.amount_paid_to_date||0;
-  const start=order.first_payment_date||order.order_date;
-  const f=PERIODS[order.payment_frequency]||PERIODS.weekly;
-  const total=f.total, perAmt=total?contract/total:0;
-  const elapsed=start?Math.max(0,(today-new Date(start))/DAY/f.per):0;
-  const elapsedW=Math.min(total,Math.floor(elapsed));
-  const weeksCovered=perAmt>0?Math.min(total,Math.floor((paid+0.01)/perAmt)):0;
-  const behindBy=Math.max(0,perAmt*elapsed - paid);
-  const redCount = behindBy>perAmt ? Math.max(0,elapsedW-weeksCovered) : 0;
-  return {redCount};
+let RULES=[];
+function ruleFor(depositPct){
+  let r=RULES[0]||{weekly:8,fortnightly:4,monthly:2,miss_allowed:1};
+  for(const x of RULES){ if(depositPct*100 >= x.min_deposit_pct) r=x; }
+  return r;
 }
-function cleared(order,payAcct,a){
+function cleared(order,payAcct,counts){
   if(order.order_status==='cancelled')return false;
+  if(order.delivery_authorised===true) return true;                 // admin override
   const coolStr=order.cooling_off_expires;
   const coolExpired=coolStr?new Date(coolStr+'T12:00:00')<=today:true;
-  if(!coolExpired) return false;                          // never deliver inside the cooling-off period
+  if(!coolExpired) return false;                                     // never deliver inside cooling-off
+  if(order.affordability_passed===false) return false;              // explicit affordability fail
   const contract=+payAcct.contract_value||0;
-  const paid=+payAcct.amount_paid_to_date||0;
   const isCash=(payAcct.payment_method||'').toLowerCase()==='cash';
-  // Ready immediately: paid in full, a cash sale, or a 50%+ deposit
-  if(payAcct.paid_in_full || isCash || (contract>0 && paid>=contract*0.5)) return true;
-  // Standard finance path: 10% paid, affordability passed, no overdue payments
-  const reached = contract>0 && paid>=contract*0.10;
-  return reached && order.affordability_passed===true && a.redCount===0;
+  const depositPct = contract>0 ? (+payAcct.deposit_amount||0)/contract : 0;
+  if(payAcct.paid_in_full || isCash || depositPct>=0.5) return true; // immediate
+  const rule=ruleFor(depositPct);
+  const freq=payAcct.payment_frequency||'weekly';
+  const required = rule[freq]!=null ? rule[freq] : rule.weekly;
+  const ref=payAcct.ezidebit_payer_ref;
+  const c = ref && counts[ref] ? counts[ref] : {paid_count:0,dishonour_count:0};
+  if(c.dishonour_count > rule.miss_allowed) return false;            // too many fails
+  return c.paid_count >= required;                                    // deposit counts as payment #1
 }
 
 let rows=[], filter='ready';
 
 async function load(){
+  const {data:rules}=await sb.from('delivery_rules').select('*').order('min_deposit_pct');
+  RULES=rules||[];
   const {data:orders,error}=await sb.from('sim_orders')
     .select('*, sim_customers(*), sim_order_items(product_name,quantity)')
     .eq('order_status','active');
@@ -109,13 +108,16 @@ async function load(){
   const pvIds=[...new Set((orders||[]).map(o=>o.paid_via_order_id).filter(Boolean))];
   let payerMap={};
   if(pvIds.length){
-    const {data:po}=await sb.from('sim_orders').select('id,contract_value,amount_paid_to_date,first_payment_date,payment_frequency,order_date,payment_method,paid_in_full').in('id',pvIds);
+    const {data:po}=await sb.from('sim_orders').select('id,contract_value,amount_paid_to_date,first_payment_date,payment_frequency,order_date,payment_method,paid_in_full,deposit_amount,ezidebit_payer_ref').in('id',pvIds);
     (po||[]).forEach(p=>payerMap[p.id]=p);
   }
+  // payment + dishonour counts per payer ref (one RPC)
+  const refs=[...new Set((orders||[]).map(o=>{const pa=o.paid_via_order_id?(payerMap[o.paid_via_order_id]||o):o; return pa.ezidebit_payer_ref;}).filter(Boolean))];
+  let counts={};
+  if(refs.length){ const {data:cd}=await sb.rpc('sim_delivery_counts',{refs}); (cd||[]).forEach(r=>counts[r.payer_ref]={paid_count:r.paid_count,dishonour_count:r.dishonour_count}); }
   rows=[];
   for(const o of (orders||[])){
     const payAcct = o.paid_via_order_id ? (payerMap[o.paid_via_order_id]||o) : o;
-    const a=analyse(payAcct);
     const cust=o.sim_customers||{};
     const items=(o.sim_order_items||[]).map(i=>({name:i.product_name,qty:+i.quantity||1}));
     rows.push({
@@ -123,7 +125,8 @@ async function load(){
       name:`${cust.first_name||''} ${cust.last_name||''}`.trim()||'(no name)',
       phone:cust.mobile||'', address:o.delivery_address||cust.address||'',
       items, product:items.map(i=>(i.qty>1?i.qty+'× ':'')+i.name).join(', ')||'—',
-      cleared:cleared(o,payAcct,a),
+      cleared:cleared(o,payAcct,counts),
+      authorised:o.delivery_authorised===true,
       delivered:o.delivery_status==='delivered',
       booked:!!o.delivery_date && o.delivery_status!=='delivered',
       deliveryDate:o.delivery_date, deliveryTime:o.delivery_time||'',
