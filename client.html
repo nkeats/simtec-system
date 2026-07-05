@@ -130,7 +130,7 @@ function analyse(order,pays,dishons){
   }
   const amberCount=(redCount===0 && dishons.length)?dishons.length:0;
   const pct=contract?paid/contract*100:0;
-  return {paid,contract,balance:contract-paid,pct,threshold:contract*0.10,
+  return {paid,contract,balance:contract-paid,pct,threshold:contract*0.10,perAmt,
           reached:paid>=contract*0.10&&contract>0,cells,redCount,amberCount,total};
 }
 
@@ -178,16 +178,15 @@ function render(cust,order,items,pays,orders,dishons){
     .map(([c,l])=>`<span class="inline-flex items-center gap-1.5 mr-4"><span class="sq" style="background:${c}"></span><span class="text-xs text-slate-400">${l}</span></span>`).join('');
   const grid=a.cells.map(c=>`<span class="sq" title="Week ${c.w}: ${c.label}${c.due?' · '+c.due.toLocaleDateString('en-NZ'):''}" style="background:${c.cls}"></span>`).join('');
 
-  // dated list of actual events: payments (green), refunds (amber), dishonours as $0 missed (red)
-  const events=[
-    ...(pays||[]).map(p=>({date:p.payment_date, amount:+p.amount||0, kind:p.result==='refund'?'refund':'paid'})),
-    ...(dishons||[]).map(d=>({date:d.dishonour_date, amount:+d.amount||0, kind:'missed'}))
-  ].filter(e=>e.date).sort((x,y)=>String(y.date).localeCompare(String(x.date)));
-  const histRows = events.length ? events.slice(0,50).map(e=>{
-    const clr = e.kind==='paid'?'#1faa5a':(e.kind==='refund'?'#e0a010':'#dc2626');
-    const lbl = e.kind==='paid'?fmt(e.amount):(e.kind==='refund'?'−'+fmt(e.amount)+' refund':'$0 · missed');
-    return `<div class="flex justify-between py-1 text-sm border-b border-slate-800"><span class="text-slate-400">${fmtD(e.date)}</span><span style="color:${clr};font-weight:600">${lbl}</span></div>`;
-  }).join('') : '<div class="text-slate-500 text-sm py-2">No payments imported yet for this customer.</div>';
+  // weekly ledger — consistent with the traffic light: each elapsed week is Paid or Missed ($0)
+  const led = a.cells.filter(c=>c.cls!=='#475569');   // paid + behind weeks (drop upcoming)
+  const histRows = led.length ? led.slice().reverse().map(c=>{
+    const paidWk = c.cls==='#1faa5a';
+    const dstr = c.due ? fmtD(c.due.toISOString().slice(0,10)) : ('Week '+c.w);
+    const clr = paidWk?'#1faa5a':'#dc2626';
+    const lbl = paidWk? fmt(a.perAmt) : '$0 · missed';
+    return `<div class="flex justify-between py-1 text-sm border-b border-slate-800"><span class="text-slate-400">Wk ${c.w} · ${dstr}</span><span style="color:${clr};font-weight:600">${lbl}</span></div>`;
+  }).join('') : '<div class="text-slate-500 text-sm py-2">No payments due yet.</div>';
 
   const banner=(()=>{
     const map={green:['#0f3d2a','#1faa5a','#7ef0b5','✓'],amber:['#3d3110','#e0a010','#ffd97a','!'],
