@@ -69,40 +69,53 @@ const esc=s=>(s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"
 const titleCase=s=>(s||'').replace(/_/g,' ').replace(/\b\w/g,m=>m.toUpperCase());
 const suburb=a=>{const p=(a||'').split(',');return (p[1]||p[0]||'').trim();};
 
-function analyse(order,pays){
-  const first=order.first_payment_date;const total=order.instalment_count||156;
-  const wkOf=d=>first?Math.round((new Date(d+'T12:00:00')-new Date(first+'T12:00:00'))/(7*DAY))+1:0;
-  let paid=0;const wk={};
-  for(const p of pays){
-    if(p.direction==='debit'&&p.status==='successful')paid+=(+p.amount||0);
-    if(p.direction==='refund'&&p.status==='successful')paid-=(+p.amount||0);
-    const w=wkOf(p.payment_date);if(w<1)continue;if(p.recovers_payment_id)continue;
-    if(p.status==='successful'){if(wk[w]!=='amber')wk[w]='green';}
-    else if(p.status==='failed'){if(!wk[w])wk[w]='failed';}
-  }
-  for(const p of pays){if(!p.recovers_payment_id)continue;const f=pays.find(x=>x.payment_id===p.recovers_payment_id);const w=wkOf((f&&f.payment_date)||p.payment_date);if(w>=1)wk[w]='amber';}
-  let redCount=0;const dueDate=w=>first?new Date(new Date(first+'T12:00:00').getTime()+(w-1)*7*DAY):null;
-  for(let w=1;w<=total;w++){const due=dueDate(w),past=due&&due<today;if(wk[w]==='failed'&&past)redCount++;}
+const PERIODS={weekly:{per:7,total:156},fortnightly:{per:14,total:78},monthly:{per:30.44,total:36}};
+function analyse(order){
   const contract=+order.contract_value||0;
-  return {reached:paid>=contract*0.10&&contract>0,redCount};
+  const paid=+order.amount_paid_to_date||0;
+  const start=order.first_payment_date||order.order_date;
+  const f=PERIODS[order.payment_frequency]||PERIODS.weekly;
+  const total=f.total, perAmt=total?contract/total:0;
+  const elapsed=start?Math.max(0,(today-new Date(start))/DAY/f.per):0;
+  const elapsedW=Math.min(total,Math.floor(elapsed));
+  const weeksCovered=perAmt>0?Math.min(total,Math.floor((paid+0.01)/perAmt)):0;
+  const behindBy=Math.max(0,perAmt*elapsed - paid);
+  const redCount = behindBy>perAmt ? Math.max(0,elapsedW-weeksCovered) : 0;
+  return {redCount};
 }
-function cleared(order,a){
+function cleared(order,payAcct,a){
   if(order.order_status==='cancelled')return false;
   const coolStr=order.cooling_off_expires;
   const coolExpired=coolStr?new Date(coolStr+'T12:00:00')<=today:true;
-  return a.redCount===0 && order.affordability_passed===true && a.reached && coolExpired;
+  if(!coolExpired) return false;                          // never deliver inside the cooling-off period
+  const contract=+payAcct.contract_value||0;
+  const paid=+payAcct.amount_paid_to_date||0;
+  const isCash=(payAcct.payment_method||'').toLowerCase()==='cash';
+  // Ready immediately: paid in full, a cash sale, or a 50%+ deposit
+  if(payAcct.paid_in_full || isCash || (contract>0 && paid>=contract*0.5)) return true;
+  // Standard finance path: 10% paid, affordability passed, no overdue payments
+  const reached = contract>0 && paid>=contract*0.10;
+  return reached && order.affordability_passed===true && a.redCount===0;
 }
 
 let rows=[], filter='ready';
 
 async function load(){
   const {data:orders,error}=await sb.from('sim_orders')
-    .select('*, sim_customers(*), sim_order_items(product_name,quantity), sim_payment_events(*)')
+    .select('*, sim_customers(*), sim_order_items(product_name,quantity)')
     .eq('order_status','active');
   if(error){$('state').innerHTML=`<span class="text-red-400">${esc(error.message)}</span>`;return;}
+  // payer accounts for any third-party-paid orders
+  const pvIds=[...new Set((orders||[]).map(o=>o.paid_via_order_id).filter(Boolean))];
+  let payerMap={};
+  if(pvIds.length){
+    const {data:po}=await sb.from('sim_orders').select('id,contract_value,amount_paid_to_date,first_payment_date,payment_frequency,order_date,payment_method,paid_in_full').in('id',pvIds);
+    (po||[]).forEach(p=>payerMap[p.id]=p);
+  }
   rows=[];
   for(const o of (orders||[])){
-    const a=analyse(o,o.sim_payment_events||[]);
+    const payAcct = o.paid_via_order_id ? (payerMap[o.paid_via_order_id]||o) : o;
+    const a=analyse(payAcct);
     const cust=o.sim_customers||{};
     const items=(o.sim_order_items||[]).map(i=>({name:i.product_name,qty:+i.quantity||1}));
     rows.push({
@@ -110,7 +123,7 @@ async function load(){
       name:`${cust.first_name||''} ${cust.last_name||''}`.trim()||'(no name)',
       phone:cust.mobile||'', address:o.delivery_address||cust.address||'',
       items, product:items.map(i=>(i.qty>1?i.qty+'× ':'')+i.name).join(', ')||'—',
-      cleared:cleared(o,a),
+      cleared:cleared(o,payAcct,a),
       delivered:o.delivery_status==='delivered',
       booked:!!o.delivery_date && o.delivery_status!=='delivered',
       deliveryDate:o.delivery_date, deliveryTime:o.delivery_time||'',
@@ -171,10 +184,11 @@ function renderList(view,mode){
     if(mode==='ready') right=`<button class="btn gold noprint" onclick="event.stopPropagation();openBook('${r.id}','${esc(r.name).replace(/'/g,"\\'")}')">Book delivery</button>`;
     else if(mode==='today'){
       right=`<div class="text-right"><div class="k">${r.deliveryTime?esc(r.deliveryTime):'Any time'}</div>
+        <button class="btn noprint mt-2" onclick="event.stopPropagation();window.open('docket.html?id='+'${r.id}','_blank')">🖨 Docket</button>
         <button class="btn gold noprint mt-2" onclick="event.stopPropagation();markDelivered('${r.id}')">Mark delivered</button></div>`;
       if(!r.cleared)warn=`<div class="mt-2 text-xs font-semibold" style="color:#f87171">⚠ No longer cleared — check payments before delivering</div>`;
     }
-    else if(mode==='upcoming') right=`<div class="text-right"><div class="k">Booked</div><div class="text-sm font-semibold text-slate-200">${fmtD(r.deliveryDate)}</div>${r.deliveryTime?`<div class="k mt-1">${esc(r.deliveryTime)}</div>`:''}</div>`;
+    else if(mode==='upcoming') right=`<div class="text-right"><div class="k">Booked</div><div class="text-sm font-semibold text-slate-200">${fmtD(r.deliveryDate)}</div>${r.deliveryTime?`<div class="k mt-1">${esc(r.deliveryTime)}</div>`:''}<button class="btn noprint mt-2" onclick="event.stopPropagation();window.open('docket.html?id='+'${r.id}','_blank')">🖨 Docket</button></div>`;
     else right=`<div class="text-right"><div class="k">Delivered</div><div class="text-sm font-semibold text-slate-200">${fmtD(r.deliveryDate)}</div></div>`;
     const num=mode==='today'?`<span class="text-slate-500 font-bold mr-2">${i+1}.</span>`:'';
     return `<div class="card dl mb-3" style="cursor:pointer" onclick="location.href='client.html?c=${r.custId}'" title="Open ${esc(r.name)}'s details">

@@ -66,8 +66,16 @@ function analyse(order){
   const redCount=behindBy>perAmt?Math.max(0,elapsedW-weeksCovered):0;
   return {reached:paid>=contract*0.10&&contract>0,redCount};
 }
-function cleared(o,a){const c=o.cooling_off_expires;const coolOk=c?new Date(c+'T12:00:00')<=today:true;
-  return o.order_status!=='cancelled'&&a.redCount===0&&o.affordability_passed===true&&a.reached&&coolOk;}
+function cleared(o,payAcct,a){
+  if(o.order_status==='cancelled')return false;
+  const c=o.cooling_off_expires; const coolOk=c?new Date(c+'T12:00:00')<=today:true;
+  if(!coolOk) return false;
+  const contract=+payAcct.contract_value||0, paid=+payAcct.amount_paid_to_date||0;
+  const isCash=(payAcct.payment_method||'').toLowerCase()==='cash';
+  if(payAcct.paid_in_full || isCash || (contract>0 && paid>=contract*0.5)) return true;   // ready immediately
+  const reached = contract>0 && paid>=contract*0.10;
+  return reached && o.affordability_passed===true && a.redCount===0;
+}
 
 async function load(){
   $('state').style.display='';$('state').textContent='Loading today\u2019s run…';
@@ -79,7 +87,7 @@ async function load(){
   const pvIds=[...new Set((orders||[]).map(o=>o.paid_via_order_id).filter(Boolean))];
   let payerMap={};
   if(pvIds.length){
-    const {data:po}=await sb.from('sim_orders').select('id,contract_value,amount_paid_to_date,first_payment_date,payment_frequency,order_date,cooling_off_expires,affordability_passed').in('id',pvIds);
+    const {data:po}=await sb.from('sim_orders').select('id,contract_value,amount_paid_to_date,first_payment_date,payment_frequency,order_date,cooling_off_expires,affordability_passed,payment_method,paid_in_full').in('id',pvIds);
     (po||[]).forEach(p=>payerMap[p.id]=p);
   }
   const run=[],doneList=[];
@@ -95,7 +103,7 @@ async function load(){
     if(o.delivery_status==='delivered'){doneList.push(stop);continue;}
     const payAcct = o.paid_via_order_id ? (payerMap[o.paid_via_order_id]||o) : o;   // judge payments on payer
     const a=analyse(payAcct);
-    if(!cleared(o,a))continue;               // held back for the office — not shown to the driver
+    if(!cleared(o,payAcct,a))continue;               // held back for the office — not shown to the driver
     run.push(stop);
   }
   run.sort((x,y)=>suburb(x.address).localeCompare(suburb(y.address))||x.address.localeCompare(y.address));
@@ -134,6 +142,7 @@ function render(run,doneList){
       <div class="flex flex-wrap gap-2 mt-4 noprint">
         ${r.address?`<a class="act ghost" href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(r.address)}" target="_blank">📍 Maps</a>`:''}
         ${r.phone?`<a class="act ghost" href="tel:${digits(r.phone)}">📞 Call</a>`:''}
+        <button class="act ghost" onclick="window.open('docket.html?id='+'${r.id}','_blank')">🖨 Docket</button>
         <button class="act gold" style="margin-left:auto" onclick="markDelivered('${r.id}','${esc(r.name).replace(/'/g,"\\'")}')">✓ Delivered</button>
       </div>
     </div>`).join('');
