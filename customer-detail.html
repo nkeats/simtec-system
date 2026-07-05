@@ -41,6 +41,11 @@
   .card{background:#fff;border:1px solid var(--line);border-radius:12px;padding:16px 18px}
   .card.full{grid-column:1/-1}
   .card h2{margin:0 0 12px;font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--navy);border-bottom:2px solid var(--gold);padding-bottom:7px;display:inline-block}
+  .commrow{padding:8px 0;border-bottom:1px solid #eef1f5}
+  .commrow:last-child{border-bottom:none}
+  .commhead{display:flex;justify-content:space-between;gap:10px;font-weight:600;font-size:13.5px;color:#1a2334}
+  .commmeta{color:#8794a6;font-weight:400;font-size:12px}
+  .commbody{color:#3a4759;font-size:13px;margin-top:3px;white-space:pre-wrap}
   .kv{display:flex;justify-content:space-between;gap:12px;padding:5px 0;font-size:14px;border-bottom:1px dotted #e6ebf1}
   .kv:last-child{border-bottom:none}
   .kv .k{color:#6b7889} .kv .v{font-weight:600;text-align:right}
@@ -120,11 +125,14 @@ async function run(){
     const {data:items}=await sb.from("sim_order_items").select("product_name,quantity,unit_price").eq("order_id",orderId).order("line_no");
     let pays=[];
     if(o.ezidebit_payer_ref){ const {data}=await sb.from("sim_payments").select("payment_date,amount").eq("payer_ref",o.ezidebit_payer_ref).order("payment_date",{ascending:false}); pays=data||[]; }
-    render(o,cust,items||[],pays);
+    let comms=[];
+    { const orf = o.customer_id ? `customer_id.eq.${o.customer_id},order_id.eq.${orderId}` : `order_id.eq.${orderId}`;
+      const {data}=await sb.from("sim_communications").select("*").or(orf).order("created_at",{ascending:false}); comms=data||[]; }
+    render(o,cust,items||[],pays,comms);
   }catch(e){ document.getElementById("content").innerHTML='<div id="err">'+(e.message||e)+'</div>'; }
 }
 
-function render(o,c,items,pays){
+function render(o,c,items,pays,comms){
   const name=[c.first_name,c.last_name].filter(Boolean).join(" ")||"(no name)";
   const p=position(o);
   const behindTxt = p.behindBy>1 ? `${fmt(p.behindBy)} behind (${p.periodsBehind.toFixed(0)} ${p.freq.word})` : (p.cls==="green"?"On track":"—");
@@ -202,10 +210,21 @@ function render(o,c,items,pays){
   if(isCancelled){ const ct=CXT[o.cancellation_type]||""; banner = `<div class="cancelbanner">Cancelled${o.cancellation_date?" on "+auDate(o.cancellation_date):""}${ct?" · "+ct:""}${o.refunded?" · refunded":""}${o.cancellation_reason?" — "+o.cancellation_reason:""}</div>`; }
   else if(isHold) banner = `<div class="holdbanner">On hold — excluded from risk and arrears until set back to active.</div>`;
 
+  const escc=s=>(s||"").replace(/[&<>]/g,x=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[x]));
+  const commLabels={arrears_reminder:"Arrears reminder",welcome:"Welcome",delivery:"Delivery notice"};
+  const commRows=(comms||[]).map(m=>{
+    const icon=m.channel==="email"?"✉":(m.channel==="call"?"☎":"💬");
+    const st=(m.status==="failed")?`<span style="color:#c0332e">failed</span>`:(m.status||"sent");
+    const when=m.created_at?auDate(String(m.created_at).slice(0,10)):"";
+    const label=commLabels[m.comm_type]||m.comm_type||m.channel||"Message";
+    return `<div class="commrow"><div class="commhead"><span>${icon} ${label}</span><span class="commmeta">${when} · ${st}</span></div>${m.subject?`<div class="commmeta">${escc(m.subject)}</div>`:""}${m.body?`<div class="commbody">${escc(m.body)}</div>`:""}</div>`;
+  }).join("");
+  const comms_card=`<div class="card full"><h2>Communications</h2>${(comms&&comms.length)?commRows:`<div class="muted" style="padding:4px 0">No messages sent yet.</div>`}</div>`;
+
   document.getElementById("content").innerHTML=`
     <div class="head"><h1>${name}</h1><span class="badge ${badgeCls}">${badgeLabel}</span></div>
     ${banner}
-    <div class="cards">${contact}${sale}${money}${delivery}${products}${history}</div>`;
+    <div class="cards">${contact}${sale}${money}${delivery}${products}${history}${comms_card}</div>`;
   document.title="Simtec — "+name;
 
   document.getElementById("statusBtns").innerHTML =

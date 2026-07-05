@@ -86,7 +86,7 @@ async function loadCustomers(){
     const c=cust[o.customer_id]||{};
     custMap[norm(o.ezidebit_payer_ref)]={
       name:`${c.first_name||''} ${c.last_name||''}`.trim(),
-      firstName:(c.first_name||'').trim(), mobile:c.mobile||'', order_id:o.id};
+      firstName:(c.first_name||'').trim(), mobile:c.mobile||'', order_id:o.id, customer_id:o.customer_id};
   });
 }
 
@@ -121,7 +121,7 @@ function matchRows(rows){
     return {payer_ref:r.payer_ref, reason:r.failed_reason||'Dishonour', amount:r.amount||'',
             failCount:r.failCount||1, failWeeks:r.failWeeks||0,
             name:(c&&c.name)||'', firstName:(c&&c.firstName)||'there',
-            mobile:(c&&c.mobile)||'', order_id:(c&&c.order_id)||null,
+            mobile:(c&&c.mobile)||'', order_id:(c&&c.order_id)||null, customer_id:(c&&c.customer_id)||null,
             matched:!!(c&&c.mobile)};});
 }
 const failLabel=r=>{const c=r.failCount||1,w=r.failWeeks||0;const txt=w?`${c}× in ${w} wk`:`${c}×`;
@@ -174,7 +174,7 @@ async function sendAll(){
     let status='sent',resp='';
     try{await postOne(r.name,r.mobile,msg);sent++;}
     catch(e){status='failed';resp=e.message;failed++;}
-    await sb.from('sms_log').insert({customer_name:r.name,mobile:r.mobile,payer_ref:r.payer_ref,order_id:r.order_id,message:msg,status,provider_response:resp});
+    await sb.from('sim_communications').insert({customer_id:r.customer_id,order_id:r.order_id,channel:'sms',direction:'outbound',comm_type:'arrears_reminder',body:msg,status,provider_response:resp,source:'brain',mobile:r.mobile});
   }
   $('review').innerHTML=`<div class="card"><div class="font-semibold text-green-400">Done</div>
     <div class="text-slate-200 mt-1">Sent ${sent}${failed?`, ${failed} failed`:''}. All logged.</div></div>`;
