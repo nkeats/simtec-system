@@ -92,6 +92,10 @@ async function loadClient(custId){
   if(!orders||!orders.length){render(cust,null,[],[]);return;}
   const order=orders[0];
   const ref=order.ezidebit_payer_ref;
+  if(order.paid_via_order_id){
+    const {data:po}=await sb.from('sim_orders').select('customer_id').eq('id',order.paid_via_order_id).maybeSingle();
+    if(po&&po.customer_id){ const {data:pc}=await sb.from('sim_customers').select('first_name,last_name').eq('id',po.customer_id).maybeSingle(); order._payerName=pc?`${pc.first_name||''} ${pc.last_name||''}`.trim():''; }
+  }
   const [{data:items},{data:pays},{data:dishons}]=await Promise.all([
     sb.from('sim_order_items').select('*').eq('order_id',order.id).order('line_no'),
     ref? sb.from('sim_payments').select('payment_date,amount,result').eq('payer_ref',ref).order('payment_date') : Promise.resolve({data:[]}),
@@ -169,6 +173,9 @@ function render(cust,order,items,pays,orders,dishons){
   }
   const a=analyse(order,pays,dishons);
   const rec=recommend(order,a);
+  const paidViaBanner = order.paid_via_order_id
+    ? `<div class="rounded-xl p-4 mt-5" style="background:#102a3d;border:2px solid #2a8fb5"><div style="color:#9fdcff;font-weight:800;font-size:1.1rem">Payments covered by ${esc(order._payerName)||'another account'}</div><div class="text-slate-200 text-sm mt-1">This mattress is paid on their Ezidebit account. Check that account for payment status — this record is not tracked for arrears.</div></div>`
+    : "";
 
   const itemRows=items.map(it=>`<div class="flex justify-between py-1 text-sm">
       <span class="text-slate-300">${esc(it.product_name)}${it.quantity>1?` ×${it.quantity}`:''}</span>
@@ -238,6 +245,7 @@ function render(cust,order,items,pays,orders,dishons){
       </div>
     </div>
 
+    ${order.paid_via_order_id ? paidViaBanner : `
     <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4">
       ${stat('Paid to date',fmt(a.paid))}
       ${stat('Balance owing',fmt(a.balance))}
@@ -262,6 +270,7 @@ function render(cust,order,items,pays,orders,dishons){
     </div>
 
     ${banner}
+    `}
   `;
 }
 function row(k,v){return `<div class="flex justify-between py-1"><span class="k">${k}</span><span class="v text-right ml-3">${v||'—'}</span></div>`;}

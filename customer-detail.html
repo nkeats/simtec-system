@@ -120,6 +120,10 @@ async function run(){
   try{
     const {data:o,error}=await sb.from("sim_orders").select("*").eq("id",orderId).single();
     if(error||!o) throw new Error("Customer record not found.");
+    if(o.paid_via_order_id){
+      const {data:po}=await sb.from("sim_orders").select("customer_id").eq("id",o.paid_via_order_id).maybeSingle();
+      if(po&&po.customer_id){ const {data:pc}=await sb.from("sim_customers").select("first_name,last_name").eq("id",po.customer_id).maybeSingle(); o._payerName=pc?`${pc.first_name||""} ${pc.last_name||""}`.trim():""; }
+    }
     let cust={};
     if(o.customer_id){ const {data}=await sb.from("sim_customers").select("*").eq("id",o.customer_id).single(); cust=data||{}; }
     const {data:items}=await sb.from("sim_order_items").select("product_name,quantity,unit_price").eq("order_id",orderId).order("line_no");
@@ -156,7 +160,12 @@ function render(o,c,items,pays,comms){
     ${kv("First payment",auDate(o.first_payment_date))}
   </div>`;
 
-  const money=`<div class="card"><h2>Account</h2>
+  const money = o.paid_via_order_id
+    ? `<div class="card"><h2>Account</h2>
+        ${kv("Total sale value",fmt(o.contract_value))}
+        <div class="cancelbanner" style="background:#eef4ff;color:#1a3a6b;border-color:#c7d8f0">Payments covered by ${o._payerName?o._payerName:"another account"} — this mattress is paid on their Ezidebit account, so it isn't tracked for arrears here.</div>
+       </div>`
+    : `<div class="card"><h2>Account</h2>
     ${kv("Total sale value",fmt(o.contract_value))}
     ${kv("Paid to date",fmt(o.amount_paid_to_date))}
     ${kv("Balance owing",fmt(p.balance))}

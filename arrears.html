@@ -103,6 +103,7 @@ async function load(){
   if(error){$('state').innerHTML=`<span class="text-red-400">${esc(error.message)}</span>`;return;}
   const behind=[];
   for(const o of (orders||[])){
+    if(o.paid_via_order_id) continue;               // paid on someone else's account
     const a=analyse(o);
     if(a.redCount<1)continue;                       // only customers actually behind
     const inst=a.perAmt;

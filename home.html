@@ -89,7 +89,6 @@
       <a class="card" href="users.html"><div class="t">User Access</div><div class="d">Add staff, set roles, switch access on or off.</div></a>
       <a class="card" href="consultants.html"><div class="t">Consultants &amp; Teams</div><div class="d">Add consultants, assign team leaders, promote to team leader.</div></a>
       <a class="card" href="cancellations.html"><div class="t">Cancellations</div><div class="d">Who cancelled &amp; refunded — spot over-committing by consultant.</div></a>
-      <a class="card" href="settings.html"><div class="t">Settings</div><div class="d">Product prices, commission rules, award numbers, starting awards.</div></a>
     </div></div>
   </div>
 
@@ -117,6 +116,7 @@ const PERIODS={weekly:{per:7,total:156,word:"wk"},fortnightly:{per:14,total:78,w
 const today=new Date();
 
 function isBehindDelivered(o){
+  if(o.paid_via_order_id) return null;               // paid on another account — not their debt
   const contract=o.contract_value!=null?Number(o.contract_value):null;
   const paid=o.amount_paid_to_date!=null?Number(o.amount_paid_to_date):0;
   if((o.delivery_status||"")!=="delivered") return null;
@@ -134,7 +134,7 @@ function isBehindDelivered(o){
 async function loadUrgent(){
   try{
     const {data:orders}=await sb.from("sim_orders")
-      .select("id,customer_id,order_date,first_payment_date,payment_frequency,contract_value,amount_paid_to_date,delivery_status,consultant_name,order_status")
+      .select("id,customer_id,order_date,first_payment_date,payment_frequency,contract_value,amount_paid_to_date,delivery_status,consultant_name,order_status,paid_via_order_id")
       .eq("order_status","active");
     const rows=[];
     for(const o of (orders||[])){ const b=isBehindDelivered(o); if(b) rows.push({o,b}); }

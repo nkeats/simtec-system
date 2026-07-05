@@ -130,16 +130,17 @@ const ORDER={red:0,amber:1,green:2,grey:3};
 async function load(){
   try{
     const {data:orders,error}=await sb.from("sim_orders")
-      .select("id,customer_id,order_date,first_payment_date,payment_frequency,contract_value,amount_paid_to_date,delivery_status,ezidebit_payer_ref,order_status,consultant_name")
+      .select("id,customer_id,order_date,first_payment_date,payment_frequency,contract_value,amount_paid_to_date,delivery_status,ezidebit_payer_ref,order_status,consultant_name,paid_via_order_id")
       .eq("order_status","active");
     if(error) throw error;
-    const ids=[...new Set((orders||[]).map(o=>o.customer_id).filter(Boolean))];
+    const live=(orders||[]).filter(o=>!o.paid_via_order_id);   // exclude orders paid on another account
+    const ids=[...new Set(live.map(o=>o.customer_id).filter(Boolean))];
     let cmap={};
     for(let i=0;i<ids.length;i+=200){
       const {data:cs}=await sb.from("sim_customers").select("id,first_name,last_name,mobile").in("id",ids.slice(i,i+200));
       (cs||[]).forEach(c=>cmap[c.id]=c);
     }
-    RECORDS=(orders||[]).map(o=>{
+    RECORDS=live.map(o=>{
       const c=cmap[o.customer_id]||{};
       const s=computeStatus(o);
       return {...o, name:[c.first_name,c.last_name].filter(Boolean).join(" ")||"(no name)", mobile:c.mobile||"", s};
