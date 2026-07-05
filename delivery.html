@@ -142,7 +142,7 @@ function mapLink(a){return a?`https://www.google.com/maps/search/?api=1&query=${
 function render(){
   $('state').classList.add('hidden');
   const readyToBook=rows.filter(r=>r.cleared&&!r.booked&&!r.delivered);
-  const todayRun=rows.filter(r=>r.booked&&r.deliveryDate===todayStr).sort((x,y)=>suburb(x.address).localeCompare(suburb(y.address))||x.address.localeCompare(y.address));
+  const todayRun=rows.filter(r=>r.booked&&r.deliveryDate<=todayStr).sort((x,y)=>(x.deliveryDate||'').localeCompare(y.deliveryDate||'')||suburb(x.address).localeCompare(suburb(y.address))||x.address.localeCompare(y.address));
   const upcoming=rows.filter(r=>r.booked&&r.deliveryDate>todayStr).sort((x,y)=>(x.deliveryDate||'').localeCompare(y.deliveryDate||''));
   const delivered=rows.filter(r=>r.delivered);
 
@@ -154,7 +154,7 @@ function render(){
     stat('Delivered',delivered.length,'text-slate-200');
 
   const tab=(id,label,n)=>`<button class="btn ${filter===id?'on':''}" onclick="setFilter('${id}')">${label}${n?`<span class="pill" ${filter===id?'style="background:#1a2438;color:#c9a84c"':''}>${n}</span>`:''}</button>`;
-  $('tabs').innerHTML=tab('ready','Ready to book',readyToBook.length)+tab('today',"Today's run",todayRun.length)+tab('upcoming','Upcoming',upcoming.length)+tab('delivered','Delivered',0)
+  $('tabs').innerHTML=tab('ready','Ready to book',readyToBook.length)+tab('today',"Today &amp; overdue",todayRun.length)+tab('upcoming','Upcoming',upcoming.length)+tab('delivered','Delivered',0)
     +`<button class="btn ml-auto noprint" onclick="window.print()">🖨 Print run sheet</button>`;
 
   $('runhead').innerHTML='';
@@ -187,10 +187,12 @@ function renderList(view,mode){
     let right='', warn='';
     if(mode==='ready') right=`<button class="btn gold noprint" onclick="event.stopPropagation();openBook('${r.id}','${esc(r.name).replace(/'/g,"\\'")}')">Book delivery</button>`;
     else if(mode==='today'){
-      right=`<div class="text-right"><div class="k">${r.deliveryTime?esc(r.deliveryTime):'Any time'}</div>
+      const overdue = r.deliveryDate < todayStr;
+      right=`<div class="text-right"><div class="k">${overdue?`<span style="color:#f59e0b">Booked ${fmtD(r.deliveryDate)}</span>`:(r.deliveryTime?esc(r.deliveryTime):'Any time')}</div>
         <button class="btn noprint mt-2" onclick="event.stopPropagation();window.open('docket.html?id='+'${r.id}','_blank')">🖨 Docket</button>
         <button class="btn gold noprint mt-2" onclick="event.stopPropagation();markDelivered('${r.id}')">Mark delivered</button></div>`;
-      if(!r.cleared)warn=`<div class="mt-2 text-xs font-semibold" style="color:#f87171">⚠ No longer cleared — check payments before delivering</div>`;
+      if(overdue)warn=`<div class="mt-2 text-xs font-semibold" style="color:#f59e0b">⚠ Overdue — booked for ${fmtD(r.deliveryDate)} and not yet delivered. Deliver, or rebook.</div>`;
+      if(!r.cleared)warn=(warn||'')+`<div class="mt-2 text-xs font-semibold" style="color:#f87171">⚠ No longer cleared — check payments before delivering</div>`;
     }
     else if(mode==='upcoming') right=`<div class="text-right"><div class="k">Booked</div><div class="text-sm font-semibold text-slate-200">${fmtD(r.deliveryDate)}</div>${r.deliveryTime?`<div class="k mt-1">${esc(r.deliveryTime)}</div>`:''}<button class="btn noprint mt-2" onclick="event.stopPropagation();window.open('docket.html?id='+'${r.id}','_blank')">🖨 Docket</button></div>`;
     else right=`<div class="text-right"><div class="k">Delivered</div><div class="text-sm font-semibold text-slate-200">${fmtD(r.deliveryDate)}</div></div>`;

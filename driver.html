@@ -81,7 +81,7 @@ async function load(){
   const {data:rules}=await sb.from('delivery_rules').select('*').order('min_deposit_pct'); RULES=rules||[];
   const {data:orders,error}=await sb.from('sim_orders')
     .select('*, sim_customers(first_name,last_name,mobile,address), sim_order_items(product_name,quantity)')
-    .eq('delivery_date',todayStr);
+    .lte('delivery_date',todayStr);
   if(error){$('state').innerHTML=`<span class="text-red-400">${esc(error.message)}</span>`;return;}
   // for paid-via deliveries, clearance is judged on the PAYER's account
   const pvIds=[...new Set((orders||[]).map(o=>o.paid_via_order_id).filter(Boolean))];
