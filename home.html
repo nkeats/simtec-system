@@ -3,107 +3,159 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Simtec — Home</title>
+<title>Simtec — Operating System</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="auth.js?v=3" data-roles="admin,manager,office"></script>
 <style>
-  :root{--navy:#122347;--navy2:#1c3363;--gold:#c6a15b;--ink:#1a2334;--line:#dde3ec;--bg:#eef1f5;
-        --red:#c0332e;--redbg:#fdecec;--grey:#7a8798;}
+  :root{
+    --navy:#111f3d; --navy2:#1a2c53; --gold:#c6a15b; --gold2:#d9be86;
+    --ink:#1a2334; --sub:#64728a; --line:#e4e8ef; --bg:#f4f6f9; --card:#ffffff;
+    --red:#c0332e; --redbg:#fdeceb; --green:#1c6b34;
+  }
   *{box-sizing:border-box}
-  body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;color:var(--ink);background:var(--bg);margin:0}
-  header{background:var(--navy);color:#fff;padding:24px 22px}
-  header .brand{font-weight:700;font-size:23px;letter-spacing:.5px}
-  header .brand small{color:var(--gold);font-size:12px;letter-spacing:.22em;display:block;font-weight:600;margin-top:2px}
-  .wrap{max-width:980px;margin:22px auto;padding:0 16px}
-  .sec{margin-bottom:26px}
-  .sec h2{font-size:12px;text-transform:uppercase;letter-spacing:.09em;color:var(--navy);margin:0 0 12px;padding-left:10px;border-left:3px solid var(--gold)}
-  .panel{background:#fff;border:1px solid var(--line);border-radius:12px;overflow:hidden}
-  /* urgent */
-  .urgent-head{display:flex;align-items:center;gap:10px;padding:14px 18px;border-bottom:1px solid var(--line)}
-  .urgent-head .dot{width:12px;height:12px;border-radius:50%;background:var(--red)}
-  .urgent-head .n{font-weight:800;color:var(--red);font-size:20px}
-  .urgent-head .l{color:#6b7889;font-size:13px}
+  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:var(--ink);background:var(--bg);margin:0;-webkit-font-smoothing:antialiased}
+
+  /* Masthead */
+  header{background:linear-gradient(135deg,var(--navy) 0%,var(--navy2) 100%);color:#fff;position:relative;overflow:hidden}
+  header::after{content:"";position:absolute;right:-60px;top:-60px;width:260px;height:260px;border-radius:50%;background:radial-gradient(circle,rgba(198,161,91,.16),transparent 70%)}
+  .mast{max-width:1060px;margin:0 auto;padding:22px 22px 24px;display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap;position:relative;z-index:1}
+  .logo{display:flex;align-items:center;gap:13px}
+  .mark{width:42px;height:42px;border-radius:10px;background:linear-gradient(135deg,var(--gold),var(--gold2));display:flex;align-items:center;justify-content:center;color:var(--navy);font-weight:800;font-size:20px;box-shadow:0 4px 14px rgba(198,161,91,.35)}
+  .logo .name{font-weight:700;font-size:20px;letter-spacing:.3px;line-height:1.1}
+  .logo .name small{display:block;color:var(--gold2);font-size:10.5px;letter-spacing:.26em;font-weight:600;margin-top:3px}
+  .hi{text-align:right;font-size:13px;color:#c3ccdd}
+  .hi b{display:block;color:#fff;font-size:15px;font-weight:600;margin-bottom:2px}
+  .hi .role{display:inline-block;margin-top:5px;font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.18);padding:2px 9px;border-radius:20px;color:#e7ecf5}
+
+  .wrap{max-width:1060px;margin:0 auto;padding:26px 22px 60px}
+
+  .sec{margin-bottom:30px}
+  .sec-h{font-size:11.5px;text-transform:uppercase;letter-spacing:.11em;color:var(--sub);font-weight:700;margin:0 0 13px;display:flex;align-items:center;gap:9px}
+  .sec-h::before{content:"";width:16px;height:2px;background:var(--gold);border-radius:2px}
+
+  /* Urgent */
+  .alert{background:var(--card);border:1px solid var(--line);border-radius:14px;overflow:hidden;box-shadow:0 1px 3px rgba(17,31,61,.04)}
+  .alert-top{display:flex;align-items:center;gap:13px;padding:16px 20px;border-bottom:1px solid var(--line)}
+  .alert-badge{min-width:44px;height:44px;padding:0 12px;border-radius:11px;background:var(--redbg);color:var(--red);font-weight:800;font-size:20px;display:flex;align-items:center;justify-content:center}
+  .alert-badge.clear{background:#e9f5ed;color:var(--green)}
+  .alert-tt{font-weight:700;font-size:15px;color:var(--ink)}
+  .alert-sub{font-size:12.5px;color:var(--sub);margin-top:1px}
   table{width:100%;border-collapse:collapse;font-size:14px}
-  th,td{padding:10px 14px;text-align:left;border-bottom:1px solid var(--line)}
-  th{background:#faf7f1;color:var(--navy);font-size:11.5px;text-transform:uppercase;letter-spacing:.04em}
-  tr.row{cursor:pointer} tr.row:hover{background:#fff8f8}
+  th,td{padding:11px 20px;text-align:left;border-bottom:1px solid var(--line)}
+  th{background:#fbfcfe;color:var(--sub);font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;font-weight:700}
+  tbody tr:last-child td{border-bottom:none}
+  tr.row{cursor:pointer;transition:background .08s} tr.row:hover{background:#fbf7f4}
   td.num{text-align:right;font-variant-numeric:tabular-nums;color:var(--red);font-weight:700}
-  .none{padding:18px;color:#1c6b34}
-  .load{padding:18px;color:#8a97a6}
-  /* import iframe */
-  iframe{width:100%;border:none;height:230px;display:block;background:#fff}
-  /* menu */
-  .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:13px}
-  a.card{display:block;background:#fff;border:1px solid var(--line);border-radius:12px;padding:15px 17px;text-decoration:none;color:inherit;transition:.08s}
-  a.card:hover{transform:translateY(-2px);box-shadow:0 6px 16px rgba(18,35,71,.10);border-color:var(--gold)}
-  a.card .t{font-weight:700;font-size:15px;color:var(--navy)}
-  a.card .d{font-size:12.5px;color:#6b7889;margin-top:3px}
-  .grp{margin-bottom:16px}
-  .grp .gl{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:#94a1b3;margin:0 0 8px;font-weight:700}
+  .none{padding:20px;color:var(--green);font-size:14px}
+  .load{padding:20px;color:var(--sub);font-size:14px}
+
+  iframe{width:100%;border:none;height:230px;display:block;background:#fff;border-radius:14px}
+  .frame-wrap{background:var(--card);border:1px solid var(--line);border-radius:14px;overflow:hidden;box-shadow:0 1px 3px rgba(17,31,61,.04)}
+
+  /* Modules */
+  .grp{margin-bottom:22px}
+  .grp .gl{font-size:11px;text-transform:uppercase;letter-spacing:.09em;color:var(--sub);margin:0 0 11px;font-weight:700;padding-left:2px}
+  .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(244px,1fr));gap:14px}
+  a.card{display:flex;gap:13px;align-items:flex-start;background:var(--card);border:1px solid var(--line);border-radius:13px;padding:16px 17px;text-decoration:none;color:inherit;transition:transform .1s,box-shadow .1s,border-color .1s;box-shadow:0 1px 2px rgba(17,31,61,.03)}
+  a.card:hover{transform:translateY(-2px);box-shadow:0 8px 22px rgba(17,31,61,.11);border-color:#d3c19a}
+  .ic{flex:none;width:38px;height:38px;border-radius:10px;background:linear-gradient(135deg,#eef1f7,#e5e9f2);display:flex;align-items:center;justify-content:center;color:var(--navy)}
+  a.card:hover .ic{background:linear-gradient(135deg,var(--navy),var(--navy2));color:var(--gold2)}
+  .ic svg{width:19px;height:19px;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+  .ct{min-width:0}
+  a.card .t{font-weight:700;font-size:14.5px;color:var(--navy)}
+  a.card .d{font-size:12px;color:var(--sub);margin-top:3px;line-height:1.45}
 </style>
 </head>
 <body>
 <header>
-  <div class="brand">Simtec Operating System<small>THERAPEUTIC</small></div>
+  <div class="mast">
+    <div class="logo">
+      <div class="mark">S</div>
+      <div class="name">Simtec Operating System<small>THERAPEUTIC</small></div>
+    </div>
+    <div class="hi" id="hi">
+      <b id="hiName">Welcome</b>
+      <span id="hiDate"></span>
+    </div>
+  </div>
 </header>
 
 <div class="wrap">
 
   <!-- URGENT ARREARS -->
   <div class="sec">
-    <h2>Urgent — delivered &amp; behind</h2>
-    <div class="panel">
-      <div class="urgent-head"><span class="dot"></span><span class="n" id="urgentN">–</span><span class="l">customers who have their product and are behind on payments</span></div>
+    <div class="sec-h">Attention needed</div>
+    <div class="alert">
+      <div class="alert-top">
+        <span class="alert-badge" id="urgentBadge">–</span>
+        <div><div class="alert-tt">Delivered &amp; behind on payments</div>
+          <div class="alert-sub">Customers who have their product but have fallen behind</div></div>
+      </div>
       <div id="urgentBody"><div class="load">Loading…</div></div>
     </div>
   </div>
 
   <!-- DAILY IMPORT -->
   <div class="sec">
-    <h2>Upload today's Ezidebit report</h2>
-    <div class="panel"><iframe id="importFrame" src="daily-import.html?embed=1&v=3" title="Daily import"></iframe></div>
+    <div class="sec-h">Daily Ezidebit settlement</div>
+    <div class="frame-wrap"><iframe id="importFrame" src="daily-import.html?embed=1&v=3" title="Daily import"></iframe></div>
   </div>
 
-  <!-- MENU -->
+  <!-- MODULES -->
   <div class="sec">
-    <h2>All modules</h2>
+    <div class="sec-h">Modules</div>
+
     <div class="grp"><div class="gl">Customers &amp; Sales</div><div class="cards">
-      <a class="card" href="add-customer.html"><div class="t">Add customer / sale</div><div class="d">Enter a new customer, sale and products.</div></a>
-      <a class="card" href="index.html"><div class="t">Sales order form</div><div class="d">Full point-of-sale contract.</div></a>
-      <a class="card" href="client.html"><div class="t">Customer lookup</div><div class="d">Search a customer and view history.</div></a>
-      <a class="card" href="my-sales.html"><div class="t">Consultant sales</div><div class="d">A consultant’s own sales, weekly total and next award.</div></a>
+      <a class="card" href="add-customer.html"><span class="ic"><svg viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M19 8v6M22 11h-6"/></svg></span><span class="ct"><div class="t">Add customer / sale</div><div class="d">Enter a new customer, sale and products.</div></span></a>
+      <a class="card" href="client.html"><span class="ic"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg></span><span class="ct"><div class="t">Customer lookup</div><div class="d">Search a customer and view their history.</div></span></a>
+      <a class="card" href="my-sales.html"><span class="ic"><svg viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="M7 14l3-3 3 3 5-6"/></svg></span><span class="ct"><div class="t">Consultant sales</div><div class="d">A consultant's sales, weekly total and next award.</div></span></a>
     </div></div>
+
     <div class="grp"><div class="gl">Payments &amp; Risk</div><div class="cards">
-      <a class="card" href="payments-risk.html"><div class="t">Payments &amp; risk</div><div class="d">Full traffic-light board.</div></a>
-      <a class="card" href="arrears-texts.html"><div class="t">Arrears texts</div><div class="d">Review and send arrears reminders.</div></a>
-      <a class="card" href="arrears.html"><div class="t">Arrears overview</div><div class="d">Worst-first arrears list.</div></a>
+      <a class="card" href="payments-risk.html"><span class="ic"><svg viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/></svg></span><span class="ct"><div class="t">Payments &amp; risk</div><div class="d">Full traffic-light board.</div></span></a>
+      <a class="card" href="arrears.html"><span class="ic"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h10"/></svg></span><span class="ct"><div class="t">Arrears overview</div><div class="d">Worst-first arrears list.</div></span></a>
+      <a class="card" href="arrears-texts.html"><span class="ic"><svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H8l-4 4V5a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2z"/></svg></span><span class="ct"><div class="t">Arrears texts</div><div class="d">Review and send arrears reminders.</div></span></a>
     </div></div>
+
     <div class="grp"><div class="gl">Delivery</div><div class="cards">
-      <a class="card" href="delivery.html"><div class="t">Delivery (office)</div><div class="d">Book, plan and track deliveries.</div></a>
-      <a class="card" href="driver.html"><div class="t">Driver run sheet</div><div class="d">Today's route for the driver.</div></a>
+      <a class="card" href="delivery.html"><span class="ic"><svg viewBox="0 0 24 24"><path d="M3 7h11v8H3zM14 10h4l3 3v2h-7z"/><circle cx="7" cy="18" r="1.6"/><circle cx="17" cy="18" r="1.6"/></svg></span><span class="ct"><div class="t">Delivery (office)</div><div class="d">Book, plan and track deliveries.</div></span></a>
+      <a class="card" href="driver.html"><span class="ic"><svg viewBox="0 0 24 24"><path d="M9 20l-5 2V6l5-2 6 2 5-2v16l-5 2-6-2z"/><path d="M9 4v16M15 6v16"/></svg></span><span class="ct"><div class="t">Driver run sheet</div><div class="d">Today's route for the driver.</div></span></a>
     </div></div>
+
     <div class="grp"><div class="gl">Commissions</div><div class="cards">
-      <a class="card" href="commissions.html"><div class="t">Commissions</div><div class="d">Pay runs, invoices, clawbacks.</div></a>
+      <a class="card" href="commissions.html"><span class="ic"><svg viewBox="0 0 24 24"><path d="M12 2v20M17 6H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></span><span class="ct"><div class="t">Commissions</div><div class="d">Pay runs, invoices, clawbacks.</div></span></a>
     </div></div>
+
     <div class="grp" id="adminGrp" style="display:none"><div class="gl">Admin</div><div class="cards">
-      <a class="card" href="users.html"><div class="t">User Access</div><div class="d">Add staff, set roles, switch access on or off.</div></a>
-      <a class="card" href="consultants.html"><div class="t">Consultants &amp; Teams</div><div class="d">Add consultants, assign team leaders, promote to team leader.</div></a>
-      <a class="card" href="cancellations.html"><div class="t">Cancellations</div><div class="d">Who cancelled &amp; refunded — spot over-committing by consultant.</div></a>
+      <a class="card" href="users.html"><span class="ic"><svg viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13A4 4 0 0 1 16 11"/></svg></span><span class="ct"><div class="t">User Access</div><div class="d">Add staff, set roles, switch access on or off.</div></span></a>
+      <a class="card" href="consultants.html"><span class="ic"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="3.2"/><path d="M6 20a6 6 0 0 1 12 0"/></svg></span><span class="ct"><div class="t">Consultants &amp; Teams</div><div class="d">Add consultants, assign and promote team leaders.</div></span></a>
+      <a class="card" href="cancellations.html"><span class="ic"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M15 9l-6 6M9 9l6 6"/></svg></span><span class="ct"><div class="t">Cancellations</div><div class="d">Who cancelled &amp; refunded — spot over-committing.</div></span></a>
+      <a class="card" href="settings.html"><span class="ic"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-2.7 1.1V21a2 2 0 1 1-4 0v-.1A1.6 1.6 0 0 0 6.6 19l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A1.6 1.6 0 0 0 4 12.6H4a2 2 0 1 1 0-4h.1A1.6 1.6 0 0 0 5 5.6l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.6 1.6 0 0 0 11 3.6V3a2 2 0 1 1 4 0v.1A1.6 1.6 0 0 0 18 5l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8v0A1.6 1.6 0 0 0 21 11h.4a2 2 0 1 1 0 4H21a1.6 1.6 0 0 0-1.6 1z"/></svg></span><span class="ct"><div class="t">Settings</div><div class="d">Prices, commission rules, award numbers, baselines.</div></span></a>
     </div></div>
   </div>
 
 </div>
 
 <script>
-// reveal the Admin section only for admins (auth.js sets window.SIMTEC_USER)
-(function(){var n=0;var t=setInterval(function(){n++;var u=window.SIMTEC_USER;
-  if(u){clearInterval(t); if(u.role==='admin'){var g=document.getElementById('adminGrp'); if(g) g.style.display='';}}
-  else if(n>50){clearInterval(t);}},60);})();
+// Greeting + admin reveal (auth.js sets window.SIMTEC_USER)
+(function(){
+  const d=new Date(), h=d.getHours();
+  const greet = h<12?"Good morning":h<17?"Good afternoon":"Good evening";
+  document.getElementById("hiDate").textContent = d.toLocaleDateString("en-NZ",{weekday:"long",day:"numeric",month:"long"});
+  let n=0; const t=setInterval(function(){
+    n++; const u=window.SIMTEC_USER;
+    if(u){ clearInterval(t);
+      const nm=(u.full_name||"").split(" ")[0]||"";
+      document.getElementById("hiName").textContent = greet + (nm?`, ${nm}`:"");
+      if(u.role){ const hi=document.getElementById("hi"); const b=document.createElement("span"); b.className="role"; b.textContent=u.role; hi.appendChild(b); }
+      if(u.role==='admin'){ const g=document.getElementById('adminGrp'); if(g) g.style.display=''; }
+    } else if(n>60){ clearInterval(t); document.getElementById("hiName").textContent=greet; }
+  },60);
+})();
 </script>
 
 <script>
 const sb = supabase.createClient("https://jvqjoenaungubpoegyvf.supabase.co","sb_publishable_J4MYTdJJyEaWe-GadpwdYA_upPT2rKw");
-// auto-size the embedded importer frame to its content
 window.addEventListener("message", e=>{
   if(e.data && e.data.simtecEmbedHeight){
     const f=document.getElementById("importFrame");
@@ -132,13 +184,13 @@ function isBehindDelivered(o){
 }
 
 async function loadUrgent(){
+  const badge=document.getElementById("urgentBadge");
   try{
     const {data:orders}=await sb.from("sim_orders")
       .select("id,customer_id,order_date,first_payment_date,payment_frequency,contract_value,amount_paid_to_date,delivery_status,consultant_name,order_status,paid_via_order_id")
       .eq("order_status","active");
     const rows=[];
     for(const o of (orders||[])){ const b=isBehindDelivered(o); if(b) rows.push({o,b}); }
-    // names
     const ids=[...new Set(rows.map(r=>r.o.customer_id).filter(Boolean))];
     const nm={};
     for(let i=0;i<ids.length;i+=200){
@@ -146,7 +198,7 @@ async function loadUrgent(){
       (cs||[]).forEach(c=>nm[c.id]={name:[c.first_name,c.last_name].filter(Boolean).join(" ")||"(no name)",mobile:c.mobile||""});
     }
     rows.sort((a,b)=>b.b.behindBy-a.b.behindBy);
-    document.getElementById("urgentN").textContent=rows.length;
+    badge.textContent=rows.length; badge.classList.toggle("clear",rows.length===0);
     const body=document.getElementById("urgentBody");
     if(!rows.length){ body.innerHTML=`<div class="none">Nothing urgent — no delivered customers are behind right now.</div>`; return; }
     body.innerHTML=`<table><thead><tr><th>Customer</th><th>Consultant</th><th>Mobile</th><th class="num">Behind by</th></tr></thead><tbody>`+
