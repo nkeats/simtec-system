@@ -50,16 +50,20 @@ const digits=s=>(s||'').replace(/[^0-9+]/g,'');
 
 // Payment check used ONLY to hold back a stop that is no longer cleared.
 // Nothing financial is ever shown on this screen.
+const PERIODS={weekly:{per:7,total:156,word:"wk"},fortnightly:{per:14,total:78,word:"fn"},monthly:{per:30.44,total:36,word:"mo"}};
 function analyse(order){
-  const first=order.first_payment_date;const total=order.instalment_count||156;
-  const paid=+order.amount_paid_to_date||0;
-  const inst=+order.instalment_amount||0;
   const contract=+order.contract_value||0;
-  const dueDate=w=>first?new Date(new Date(first+'T12:00:00').getTime()+(w-1)*7*DAY):null;
-  const lagCut=new Date(today.getTime()-5*DAY);           // 5-day settlement lag
-  const weeksCovered=inst>0?Math.floor((paid+0.01)/inst):0;
-  let dueWeeks=0;for(let w=1;w<=total;w++){const d=dueDate(w);if(d&&d<lagCut)dueWeeks=w;else break;}
-  const redCount=Math.max(0,Math.min(dueWeeks,total)-weeksCovered);
+  const paid=+order.amount_paid_to_date||0;
+  const start=order.first_payment_date||order.order_date;
+  const f=PERIODS[order.payment_frequency]||PERIODS.weekly;
+  const total=f.total;
+  const perAmt=total?contract/total:0;
+  const elapsed=start?Math.max(0,(today-new Date(start))/DAY/f.per):0;
+  const elapsedW=Math.min(total,Math.floor(elapsed));
+  const weeksCovered=perAmt>0?Math.min(total,Math.floor((paid+0.01)/perAmt)):0;
+  const expected=Math.min(contract,perAmt*elapsed);
+  const behindBy=Math.max(0,expected-paid);
+  const redCount=behindBy>perAmt?Math.max(0,elapsedW-weeksCovered):0;
   return {reached:paid>=contract*0.10&&contract>0,redCount};
 }
 function cleared(o,a){const c=o.cooling_off_expires;const coolOk=c?new Date(c+'T12:00:00')<=today:true;

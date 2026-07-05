@@ -103,41 +103,35 @@ window.loadClient=loadClient;
 // Deep-link: client.html?c=<customerId> opens straight to that customer
 {const _c=new URLSearchParams(location.search).get('c');if(_c)loadClient(_c);}
 
-// ── Payment maths + timeline (from sim_payments + sim_dishonours) ───────────
+// ── Payment maths — same formula as the home urgent list ────────────────────
+const PERIODS={weekly:{per:7,total:156,word:"wk"},fortnightly:{per:14,total:78,word:"fn"},monthly:{per:30.44,total:36,word:"mo"}};
 function analyse(order,pays,dishons){
   dishons=dishons||[];
-  const first=order.first_payment_date;
-  const total=order.instalment_count||156;
-  const inst=+order.instalment_amount||0;
-  const LAG=5;                        // 5-day settlement lag before a week counts as due
-  const dueDate=w=>first?new Date(new Date(first+'T12:00:00').getTime()+(w-1)*7*DAY):null;
-  const lagCut=new Date(today.getTime()-LAG*DAY);
-
-  // amount paid = the running total the daily import maintains (includes any manual payments)
-  let paid=+order.amount_paid_to_date||0;
-  if(paid<0)paid=0;
-
-  // paid covers the first N weeks; behind = due weeks past the lag not yet covered
-  const weeksCovered = inst>0 ? Math.floor((paid+0.01)/inst) : 0;
-  let dueWeeks=0;
-  for(let w=1;w<=total;w++){ const d=dueDate(w); if(d && d<lagCut) dueWeeks=w; else break; }
-
-  const cells=[]; let redCount=0;
-  for(let w=1;w<=total;w++){
-    const due=dueDate(w); let cls,label;
-    if(w<=weeksCovered){ cls='#1faa5a'; label='Paid'; }
-    else if(w<=dueWeeks){ cls='#dc2626'; label='Behind'; redCount++; }
-    else { cls='#475569'; label='Upcoming'; }
+  const contract=+order.contract_value||0;
+  const paid=+order.amount_paid_to_date||0;
+  const start=order.first_payment_date||order.order_date;
+  const f=PERIODS[order.payment_frequency]||PERIODS.weekly;
+  const total=f.total;
+  const perAmt=total?contract/total:0;                       // weekly instalment = contract / term
+  const elapsed=start?Math.max(0,(today-new Date(start))/DAY/f.per):0;
+  const elapsedW=Math.min(total,Math.floor(elapsed));
+  const weeksCovered=perAmt>0?Math.min(total,Math.floor((paid+0.01)/perAmt)):0;
+  const expected=Math.min(contract,perAmt*elapsed);
+  const behindBy=Math.max(0,expected-paid);
+  const behind = behindBy>perAmt;                            // within one payment = on track (home's tolerance)
+  const redCount = behind ? Math.max(0,elapsedW-weeksCovered) : 0;
+  const cells=[];
+  for(let w=1;w<=total;w++){ let cls,label;
+    const due=start?new Date(new Date(start).getTime()+(w-1)*f.per*DAY):null;
+    if(w<=weeksCovered){cls='#1faa5a';label='Paid';}
+    else if(behind && w<=elapsedW){cls='#dc2626';label='Behind';}
+    else{cls='#475569';label='Upcoming';}
     cells.push({w,cls,label,due});
   }
-  // caught up but had dishonours in the past → note them as "missed, since recovered"
-  const amberCount = (redCount===0 && dishons.length) ? dishons.length : 0;
-
-  const contract=+order.contract_value||0;
-  const threshold=contract*0.10;
+  const amberCount=(redCount===0 && dishons.length)?dishons.length:0;
   const pct=contract?paid/contract*100:0;
-  return {paid,contract,balance:contract-paid,pct,threshold,reached:paid>=threshold&&contract>0,
-          cells,redCount,amberCount,total};
+  return {paid,contract,balance:contract-paid,pct,threshold:contract*0.10,
+          reached:paid>=contract*0.10&&contract>0,cells,redCount,amberCount,total};
 }
 
 function recommend(order,a){
