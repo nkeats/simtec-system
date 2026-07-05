@@ -63,8 +63,16 @@ const sb = supabase.createClient("https://jvqjoenaungubpoegyvf.supabase.co","sb_
 const $=id=>document.getElementById(id);
 const esc=s=>(s||"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 function auDate(v){ if(!v) return "—"; const m=String(v).match(/^(\d{4})-(\d{2})-(\d{2})/); return m? m[3]+"/"+m[2]+"/"+m[1] : v; }
-function weekStart(d){ const dt=new Date(d+"T12:00:00"); const off=(dt.getDay()+6)%7; dt.setDate(dt.getDate()-off); return dt.toISOString().slice(0,10); }
-const TODAY=new Date().toISOString().slice(0,10);
+function ymd(dt){ return dt.getUTCFullYear()+"-"+String(dt.getUTCMonth()+1).padStart(2,"0")+"-"+String(dt.getUTCDate()).padStart(2,"0"); }
+function weekStart(d){
+  const p=String(d).slice(0,10).split("-").map(Number);
+  const dt=new Date(Date.UTC(p[0],p[1]-1,p[2]));
+  const off=(dt.getUTCDay()+6)%7;                 // days since Monday
+  dt.setUTCDate(dt.getUTCDate()-off);
+  return ymd(dt);
+}
+const _now=new Date();
+const TODAY=`${_now.getFullYear()}-${String(_now.getMonth()+1).padStart(2,"0")}-${String(_now.getDate()).padStart(2,"0")}`;
 const THIS_WEEK=weekStart(TODAY);
 
 let AWARDS=[
@@ -138,7 +146,7 @@ async function loadFor(name){
 
 // A sale drops off the award count only if cancelled BEFORE THE END OF THE
 // FOLLOWING WEEK (the Sunday after its sale week). Cancelled later → still counts.
-function cancelCutoff(d){ const x=new Date(weekStart(d)+"T12:00:00"); x.setDate(x.getDate()+13); return x.toISOString().slice(0,10); }
+function cancelCutoff(d){ const p=weekStart(d).split("-").map(Number); const x=new Date(Date.UTC(p[0],p[1]-1,p[2])); x.setUTCDate(x.getUTCDate()+13); return ymd(x); }
 function eligible(s){
   if(!s.sale_date) return false;
   if((s.status||"active")!=="cancelled") return true;
@@ -149,8 +157,11 @@ function weeklySeries(sales){
   const seen={};
   sales.forEach(s=>{ if(!s.sale_date) return; const w=weekStart(s.sale_date); const key=(s.customer_name||"").toLowerCase().trim()||s.id; (seen[w]=seen[w]||new Set()).add(key); });
   const weeks=Object.keys(seen); if(!weeks.length) return [];
-  const first=weeks.sort()[0]; const series=[]; let d=new Date(first+"T12:00:00"); const end=new Date(THIS_WEEK+"T12:00:00");
-  while(d<=end){ const k=d.toISOString().slice(0,10); series.push({week:k, count:(seen[k]?seen[k].size:0)}); d.setDate(d.getDate()+7); }
+  const first=weeks.sort()[0];
+  const p=first.split("-").map(Number); let d=new Date(Date.UTC(p[0],p[1]-1,p[2]));
+  const pe=THIS_WEEK.split("-").map(Number); const end=new Date(Date.UTC(pe[0],pe[1]-1,pe[2]));
+  const series=[];
+  while(d<=end){ const k=ymd(d); series.push({week:k, count:(seen[k]?seen[k].size:0)}); d.setUTCDate(d.getUTCDate()+7); }
   return series;
 }
 function bestSingle(s){ return s.reduce((m,x)=>Math.max(m,x.count),0); }
