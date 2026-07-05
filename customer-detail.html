@@ -67,7 +67,7 @@
   <div class="topbar no-print">
     <div class="brand">SIMTEC<small>THERAPEUTIC</small></div>
     <div class="btns">
-      <button class="ghost" onclick="location.href='home.html'">Home</button>
+      <button class="ghost" onclick="location.href='home.html'">‹ Home</button>
       <button class="ghost" onclick="history.length>1?history.back():window.close()">Back</button>
       <span id="statusBtns"></span>
       <button onclick="window.print()">Print</button>
@@ -209,12 +209,21 @@ function render(o,c,items,pays){
   document.title="Simtec — "+name;
 
   document.getElementById("statusBtns").innerHTML =
+    ((st==="cancelled"||st==="on_hold")
+      ? `<button onclick="reinstate()" style="background:#1c6b34;color:#fff;border:none;border-radius:8px;padding:8px 14px;font-size:14px;font-weight:600;cursor:pointer;margin-right:8px">↩ Reinstate</button>`
+      : "") +
     `<label style="color:#9fb0c9;font-size:12px;margin-right:6px">Status</label>` +
     `<select id="statusSel" onchange="onStatusChange(this.value)" style="padding:8px 10px;border:1px solid #cbd4df;border-radius:8px;font-size:14px;font-weight:600">` +
       `<option value="active"${st==="active"?" selected":""}>Active</option>` +
       `<option value="on_hold"${st==="on_hold"?" selected":""}>On hold</option>` +
       `<option value="cancelled"${st==="cancelled"?" selected":""}>Cancelled</option>` +
     `</select>`;
+}
+async function reinstate(){
+  if(!confirm("Reinstate this customer as Active? This clears the cancellation and returns them to risk and arrears.")) return;
+  const {error} = await sb.from("sim_orders").update({order_status:"active",cancellation_date:null,cancellation_reason:null,cancellation_type:null,refunded:null}).eq("id",orderId);
+  if(error){ alert("Couldn't reinstate: "+error.message); return; }
+  run();
 }
 function kv(k,v){ return `<div class="kv"><span class="k">${k}</span><span class="v">${v}</span></div>`; }
 
