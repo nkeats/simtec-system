@@ -50,21 +50,16 @@ const digits=s=>(s||'').replace(/[^0-9+]/g,'');
 
 // Payment check used ONLY to hold back a stop that is no longer cleared.
 // Nothing financial is ever shown on this screen.
-function analyse(order,pays){
+function analyse(order){
   const first=order.first_payment_date;const total=order.instalment_count||156;
-  const wkOf=d=>first?Math.round((new Date(d+'T12:00:00')-new Date(first+'T12:00:00'))/(7*DAY))+1:0;
-  let paid=0;const wk={};
-  for(const p of pays){
-    if(p.direction==='debit'&&p.status==='successful')paid+=(+p.amount||0);
-    if(p.direction==='refund'&&p.status==='successful')paid-=(+p.amount||0);
-    const w=wkOf(p.payment_date);if(w<1)continue;if(p.recovers_payment_id)continue;
-    if(p.status==='successful'){if(wk[w]!=='amber')wk[w]='green';}
-    else if(p.status==='failed'){if(!wk[w])wk[w]='failed';}
-  }
-  for(const p of pays){if(!p.recovers_payment_id)continue;const f=pays.find(x=>x.payment_id===p.recovers_payment_id);const w=wkOf((f&&f.payment_date)||p.payment_date);if(w>=1)wk[w]='amber';}
-  let redCount=0;const dueDate=w=>first?new Date(new Date(first+'T12:00:00').getTime()+(w-1)*7*DAY):null;
-  for(let w=1;w<=total;w++){const due=dueDate(w),past=due&&due<today;if(wk[w]==='failed'&&past)redCount++;}
+  const paid=+order.amount_paid_to_date||0;
+  const inst=+order.instalment_amount||0;
   const contract=+order.contract_value||0;
+  const dueDate=w=>first?new Date(new Date(first+'T12:00:00').getTime()+(w-1)*7*DAY):null;
+  const lagCut=new Date(today.getTime()-5*DAY);           // 5-day settlement lag
+  const weeksCovered=inst>0?Math.floor((paid+0.01)/inst):0;
+  let dueWeeks=0;for(let w=1;w<=total;w++){const d=dueDate(w);if(d&&d<lagCut)dueWeeks=w;else break;}
+  const redCount=Math.max(0,Math.min(dueWeeks,total)-weeksCovered);
   return {reached:paid>=contract*0.10&&contract>0,redCount};
 }
 function cleared(o,a){const c=o.cooling_off_expires;const coolOk=c?new Date(c+'T12:00:00')<=today:true;
@@ -73,7 +68,7 @@ function cleared(o,a){const c=o.cooling_off_expires;const coolOk=c?new Date(c+'T
 async function load(){
   $('state').style.display='';$('state').textContent='Loading today\u2019s run…';
   const {data:orders,error}=await sb.from('sim_orders')
-    .select('*, sim_customers(first_name,last_name,mobile,address), sim_order_items(product_name,quantity), sim_payment_events(*)')
+    .select('*, sim_customers(first_name,last_name,mobile,address), sim_order_items(product_name,quantity)')
     .eq('delivery_date',todayStr);
   if(error){$('state').innerHTML=`<span class="text-red-400">${esc(error.message)}</span>`;return;}
   const run=[],doneList=[];
@@ -87,7 +82,7 @@ async function load(){
       time:o.delivery_time||''
     };
     if(o.delivery_status==='delivered'){doneList.push(stop);continue;}
-    const a=analyse(o,o.sim_payment_events||[]);
+    const a=analyse(o);
     if(!cleared(o,a))continue;               // held back for the office — not shown to the driver
     run.push(stop);
   }
