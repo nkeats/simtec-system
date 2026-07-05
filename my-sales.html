@@ -78,7 +78,7 @@ const AWARDS=[
 // Hardwired starting awards for consultants whose history predates the system.
 // New consultants aren't listed — they earn Initial through their sales.
 const BASELINES={
-  "kenzie lam sam":"Ruby", "yazan othman":"Ruby",
+  "kenzie lam sam":"Sapphire", "yazan othman":"Sapphire",
   "kono harris":"Initial", "stacey numanga":"Initial", "pj tonga":"Initial"
 };
 
@@ -141,8 +141,25 @@ function weeklySeries(sales){
 }
 function bestSingle(s){ return s.reduce((m,x)=>Math.max(m,x.count),0); }
 function bestConsec(s,t){ let b=0,r=0; s.forEach(x=>{ r=x.count>=t?r+1:0; b=Math.max(b,r); }); return b; }
-function bestWindow(s,span,t){ let b=0; for(let i=0;i+span<=s.length;i++){ let sum=0; for(let j=0;j<span;j++) sum+=s[i+j].count; b=Math.max(b,sum);} if(s.length<span) b=s.reduce((a,x)=>a+x.count,0); return b; }
+function bestWindow(s,span,t){ let b=0; for(let i=0;i+span<=s.length;i++){ let sum=0; for(let j=0;j<span;j++) sum+=s[i+j].count; b=Math.max(b,sum);} return b; }
 function met(a,s){ if(a.type==="single")return bestSingle(s)>=a.target; if(a.type==="consec")return bestConsec(s,a.target)>=a.span; if(a.type==="window")return bestWindow(s,a.span,a.target)>=a.target; return false; }
+
+// Strict ladder: a consultant can only reach an award once they hold the one
+// below it AND meet the next award's criteria in the weeks SINCE reaching the
+// current level. So 8,8,10 earns Initial only — the Pearl streak would have to
+// come AFTER Initial is held. Baseline awards (held before joining) let a
+// consultant start partway up and climb from there using their in-system sales.
+function achievedLevel(series, baseline){
+  const baseIdx = baseline ? AWARDS.findIndex(a=>a.name===baseline) : -1;
+  let level=baseIdx, reached=-1;               // reached = week index the current level was earned (-1 = before any data / baseline)
+  for(let i=0;i<series.length;i++){
+    while(level+1<AWARDS.length){
+      const sub=series.slice(reached+1,i+1);   // only weeks since the current level was reached
+      if(met(AWARDS[level+1],sub)){ level++; reached=i; } else break;
+    }
+  }
+  return {level,reached};
+}
 function prog(a,s){
   if(a.type==="single"){ const b=bestSingle(s); return {have:b,need:a.target,label:`Best week: ${b} of ${a.target}`}; }
   if(a.type==="consec"){ const b=bestConsec(s,a.target); return {have:b,need:a.span,label:`Best run: ${b} of ${a.span} weeks at ${a.target}+`}; }
@@ -156,18 +173,21 @@ function render(name, sales, orders, baseline){
   const thisWeek = elig.filter(s=>s.sale_date && weekStart(s.sale_date)===THIS_WEEK).length;
   const last4 = series.slice(-4).reduce((a,x)=>a+x.count,0);
 
-  let achieved=0; for(const a of AWARDS){ if(met(a,series)) achieved++; else break; }
-  const baseIdx = baseline ? AWARDS.findIndex(a=>a.name===baseline) : -1;
-  achieved = Math.max(achieved, baseIdx+1);
-  const next = achieved < AWARDS.length ? AWARDS[achieved] : null;
+  // Strict ladder climb (one rung at a time, each requiring the one below)
+  const {level:earnedIdx, reached} = achievedLevel(series, baseline);
+  const current = earnedIdx>=0 ? AWARDS[earnedIdx] : null;
+  const next = earnedIdx+1 < AWARDS.length ? AWARDS[earnedIdx+1] : null;
 
   let awardHTML;
   if(!next){
-    awardHTML=`<div class="award max"><div class="l">Top honour reached</div><div class="name">Grand Diamond 💎</div><div class="desc">Every award earned. Outstanding.</div></div>`;
+    awardHTML=`<div class="award max"><div class="l">Top honour reached</div><div class="name">${current?current.name:"Grand Diamond"} 💎</div><div class="desc">Every award earned. Outstanding.</div></div>`;
   } else {
-    const p=prog(next,series); const pct=Math.max(4,Math.min(100,Math.round(p.have/p.need*100)));
-    awardHTML=`<div class="award"><div class="l">Next award${achieved?` · ${achieved} earned`:""}</div>
-      <div class="name">${next.name}</div><div class="desc">${next.desc}</div>
+    const psub = series.slice(reached+1);                 // progress toward next since reaching current level
+    const p=prog(next,psub); const pct=Math.max(4,Math.min(100,Math.round(p.have/p.need*100)));
+    awardHTML=`<div class="award">
+      <div class="l">${current?"Current award":"Working toward first award"}</div>
+      <div class="name">${current?current.name:next.name}</div>
+      <div class="desc" style="color:var(--gold);margin-top:6px">Next: ${next.name} — ${next.desc}</div>
       <div class="bar"><div style="width:${pct}%"></div></div><div class="prog">${p.label}</div></div>`;
   }
 
