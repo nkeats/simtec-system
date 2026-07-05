@@ -83,16 +83,17 @@ function cleared(order,payAcct,counts){
   if(!coolExpired) return false;                                     // never deliver inside cooling-off
   if(order.affordability_passed===false) return false;              // explicit affordability fail
   const contract=+payAcct.contract_value||0;
+  const paid=+payAcct.amount_paid_to_date||0;                       // includes manual payments
   const isCash=(payAcct.payment_method||'').toLowerCase()==='cash';
   const depositPct = contract>0 ? (+payAcct.deposit_amount||0)/contract : 0;
   if(payAcct.paid_in_full || isCash || depositPct>=0.5) return true; // immediate
+  if(contract<=0) return false;
   const rule=ruleFor(depositPct);
-  const freq=payAcct.payment_frequency||'weekly';
-  const required = rule[freq]!=null ? rule[freq] : rule.weekly;
+  const need=(rule && rule.required_pct!=null) ? rule.required_pct : 10;   // % of contract required
   const ref=payAcct.ezidebit_payer_ref;
-  const c = ref && counts[ref] ? counts[ref] : {paid_count:0,dishonour_count:0};
-  if(c.dishonour_count > rule.miss_allowed) return false;            // too many fails
-  return c.paid_count >= required;                                    // deposit counts as payment #1
+  const misses = ref && counts[ref] ? counts[ref].dishonour_count : 0;
+  if(misses > (rule?rule.miss_allowed:1)) return false;             // too many fails
+  return (paid/contract*100) >= need;                                // % paid meets the band threshold
 }
 
 let rows=[], filter='ready';

@@ -63,16 +63,17 @@ function cleared(o,payAcct,counts){
   if(!coolOk) return false;
   if(o.affordability_passed===false) return false;
   const contract=+payAcct.contract_value||0;
+  const paid=+payAcct.amount_paid_to_date||0;
   const isCash=(payAcct.payment_method||'').toLowerCase()==='cash';
   const depositPct = contract>0 ? (+payAcct.deposit_amount||0)/contract : 0;
   if(payAcct.paid_in_full || isCash || depositPct>=0.5) return true;
+  if(contract<=0) return false;
   const rule=ruleFor(depositPct);
-  const freq=payAcct.payment_frequency||'weekly';
-  const required = rule[freq]!=null ? rule[freq] : rule.weekly;
+  const need=(rule && rule.required_pct!=null) ? rule.required_pct : 10;
   const ref=payAcct.ezidebit_payer_ref;
-  const cc = ref && counts[ref] ? counts[ref] : {paid_count:0,dishonour_count:0};
-  if(cc.dishonour_count > rule.miss_allowed) return false;
-  return cc.paid_count >= required;
+  const misses = ref && counts[ref] ? counts[ref].dishonour_count : 0;
+  if(misses > (rule?rule.miss_allowed:1)) return false;
+  return (paid/contract*100) >= need;
 }
 
 async function load(){

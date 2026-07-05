@@ -78,8 +78,8 @@
   <!-- DELIVERY RULES -->
   <div class="card" id="deliveryCard" style="display:none">
     <h2>Delivery rules</h2>
-    <div class="sub">Clean (no-fail) payments required before delivery, by deposit size and payment frequency. The deposit counts as payment&nbsp;1. 50%+, cash and paid-in-full are always immediate.</div>
-    <table><thead><tr><th>Deposit</th><th>Weekly</th><th>Fortnightly</th><th>Monthly</th><th>Misses allowed</th></tr></thead><tbody id="drRows"></tbody></table>
+    <div class="sub">The percentage of the contract a customer must have paid before delivery, by deposit size. Uses total paid (including manual payments). 50%+ deposit, cash and paid-in-full are always immediate.</div>
+    <table><thead><tr><th>Deposit</th><th>% of contract paid required</th><th>Dishonours allowed</th></tr></thead><tbody id="drRows"></tbody></table>
     <div class="bar"><span class="msg" id="drMsg"></span><button class="save" onclick="saveDelivery()">Save delivery rules</button></div>
   </div>
 </div>
@@ -218,9 +218,7 @@ function renderDelivery(){
   $("deliveryCard").style.display="";
   $("drRows").innerHTML = DRULES.map((r,i)=>`
     <tr><td><b>${bandLabel(r.min_deposit_pct)}</b></td>
-      <td><input id="drw${i}" type="number" step="1" value="${r.weekly}"></td>
-      <td><input id="drf${i}" type="number" step="1" value="${r.fortnightly}"></td>
-      <td><input id="drm${i}" type="number" step="1" value="${r.monthly}"></td>
+      <td><input id="drp${i}" type="number" step="1" value="${r.required_pct!=null?r.required_pct:10}"> %</td>
       <td><input id="drx${i}" type="number" step="1" value="${r.miss_allowed}"></td></tr>`).join("");
 }
 async function saveDelivery(){
@@ -228,7 +226,7 @@ async function saveDelivery(){
   try{
     for(let i=0;i<DRULES.length;i++){
       const r=DRULES[i];
-      const patch={weekly:num($("drw"+i).value),fortnightly:num($("drf"+i).value),monthly:num($("drm"+i).value),miss_allowed:num($("drx"+i).value)};
+      const patch={required_pct:num($("drp"+i).value),miss_allowed:num($("drx"+i).value)};
       const {error}=await sb.from("delivery_rules").update(patch).eq("id",r.id);
       if(error) throw error;
       Object.assign(r,patch);
