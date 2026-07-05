@@ -6,7 +6,6 @@
 <title>Simtec Commission Tracker</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://unpkg.com/@supabase/supabase-js@2.38.4/dist/umd/supabase.js"></script>
-<script src="auth.js?v=3" data-roles="admin,manager"></script>
 <script src="https://unpkg.com/xlsx/dist/xlsx.full.min.js"></script>
 <style>
 body{font-family:system-ui,sans-serif}
@@ -103,6 +102,7 @@ function givBalances(giveaways,repayDeds,finalisedRunIds){
 // ── Nav ────────────────────────────────────────────────────────────────────
 function renderNav(){
   $('nav').innerHTML=`
+    <a href="home.html" style="color:#cbd5e1;text-decoration:none;font-size:.8rem;margin-right:4px">‹ Home</a>
     <div class="flex items-center gap-2 mr-4"><div class="w-1.5 h-5 bg-yellow-500 rounded-sm"></div>
     <span class="font-bold text-sm tracking-wide">SIMTEC COMMISSIONS</span></div>
     ${[['runs','Pay Runs'],['customers','Customer History'],['giveaways','Giveaways'],['setup','Consultants & Products'],['settings','Commission Rates']].map(([p,l])=>
@@ -286,7 +286,8 @@ async function showRun(){
         <div class="flex items-center gap-3">
         ${run.status==='finalised'
           ?`<button onclick="unfinaliseRun('${run.id}')" class="btn dark text-sm">↩ Un-finalise</button>`
-          :`<button onclick="finaliseRun('${run.id}')" class="btn gold text-sm">✓ Finalise &amp; Mark Paid</button>`}
+          :`<button onclick="showImportModal('${run.id}','${run.week_ending}')" class="btn dark text-sm">⬆ Import from Spreadsheet</button>
+           <button onclick="finaliseRun('${run.id}')" class="btn gold text-sm">✓ Finalise &amp; Mark Paid</button>`}
         <span class="text-sm px-3 py-1.5 rounded-full ${run.status==='finalised'?'bg-green-900 text-green-400':'bg-slate-700 text-slate-400'}">${run.status==='finalised'?'Finalised ✓ Paid':'Draft'}</span>
       </div>
       </div>

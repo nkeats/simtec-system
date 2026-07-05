@@ -5,47 +5,50 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Simtec — Delivery Docket</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="auth.js?v=3" data-roles="admin,manager,office"></script>
 <style>
   :root{--navy:#122347;--gold:#c6a15b;--ink:#1a2334;--line:#c9d2de;}
   *{box-sizing:border-box}
   body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;color:var(--ink);background:#eef1f5;margin:0}
-  .no-print{background:#122347;padding:10px 16px;display:flex;gap:8px;align-items:center}
+  .no-print{background:#122347;padding:10px 16px;display:flex;gap:8px;align-items:center;position:sticky;top:0;z-index:5}
   .no-print .brand{color:#fff;font-weight:700;letter-spacing:.5px}
   .no-print .sp{margin-left:auto}
   button{background:#fff;color:var(--navy);border:1px solid #cbd4df;border-radius:8px;padding:9px 16px;font-weight:600;font-size:14px;cursor:pointer}
   button.solid{background:var(--gold);border-color:var(--gold);color:#1a1a1a}
-  .page{max-width:800px;margin:16px auto;background:#fff;padding:34px 40px;border:1px solid var(--line)}
-  .top{display:flex;align-items:flex-start;border-bottom:3px solid var(--gold);padding-bottom:14px;margin-bottom:18px}
-  .top .brand{font-size:26px;font-weight:800;color:var(--navy);letter-spacing:.5px}
+  .copy{max-width:800px;margin:16px auto;background:#fff;padding:30px 40px;border:1px solid var(--line);position:relative}
+  .copytag{position:absolute;top:14px;right:40px;font-size:10.5px;font-weight:800;letter-spacing:.12em;color:#fff;background:var(--navy);padding:4px 11px;border-radius:20px}
+  .copytag.office{background:var(--gold);color:#1a1a1a}
+  .top{display:flex;align-items:flex-start;border-bottom:3px solid var(--gold);padding-bottom:14px;margin-bottom:6px}
+  .top .brand{font-size:25px;font-weight:800;color:var(--navy);letter-spacing:.5px}
   .top .brand small{display:block;font-size:11px;letter-spacing:.22em;color:var(--gold);font-weight:700}
-  .top .doc{margin-left:auto;text-align:right}
-  .top .doc .t{font-size:20px;font-weight:700;color:var(--navy)}
-  .top .doc .s{font-size:12px;color:#6b7889}
-  h3{font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--navy);margin:20px 0 8px;border-bottom:1px solid var(--line);padding-bottom:5px}
+  .top .co{margin-left:auto;text-align:right;font-size:11.5px;color:#5b6a80;line-height:1.5}
+  .doctitle{display:flex;align-items:baseline;justify-content:space-between;margin:12px 0 4px}
+  .doctitle .t{font-size:19px;font-weight:800;color:var(--navy)}
+  .doctitle .s{font-size:12px;color:#6b7889}
+  h3{font-size:11.5px;text-transform:uppercase;letter-spacing:.08em;color:var(--navy);margin:16px 0 7px;border-bottom:1px solid var(--line);padding-bottom:4px}
   .row{display:flex;gap:26px;flex-wrap:wrap}
-  .f{margin:6px 0;min-width:200px;flex:1}
+  .f{margin:5px 0;min-width:200px;flex:1}
   .f .l{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:#7a8798}
-  .f .v{font-size:16px;font-weight:600;border-bottom:1px solid var(--line);min-height:26px;padding:2px 0}
+  .f .v{font-size:15.5px;font-weight:600;border-bottom:1px solid var(--line);min-height:25px;padding:2px 0}
   table{width:100%;border-collapse:collapse;margin-top:4px}
-  th,td{border:1px solid var(--line);padding:7px 9px;text-align:left;font-size:14px}
-  th{background:#f3f6fa;color:var(--navy);font-size:12px;text-transform:uppercase}
-  td.num,th.num{text-align:center;width:70px}
-  .consent{border:1px solid var(--line);border-radius:8px;padding:14px 16px;margin-top:8px}
-  .consent p{margin:0 0 10px;font-size:14px;line-height:1.5}
+  th,td{border:1px solid var(--line);padding:6px 9px;text-align:left;font-size:13.5px}
+  th{background:#f3f6fa;color:var(--navy);font-size:11.5px;text-transform:uppercase}
+  td.num,th.num{text-align:center;width:64px}
+  .consent{border:1px solid var(--line);border-radius:8px;padding:12px 15px;margin-top:8px}
+  .consent p{margin:0 0 9px;font-size:13.5px;line-height:1.5}
   .ticks{display:flex;gap:26px;margin:8px 0}
-  .tick{display:flex;align-items:center;gap:8px;font-weight:600;font-size:15px}
-  .box{width:20px;height:20px;border:2px solid var(--navy);display:inline-block;border-radius:3px}
-  .sign{display:flex;gap:30px;margin-top:16px;flex-wrap:wrap}
-  .sign .s{flex:1;min-width:200px}
-  .sign .line{border-bottom:1.5px solid var(--ink);height:40px}
+  .tick{display:flex;align-items:center;gap:8px;font-weight:600;font-size:14.5px}
+  .box{width:19px;height:19px;border:2px solid var(--navy);display:inline-block;border-radius:3px}
+  .sign{display:flex;gap:28px;margin-top:14px;flex-wrap:wrap}
+  .sign .s{flex:1;min-width:180px}
+  .sign .line{border-bottom:1.5px solid var(--ink);height:36px}
   .sign .cap{font-size:11px;color:#7a8798;text-transform:uppercase;letter-spacing:.05em;margin-top:4px}
-  .foot{margin-top:22px;font-size:11px;color:#8a97a6;border-top:1px solid var(--line);padding-top:10px}
+  .foot{margin-top:18px;font-size:10.5px;color:#8a97a6;border-top:1px solid var(--line);padding-top:9px}
   @media print{
     body{background:#fff} .no-print{display:none!important}
-    .page{margin:0;border:none;max-width:100%;padding:10px 14px}
-    .top .brand,.box{-webkit-print-color-adjust:exact;print-color-adjust:exact}
-    @page{margin:14mm}
+    .copy{margin:0;border:none;max-width:100%;padding:6px 12px;page-break-after:always}
+    .copy:last-child{page-break-after:auto}
+    .top .brand,.box,.copytag{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    @page{margin:12mm}
   }
 </style>
 </head>
@@ -54,82 +57,94 @@
   <span class="brand">Simtec Delivery Docket</span>
   <span class="sp"></span>
   <button onclick="location.href='home.html'">Home</button>
-  <button class="solid" onclick="window.print()">Print</button>
+  <button class="solid" onclick="window.print()">🖨 Print both copies</button>
 </div>
 
-<div class="page" id="page">
-  <div class="top">
-    <div class="brand">SIMTEC<small>THERAPEUTIC</small></div>
-    <div class="doc"><div class="t">Delivery Docket</div><div class="s" id="docdate"></div></div>
-  </div>
-
-  <h3>Customer</h3>
-  <div class="row">
-    <div class="f"><div class="l">Name</div><div class="v" id="c_name">&nbsp;</div></div>
-    <div class="f"><div class="l">Phone</div><div class="v" id="c_phone">&nbsp;</div></div>
-  </div>
-  <div class="f"><div class="l">Delivery address</div><div class="v" id="c_addr" style="min-height:44px">&nbsp;</div></div>
-  <div class="row">
-    <div class="f"><div class="l">Delivery date</div><div class="v" id="c_deldate">&nbsp;</div></div>
-    <div class="f"><div class="l">Driver</div><div class="v">&nbsp;</div></div>
-  </div>
-
-  <h3>Items delivered</h3>
-  <table><thead><tr><th>Product</th><th>Size</th><th class="num">Qty</th></tr></thead><tbody id="items">
-    <tr><td>&nbsp;</td><td></td><td class="num"></td></tr>
-    <tr><td>&nbsp;</td><td></td><td class="num"></td></tr>
-    <tr><td>&nbsp;</td><td></td><td class="num"></td></tr>
-  </tbody></table>
-
-  <h3>Delivery confirmation</h3>
-  <div class="consent">
-    <p>I confirm I have received the items listed above, and I am satisfied with their condition and the delivery.</p>
-    <div class="sign">
-      <div class="s"><div class="line"></div><div class="cap">Customer signature</div></div>
-      <div class="s"><div class="line"></div><div class="cap">Print name</div></div>
-      <div class="s" style="max-width:150px"><div class="line"></div><div class="cap">Date</div></div>
-    </div>
-  </div>
-
-  <h3>Photo consent</h3>
-  <div class="consent">
-    <p>Simtec Therapeutic may take a photograph at the time of delivery. Please indicate below whether you consent to Simtec using that photograph for marketing and promotional purposes (e.g. social media, advertising and website).</p>
-    <div class="ticks">
-      <span class="tick"><span class="box"></span> YES — I consent</span>
-      <span class="tick"><span class="box"></span> NO — I do not consent</span>
-    </div>
-    <div class="sign">
-      <div class="s"><div class="line"></div><div class="cap">Customer signature</div></div>
-      <div class="s" style="max-width:150px"><div class="line"></div><div class="cap">Date</div></div>
-    </div>
-  </div>
-
-  <div class="foot">Simtec Therapeutic Limited · 09 886 9897 · This docket confirms delivery and records the customer's photo-use preference.</div>
-</div>
+<div id="out"></div>
 
 <script>
 const sb = supabase.createClient("https://jvqjoenaungubpoegyvf.supabase.co","sb_publishable_J4MYTdJJyEaWe-GadpwdYA_upPT2rKw");
 const id = new URLSearchParams(location.search).get("id");
+const esc=s=>(s||"").toString().replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
 function auDate(v){ if(!v) return ""; const m=String(v).match(/^(\d{4})-(\d{2})-(\d{2})/); if(m) return m[3]+"/"+m[2]+"/"+m[1]; const d=new Date(v); return isNaN(d)?v:String(d.getDate()).padStart(2,"0")+"/"+String(d.getMonth()+1).padStart(2,"0")+"/"+d.getFullYear(); }
-document.getElementById("docdate").textContent = auDate(new Date().toISOString().slice(0,10));
+const TODAY = auDate(new Date().toISOString().slice(0,10));
+
+function docket(d, label, cls){
+  const itemRows = (d.items && d.items.length)
+    ? d.items.map(i=>`<tr><td>${esc(i.name)}</td><td class="num">${i.qty}</td></tr>`).join("")
+    : `<tr><td>&nbsp;</td><td class="num"></td></tr><tr><td>&nbsp;</td><td class="num"></td></tr><tr><td>&nbsp;</td><td class="num"></td></tr>`;
+  return `
+  <div class="copy">
+    <span class="copytag ${cls}">${label}</span>
+    <div class="top">
+      <div class="brand">SIMTEC<small>THERAPEUTIC</small></div>
+      <div class="co"><b>Simtec Therapeutic Limited</b><br>297 Neilsons Rd, Onehunga, Auckland<br>Phone 09 886 9897</div>
+    </div>
+    <div class="doctitle"><div class="t">Delivery Docket</div><div class="s">Date: ${TODAY}</div></div>
+
+    <h3>Customer</h3>
+    <div class="row">
+      <div class="f"><div class="l">Name</div><div class="v">${esc(d.name)||"&nbsp;"}</div></div>
+      <div class="f"><div class="l">Phone</div><div class="v">${esc(d.phone)||"&nbsp;"}</div></div>
+    </div>
+    <div class="f"><div class="l">Delivery address</div><div class="v" style="min-height:42px">${esc(d.address)||"&nbsp;"}</div></div>
+    <div class="row">
+      <div class="f"><div class="l">Delivery date</div><div class="v">${esc(d.deldate)||"&nbsp;"}</div></div>
+      <div class="f"><div class="l">Driver</div><div class="v">&nbsp;</div></div>
+    </div>
+
+    <h3>Items delivered</h3>
+    <table><thead><tr><th>Product</th><th class="num">Qty</th></tr></thead><tbody>${itemRows}</tbody></table>
+
+    <h3>Delivery confirmation</h3>
+    <div class="consent">
+      <p>I confirm I have received the items listed above and am satisfied with their condition and the delivery.</p>
+      <div class="sign">
+        <div class="s"><div class="line"></div><div class="cap">Customer signature</div></div>
+        <div class="s"><div class="line"></div><div class="cap">Print name</div></div>
+        <div class="s" style="max-width:140px"><div class="line"></div><div class="cap">Date</div></div>
+      </div>
+    </div>
+
+    <h3>Photo consent</h3>
+    <div class="consent">
+      <p>Simtec Therapeutic may take a photograph at the time of delivery. Please tick below to indicate whether you consent to Simtec using that photograph for marketing and promotional purposes (e.g. social media, advertising, website).</p>
+      <div class="ticks">
+        <span class="tick"><span class="box"></span> YES — I consent</span>
+        <span class="tick"><span class="box"></span> NO — I do not consent</span>
+      </div>
+      <div class="sign">
+        <div class="s"><div class="line"></div><div class="cap">Customer signature</div></div>
+        <div class="s" style="max-width:140px"><div class="line"></div><div class="cap">Date</div></div>
+      </div>
+    </div>
+
+    <div class="foot">Simtec Therapeutic Limited · 297 Neilsons Rd, Onehunga, Auckland · 09 886 9897 — ${label}. This docket confirms delivery and records the customer's photo-use preference.</div>
+  </div>`;
+}
+
+function render(d){
+  document.getElementById("out").innerHTML = docket(d,"CUSTOMER COPY","") + docket(d,"OFFICE COPY","office");
+  document.title = "Docket — " + (d.name||"customer");
+}
 
 async function run(){
-  if(!id) return; // blank docket to fill by hand
-  try{
-    const {data:o}=await sb.from("sim_orders").select("*").eq("id",id).single();
-    if(!o) return;
-    let c={};
-    if(o.customer_id){ const {data}=await sb.from("sim_customers").select("*").eq("id",o.customer_id).single(); c=data||{}; }
-    const {data:items}=await sb.from("sim_order_items").select("product_name,quantity").eq("order_id",id).order("line_no");
-    document.getElementById("c_name").textContent=[c.first_name,c.last_name].filter(Boolean).join(" ")||"";
-    document.getElementById("c_phone").textContent=c.mobile||"";
-    document.getElementById("c_addr").textContent=c.address||"";
-    document.getElementById("c_deldate").textContent=auDate(o.delivery_date);
-    if(items && items.length){
-      document.getElementById("items").innerHTML=items.map(i=>`<tr><td colspan="2">${i.product_name||""}</td><td class="num">${i.quantity}</td></tr>`).join("");
-    }
-    document.title="Docket — "+([c.first_name,c.last_name].filter(Boolean).join(" ")||"customer");
-  }catch(e){ /* leave blank docket */ }
+  let d = {name:"",phone:"",address:"",deldate:"",items:[]};
+  if(id){
+    try{
+      const {data:o}=await sb.from("sim_orders").select("*").eq("id",id).single();
+      if(o){
+        let c={}; if(o.customer_id){ const {data}=await sb.from("sim_customers").select("*").eq("id",o.customer_id).single(); c=data||{}; }
+        const {data:items}=await sb.from("sim_order_items").select("product_name,quantity,line_no").eq("order_id",id).order("line_no");
+        d.name=[c.first_name,c.last_name].filter(Boolean).join(" ");
+        d.phone=c.mobile||"";
+        d.address=o.delivery_address||c.address||"";
+        d.deldate=auDate(o.delivery_date);
+        d.items=(items||[]).map(i=>({name:i.product_name||"",qty:+i.quantity||1}));
+      }
+    }catch(e){/* blank docket */}
+  }
+  render(d);
 }
 run();
 </script>

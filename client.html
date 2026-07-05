@@ -23,7 +23,7 @@ body{font-family:system-ui,sans-serif}
 <body class="bg-slate-950 text-white min-h-screen">
 
 <nav class="bg-slate-900 border-b border-slate-800 px-6 py-3 flex items-center gap-3 noprint">
-  <span class="font-bold tracking-wide text-lg">SIMTEC</span>
+  <a href="home.html" style="color:#cbd5e1;text-decoration:none;font-size:.85rem;margin-right:8px">‹ Home</a><span class="font-bold tracking-wide text-lg">SIMTEC</span>
   <span class="text-slate-400 text-sm">Client Page</span>
 </nav>
 
@@ -177,9 +177,11 @@ function render(cust,order,items,pays,orders,dishons){
     ? `<div class="rounded-xl p-4 mt-5" style="background:#102a3d;border:2px solid #2a8fb5"><div style="color:#9fdcff;font-weight:800;font-size:1.1rem">Payments covered by ${esc(order._payerName)||'another account'}</div><div class="text-slate-200 text-sm mt-1">This mattress is paid on their Ezidebit account. Check that account for payment status — this record is not tracked for arrears.</div></div>`
     : "";
 
-  const itemRows=items.map(it=>`<div class="flex justify-between py-1 text-sm">
-      <span class="text-slate-300">${esc(it.product_name)}${it.quantity>1?` ×${it.quantity}`:''}</span>
-      <span class="text-slate-300">${fmt((+it.unit_price||0)*(it.quantity||1))}</span></div>`).join('');
+  const itemRows = items.length
+    ? items.map(it=>`<div class="flex justify-between py-1 text-sm">
+      <span class="text-slate-300">${esc(it.product_name)||'(unnamed item)'}${it.quantity>1?` ×${it.quantity}`:''}</span>
+      <span class="text-slate-300">${it.unit_price!=null?fmt((+it.unit_price||0)*(it.quantity||1)):'—'}</span></div>`).join('')
+    : `<div class="text-sm text-slate-500 py-1">No products recorded on this order.</div>`;
 
   const legend=[['#1faa5a','Paid'],['#dc2626','Behind'],['#475569','Upcoming']]
     .map(([c,l])=>`<span class="inline-flex items-center gap-1.5 mr-4"><span class="sq" style="background:${c}"></span><span class="text-xs text-slate-400">${l}</span></span>`).join('');
