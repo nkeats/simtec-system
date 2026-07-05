@@ -339,7 +339,7 @@ async function save(){
       amount_paid_to_date:0,
       deposit_amount:$("deposit").value===""?0:Number($("deposit").value),
       deposit_date:$("firstPay").value||null,
-      ezidebit_payer_ref:$("payerRef").value.trim()||null,
+      ezidebit_payer_ref:($("payerRef").value.replace(/\D/g,"")||null),
       first_payment_date:$("firstPay").value||null,
       delivery_status:$("delStatus").value,
       order_status:"active",
