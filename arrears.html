@@ -124,9 +124,9 @@ async function load(){
   // last successful payment date for the behind customers (one batched query)
   const refs=[...new Set(behind.map(r=>r.payer).filter(Boolean))];
   if(refs.length){
-    const {data:pmts}=await sb.from('sim_payments').select('payer_ref,payment_date').eq('result','paid').in('payer_ref',refs);
+    const {data:pmts}=await sb.from('sim_payments').select('payer_ref,payment_date,result').in('payer_ref',refs);
     const lastByRef={};
-    (pmts||[]).forEach(p=>{ if(!lastByRef[p.payer_ref]||p.payment_date>lastByRef[p.payer_ref]) lastByRef[p.payer_ref]=p.payment_date; });
+    (pmts||[]).forEach(p=>{ if(p.result&&p.result.toLowerCase()==='refund')return; if(!lastByRef[p.payer_ref]||p.payment_date>lastByRef[p.payer_ref]) lastByRef[p.payer_ref]=p.payment_date; });
     behind.forEach(r=>{ if(r.payer) r.lastPaid=lastByRef[r.payer]||null; });
   }
   rows=behind;
