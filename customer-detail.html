@@ -175,11 +175,17 @@ function render(o,c,items,pays,comms){
   </div>`;
 
   const isAdmin = (window.SIMTEC_USER&&window.SIMTEC_USER.role==='admin');
+  const isMgr = (window.SIMTEC_USER&&['admin','manager'].includes(window.SIMTEC_USER.role));
+  const faLine = isMgr ? (o.further_action
+      ? kv("Debt status",`<span style="color:#e0a34a;font-weight:700">In further action</span> <button onclick="setFurtherAction(false)" style="margin-left:6px;font-size:11px;background:none;border:1px solid var(--line);border-radius:5px;padding:1px 6px;cursor:pointer;color:var(--sub)">remove</button> <a href="further-action.html" style="font-size:11px;margin-left:4px">open</a>`)
+      : kv("Debt status",`<button onclick="setFurtherAction(true)" style="background:#7a2420;color:#fff;border:none;border-radius:7px;padding:5px 11px;font-size:12px;cursor:pointer">Move to further action</button>`)
+    ) : "";
   const delivery=`<div class="card"><h2>Delivery</h2>
     ${kv("Status",DS[o.delivery_status]||o.delivery_status||"—")}
     ${kv("Delivery date",auDate(o.delivery_date))}
     ${o.driver_name?kv("Driver",o.driver_name):""}
     ${kv("Order status",cap(o.order_status))}
+    ${faLine}
     ${o.delivery_authorised
       ? kv("Delivery clearance",`<span style="color:var(--green);font-weight:700">✓ Authorised${o.delivery_authorised_by?" by "+o.delivery_authorised_by:""}</span>`)
       : (isAdmin ? `<div style="margin-top:10px"><button onclick="authoriseDelivery()" style="background:#1c6b34;color:#fff;border:none;border-radius:8px;padding:9px 15px;font-size:13.5px;font-weight:600;cursor:pointer">✓ Authorise delivery (override)</button><div style="font-size:11.5px;color:#8794a6;margin-top:5px">Clears this customer for delivery regardless of payment history.</div></div>` : "")}
@@ -290,6 +296,14 @@ async function markItem(itemId, val){
     status = done===0 ? "pending" : done===mattresses.length ? "delivered" : "partial";
   }
   await sb.from("sim_orders").update({delivery_status:status}).eq("id",orderId);
+  run();
+}
+async function setFurtherAction(val){
+  if(!(window.SIMTEC_USER&&['admin','manager'].includes(window.SIMTEC_USER.role))){ alert("Admins and managers only."); return; }
+  const who=(window.SIMTEC_USER.full_name||window.SIMTEC_USER.email||"admin");
+  const patch = val ? {further_action:true,further_action_date:new Date().toISOString().slice(0,10),further_action_by:who} : {further_action:false};
+  const {error}=await sb.from("sim_orders").update(patch).eq("id",orderId);
+  if(error){ alert("Couldn't update: "+error.message); return; }
   run();
 }
 async function authoriseDelivery(){

@@ -115,6 +115,7 @@
       <a class="card" href="payments-risk.html"><span class="ic"><svg viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/></svg></span><span class="ct"><div class="t">Payments &amp; risk</div><div class="d">Full traffic-light board.</div></span></a>
       <a class="card" href="arrears.html"><span class="ic"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h10"/></svg></span><span class="ct"><div class="t">Arrears overview</div><div class="d">Worst-first arrears list.</div></span></a>
       <a class="card" href="arrears-texts.html"><span class="ic"><svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H8l-4 4V5a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2z"/></svg></span><span class="ct"><div class="t">Arrears texts</div><div class="d">Review and send arrears reminders.</div></span></a>
+      <a class="card" href="further-action.html" id="faCard" style="display:none"><span class="ic"><svg viewBox="0 0 24 24"><path d="M3 6h18M3 12h18M3 18h12"/><circle cx="19" cy="18" r="3"/></svg></span><span class="ct"><div class="t">Further Action</div><div class="d">Debt recovery — log contact, prep Tribunal claims.</div></span></a>
     </div></div>
 
     <div class="grp"><div class="gl">Delivery</div><div class="cards">
@@ -150,6 +151,7 @@
       document.getElementById("hiName").textContent = greet + (nm?`, ${nm}`:"");
       if(u.role){ const hi=document.getElementById("hi"); const b=document.createElement("span"); b.className="role"; b.textContent=u.role; hi.appendChild(b); }
       if(u.role==='admin'){ const g=document.getElementById('adminGrp'); if(g) g.style.display=''; }
+      if(u.role==='admin'||u.role==='manager'){ const fc=document.getElementById('faCard'); if(fc) fc.style.display=''; }
     } else if(n>60){ clearInterval(t); document.getElementById("hiName").textContent=greet; }
   },60);
 })();

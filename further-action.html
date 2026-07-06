@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Simtec — Further Action</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="auth.js?v=3" data-roles="admin,manager"></script>
+<style>
+  body{background:#0b1220;color:#e2e8f0}
+  .card{background:#111c33;border:1px solid #1e2d4a;border-radius:14px}
+  .k{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:#7c8aa5}
+  .btn{background:#1a2942;color:#dbe4f2;border:1px solid #26324a;border-radius:8px;padding:8px 13px;font-size:13.5px;font-weight:600;cursor:pointer}
+  .btn.gold{background:#c6a15b;color:#14203a;border-color:#c6a15b}
+  .btn.red{background:#7a2420;color:#ffd9d5;border-color:#7a2420}
+  input,select,textarea{background:#0d1424;border:1px solid #26324a;color:#e2e8f0;border-radius:8px;padding:8px 10px;font-size:14px;width:100%}
+  .res{background:#0d1728} .res:hover{background:#16233c}
+  table{width:100%;border-collapse:collapse}
+  th,td{padding:7px 10px;text-align:left;font-size:13px;border-bottom:1px solid #16233c}
+  th{color:#7c8aa5;font-size:10.5px;text-transform:uppercase}
+</style>
+</head>
+<body class="min-h-screen">
+<nav class="border-b border-slate-800 px-6 py-3 flex items-center gap-3" style="background:#0d1728">
+  <a href="home.html" style="color:#cbd5e1;text-decoration:none;font-size:.85rem;margin-right:8px">‹ Home</a>
+  <span class="font-bold tracking-wide text-lg">SIMTEC</span>
+  <span class="text-slate-400 text-sm">Further Action — debt recovery</span>
+</nav>
+
+<div class="max-w-4xl mx-auto px-5 py-7">
+
+  <!-- add to further action -->
+  <div class="card p-5 mb-6">
+    <div class="k mb-2">Move a customer to further action</div>
+    <input id="search" placeholder="Search customer by name…" oninput="doSearch()" autocomplete="off">
+    <div id="results" class="mt-2"></div>
+  </div>
+
+  <h2 class="text-lg font-bold mb-3">Active cases <span id="caseCount" class="text-slate-500 font-normal"></span></h2>
+  <div id="state" class="text-slate-400 text-sm py-4">Loading…</div>
+  <div id="cases"></div>
+</div>
+
+<script>
+const sb = supabase.createClient("https://jvqjoenaungubpoegyvf.supabase.co","sb_publishable_J4MYTdJJyEaWe-GadpwdYA_upPT2rKw");
+const $=id=>document.getElementById(id);
+const fmt=n=>"$"+(Math.round((n||0)*100)/100).toLocaleString();
+const esc=s=>(s||"").toString().replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const auDate=v=>{if(!v)return"";const m=String(v).match(/^(\d{4})-(\d{2})-(\d{2})/);return m?m[3]+"/"+m[2]+"/"+m[1]:v;};
+const dt=v=>{if(!v)return"";const d=new Date(v);return isNaN(d)?v:d.toLocaleString("en-NZ",{day:"2-digit",month:"2-digit",year:"numeric",hour:"2-digit",minute:"2-digit"});};
+const me=()=> (window.SIMTEC_USER&&(window.SIMTEC_USER.full_name||window.SIMTEC_USER.email))||"admin";
+const METHODS=["phone","sms","email","letter","visit","other"];
+const OUTCOMES=["No answer","Left message","Promised to pay","Part payment made","Refused to pay","Disputed the debt","Number disconnected","Requested hardship","Other"];
+
+let ST;
+function doSearch(){
+  clearTimeout(ST);
+  ST=setTimeout(async()=>{
+    const q=$("search").value.trim();
+    if(q.length<2){$("results").innerHTML="";return;}
+    const {data}=await sb.from("sim_customers").select("id,first_name,last_name,mobile").or(`first_name.ilike.%${q}%,last_name.ilike.%${q}%`).limit(8);
+    $("results").innerHTML=(data||[]).map(c=>`<div class="res px-3 py-2 rounded cursor-pointer border-b border-slate-800" onclick="addCase('${c.id}')">
+      ${esc(c.first_name)} ${esc(c.last_name)} <span class="text-slate-500 text-xs">${esc(c.mobile||"")}</span></div>`).join("")||`<div class="text-slate-500 text-sm px-2 py-2">No match.</div>`;
+  },250);
+}
+window.addCase=async(custId)=>{
+  const {data:orders}=await sb.from("sim_orders").select("id,order_status,further_action").eq("customer_id",custId).order("order_date",{ascending:false});
+  const o=(orders||[]).find(x=>x.order_status==="active")||(orders||[])[0];
+  if(!o){ alert("No order found for this customer."); return; }
+  if(o.further_action){ alert("Already in further action."); return; }
+  const {error}=await sb.from("sim_orders").update({further_action:true,further_action_date:new Date().toISOString().slice(0,10),further_action_by:me()}).eq("id",o.id);
+  if(error){ alert(error.message); return; }
+  $("search").value=""; $("results").innerHTML=""; load();
+};
+
+async function load(){
+  const {data:orders}=await sb.from("sim_orders")
+    .select("*, sim_customers(*), sim_order_items(product_name,quantity)")
+    .eq("further_action",true).order("further_action_date",{ascending:true});
+  const ids=(orders||[]).map(o=>o.id);
+  let contacts={};
+  if(ids.length){
+    const {data:cc}=await sb.from("debt_contacts").select("*").in("order_id",ids).order("contact_at",{ascending:false});
+    (cc||[]).forEach(c=>{(contacts[c.order_id]=contacts[c.order_id]||[]).push(c);});
+  }
+  $("state").style.display="none";
+  $("caseCount").textContent=`(${(orders||[]).length})`;
+  if(!orders||!orders.length){ $("cases").innerHTML=`<div class="text-slate-500 text-sm py-6">No cases in further action. Search above to add a customer.</div>`; return; }
+  $("cases").innerHTML=orders.map(o=>{
+    const c=o.sim_customers||{};
+    const name=`${c.first_name||""} ${c.last_name||""}`.trim();
+    const paid=+o.amount_paid_to_date||0, contract=+o.contract_value||0, bal=contract-paid;
+    const prod=(o.sim_order_items||[]).map(i=>`${i.product_name}${i.quantity>1?` ×${i.quantity}`:""}`).join(", ");
+    const log=contacts[o.id]||[];
+    return `<div class="card p-5 mb-4">
+      <div class="flex items-start justify-between flex-wrap gap-3">
+        <div>
+          <div class="text-lg font-bold">${esc(name)}</div>
+          <div class="text-xs text-slate-400 mt-1">${esc(c.mobile||"")}${c.email?" · "+esc(c.email):""}</div>
+          <div class="text-xs text-slate-500 mt-1">In further action since ${auDate(o.further_action_date)} · ${log.length} contact attempt${log.length!==1?"s":""}</div>
+        </div>
+        <div class="text-right">
+          <div class="k">Balance owing</div><div class="text-2xl font-bold" style="color:#e0a34a">${fmt(bal)}</div>
+          <div class="text-xs text-slate-500">${fmt(paid)} of ${fmt(contract)} paid</div>
+        </div>
+      </div>
+      <div class="text-xs text-slate-400 mt-2">${esc(prod)}</div>
+
+      <div class="mt-4 flex flex-wrap gap-2">
+        <button class="btn" onclick="toggleLog('${o.id}')">＋ Log contact attempt</button>
+        <button class="btn gold" onclick="window.open('tribunal-form.html?id=${o.id}','_blank')">⚖ Generate Tribunal submission</button>
+        <a class="btn" style="text-decoration:none" href="customer-detail.html?id=${o.id}">Open customer</a>
+        <button class="btn red" style="margin-left:auto" onclick="removeCase('${o.id}')">Remove from further action</button>
+      </div>
+
+      <div id="logform-${o.id}" style="display:none" class="mt-3 p-3 rounded" style="background:#0d1728">
+        <div class="grid grid-cols-2 gap-2 mt-3">
+          <div><div class="k mb-1">Date</div><input type="date" id="cd-${o.id}" value="${new Date().toISOString().slice(0,10)}"></div>
+          <div><div class="k mb-1">Time</div><input type="time" id="ct-${o.id}" value="${new Date().toTimeString().slice(0,5)}"></div>
+          <div><div class="k mb-1">Method</div><select id="cm-${o.id}">${METHODS.map(m=>`<option>${m}</option>`).join("")}</select></div>
+          <div><div class="k mb-1">Outcome</div><select id="co-${o.id}">${OUTCOMES.map(m=>`<option>${m}</option>`).join("")}</select></div>
+        </div>
+        <div class="mt-2"><div class="k mb-1">Notes</div><textarea id="cn-${o.id}" rows="2" placeholder="What was said / agreed…"></textarea></div>
+        <div class="mt-2"><button class="btn gold" onclick="saveContact('${o.id}')">Save attempt</button></div>
+      </div>
+
+      ${log.length?`<div class="mt-4"><div class="k mb-1">Contact history</div>
+        <table><thead><tr><th>When</th><th>Method</th><th>Outcome</th><th>Notes</th><th></th></tr></thead><tbody>
+        ${log.map(x=>`<tr>
+          <td class="whitespace-nowrap">${dt(x.contact_at)}</td><td>${esc(x.method)}</td><td>${esc(x.outcome)}</td>
+          <td class="text-slate-400">${esc(x.notes||"")}</td>
+          <td><button onclick="delContact('${x.id}')" class="text-red-400 text-xs">✕</button></td></tr>`).join("")}
+        </tbody></table></div>`:""}
+    </div>`;
+  }).join("");
+}
+window.toggleLog=id=>{const el=$("logform-"+id);el.style.display=el.style.display==="none"?"":"none";};
+window.saveContact=async(id)=>{
+  const date=$("cd-"+id).value, time=$("ct-"+id).value;
+  const at = date ? new Date(date+"T"+(time||"00:00")).toISOString() : new Date().toISOString();
+  const {error}=await sb.from("debt_contacts").insert({order_id:id,contact_at:at,method:$("cm-"+id).value,outcome:$("co-"+id).value,notes:$("cn-"+id).value||null,logged_by:me()});
+  if(error){ alert(error.message); return; }
+  load();
+};
+window.delContact=async(cid)=>{ if(!confirm("Delete this contact record?"))return; await sb.from("debt_contacts").delete().eq("id",cid); load(); };
+window.removeCase=async(id)=>{ if(!confirm("Remove this customer from further action? Contact history is kept."))return;
+  await sb.from("sim_orders").update({further_action:false}).eq("id",id); load(); };
+load();
+</script>
+</body>
+</html>
