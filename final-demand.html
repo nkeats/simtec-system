@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Simtec — Final Demand Letter</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  :root{--navy:#122347;--gold:#c6a15b;--line:#c9d2de;}
+  *{box-sizing:border-box}
+  body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;color:#1a2334;background:#eef1f5;margin:0}
+  .no-print{background:#122347;padding:10px 16px;display:flex;gap:8px;align-items:center;position:sticky;top:0;z-index:5}
+  .no-print .brand{color:#fff;font-weight:700}
+  .no-print .sp{margin-left:auto}
+  button{background:#fff;color:var(--navy);border:1px solid #cbd4df;border-radius:8px;padding:9px 16px;font-weight:600;font-size:14px;cursor:pointer}
+  button.solid{background:var(--gold);border-color:var(--gold);color:#1a1a1a}
+  .page{max-width:800px;margin:16px auto;background:#fff;padding:40px 48px;border:1px solid var(--line);font-size:13.7px;line-height:1.6}
+  .top{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid var(--gold);padding-bottom:14px;margin-bottom:20px}
+  .brandblock .name{font-size:23px;font-weight:800;color:var(--navy);letter-spacing:.5px}
+  .brandblock .name small{display:block;font-size:10.5px;letter-spacing:.24em;color:var(--gold);font-weight:700;margin-top:2px}
+  .co{text-align:right;font-size:11.5px;color:#5b6a80;line-height:1.5}
+  .meta{margin:14px 0}
+  .rec{margin:16px 0}
+  .subject{font-weight:800;color:var(--navy);margin:18px 0 10px;font-size:15px}
+  table{border-collapse:collapse;margin:12px 0;width:100%}
+  td{padding:5px 10px;border:1px solid var(--line);font-size:13px}
+  td.lbl{background:#f3f6fa;font-weight:600;width:45%}
+  td.amt{text-align:right;font-variant-numeric:tabular-nums}
+  .total td{font-weight:800;color:var(--navy);background:#eef3fa}
+  .sign{margin-top:26px}
+  .deadline{background:#fff4f2;border:1px solid #e6b8b1;border-radius:8px;padding:11px 15px;font-weight:600;color:#7a2a22;margin:14px 0}
+  @media print{ body{background:#fff} .no-print{display:none!important} .page{margin:0;border:none;max-width:100%;padding:6px 8px} @page{margin:16mm} }
+</style>
+</head>
+<body>
+<div class="no-print">
+  <span class="brand">Final Demand Letter</span>
+  <span class="sp"></span>
+  <button onclick="location.href='further-action.html'">Back</button>
+  <button class="solid" onclick="window.print()">🖨 Print / Save PDF</button>
+</div>
+<div id="out"><div class="page">Loading…</div></div>
+
+<script>
+const sb = supabase.createClient("https://jvqjoenaungubpoegyvf.supabase.co","sb_publishable_J4MYTdJJyEaWe-GadpwdYA_upPT2rKw");
+const id = new URLSearchParams(location.search).get("id");
+const esc=s=>(s||"").toString().replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+const fmt=n=>"$"+(Math.round((n||0)*100)/100).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
+const auDate=v=>{if(!v)return"—";const m=String(v).match(/^(\d{4})-(\d{2})-(\d{2})/);return m?m[3]+"/"+m[2]+"/"+m[1]:v;};
+const longDate=d=>d.toLocaleDateString("en-NZ",{day:"numeric",month:"long",year:"numeric"});
+const freqWord=f=>({weekly:"weekly",fortnightly:"fortnightly",monthly:"monthly"}[f]||"weekly");
+
+async function run(){
+  if(!id){ document.getElementById("out").innerHTML="<div class='page'>No case specified.</div>"; return; }
+  const {data:o}=await sb.from("sim_orders").select("*").eq("id",id).single();
+  if(!o){ document.getElementById("out").innerHTML="<div class='page'>Order not found.</div>"; return; }
+  let c={}; if(o.customer_id){ const {data}=await sb.from("sim_customers").select("*").eq("id",o.customer_id).single(); c=data||{}; }
+  const {data:items}=await sb.from("sim_order_items").select("product_name,quantity").eq("order_id",id);
+
+  const name=`${c.first_name||""} ${c.last_name||""}`.trim();
+  const paid=+o.amount_paid_to_date||0, contract=+o.contract_value||0, bal=contract-paid;
+  const prod=(items||[]).map(i=>`${i.product_name}${i.quantity>1?` ×${i.quantity}`:""}`).join(", ")||"a Simtec Therapeutic mattress";
+  const today=new Date();
+  const due=new Date(today.getTime()+14*86400000);
+
+  document.getElementById("out").innerHTML=`
+  <div class="page">
+    <div class="top">
+      <div class="brandblock"><div class="name">SIMTEC<small>THERAPEUTIC</small></div></div>
+      <div class="co"><b>Simtec Therapeutic Limited</b><br>297 Neilsons Rd, Onehunga<br>Auckland<br>Phone 09 886 9897</div>
+    </div>
+
+    <div class="meta">${longDate(today)}</div>
+
+    <div class="rec">
+      <b>${esc(name)||"[Customer name]"}</b><br>
+      ${esc(o.delivery_address||c.address)||"[Customer address]"}<br>
+      ${c.mobile?esc(c.mobile):""}
+    </div>
+
+    <div class="subject">FINAL DEMAND FOR PAYMENT — OVERDUE ACCOUNT</div>
+
+    <p>Dear ${esc(c.first_name)||"Sir/Madam"},</p>
+
+    <p>We write regarding your account with Simtec Therapeutic Limited for the purchase of ${esc(prod)}, under a credit sale agreement entered into on ${auDate(o.order_date)} for a total contract price of ${fmt(contract)}.</p>
+
+    <p>Our records show that your account is significantly in arrears. The current position is as follows:</p>
+
+    <table>
+      <tr><td class="lbl">Total contract price</td><td class="amt">${fmt(contract)}</td></tr>
+      <tr><td class="lbl">Amount paid to date</td><td class="amt">${fmt(paid)}</td></tr>
+      <tr class="total"><td class="lbl">Balance now due and payable</td><td class="amt">${fmt(bal)}</td></tr>
+    </table>
+
+    <p>Under the Terms and Conditions of Sale that you accepted when you signed your order form, you acknowledged that the full balance of the purchase price remains due and payable, and that you are required to continue making your agreed ${freqWord(o.payment_frequency)} payments until the account is paid in full.</p>
+
+    <p>Despite our previous attempts to contact you and resolve this matter, your account remains overdue.</p>
+
+    <div class="deadline">You are required to pay the outstanding balance of ${fmt(bal)}, or contact us to make a satisfactory payment arrangement, on or before ${longDate(due)} (14 days from the date of this letter).</div>
+
+    <p>If you are experiencing financial hardship, please contact us as soon as possible — we are willing to discuss a reasonable arrangement. If we do not hear from you, or payment or an arrangement is not made by the date above, we intend to file a claim with the <b>Disputes Tribunal of New Zealand</b> to recover the outstanding balance. Should we do so, you acknowledge under the Terms and Conditions of Sale that the reasonable costs we incur in recovering the debt — including filing fees and recovery costs — may be added to the amount you owe.</p>
+
+    <p>To avoid this, please make payment or contact us on <b>09 886 9897</b> before the date shown above.</p>
+
+    <div class="sign">
+      <p>Yours faithfully,</p>
+      <p style="margin-top:26px"><b>_________________________</b><br>
+      Simtec Therapeutic Limited</p>
+    </div>
+  </div>`;
+  document.title="Final Demand — "+(name||"customer");
+}
+run();
+</script>
+</body>
+</html>
