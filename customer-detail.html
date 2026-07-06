@@ -126,7 +126,7 @@ async function run(){
     }
     let cust={};
     if(o.customer_id){ const {data}=await sb.from("sim_customers").select("*").eq("id",o.customer_id).single(); cust=data||{}; }
-    const {data:items}=await sb.from("sim_order_items").select("id,product_name,quantity,unit_price,delivered,delivered_date").eq("order_id",orderId).order("line_no");
+    const {data:items}=await sb.from("sim_order_items").select("id,product_name,quantity,unit_price,delivered,delivered_date,cancelled,cancelled_date").eq("order_id",orderId).order("line_no");
     let pays=[];
     if(o.ezidebit_payer_ref){ const {data}=await sb.from("sim_payments").select("payment_date,amount").eq("payer_ref",o.ezidebit_payer_ref).order("payment_date",{ascending:false}); pays=data||[]; }
     let comms=[];
@@ -189,11 +189,14 @@ function render(o,c,items,pays,comms){
   const skip = n => /delivery fee|protector|pillow/i.test(n||"");   // accessories aren't "delivered" items
   const prodRows = items.length
     ? items.map(i=>{
+        if(i.cancelled){
+          return `<tr style="opacity:.6"><td><s>${i.product_name||""}</s></td><td class="num">${i.quantity}</td><td class="num">${i.unit_price!=null?fmt(i.unit_price):""}</td><td class="num"><span style="color:var(--red);font-weight:700">✕ Cancelled${i.cancelled_date?" "+auDate(i.cancelled_date):""}</span>${isStaff?` <button onclick="markItemCancelled('${i.id}',false)" style="margin-left:6px;font-size:11px;background:none;border:1px solid var(--line);border-radius:5px;padding:1px 6px;cursor:pointer;color:var(--sub)">undo</button>`:""}</td></tr>`;
+        }
         const delivCell = skip(i.product_name)
           ? `<td class="num muted">—</td>`
           : i.delivered
             ? `<td class="num"><span style="color:var(--green);font-weight:700">✓ ${i.delivered_date?auDate(i.delivered_date):"Delivered"}</span>${isStaff?` <button onclick="markItem('${i.id}',false)" style="margin-left:6px;font-size:11px;background:none;border:1px solid var(--line);border-radius:5px;padding:1px 6px;cursor:pointer;color:var(--sub)">undo</button>`:""}</td>`
-            : `<td class="num">${isStaff?`<button onclick="markItem('${i.id}',true)" style="background:#1c6b34;color:#fff;border:none;border-radius:6px;padding:3px 9px;font-size:12px;cursor:pointer">Mark delivered</button>`:`<span class="muted">Not delivered</span>`}</td>`;
+            : `<td class="num">${isStaff?`<button onclick="markItem('${i.id}',true)" style="background:#1c6b34;color:#fff;border:none;border-radius:6px;padding:3px 9px;font-size:12px;cursor:pointer">Mark delivered</button> <button onclick="markItemCancelled('${i.id}',true)" style="background:none;border:1px solid #e0b4b0;color:var(--red);border-radius:6px;padding:3px 8px;font-size:11.5px;cursor:pointer">Cancel item</button>`:`<span class="muted">Not delivered</span>`}</td>`;
         return `<tr><td>${i.product_name||""}</td><td class="num">${i.quantity}</td><td class="num">${i.unit_price!=null?fmt(i.unit_price):""}</td>${delivCell}</tr>`;
       }).join("")
     : `<tr><td colspan="4" class="muted">No product lines recorded.</td></tr>`;
@@ -260,6 +263,16 @@ function render(o,c,items,pays,comms){
       `<option value="on_hold"${st==="on_hold"?" selected":""}>On hold</option>` +
       `<option value="cancelled"${st==="cancelled"?" selected":""}>Cancelled</option>` +
     `</select>`;
+}
+async function markItemCancelled(itemId, val){
+  if(!(window.SIMTEC_USER && ['admin','manager','office'].includes(window.SIMTEC_USER.role))){ alert("Staff only."); return; }
+  if(val && !confirm("Cancel this mattress from the order? It stays on record but is excluded from sales figures.")) return;
+  const who = (window.SIMTEC_USER.full_name||window.SIMTEC_USER.email||"staff");
+  const patch = val ? {cancelled:true, cancelled_date:new Date().toISOString().slice(0,10), cancelled_by:who}
+                    : {cancelled:false, cancelled_date:null, cancelled_by:null};
+  const {error}=await sb.from("sim_order_items").update(patch).eq("id",itemId);
+  if(error){ alert("Couldn't update: "+error.message); return; }
+  run();
 }
 async function markItem(itemId, val){
   if(!(window.SIMTEC_USER && ['admin','manager','office'].includes(window.SIMTEC_USER.role))){ alert("Staff only."); return; }

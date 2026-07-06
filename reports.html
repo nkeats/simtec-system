@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Simtec — Reports</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="auth.js?v=3" data-roles="admin,manager,office"></script>
+<style>
+  body{background:#0b1220;color:#e2e8f0}
+  .card{background:#111c33;border:1px solid #1e2d4a;border:1px solid #1e2d4a;border-radius:14px}
+  .k{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:#7c8aa5}
+  .gold{color:#c6a15b}
+  table{width:100%;border-collapse:collapse}
+  th,td{padding:10px 14px;text-align:left}
+  th{font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:#7c8aa5;border-bottom:1px solid #1e2d4a}
+  td{border-bottom:1px solid #16233c;font-size:14px}
+  .num{text-align:right;font-variant-numeric:tabular-nums}
+  tr.wk{cursor:pointer} tr.wk:hover{background:#16233c}
+  tr.sub td{background:#0d1728;color:#aeb9cc;font-size:13px}
+  tr.sub td:first-child{padding-left:34px}
+  .tot td{font-weight:700;color:#fff;border-top:2px solid #26375a;background:#0d1728}
+  .chip{display:inline-block;font-size:10.5px;padding:2px 8px;border-radius:20px;background:#1a2942;color:#9fb0cc;margin-left:8px}
+</style>
+</head>
+<body class="min-h-screen">
+<nav class="border-b border-slate-800 px-6 py-3 flex items-center gap-3" style="background:#0d1728">
+  <a href="home.html" style="color:#cbd5e1;text-decoration:none;font-size:.85rem;margin-right:8px">‹ Home</a>
+  <span class="font-bold tracking-wide text-lg">SIMTEC</span>
+  <span class="text-slate-400 text-sm">Reports</span>
+</nav>
+
+<div class="max-w-5xl mx-auto px-5 py-7">
+
+  <!-- summary tiles -->
+  <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6" id="tiles"></div>
+
+  <!-- WEEKLY SALES -->
+  <div class="card p-5 mb-6">
+    <div class="flex items-center justify-between mb-1">
+      <h2 class="text-lg font-bold">Weekly sales</h2>
+      <div class="k" id="basis">Mon–Sun · net of same-week cancellations</div>
+    </div>
+    <p class="text-xs text-slate-500 mb-4">A sale counts in the week it was made if it wasn't cancelled by that Sunday. Later cancellations don't change past weeks. Click a week for the agent breakdown.</p>
+    <div id="state" class="text-slate-400 text-sm py-6">Loading…</div>
+    <table id="tbl" style="display:none"><thead><tr>
+      <th>Week beginning</th><th class="num">Mattresses</th><th class="num">Sales value</th>
+    </tr></thead><tbody id="rows"></tbody></table>
+  </div>
+
+  <!-- CONVERSION (coming with booking module) -->
+  <div class="card p-5 opacity-70">
+    <h2 class="text-lg font-bold">Conversion — stand-up % &amp; closing %</h2>
+    <p class="text-sm text-slate-400 mt-2">Per-agent and office-wide stand-up rate (attended ÷ booked) and closing rate (sold ÷ attended) will appear here once the booking module is capturing appointments. The framework is ready; it needs the booked → attended → sold data first.</p>
+  </div>
+
+</div>
+
+<script>
+const sb = supabase.createClient("https://jvqjoenaungubpoegyvf.supabase.co","sb_publishable_J4MYTdJJyEaWe-GadpwdYA_upPT2rKw");
+const fmt=n=>"$"+Math.round(n||0).toLocaleString();
+const esc=s=>(s||"").replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+const isMattress=n=>n && !/delivery fee|protector|pillow|base|topper/i.test(n);
+
+// UTC-safe Monday-of-week and Sunday-of-week
+function ymd(dt){return dt.getUTCFullYear()+"-"+String(dt.getUTCMonth()+1).padStart(2,"0")+"-"+String(dt.getUTCDate()).padStart(2,"0");}
+function weekStart(d){const p=String(d).slice(0,10).split("-").map(Number);const dt=new Date(Date.UTC(p[0],p[1]-1,p[2]));const off=(dt.getUTCDay()+6)%7;dt.setUTCDate(dt.getUTCDate()-off);return ymd(dt);}
+function weekEnd(mondayStr){const p=mondayStr.split("-").map(Number);const dt=new Date(Date.UTC(p[0],p[1]-1,p[2]));dt.setUTCDate(dt.getUTCDate()+6);return ymd(dt);}   // Sunday
+function fmtWk(mondayStr){const p=mondayStr.split("-").map(Number);return p[2]+"/"+p[1]+"/"+p[0];}
+
+async function load(){
+  // pull orders + their items
+  const {data:orders,error}=await sb.from("sim_orders")
+    .select("id,order_date,contract_value,consultant_name,order_status,cancellation_date");
+  if(error){$("state").textContent="Couldn't load: "+error.message;return;}
+  const ids=(orders||[]).map(o=>o.id);
+  let itemsByOrder={};
+  for(let i=0;i<ids.length;i+=300){
+    const {data:its}=await sb.from("sim_order_items")
+      .select("order_id,product_name,quantity,unit_price,cancelled,cancelled_date").in("order_id",ids.slice(i,i+300));
+    (its||[]).forEach(it=>{ (itemsByOrder[it.order_id]=itemsByOrder[it.order_id]||[]).push(it); });
+  }
+
+  const weeks={};   // mondayStr -> {mattresses, value, byCon:{name:{m,v}}}
+  for(const o of (orders||[])){
+    if(!o.order_date) continue;
+    const wk=weekStart(o.order_date), wEnd=weekEnd(wk);
+    // whole-order cancelled within the sale week?  -> drop entirely
+    const cx=o.cancellation_date?String(o.cancellation_date).slice(0,10):null;
+    if(o.order_status==="cancelled" && cx && cx<=wEnd) continue;
+
+    const items=itemsByOrder[o.id]||[];
+    let mattresses=0, cancelledValueInWeek=0, hadPartCancel=false;
+    for(const it of items){
+      const itCx = it.cancelled && it.cancelled_date ? String(it.cancelled_date).slice(0,10) : null;
+      const cancelledInWeek = it.cancelled && itCx && itCx<=wEnd;
+      if(cancelledInWeek){ hadPartCancel=true; cancelledValueInWeek += (+it.unit_price||0)*(+it.quantity||1); continue; }
+      if(isMattress(it.product_name)) mattresses += (+it.quantity||1);
+    }
+    // value: contract value, less any items part-cancelled within the week
+    let value = (+o.contract_value||0) - cancelledValueInWeek;
+    if(value<0) value=0;
+    if(mattresses===0 && value===0) continue;
+
+    const con=o.consultant_name||"(unassigned)";
+    const w=(weeks[wk]=weeks[wk]||{mattresses:0,value:0,byCon:{}});
+    w.mattresses+=mattresses; w.value+=value;
+    const c=(w.byCon[con]=w.byCon[con]||{m:0,v:0}); c.m+=mattresses; c.v+=value;
+  }
+
+  const order=Object.keys(weeks).sort().reverse();
+  if(!order.length){ $("state").textContent="No sales recorded yet."; return; }
+
+  // tiles: this week + last 4 weeks + all-time
+  const thisWk=weekStart(new Date().toISOString().slice(0,10));
+  const tw=weeks[thisWk]||{mattresses:0,value:0};
+  let l4m=0,l4v=0; order.slice(0,4).forEach(k=>{l4m+=weeks[k].mattresses;l4v+=weeks[k].value;});
+  let allM=0,allV=0; order.forEach(k=>{allM+=weeks[k].mattresses;allV+=weeks[k].value;});
+  $("tiles").innerHTML=[
+    ["This week",tw.mattresses+" mattresses",fmt(tw.value)],
+    ["Last 4 weeks",l4m+" mattresses",fmt(l4v)],
+    ["All-time mattresses",allM,""],
+    ["All-time value",fmt(allV),""]
+  ].map(([k,a,b])=>`<div class="card p-4"><div class="k mb-1">${k}</div><div class="text-2xl font-bold gold">${a}</div>${b?`<div class="text-sm text-slate-400 mt-1">${b}</div>`:""}</div>`).join("");
+
+  let html="";
+  for(const k of order){
+    const w=weeks[k];
+    html+=`<tr class="wk" onclick="tog('${k}')"><td>▸ ${fmtWk(k)}<span class="chip">${Object.keys(w.byCon).length} agent${Object.keys(w.byCon).length!==1?'s':''}</span></td><td class="num">${w.mattresses}</td><td class="num">${fmt(w.value)}</td></tr>`;
+    const cons=Object.entries(w.byCon).sort((a,b)=>b[1].v-a[1].v);
+    for(const [name,c] of cons){
+      html+=`<tr class="sub" data-wk="${k}" style="display:none"><td>${esc(name)}</td><td class="num">${c.m}</td><td class="num">${fmt(c.v)}</td></tr>`;
+    }
+  }
+  html+=`<tr class="tot"><td>All weeks</td><td class="num">${allM}</td><td class="num">${fmt(allV)}</td></tr>`;
+  $("rows").innerHTML=html;
+  $("state").style.display="none"; $("tbl").style.display="";
+}
+function $(id){return document.getElementById(id);}
+window.tog=function(k){
+  document.querySelectorAll(`tr.sub[data-wk="${k}"]`).forEach(tr=>tr.style.display=tr.style.display==="none"?"":"none");
+};
+load();
+</script>
+</body>
+</html>

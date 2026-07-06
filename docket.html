@@ -65,6 +65,7 @@
 <script>
 const sb = supabase.createClient("https://jvqjoenaungubpoegyvf.supabase.co","sb_publishable_J4MYTdJJyEaWe-GadpwdYA_upPT2rKw");
 const id = new URLSearchParams(location.search).get("id");
+const dateParam = new URLSearchParams(location.search).get("date");
 const esc=s=>(s||"").toString().replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
 function auDate(v){ if(!v) return ""; const m=String(v).match(/^(\d{4})-(\d{2})-(\d{2})/); if(m) return m[3]+"/"+m[2]+"/"+m[1]; const d=new Date(v); return isNaN(d)?v:String(d.getDate()).padStart(2,"0")+"/"+String(d.getMonth()+1).padStart(2,"0")+"/"+d.getFullYear(); }
 const TODAY = auDate(new Date().toISOString().slice(0,10));
@@ -127,21 +128,42 @@ function render(d){
   document.getElementById("out").innerHTML = docket(d,"CUSTOMER COPY","") + docket(d,"OFFICE COPY","office");
   document.title = "Docket — " + (d.name||"customer");
 }
+function renderMany(list){
+  document.getElementById("out").innerHTML = list.map(d=>docket(d,"CUSTOMER COPY","")+docket(d,"OFFICE COPY","office")).join("");
+  document.title = "Dockets — "+list.length+" deliveries";
+}
+async function dataForOrder(o){
+  let c={}; if(o.customer_id){ const {data}=await sb.from("sim_customers").select("*").eq("id",o.customer_id).single(); c=data||{}; }
+  const {data:items}=await sb.from("sim_order_items").select("product_name,quantity,line_no").eq("order_id",o.id).order("line_no");
+  return {
+    name:[c.first_name,c.last_name].filter(Boolean).join(" "),
+    phone:c.mobile||"",
+    address:o.delivery_address||c.address||"",
+    deldate:auDate(o.delivery_date),
+    items:(items||[]).map(i=>({name:i.product_name||"",qty:+i.quantity||1}))
+  };
+}
 
 async function run(){
+  // print all dockets for a whole booked day
+  if(dateParam){
+    try{
+      const {data:orders}=await sb.from("sim_orders").select("*")
+        .eq("delivery_date",dateParam).neq("delivery_status","delivered");
+      if(!orders||!orders.length){ document.getElementById("out").innerHTML=`<div class="copy"><p>No deliveries booked for ${dateParam}.</p></div>`; return; }
+      const list=[];
+      for(const o of orders){ list.push(await dataForOrder(o)); }
+      list.sort((a,b)=>(a.address||"").localeCompare(b.address||""));
+      renderMany(list);
+    }catch(e){ document.getElementById("out").innerHTML=`<div class="copy"><p>Couldn't load dockets: ${e.message||e}</p></div>`; }
+    return;
+  }
+  // single docket
   let d = {name:"",phone:"",address:"",deldate:"",items:[]};
   if(id){
     try{
       const {data:o}=await sb.from("sim_orders").select("*").eq("id",id).single();
-      if(o){
-        let c={}; if(o.customer_id){ const {data}=await sb.from("sim_customers").select("*").eq("id",o.customer_id).single(); c=data||{}; }
-        const {data:items}=await sb.from("sim_order_items").select("product_name,quantity,line_no").eq("order_id",id).order("line_no");
-        d.name=[c.first_name,c.last_name].filter(Boolean).join(" ");
-        d.phone=c.mobile||"";
-        d.address=o.delivery_address||c.address||"";
-        d.deldate=auDate(o.delivery_date);
-        d.items=(items||[]).map(i=>({name:i.product_name||"",qty:+i.quantity||1}));
-      }
+      if(o) d=await dataForOrder(o);
     }catch(e){/* blank docket */}
   }
   render(d);

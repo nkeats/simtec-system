@@ -96,7 +96,7 @@ function cleared(order,payAcct,counts){
   return (paid/contract*100) >= need;                                // % paid meets the band threshold
 }
 
-let rows=[], filter='ready';
+let rows=[], filter='ready', BOOKED=[];
 
 async function load(){
   const {data:rules}=await sb.from('delivery_rules').select('*').order('min_deposit_pct');
@@ -142,43 +142,52 @@ function mapLink(a){return a?`https://www.google.com/maps/search/?api=1&query=${
 function render(){
   $('state').classList.add('hidden');
   const readyToBook=rows.filter(r=>r.cleared&&!r.booked&&!r.delivered);
-  const todayRun=rows.filter(r=>r.booked&&r.deliveryDate<=todayStr).sort((x,y)=>(x.deliveryDate||'').localeCompare(y.deliveryDate||'')||suburb(x.address).localeCompare(suburb(y.address))||x.address.localeCompare(y.address));
-  const upcoming=rows.filter(r=>r.booked&&r.deliveryDate>todayStr).sort((x,y)=>(x.deliveryDate||'').localeCompare(y.deliveryDate||''));
+  const booked=rows.filter(r=>r.booked&&!r.delivered).sort((x,y)=>(x.deliveryDate||'').localeCompare(y.deliveryDate||'')||suburb(x.address).localeCompare(suburb(y.address)));
   const delivered=rows.filter(r=>r.delivered);
+  BOOKED=booked;
 
   const stat=(l,v,t)=>`<div class="card" style="padding:1rem"><div class="lbl">${l}</div><div class="text-2xl font-bold mt-1 ${t}">${v}</div></div>`;
   $('summary').innerHTML=
     stat('Ready to book',readyToBook.length,'text-green-400')+
-    stat("Today's run",todayRun.length,'text-sky-300')+
-    stat('Upcoming',upcoming.length,'text-amber-300')+
+    stat('Booked',booked.length,'text-sky-300')+
     stat('Delivered',delivered.length,'text-slate-200');
 
   const tab=(id,label,n)=>`<button class="btn ${filter===id?'on':''}" onclick="setFilter('${id}')">${label}${n?`<span class="pill" ${filter===id?'style="background:#1a2438;color:#c9a84c"':''}>${n}</span>`:''}</button>`;
-  $('tabs').innerHTML=tab('ready','Ready to book',readyToBook.length)+tab('today',"Today &amp; overdue",todayRun.length)+tab('upcoming','Upcoming',upcoming.length)+tab('delivered','Delivered',0)
-    +`<button class="btn ml-auto noprint" onclick="window.print()">🖨 Print run sheet</button>`;
+  $('tabs').innerHTML=tab('ready','Ready to book',readyToBook.length)+tab('booked','Booked',booked.length)+tab('delivered','Delivered',delivered.length);
 
   $('runhead').innerHTML='';
-  let view;
-  if(filter==='ready')      { view=readyToBook; renderList(view,'ready'); }
-  else if(filter==='today') { renderRunHead(todayRun); renderList(todayRun,'today'); }
-  else if(filter==='upcoming'){ view=upcoming; renderList(view,'upcoming'); }
-  else                      { view=delivered; renderList(view,'delivered'); }
+  if(filter==='ready')       { renderList(readyToBook,'ready'); }
+  else if(filter==='booked') { renderBookedHead(booked); renderList(booked,'booked'); }
+  else                       { renderList(delivered,'delivered'); }
 }
 
-function renderRunHead(run){
-  if(!run.length){$('runhead').innerHTML='';return;}
-  const load={};run.forEach(r=>r.items.forEach(i=>{load[i.name]=(load[i.name]||0)+i.qty;}));
-  const loadStr=Object.entries(load).map(([n,q])=>`${q}× ${esc(n)}`).join(' · ');
-  const stops=run.map(r=>r.address).filter(Boolean);
-  let route='';
-  if(stops.length){const dest=encodeURIComponent(stops[stops.length-1]);const wp=stops.slice(0,-1).map(encodeURIComponent).join('|');
-    route=`https://www.google.com/maps/dir/?api=1&destination=${dest}${wp?`&waypoints=${wp}`:''}&travelmode=driving`;}
+function renderBookedHead(booked){
+  const dates=[...new Set(booked.map(r=>r.deliveryDate).filter(Boolean))].sort();
+  const def=dates.includes(todayStr)?todayStr:(dates[0]||todayStr);
   $('runhead').innerHTML=`<div class="card mb-4" style="border-color:#c9a84c">
-      <div class="lbl mb-1">Load list — ${run.length} stop${run.length>1?'s':''} today</div>
-      <div class="text-slate-100 text-sm mb-3">${loadStr||'—'}</div>
-      ${route?`<a class="btn gold noprint" style="display:inline-block;text-decoration:none" href="${route}" target="_blank">🧭 Open full route in Maps</a>`:''}
+      <div class="lbl mb-2">Print dockets for a delivery day</div>
+      <div class="flex items-center gap-3 flex-wrap">
+        <input type="date" id="docketDate" value="${def}" onchange="updateDocketCount()"
+          style="background:#0d1424;border:1px solid #26324a;color:#e2e8f0;border-radius:8px;padding:8px 10px;font-size:14px">
+        <button class="btn gold noprint" onclick="printDayDockets()">🖨 Print all dockets for this day</button>
+        <span class="k" id="docketCount"></span>
+      </div>
+      <div class="text-xs text-slate-500 mt-2">Opens the dockets for every delivery booked on that day — two copies each (customer &amp; office) — ready to print and hand to the driver.</div>
     </div>`;
+  updateDocketCount();
 }
+window.updateDocketCount=function(){
+  const d=document.getElementById('docketDate'); if(!d) return;
+  const n=BOOKED.filter(r=>r.deliveryDate===d.value).length;
+  const el=document.getElementById('docketCount');
+  if(el) el.textContent = n ? `${n} deliver${n>1?'ies':'y'} booked for this day` : 'No deliveries booked for this day';
+};
+window.printDayDockets=function(){
+  const d=document.getElementById('docketDate'); if(!d||!d.value) return;
+  const n=BOOKED.filter(r=>r.deliveryDate===d.value).length;
+  if(!n){ alert('No deliveries are booked for that day.'); return; }
+  window.open('docket.html?date='+encodeURIComponent(d.value),'_blank');
+};
 
 function renderList(view,mode){
   if(!view.length){$('list').innerHTML=`<div class="text-center text-slate-500 py-16">Nothing here right now.</div>`;return;}
@@ -186,21 +195,18 @@ function renderList(view,mode){
     const maps=r.address?`<a class="maplink" href="${mapLink(r.address)}" target="_blank" onclick="event.stopPropagation()">Open in Maps ↗</a>`:'';
     let right='', warn='';
     if(mode==='ready') right=`<button class="btn gold noprint" onclick="event.stopPropagation();openBook('${r.id}','${esc(r.name).replace(/'/g,"\\'")}')">Book delivery</button>`;
-    else if(mode==='today'){
-      const overdue = r.deliveryDate < todayStr;
-      right=`<div class="text-right"><div class="k">${overdue?`<span style="color:#f59e0b">Booked ${fmtD(r.deliveryDate)}</span>`:(r.deliveryTime?esc(r.deliveryTime):'Any time')}</div>
+    else if(mode==='booked'){
+      right=`<div class="text-right"><div class="text-sm font-semibold text-slate-200">${fmtD(r.deliveryDate)}</div>${r.deliveryTime?`<div class="k">${esc(r.deliveryTime)}</div>`:''}
+        <button class="btn noprint mt-2" onclick="event.stopPropagation();openBook('${r.id}','${esc(r.name).replace(/'/g,"\\'")}')">Reschedule</button>
         <button class="btn noprint mt-2" onclick="event.stopPropagation();window.open('docket.html?id='+'${r.id}','_blank')">🖨 Docket</button>
         <button class="btn gold noprint mt-2" onclick="event.stopPropagation();markDelivered('${r.id}')">Mark delivered</button></div>`;
-      if(overdue)warn=`<div class="mt-2 text-xs font-semibold" style="color:#f59e0b">⚠ Overdue — booked for ${fmtD(r.deliveryDate)} and not yet delivered. Deliver, or rebook.</div>`;
-      if(!r.cleared)warn=(warn||'')+`<div class="mt-2 text-xs font-semibold" style="color:#f87171">⚠ No longer cleared — check payments before delivering</div>`;
+      if(!r.cleared)warn=`<div class="mt-2 text-xs font-semibold" style="color:#f87171">⚠ No longer cleared — check payments before delivering</div>`;
     }
-    else if(mode==='upcoming') right=`<div class="text-right"><div class="k">Booked</div><div class="text-sm font-semibold text-slate-200">${fmtD(r.deliveryDate)}</div>${r.deliveryTime?`<div class="k mt-1">${esc(r.deliveryTime)}</div>`:''}<button class="btn noprint mt-2" onclick="event.stopPropagation();window.open('docket.html?id='+'${r.id}','_blank')">🖨 Docket</button></div>`;
     else right=`<div class="text-right"><div class="k">Delivered</div><div class="text-sm font-semibold text-slate-200">${fmtD(r.deliveryDate)}</div></div>`;
-    const num=mode==='today'?`<span class="text-slate-500 font-bold mr-2">${i+1}.</span>`:'';
     return `<div class="card dl mb-3" style="cursor:pointer" onclick="location.href='client.html?c=${r.custId}'" title="Open ${esc(r.name)}'s details">
       <div class="flex flex-wrap items-start gap-4">
         <div class="flex-1 min-w-[220px]">
-          <div class="flex items-center mb-1">${num}<span class="font-semibold text-white">${esc(r.name)}</span></div>
+          <div class="flex items-center mb-1"><span class="font-semibold text-white">${esc(r.name)}</span></div>
           <div class="text-base text-slate-100 mt-1">${esc(r.address)||'<span class="text-slate-500">No delivery address on file</span>'}</div>
           <div class="mt-1">${maps}</div>
           <div class="text-xs text-slate-400 mt-2">${esc(r.phone)}${r.phone&&r.product?' · ':''}${esc(r.product)}</div>
