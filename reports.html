@@ -22,6 +22,10 @@
   tr.sub td:first-child{padding-left:34px}
   .tot td{font-weight:700;color:#fff;border-top:2px solid #26375a;background:#0d1728}
   .chip{display:inline-block;font-size:10.5px;padding:2px 8px;border-radius:20px;background:#1a2942;color:#9fb0cc;margin-left:8px}
+  /* clear, loud error box so a broken query can never look like "just zeros" again */
+  .err{background:#2a1113;border:1px solid #7f1d1d;color:#fecaca;border-radius:12px;padding:16px 18px;font-size:14px;line-height:1.5}
+  .err b{color:#fff}
+  .err code{background:#3b0d10;color:#fca5a5;padding:1px 6px;border-radius:6px;font-size:13px}
 </style>
 </head>
 <body class="min-h-screen">
@@ -69,16 +73,48 @@ function weekStart(d){const p=String(d).slice(0,10).split("-").map(Number);const
 function weekEnd(mondayStr){const p=mondayStr.split("-").map(Number);const dt=new Date(Date.UTC(p[0],p[1]-1,p[2]));dt.setUTCDate(dt.getUTCDate()+6);return ymd(dt);}   // Sunday
 function fmtWk(mondayStr){const p=mondayStr.split("-").map(Number);return p[2]+"/"+p[1]+"/"+p[0];}
 
+// ---- hardening helpers -------------------------------------------------
+// Any Supabase call that comes back with an error is turned into a thrown,
+// human-readable message naming the table and the exact database reason.
+function must(res, where){
+  if(res && res.error){
+    const e=res.error;
+    throw new Error(where+": "+(e.message||"unknown error")
+      + (e.hint?("  Hint: "+e.hint):"")
+      + (e.code?("  ["+e.code+"]"):""));
+  }
+  return res.data;
+}
+function showError(msg){
+  const box=$("state");
+  box.className="err";
+  box.style.display="";
+  box.innerHTML="<b>The report couldn't load.</b><br><br>"+esc(msg)
+    +"<br><br><span style='color:#fca5a5'>This message means a query failed — the numbers are <b>not</b> just zero. "
+    +"A common cause is a database change (migration) that hasn't been applied. Send this exact message to Claude.</span>";
+  $("tbl").style.display="none";
+  $("tiles").innerHTML="";
+}
+// -----------------------------------------------------------------------
+
 async function load(){
-  // pull orders + their items
-  const {data:orders,error}=await sb.from("sim_orders")
-    .select("id,order_date,contract_value,consultant_name,order_status,cancellation_date");
-  if(error){$("state").textContent="Couldn't load: "+error.message;return;}
+ try{
+  $("state").className="text-slate-400 text-sm py-6";
+  $("state").textContent="Loading…";
+
+  // pull orders
+  const orders = must(await sb.from("sim_orders")
+    .select("id,order_date,contract_value,consultant_name,order_status,cancellation_date"),
+    "Loading orders from sim_orders");
+
+  // pull their line items (batched) — now with a real error check on every batch
   const ids=(orders||[]).map(o=>o.id);
   let itemsByOrder={};
   for(let i=0;i<ids.length;i+=300){
-    const {data:its}=await sb.from("sim_order_items")
-      .select("order_id,product_name,quantity,unit_price,cancelled,cancelled_date").in("order_id",ids.slice(i,i+300));
+    const its = must(await sb.from("sim_order_items")
+      .select("order_id,product_name,quantity,unit_price,cancelled,cancelled_date")
+      .in("order_id",ids.slice(i,i+300)),
+      "Loading line items from sim_order_items");
     (its||[]).forEach(it=>{ (itemsByOrder[it.order_id]=itemsByOrder[it.order_id]||[]).push(it); });
   }
 
@@ -110,7 +146,11 @@ async function load(){
   }
 
   const order=Object.keys(weeks).sort().reverse();
-  if(!order.length){ $("state").textContent="No sales recorded yet."; return; }
+  if(!order.length){
+    $("state").className="text-slate-400 text-sm py-6";
+    $("state").textContent="No sales recorded yet.";
+    return;
+  }
 
   // tiles: this week + last 4 weeks + all-time
   const thisWk=weekStart(new Date().toISOString().slice(0,10));
@@ -136,6 +176,11 @@ async function load(){
   html+=`<tr class="tot"><td>All weeks</td><td class="num">${allM}</td><td class="num">${fmt(allV)}</td></tr>`;
   $("rows").innerHTML=html;
   $("state").style.display="none"; $("tbl").style.display="";
+
+ }catch(err){
+  // anything that went wrong — missing column, blocked table, network — is shown plainly
+  showError(err && err.message ? err.message : String(err));
+ }
 }
 function $(id){return document.getElementById(id);}
 window.tog=function(k){
