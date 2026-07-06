@@ -107,15 +107,27 @@ async function load(){
     .select("id,order_date,contract_value,consultant_name,order_status,cancellation_date"),
     "Loading orders from sim_orders");
 
-  // pull their line items (batched) — now with a real error check on every batch
+  // pull their line items — batched by order id AND paged, so we NEVER hit the
+  // database's 1000-row response cap (that cap was silently dropping items and
+  // undercounting mattresses once the book grew past ~1000 line items).
   const ids=(orders||[]).map(o=>o.id);
   let itemsByOrder={};
-  for(let i=0;i<ids.length;i+=300){
-    const its = must(await sb.from("sim_order_items")
-      .select("order_id,product_name,quantity,unit_price,cancelled,cancelled_date")
-      .in("order_id",ids.slice(i,i+300)),
-      "Loading line items from sim_order_items");
-    (its||[]).forEach(it=>{ (itemsByOrder[it.order_id]=itemsByOrder[it.order_id]||[]).push(it); });
+  const ID_BATCH=200;      // orders per id-filter request
+  const PAGE=1000;         // rows per page (the DB cap) — we page until a short page
+  for(let i=0;i<ids.length;i+=ID_BATCH){
+    const slice=ids.slice(i,i+ID_BATCH);
+    let from=0;
+    while(true){
+      const its = must(await sb.from("sim_order_items")
+        .select("order_id,product_name,quantity,unit_price,cancelled,cancelled_date")
+        .in("order_id",slice)
+        .order("order_id",{ascending:true})
+        .range(from,from+PAGE-1),
+        "Loading line items from sim_order_items");
+      (its||[]).forEach(it=>{ (itemsByOrder[it.order_id]=itemsByOrder[it.order_id]||[]).push(it); });
+      if(!its || its.length<PAGE) break;   // last page for this batch
+      from+=PAGE;
+    }
   }
 
   const weeks={};   // mondayStr -> {mattresses, value, byCon:{name:{m,v}}}
