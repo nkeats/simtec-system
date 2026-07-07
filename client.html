@@ -227,6 +227,7 @@ function render(cust,order,items,pays,orders,dishons){
       <div class="text-right">
         <div class="text-slate-400 text-sm font-semibold">Order ${esc(order.order_no||'')}</div>
         ${(order.order_status==='cancelled'||order.order_status==='on_hold') ? `<button onclick="reinstateClient('${order.id}','${cust.id}')" class="noprint text-xs mt-1 mr-2 px-3 py-1 rounded bg-green-800 border border-green-600 text-green-100 hover:text-white">↩ Reinstate</button>` : ''}
+        <a href="customer-detail.html?id=${order.id}" class="noprint inline-block text-xs mt-1 mr-2 px-3 py-1 rounded bg-blue-800 border border-blue-600 text-blue-100 hover:text-white" style="text-decoration:none">⚙ Manage / change status</a>
         <button onclick="window.print()" class="noprint text-xs mt-1 px-3 py-1 rounded bg-slate-800 border border-slate-700 text-slate-300 hover:text-white">Print</button>
       </div>
     </div>
