@@ -206,43 +206,61 @@ window.delRun=async(id,weekEnding)=>{
   const saleIds=(saleRows||[]).map(s=>s.id);
   const n=saleIds.length;
   const fin=run&&run.status==='finalised';
+  // DRAFT delete now KEEPS the sales (un-assigns them) so a mistaken delete is recoverable —
+  // the sales return to the pool and a new run for the week re-gathers them. Only a FINALISED
+  // delete still permanently removes sales (and it reverses retention), because detaching paid
+  // sales could let them be paid twice.
   const msg=fin
     ?`Delete the FINALISED pay run for week ending ${fmtD(weekEnding)}?\n\nThis will REVERSE the retention added for this week, then permanently remove the run and its ${n} sale${n===1?'':'s'}, bonuses and deductions.\n\nThis cannot be undone.`
-    :`Delete the pay run for week ending ${fmtD(weekEnding)}?\n\nThis permanently removes the run and its ${n} sale${n===1?'':'s'}, plus any bonuses and deductions on it. Retention balances are NOT affected.\n\nThis cannot be undone.`;
+    :`Delete the DRAFT pay run for week ending ${fmtD(weekEnding)}?\n\nThe ${n} sale${n===1?'':'s'} in it will be UN-ASSIGNED and KEPT (not deleted) — a new run for this week will gather them again. Any bonuses/deductions on this run are removed.\n\nThe sales are safe; only the run itself is removed.`;
   if(!confirm(msg))return;
   try{
-    // 1. Gather every retention adjustment tied to this run or its sales
-    let adjs=[];
-    const{data:aRun}=await sb.from('commission_retention_adjustments').select('*').eq('pay_run_id',id);
-    adjs=adjs.concat(aRun||[]);
-    if(saleIds.length){
-      const{data:aSale}=await sb.from('commission_retention_adjustments').select('*').in('sale_id',saleIds);
-      (aSale||[]).forEach(a=>{if(!adjs.find(x=>x.id===a.id))adjs.push(a);});
+    if(fin){
+      // ===== FINALISED: reverse retention, then permanently delete (unchanged behaviour) =====
+      // 1. Gather every retention adjustment tied to this run or its sales
+      let adjs=[];
+      const{data:aRun}=await sb.from('commission_retention_adjustments').select('*').eq('pay_run_id',id);
+      adjs=adjs.concat(aRun||[]);
+      if(saleIds.length){
+        const{data:aSale}=await sb.from('commission_retention_adjustments').select('*').in('sale_id',saleIds);
+        (aSale||[]).forEach(a=>{if(!adjs.find(x=>x.id===a.id))adjs.push(a);});
+      }
+      // 2. Reverse their net effect on each consultant's retention balance
+      const byCon={};adjs.forEach(a=>{byCon[a.consultant_id]=(byCon[a.consultant_id]||0)+(+a.amount||0);});
+      for(const cid of Object.keys(byCon)){
+        const{data:ret}=await sb.from('commission_retention').select('*').eq('consultant_id',cid).maybeSingle();
+        const cur=+ret?.balance||0;
+        await sb.from('commission_retention').upsert({consultant_id:cid,balance:Math.max(0,cur-byCon[cid]),updated_at:new Date().toISOString()},{onConflict:'consultant_id'});
+      }
+      // 3. Remove those adjustment rows (clears references + avoids orphans)
+      if(adjs.length){
+        await sb.from('commission_retention_adjustments').delete().eq('pay_run_id',id);
+        if(saleIds.length)await sb.from('commission_retention_adjustments').delete().in('sale_id',saleIds);
+      }
+      // 4. Delete line items, then sales/bonuses/deductions, then the run
+      if(saleIds.length){
+        const{error:eItems}=await sb.from('commission_sale_items').delete().in('sale_id',saleIds);
+        if(eItems)throw eItems;
+      }
+      for(const tbl of ['commission_sales','commission_bonuses','commission_deductions']){
+        const{error}=await sb.from(tbl).delete().eq('pay_run_id',id);
+        if(error)throw error;
+      }
+      const{error:eRun}=await sb.from('commission_pay_runs').delete().eq('id',id);
+      if(eRun)throw eRun;
+      toast('Finalised pay run deleted and retention reversed.');
+    } else {
+      // ===== DRAFT: KEEP the sales — just un-assign them — and remove only the run + its bonuses/deductions =====
+      const{error:eDetach}=await sb.from('commission_sales').update({pay_run_id:null}).eq('pay_run_id',id);
+      if(eDetach)throw eDetach;
+      for(const tbl of ['commission_bonuses','commission_deductions']){
+        const{error}=await sb.from(tbl).delete().eq('pay_run_id',id);
+        if(error)throw error;
+      }
+      const{error:eRun}=await sb.from('commission_pay_runs').delete().eq('id',id);
+      if(eRun)throw eRun;
+      toast(`Pay run removed — ${n} sale${n===1?'':'s'} kept and un-assigned.`);
     }
-    // 2. Reverse their net effect on each consultant's retention balance
-    const byCon={};adjs.forEach(a=>{byCon[a.consultant_id]=(byCon[a.consultant_id]||0)+(+a.amount||0);});
-    for(const cid of Object.keys(byCon)){
-      const{data:ret}=await sb.from('commission_retention').select('*').eq('consultant_id',cid).maybeSingle();
-      const cur=+ret?.balance||0;
-      await sb.from('commission_retention').upsert({consultant_id:cid,balance:Math.max(0,cur-byCon[cid]),updated_at:new Date().toISOString()},{onConflict:'consultant_id'});
-    }
-    // 3. Remove those adjustment rows (clears references + avoids orphans)
-    if(adjs.length){
-      await sb.from('commission_retention_adjustments').delete().eq('pay_run_id',id);
-      if(saleIds.length)await sb.from('commission_retention_adjustments').delete().in('sale_id',saleIds);
-    }
-    // 4. Delete line items, then sales/bonuses/deductions, then the run
-    if(saleIds.length){
-      const{error:eItems}=await sb.from('commission_sale_items').delete().in('sale_id',saleIds);
-      if(eItems)throw eItems;
-    }
-    for(const tbl of ['commission_sales','commission_bonuses','commission_deductions']){
-      const{error}=await sb.from(tbl).delete().eq('pay_run_id',id);
-      if(error)throw error;
-    }
-    const{error:eRun}=await sb.from('commission_pay_runs').delete().eq('id',id);
-    if(eRun)throw eRun;
-    toast(fin?'Finalised pay run deleted and retention reversed.':'Pay run deleted');
     go('runs');
   }catch(e){err(e);}
 };
