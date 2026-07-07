@@ -88,6 +88,19 @@ function calc(sales,bonuses,deds,retBal){
   return{units,rate,sc,ac,mb,gs,gross,ret,td,payout:payoutAmt,net:gross-ret-td+payoutAmt,retAfter:retBal+ret-payoutAmt};
 }
 
+// For a FINALISED run, the stored retention balance ALREADY includes this run's
+// weekly retention (finalise banked it). So when we re-display/print the invoice we
+// must recover the true PRE-week opening, or calc() adds this week again and the
+// closing balance shows double. For a draft run the stored balance IS the opening.
+async function openingRetBal(storedBal, run, consultantId){
+  if(!run || run.status!=='finalised') return storedBal;
+  const{data}=await sb.from('commission_retention_adjustments')
+    .select('amount').eq('pay_run_id',run.id).eq('consultant_id',consultantId)
+    .in('reason',['weekly_retention','retention_payout']);
+  const net=(data||[]).reduce((a,r)=>a+(+r.amount||0),0);   // weekly_retention(+) + payout(−)
+  return storedBal - net;
+}
+
 // Giveaway balances: balance owed = SUM(giveaways) − SUM(repayments in finalised runs)
 function givBalances(giveaways,repayDeds,finalisedRunIds){
   const fin=new Set(finalisedRunIds||[]);
@@ -346,7 +359,7 @@ async function showCon(){
     sb.from('commission_pay_runs').select('id').eq('status','finalised'),
   ]);
   const sales=(rawSales||[]).map(s=>({...s,items:(s.commission_sale_items||[]).map(i=>({...i,product:i.commission_products}))}));
-  const retBal=+ret?.balance||0;
+  const retBal=await openingRetBal(+ret?.balance||0, run, consId);
   // Giveaways owed before this run's repayment (finalised repayments from other runs already applied)
   const givTaken=(givRows||[]).reduce((a,g)=>a+(+g.amount||0),0);
   const finSet=new Set((finRows||[]).map(r=>r.id));
@@ -633,7 +646,7 @@ async function showInv(){
     sb.from('commission_consultants').select('gst_registered,gst_rate').eq('id',consId).maybeSingle(),
   ]);
   const sales=(rawSales||[]).map(s=>({...s,items:(s.commission_sale_items||[]).map(i=>({...i,product:i.commission_products}))}));
-  const retBal=+ret?.balance||0;
+  const retBal=await openingRetBal(+ret?.balance||0, run, consId);
   const cv=calc(sales,bons||[],deds||[],retBal);
   const gstReg=!!gstRow?.gst_registered;
   const gstRate=+gstRow?.gst_rate||15;
