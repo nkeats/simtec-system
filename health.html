@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Simtec — Health Check</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="auth.js?v=3" data-roles="admin,manager,office"></script>
+<style>
+  body{background:#0b1220;color:#e2e8f0}
+  .card{background:#111c33;border:1px solid #1e2d4a;border-radius:14px}
+  .k{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:#7c8aa5}
+  table{width:100%;border-collapse:collapse}
+  th,td{padding:8px 12px;text-align:left}
+  th{font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:#7c8aa5;border-bottom:1px solid #1e2d4a}
+  td{border-bottom:1px solid #16233c;font-size:13.5px}
+  .pill{display:inline-block;font-size:10.5px;font-weight:800;letter-spacing:.05em;padding:3px 10px;border-radius:20px;text-transform:uppercase}
+  .ok{background:#0f2f1c;color:#4ade80}
+  .warn{background:#3a2c0d;color:#fbbf24}
+  .bad{background:#3a1414;color:#f87171}
+  .muted{color:#7c8aa5;font-size:13px}
+  .err{background:#2a1113;border:1px solid #7f1d1d;color:#fecaca;border-radius:12px;padding:14px 16px;font-size:13.5px;line-height:1.5;margin-bottom:14px}
+  code{background:#0d1728;color:#9fb0cc;padding:1px 6px;border-radius:5px;font-size:12.5px}
+  a.lnk{color:#c6a15b;text-decoration:none} a.lnk:hover{text-decoration:underline}
+</style>
+</head>
+<body class="min-h-screen">
+<nav class="border-b border-slate-800 px-6 py-3 flex items-center gap-3" style="background:#0d1728">
+  <a href="home.html" style="color:#cbd5e1;text-decoration:none;font-size:.85rem;margin-right:8px">‹ Home</a>
+  <span class="font-bold tracking-wide text-lg">SIMTEC</span>
+  <span class="text-slate-400 text-sm">Health check</span>
+</nav>
+
+<div class="max-w-5xl mx-auto px-5 py-7">
+  <div class="flex items-start justify-between mb-1 flex-wrap gap-3">
+    <div>
+      <h1 class="text-2xl font-bold">System health check</h1>
+      <p class="text-sm text-slate-400 mt-1">Finds data that has drifted out of sync between orders, commissions, deliveries and arrears. Green means nothing to do.</p>
+    </div>
+    <button onclick="runAll()" class="text-sm px-4 py-2 rounded-lg font-bold" style="background:#c6a15b;color:#122347">↻ Re-run checks</button>
+  </div>
+
+  <div id="summary" class="my-5"></div>
+  <div id="checks"></div>
+  <p class="text-xs text-slate-600 mt-8">Read-only — this page never changes data. It only reports what it finds.</p>
+</div>
+
+<script>
+const sb = window.SIMTEC_SB || supabase.createClient("https://jvqjoenaungubpoegyvf.supabase.co","sb_publishable_J4MYTdJJyEaWe-GadpwdYA_upPT2rKw");
+const $=id=>document.getElementById(id);
+const esc=s=>String(s==null?"":s).replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+const fmt=n=>"$"+Math.round(+n||0).toLocaleString();
+const d=s=>s?String(s).slice(0,10).split("-").reverse().join("/"):"—";
+
+function must(res,where){
+  if(res&&res.error) throw new Error(where+": "+(res.error.message||"unknown error"));
+  return res.data;
+}
+// paginate any select so we never hit the 1000-row cap
+async function all(table,select,tweak){
+  let out=[],from=0,PAGE=1000;
+  while(true){
+    let q=sb.from(table).select(select).range(from,from+PAGE-1);
+    if(tweak) q=tweak(q);
+    const rows=must(await q,"Loading "+table);
+    out=out.concat(rows||[]);
+    if(!rows||rows.length<PAGE) break;
+    from+=PAGE;
+  }
+  return out;
+}
+
+const CHECKS=[
+  {
+    id:"unlinked",
+    title:"Commission sales with no order",
+    why:"These came from the spreadsheet import and were never tied to an order. Cancellations and clawbacks cannot cascade to them, and they are invisible to Reports.",
+    fix:"Enter the sale through Add Customer, then remove the spreadsheet duplicate — or cancel it if the sale didn't proceed.",
+    cols:["Customer","Sale date","Commission","Status"],
+    run:async(D)=>D.sales.filter(s=>!s.sim_order_id && !s.is_historical && (s.status||'active')!=='cancelled')
+        .map(s=>[s.customer_name,d(s.sale_date),fmt(s.commission_paid),s.status||'active'])
+  },
+  {
+    id:"nocomm",
+    title:"Orders with no commission row",
+    why:"The sale exists but nothing was fed to commissions, so the consultant won't be paid for it and a cancellation has nothing to reverse.",
+    fix:"Usually means the consultant name on the order doesn't match a commission consultant, or the line items never saved. Check the order's products.",
+    cols:["Consultant","Order date","Value","Order id"],
+    run:async(D)=>{
+      const linked=new Set(D.sales.filter(s=>s.sim_order_id).map(s=>s.sim_order_id));
+      return D.orders.filter(o=>(o.order_status||'active')!=='cancelled' && !linked.has(o.id))
+        .map(o=>[o.consultant_name||'—',d(o.order_date),fmt(o.contract_value),o.id.slice(0,8)+'…']);
+    }
+  },
+  {
+    id:"cancelmismatch",
+    title:"Order cancelled, but commission still active",
+    why:"The cancel didn't cascade. The consultant is still credited (and possibly paid) for a cancelled sale.",
+    fix:"Cancel the sale in the commission screen, or re-save the order's status so the trigger fires.",
+    cols:["Customer","Order date","Commission","Paid?"],
+    run:async(D)=>{
+      const byId={}; D.orders.forEach(o=>byId[o.id]=o);
+      return D.sales.filter(s=>s.sim_order_id && byId[s.sim_order_id]
+              && byId[s.sim_order_id].order_status==='cancelled'
+              && (s.status||'active')!=='cancelled')
+        .map(s=>[s.customer_name,d(s.sale_date),fmt(s.commission_paid),s.paid_date?'PAID '+d(s.paid_date):'not paid']);
+    }
+  },
+  {
+    id:"reversemismatch",
+    title:"Commission cancelled, but order still active",
+    why:"The reverse drift. The order still counts in Reports and delivery, but the consultant lost the commission.",
+    fix:"Cancel the order too (customer detail → Status), or reinstate the commission if the sale is genuinely live.",
+    cols:["Customer","Sale date","Order status"],
+    run:async(D)=>{
+      const byId={}; D.orders.forEach(o=>byId[o.id]=o);
+      return D.sales.filter(s=>s.sim_order_id && byId[s.sim_order_id]
+              && (s.status||'')==='cancelled'
+              && (byId[s.sim_order_id].order_status||'active')!=='cancelled')
+        .map(s=>[s.customer_name,d(s.sale_date),byId[s.sim_order_id].order_status||'active']);
+    }
+  },
+  {
+    id:"dupes",
+    title:"Duplicate commissions on the same order",
+    why:"The consultant is credited twice for one sale — it inflates the pay run and the retention.",
+    fix:"Keep the row that has the money and the pay run; move the order link onto it, then delete the other.",
+    cols:["Order id","Rows","Customers"],
+    run:async(D)=>{
+      const by={}; D.sales.filter(s=>s.sim_order_id).forEach(s=>(by[s.sim_order_id]=by[s.sim_order_id]||[]).push(s));
+      return Object.entries(by).filter(([,v])=>v.length>1)
+        .map(([oid,v])=>[oid.slice(0,8)+'…',v.length,v.map(x=>x.customer_name).join(' / ')]);
+    }
+  },
+  {
+    id:"noitems",
+    title:"Orders with no product lines",
+    why:"The order saved but its products didn't. It shows a dollar value but counts ZERO mattresses in Reports, and feeds no products to commissions.",
+    fix:"Add the product lines from the paper order form. (Historic cause: the schema-cache bug, now fixed.)",
+    cols:["Consultant","Order date","Value","Order id"],
+    run:async(D)=>{
+      const withItems=new Set(D.items.map(i=>i.order_id));
+      return D.orders.filter(o=>(o.order_status||'active')!=='cancelled' && !withItems.has(o.id))
+        .map(o=>[o.consultant_name||'—',d(o.order_date),fmt(o.contract_value),o.id.slice(0,8)+'…']);
+    }
+  },
+  {
+    id:"nodate",
+    title:"Orders with no order date",
+    why:"Reports skips any order without a date, so the sale is invisible in weekly figures.",
+    fix:"Set the correct sale date on the order.",
+    cols:["Consultant","Value","Entered","Order id"],
+    run:async(D)=>D.orders.filter(o=>!o.order_date && (o.order_status||'active')!=='cancelled')
+        .map(o=>[o.consultant_name||'—',fmt(o.contract_value),d(o.created_at),o.id.slice(0,8)+'…'])
+  },
+];
+
+async function runAll(){
+  $("summary").innerHTML=`<div class="muted">Running checks…</div>`;
+  $("checks").innerHTML="";
+  let D;
+  try{
+    const [orders,sales,items]=await Promise.all([
+      all("sim_orders","id,order_date,created_at,contract_value,consultant_name,order_status"),
+      all("commission_sales","id,sim_order_id,customer_name,sale_date,commission_paid,status,paid_date,is_historical"),
+      all("sim_order_items","order_id"),
+    ]);
+    D={orders,sales,items};
+  }catch(e){
+    $("summary").innerHTML=`<div class="err"><b>Couldn't run the checks.</b><br><br>${esc(e.message)}</div>`;
+    return;
+  }
+
+  let totalIssues=0, html="";
+  for(const c of CHECKS){
+    let rows=[];
+    try{ rows=await c.run(D); }
+    catch(e){ rows=[["error",e.message,"",""]]; }
+    totalIssues+=rows.length;
+    const clean=rows.length===0;
+    html+=`<div class="card p-5 mb-4">
+      <div class="flex items-center justify-between gap-3 flex-wrap">
+        <h2 class="text-base font-bold">${esc(c.title)}</h2>
+        <span class="pill ${clean?'ok':(c.id==='unlinked'?'warn':'bad')}">${clean?'clear':rows.length+' found'}</span>
+      </div>
+      <p class="text-xs text-slate-500 mt-2">${esc(c.why)}</p>`;
+    if(!clean){
+      html+=`<p class="text-xs mt-2" style="color:#c6a15b"><b>What to do:</b> ${esc(c.fix)}</p>
+        <table class="mt-3"><thead><tr>${c.cols.map(h=>`<th>${esc(h)}</th>`).join("")}</tr></thead><tbody>
+        ${rows.slice(0,50).map(r=>`<tr>${r.map(v=>`<td>${esc(v)}</td>`).join("")}</tr>`).join("")}
+        </tbody></table>
+        ${rows.length>50?`<p class="muted mt-2">…and ${rows.length-50} more.</p>`:""}`;
+    }
+    html+=`</div>`;
+  }
+
+  const good=totalIssues===0;
+  $("summary").innerHTML=`<div class="card p-5" style="border-color:${good?'#1f5137':'#5b3a12'}">
+      <div class="k mb-1">Overall</div>
+      <div class="text-2xl font-bold" style="color:${good?'#4ade80':'#fbbf24'}">
+        ${good?'✓ Everything is in sync':totalIssues+' item'+(totalIssues===1?'':'s')+' need attention'}
+      </div>
+      <div class="muted mt-1">Checked ${D.orders.length} orders and ${D.sales.length} commission sales.</div>
+    </div>`;
+  $("checks").innerHTML=html;
+}
+runAll();
+</script>
+</body>
+</html>
