@@ -37,6 +37,7 @@
     <div>
       <h1 class="text-2xl font-bold">System health check</h1>
       <p class="text-sm text-slate-400 mt-1">Finds data that has drifted out of sync between orders, commissions, deliveries and arrears. Green means nothing to do.</p>
+      <p class="text-xs mt-1" style="color:#7c8aa5">Only checks sales from <b style="color:#c6a15b" id="cutoffLabel"></b> onward — earlier orders are migrated history and are ignored.</p>
     </div>
     <button onclick="runAll()" class="text-sm px-4 py-2 rounded-lg font-bold" style="background:#c6a15b;color:#122347">↻ Re-run checks</button>
   </div>
@@ -48,6 +49,10 @@
 
 <script>
 const sb = window.SIMTEC_SB || supabase.createClient("https://jvqjoenaungubpoegyvf.supabase.co","sb_publishable_J4MYTdJJyEaWe-GadpwdYA_upPT2rKw");
+// Orders before go-live are migrated history (closed, commissions handled outside this
+// system). Checking them just produces noise, so every check ignores them.
+const CUTOFF="2026-06-01";
+const onOrAfterCutoff=dt=>!!dt && String(dt).slice(0,10)>=CUTOFF;
 const $=id=>document.getElementById(id);
 const esc=s=>String(s==null?"":s).replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
 const fmt=n=>"$"+Math.round(+n||0).toLocaleString();
@@ -78,7 +83,7 @@ const CHECKS=[
     why:"These came from the spreadsheet import and were never tied to an order. Cancellations and clawbacks cannot cascade to them, and they are invisible to Reports.",
     fix:"Enter the sale through Add Customer, then remove the spreadsheet duplicate — or cancel it if the sale didn't proceed.",
     cols:["Customer","Sale date","Commission","Status"],
-    run:async(D)=>D.sales.filter(s=>!s.sim_order_id && !s.is_historical && (s.status||'active')!=='cancelled')
+    run:async(D)=>D.sales.filter(s=>!s.sim_order_id && !s.is_historical && (s.status||'active')!=='cancelled' && onOrAfterCutoff(s.sale_date))
         .map(s=>[s.customer_name,d(s.sale_date),fmt(s.commission_paid),s.status||'active'])
   },
   {
@@ -89,7 +94,7 @@ const CHECKS=[
     cols:["Consultant","Order date","Value","Order id"],
     run:async(D)=>{
       const linked=new Set(D.sales.filter(s=>s.sim_order_id).map(s=>s.sim_order_id));
-      return D.orders.filter(o=>(o.order_status||'active')!=='cancelled' && !linked.has(o.id))
+      return D.orders.filter(o=>(o.order_status||'active')!=='cancelled' && !linked.has(o.id) && onOrAfterCutoff(o.order_date))
         .map(o=>[o.consultant_name||'—',d(o.order_date),fmt(o.contract_value),o.id.slice(0,8)+'…']);
     }
   },
@@ -103,7 +108,8 @@ const CHECKS=[
       const byId={}; D.orders.forEach(o=>byId[o.id]=o);
       return D.sales.filter(s=>s.sim_order_id && byId[s.sim_order_id]
               && byId[s.sim_order_id].order_status==='cancelled'
-              && (s.status||'active')!=='cancelled')
+              && (s.status||'active')!=='cancelled'
+              && onOrAfterCutoff(byId[s.sim_order_id].order_date))
         .map(s=>[s.customer_name,d(s.sale_date),fmt(s.commission_paid),s.paid_date?'PAID '+d(s.paid_date):'not paid']);
     }
   },
@@ -117,7 +123,8 @@ const CHECKS=[
       const byId={}; D.orders.forEach(o=>byId[o.id]=o);
       return D.sales.filter(s=>s.sim_order_id && byId[s.sim_order_id]
               && (s.status||'')==='cancelled'
-              && (byId[s.sim_order_id].order_status||'active')!=='cancelled')
+              && (byId[s.sim_order_id].order_status||'active')!=='cancelled'
+              && onOrAfterCutoff(byId[s.sim_order_id].order_date))
         .map(s=>[s.customer_name,d(s.sale_date),byId[s.sim_order_id].order_status||'active']);
     }
   },
@@ -128,7 +135,8 @@ const CHECKS=[
     fix:"Keep the row that has the money and the pay run; move the order link onto it, then delete the other.",
     cols:["Order id","Rows","Customers"],
     run:async(D)=>{
-      const by={}; D.sales.filter(s=>s.sim_order_id).forEach(s=>(by[s.sim_order_id]=by[s.sim_order_id]||[]).push(s));
+      const ord={}; D.orders.forEach(o=>ord[o.id]=o);
+      const by={}; D.sales.filter(s=>s.sim_order_id && ord[s.sim_order_id] && onOrAfterCutoff(ord[s.sim_order_id].order_date)).forEach(s=>(by[s.sim_order_id]=by[s.sim_order_id]||[]).push(s));
       return Object.entries(by).filter(([,v])=>v.length>1)
         .map(([oid,v])=>[oid.slice(0,8)+'…',v.length,v.map(x=>x.customer_name).join(' / ')]);
     }
@@ -141,7 +149,7 @@ const CHECKS=[
     cols:["Consultant","Order date","Value","Order id"],
     run:async(D)=>{
       const withItems=new Set(D.items.map(i=>i.order_id));
-      return D.orders.filter(o=>(o.order_status||'active')!=='cancelled' && !withItems.has(o.id))
+      return D.orders.filter(o=>(o.order_status||'active')!=='cancelled' && !withItems.has(o.id) && onOrAfterCutoff(o.order_date))
         .map(o=>[o.consultant_name||'—',d(o.order_date),fmt(o.contract_value),o.id.slice(0,8)+'…']);
     }
   },
@@ -151,12 +159,13 @@ const CHECKS=[
     why:"Reports skips any order without a date, so the sale is invisible in weekly figures.",
     fix:"Set the correct sale date on the order.",
     cols:["Consultant","Value","Entered","Order id"],
-    run:async(D)=>D.orders.filter(o=>!o.order_date && (o.order_status||'active')!=='cancelled')
+    run:async(D)=>D.orders.filter(o=>!o.order_date && (o.order_status||'active')!=='cancelled' && onOrAfterCutoff(o.created_at))
         .map(o=>[o.consultant_name||'—',fmt(o.contract_value),d(o.created_at),o.id.slice(0,8)+'…'])
   },
 ];
 
 async function runAll(){
+  $("cutoffLabel").textContent=d(CUTOFF);
   $("summary").innerHTML=`<div class="muted">Running checks…</div>`;
   $("checks").innerHTML="";
   let D;
@@ -201,7 +210,7 @@ async function runAll(){
       <div class="text-2xl font-bold" style="color:${good?'#4ade80':'#fbbf24'}">
         ${good?'✓ Everything is in sync':totalIssues+' item'+(totalIssues===1?'':'s')+' need attention'}
       </div>
-      <div class="muted mt-1">Checked ${D.orders.length} orders and ${D.sales.length} commission sales.</div>
+      <div class="muted mt-1">Checked ${D.orders.filter(o=>onOrAfterCutoff(o.order_date)||onOrAfterCutoff(o.created_at)).length} orders since ${d(CUTOFF)} (${D.orders.length} in total) and ${D.sales.length} commission sales.</div>
     </div>`;
   $("checks").innerHTML=html;
 }
