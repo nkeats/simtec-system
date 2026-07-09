@@ -137,6 +137,7 @@ async function run(){
 }
 
 function render(o,c,items,pays,comms){
+  window._O=o; window._ITEMS=items;
   const name=[c.first_name,c.last_name].filter(Boolean).join(" ")||"(no name)";
   const p=position(o);
   const behindTxt = p.behindBy>1 ? `${fmt(p.behindBy)} behind (${p.periodsBehind.toFixed(0)} ${p.freq.word})` : (p.cls==="green"?"On track":"—");
@@ -260,6 +261,9 @@ function render(o,c,items,pays,comms){
   document.title="Simtec — "+name;
 
   document.getElementById("statusBtns").innerHTML =
+    (isStaff && st!=="cancelled"
+      ? `<button onclick="openAmend()" style="background:#c6a15b;color:#122347;border:none;border-radius:8px;padding:8px 14px;font-size:14px;font-weight:700;cursor:pointer;margin-right:8px">✎ Amend order</button>`
+      : "") +
     ((st==="cancelled"||st==="on_hold")
       ? `<button onclick="reinstate()" style="background:#1c6b34;color:#fff;border:none;border-radius:8px;padding:8px 14px;font-size:14px;font-weight:600;cursor:pointer;margin-right:8px">↩ Reinstate</button>`
       : "") +
@@ -367,5 +371,407 @@ run();
     </div>
   </div>
 </div>
+
+<!-- ============ AMEND ORDER ============ -->
+<div id="amendModal" class="modalbg">
+  <div class="modal" style="max-width:760px;max-height:92vh;overflow:auto">
+    <h3 style="margin:0 0 4px">Amend order</h3>
+    <p class="muted" style="font-size:12.5px;margin:0 0 14px">
+      Change what the customer is buying. The contract value and instalment are recalculated,
+      and a signed record of the change is kept.
+    </p>
+    <div id="amErr" style="display:none;background:#fdecec;border:1px solid #e0b4b0;color:#b4342e;border-radius:9px;padding:11px 13px;font-size:13.5px;margin-bottom:12px"></div>
+
+    <h4 style="font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:#7a8798;margin:14px 0 6px">Current products</h4>
+    <table style="width:100%;border-collapse:collapse;font-size:13.5px"><tbody id="amCur"></tbody></table>
+
+    <h4 style="font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:#7a8798;margin:16px 0 6px">Add a product</h4>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+      <select id="amProd" class="mi" style="flex:1;min-width:210px" onchange="amPrefill()"></select>
+      <input id="amQty" class="mi" type="number" min="1" value="1" style="width:70px">
+      <input id="amPrice" class="mi" type="number" step="0.01" placeholder="price" style="width:110px">
+      <button onclick="amAdd()" style="background:#122347;color:#fff;border:none;border-radius:8px;padding:9px 14px;font-weight:700;cursor:pointer">Add</button>
+    </div>
+    <div id="amAdded" style="margin-top:8px"></div>
+
+    <h4 style="font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:#7a8798;margin:18px 0 6px">Payment terms</h4>
+    <div id="amTermsNote"></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
+      <div><label class="muted" style="font-size:12px">Outstanding balance (from Ezidebit)</label>
+        <input id="amOut" class="mi" type="number" step="0.01" oninput="amCalc()"></div>
+      <div><label class="muted" style="font-size:12px">Frequency</label>
+        <select id="amFreq" class="mi" onchange="amCalc()">
+          <option value="weekly">Weekly</option><option value="fortnightly">Fortnightly</option><option value="monthly">Monthly</option>
+        </select></div>
+      <div><label class="muted" style="font-size:12px">Payments remaining</label>
+        <input id="amRem" class="mi" type="number" min="1" oninput="amCalc()"></div>
+    </div>
+
+    <div id="amSummary" style="margin-top:16px"></div>
+    <div id="amCommission" style="margin-top:10px"></div>
+
+    <h4 style="font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:#7a8798;margin:18px 0 6px">Customer consent</h4>
+    <select id="amConsent" class="mi">
+      <option value="recorded_call">Recorded phone call with the customer</option>
+      <option value="signed_variation">Signed order variation</option>
+    </select>
+    <label class="muted" style="font-size:12px;display:block;margin-top:10px">Notes (what changed and why)</label>
+    <textarea id="amNotes" class="mi" rows="2"></textarea>
+
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:18px;flex-wrap:wrap">
+      <button onclick="closeAmend()" style="background:none;border:1px solid #cbd4df;border-radius:8px;padding:9px 15px;cursor:pointer">Cancel</button>
+      <button id="amSave" onclick="saveAmend()" style="background:#1c6b34;color:#fff;border:none;border-radius:8px;padding:9px 18px;font-weight:700;cursor:pointer">Save amendment</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ================= AMEND ORDER =================
+   Rules (agreed with Nigel):
+   - add/remove base, protector, pillow, delivery  -> value + instalment change, commission unchanged
+   - resize / change mattress type                 -> value + instalment change, commission unchanged
+   - downgrade to a Mk I                           -> commission changes (Mk I King Single = $0; Mk I Queen/SK = $100 fixed)
+   - adding a mattress                             -> NOT an amendment; write a new sale
+   Term is kept; the instalment moves (Simtec steers to a 3-year ceiling).
+   Outstanding balance is typed in from Ezidebit, which is the source of truth for balances. */
+
+const AM = { prods:[], prices:{}, keep:{}, add:[], commByName:{} };
+const PER = { weekly:7, fortnightly:14, monthly:30.44 };
+const isMatt = n => n && !/delivery|protector|pillow|base|topper/i.test(n);
+
+function amErr(m){ const b=document.getElementById("amErr"); if(!m){b.style.display="none";return;} b.style.display=""; b.innerHTML=m; }
+function money(n){ return "$"+Number(n||0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}); }
+
+// map a product name to its config price key (same scheme add-customer.html uses)
+function priceKey(name){
+  const n=(name||"").toLowerCase();
+  const size = /king single/.test(n)?"king_single" : /super king/.test(n)?"super_king"
+             : /california king/.test(n)?"california_king" : /queen/.test(n)?"queen" : null;
+  if(/delivery/.test(n)) return "delivery";
+  if(/pillow/.test(n))   return "pillow";
+  if(/base/.test(n))     return size?("base_"+size):null;
+  if(/protector/.test(n))return size?("protector_"+size):null;
+  const mk = /mk\s*iii/.test(n)?"mk3" : /mk\s*ii/.test(n)?"mk2" : /mk\s*i\b/.test(n)?"mk1" : null;
+  return (mk&&size)?(mk+"_"+size):null;
+}
+
+async function openAmend(){
+  const o=window._O;
+  if(!o){ return; }
+  amErr("");
+  AM.keep={}; AM.add=[];
+  (window._ITEMS||[]).forEach(i=>{ if(!i.cancelled) AM.keep[i.id]=true; });
+
+  try{
+    const [{data:cp,error:e1},{data:cfg,error:e2}] = await Promise.all([
+      sb.from("commission_products").select("id,name,commission_type,fixed_amount,active").eq("active",true).order("name"),
+      sb.from("config").select("key,value").eq("category","products")
+    ]);
+    if(e1) throw new Error("Loading products: "+e1.message);
+    if(e2) throw new Error("Loading prices: "+e2.message);
+    AM.prods=cp||[];
+    AM.commByName={}; AM.prods.forEach(p=>AM.commByName[p.name.toLowerCase()]=p);
+    AM.prices={}; (cfg||[]).forEach(r=>{ const v=r.value||{}; if(v.retail!=null) AM.prices[r.key]=Number(v.retail); });
+    document.getElementById("amProd").innerHTML =
+      `<option value="">— choose a product —</option>` +
+      AM.prods.map(p=>`<option value="${p.name.replace(/"/g,'&quot;')}">${p.name}</option>`).join("");
+  }catch(e){ amErr("<b>Couldn't load the product list.</b><br>"+(e.message||e)); }
+
+  // seed the terms box from what we know
+  document.getElementById("amFreq").value = o.payment_frequency || "weekly";
+  const haveTerms = o.instalment_amount!=null && o.term_periods!=null;
+  document.getElementById("amTermsNote").innerHTML = haveTerms
+    ? `<div style="background:#e9f5ed;border:1px solid #bcdcc6;border-radius:9px;padding:10px 12px;font-size:13px;margin-bottom:10px">
+         On record: <b>${money(o.instalment_amount)}</b> per ${o.payment_frequency||"week"}, ${o.term_periods} payments.
+         Enter the <b>current outstanding balance</b> from Ezidebit to recalculate.</div>`
+    : `<div style="background:#fff8e9;border:1px solid #e8d5a8;border-left:4px solid #c6a15b;border-radius:9px;padding:10px 12px;font-size:13px;margin-bottom:10px">
+         <b>We don't have this customer's payment terms yet.</b> Look them up in Ezidebit and enter them below —
+         they'll be saved, so you only do this once per customer.</div>`;
+  if(o.instalment_amount!=null && o.amount_paid_to_date!=null && o.contract_value!=null){
+    const bal = Number(o.contract_value)-Number(o.amount_paid_to_date);
+    if(bal>0) document.getElementById("amOut").placeholder = "system thinks ~"+Math.round(bal);
+  }
+  document.getElementById("amRem").value = o.term_periods || "";
+  amRenderLines(); amCalc();
+  document.getElementById("amendModal").style.display="flex";
+}
+function closeAmend(){ document.getElementById("amendModal").style.display="none"; }
+
+function amRenderLines(){
+  const items=(window._ITEMS||[]).filter(i=>!i.cancelled);
+  document.getElementById("amCur").innerHTML = items.length ? items.map(i=>`
+    <tr style="border-bottom:1px solid #e6eaf0">
+      <td style="padding:7px 4px">
+        <label style="cursor:pointer"><input type="checkbox" ${AM.keep[i.id]?"checked":""}
+          onchange="AM.keep['${i.id}']=this.checked; amCalc()"> ${i.product_name||""}</label>
+      </td>
+      <td style="padding:7px 4px;text-align:right;width:60px">${i.quantity}</td>
+      <td style="padding:7px 4px;text-align:right;width:110px">${money(i.unit_price)}</td>
+    </tr>`).join("") : `<tr><td class="muted" style="padding:8px 0">No product lines.</td></tr>`;
+
+  document.getElementById("amAdded").innerHTML = AM.add.length ? AM.add.map((a,ix)=>`
+    <div style="display:flex;justify-content:space-between;align-items:center;background:#eef4ea;border:1px solid #cfe0c8;border-radius:8px;padding:7px 11px;margin-bottom:5px;font-size:13.5px">
+      <span>+ ${a.name} × ${a.qty}</span>
+      <span>${money(a.price*a.qty)} <button onclick="AM.add.splice(${ix},1);amRenderLines();amCalc()"
+        style="margin-left:8px;background:none;border:1px solid #cbd4df;border-radius:5px;padding:1px 7px;cursor:pointer">remove</button></span>
+    </div>`).join("") : "";
+}
+
+function amPrefill(){
+  const name=document.getElementById("amProd").value;
+  const k=priceKey(name);
+  document.getElementById("amPrice").value = (k && AM.prices[k]!=null) ? AM.prices[k] : "";
+}
+function amAdd(){
+  const name=document.getElementById("amProd").value;
+  const qty=parseInt(document.getElementById("amQty").value||"1",10);
+  const price=parseFloat(document.getElementById("amPrice").value);
+  if(!name){ return amErr("Choose a product to add."); }
+  if(!(price>=0)){ return amErr("Enter a price for "+name+"."); }
+  if(isMatt(name)){
+    const keptM=(window._ITEMS||[]).filter(i=>!i.cancelled&&AM.keep[i.id]&&isMatt(i.product_name)).length;
+    const addM=AM.add.filter(a=>isMatt(a.name)).length;
+    if(keptM+addM>=1 && !confirm("This order already has a mattress.\n\nAdding a SECOND mattress should be written as a brand-new sale, not an amendment.\n\nContinue anyway?")) return;
+  }
+  amErr("");
+  AM.add.push({name,qty:qty>0?qty:1,price});
+  document.getElementById("amProd").value=""; document.getElementById("amQty").value=1; document.getElementById("amPrice").value="";
+  amRenderLines(); amCalc();
+}
+
+function amNewValue(){
+  let v=0;
+  (window._ITEMS||[]).filter(i=>!i.cancelled&&AM.keep[i.id]).forEach(i=>{ v += Number(i.unit_price||0)*Number(i.quantity||1); });
+  AM.add.forEach(a=>{ v += a.price*a.qty; });
+  return v;
+}
+function amMattressesAfter(){
+  const kept=(window._ITEMS||[]).filter(i=>!i.cancelled&&AM.keep[i.id]&&isMatt(i.product_name)).map(i=>i.product_name);
+  return kept.concat(AM.add.filter(a=>isMatt(a.name)).map(a=>a.name));
+}
+function amMattressesBefore(){
+  return (window._ITEMS||[]).filter(i=>!i.cancelled&&isMatt(i.product_name)).map(i=>i.product_name);
+}
+
+function amCalc(){
+  const o=window._O; if(!o) return;
+  const oldV=Number(o.contract_value||0), newV=amNewValue(), delta=newV-oldV;
+  const out=parseFloat(document.getElementById("amOut").value);
+  const rem=parseInt(document.getElementById("amRem").value||"0",10);
+  const freq=document.getElementById("amFreq").value;
+
+  let instBlock="";
+  if(out>0 && rem>0){
+    const newOut=out+delta;
+    const newInst=Math.round((newOut/rem)*100)/100;
+    const days=rem*PER[freq];
+    const end=new Date(Date.now()+days*86400000);
+    const weeks=Math.round(days/7);
+    instBlock=`
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:13.5px">
+        <div>Outstanding now</div><div style="text-align:right">${money(out)}</div>
+        <div>Change to balance</div><div style="text-align:right;color:${delta>=0?"#1c6b34":"#b4342e"}">${delta>=0?"+":""}${money(delta)}</div>
+        <div><b>New outstanding</b></div><div style="text-align:right"><b>${money(newOut)}</b></div>
+        <div style="border-top:1px solid #d9e0ea;padding-top:6px">New instalment</div>
+        <div style="border-top:1px solid #d9e0ea;padding-top:6px;text-align:right;font-weight:800;color:#122347">${money(newInst)} / ${freq==="weekly"?"week":freq==="fortnightly"?"fortnight":"month"}</div>
+        <div>Finishes about</div><div style="text-align:right">${end.toLocaleDateString("en-NZ",{day:"2-digit",month:"short",year:"numeric"})} (${weeks} wks)</div>
+      </div>
+      <div style="background:#fff8e9;border:1px solid #e8d5a8;border-left:4px solid #c6a15b;border-radius:9px;padding:10px 12px;font-size:13px;margin-top:10px">
+        <b>Update Ezidebit to ${money(newInst)} per ${freq==="weekly"?"week":freq==="fortnightly"?"fortnight":"month"}.</b>
+        The system records the change; the direct debit itself must be changed in Ezidebit by hand.</div>
+      ${weeks>156?`<div style="background:#fdecec;border:1px solid #e0b4b0;color:#b4342e;border-radius:9px;padding:10px 12px;font-size:13px;margin-top:8px"><b>This runs past the 3-year ceiling</b> (${weeks} weeks). Consider a larger instalment or fewer payments.</div>`:""}`;
+    AM._newInst=newInst;
+  } else {
+    instBlock=`<div class="muted" style="font-size:13px">Enter the outstanding balance and payments remaining to see the new instalment.</div>`;
+    AM._newInst=null;
+  }
+
+  document.getElementById("amSummary").innerHTML=`
+    <div style="background:#f4f7fa;border:1px solid #d9e0ea;border-radius:10px;padding:12px 14px">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:13.5px;margin-bottom:10px">
+        <div>Contract value now</div><div style="text-align:right">${money(oldV)}</div>
+        <div><b>New contract value</b></div><div style="text-align:right"><b>${money(newV)}</b></div>
+      </div>${instBlock}
+    </div>`;
+
+  // ---- commission impact ----
+  const before=amMattressesBefore(), after=amMattressesAfter();
+  const same = before.length===after.length && before.slice().sort().join("|")===after.slice().sort().join("|");
+  let note="", changed=false;
+  if(same){
+    note=`<div style="background:#e9f5ed;border:1px solid #bcdcc6;border-radius:9px;padding:10px 12px;font-size:13px"><b>Commission: unchanged.</b> The mattress is the same, so the consultant's commission doesn't move.</div>`;
+  } else if(after.length===0){
+    changed=true;
+    note=`<div style="background:#fdecec;border:1px solid #e0b4b0;color:#b4342e;border-radius:9px;padding:10px 12px;font-size:13px"><b>No mattress left on this order.</b> That's a cancellation, not an amendment — cancel the order instead.</div>`;
+  } else {
+    const mkI = after.filter(n=>/mk\s*i\b/i.test(n));
+    if(mkI.length){
+      changed=true;
+      const ks=mkI.some(n=>/king single/i.test(n));
+      note=`<div style="background:#fdecec;border:1px solid #e0b4b0;color:#b4342e;border-radius:9px;padding:10px 12px;font-size:13px">
+        <b>⚠ Commission changes — downgrade to ${mkI.join(", ")}.</b><br>
+        ${ks?"Mk I King Single earns <b>$0 commission</b>, no cash bonus and no team-leader override (it still counts toward the weekly tier)."
+            :"Mk I Queen / Super King earns a <b>fixed $100</b> instead of the tier rate."}
+        </div>`;
+    } else {
+      note=`<div style="background:#e9f5ed;border:1px solid #bcdcc6;border-radius:9px;padding:10px 12px;font-size:13px"><b>Commission: unchanged.</b> Changing size or model within Mk II / Mk III doesn't move the commission — it's still one mattress.</div>`;
+    }
+  }
+  AM._commChanged=changed;
+  AM._commNote=note.replace(/<[^>]+>/g,"").replace(/\s+/g," ").trim();
+  document.getElementById("amCommission").innerHTML=note;
+}
+
+async function saveAmend(){
+  const o=window._O, btn=document.getElementById("amSave");
+  amErr("");
+  const newV=amNewValue();
+  const after=amMattressesAfter();
+  if(!after.length){ return amErr("This order would have no mattress. Cancel the order instead of amending it."); }
+  const out=parseFloat(document.getElementById("amOut").value);
+  const rem=parseInt(document.getElementById("amRem").value||"0",10);
+  if(!(out>0)||!(rem>0)){ return amErr("Enter the outstanding balance and the number of payments remaining."); }
+  // A reduction bigger than the remaining balance means the customer has overpaid the
+  // new, smaller order — that's a refund, not an instalment change. Stop rather than
+  // write a negative payment.
+  if(out + (newV - Number(o.contract_value||0)) <= 0){
+    return amErr("<b>This reduction is larger than the outstanding balance.</b><br>The customer would be owed a refund. Handle this as a cancellation or a refund, not an amendment.");
+  }
+  const freq=document.getElementById("amFreq").value;
+  const newInst=AM._newInst;
+
+  const removed=(window._ITEMS||[]).filter(i=>!i.cancelled && !AM.keep[i.id]);
+  const summary=[
+    ...removed.map(i=>"removed "+i.product_name),
+    ...AM.add.map(a=>"added "+a.name+(a.qty>1?(" × "+a.qty):""))
+  ].join("; ") || "no product change";
+  if(!removed.length && !AM.add.length && Number(o.contract_value)===newV){
+    return amErr("Nothing has changed.");
+  }
+  if(!confirm(`Save this amendment?\n\n${summary}\n\nContract: ${money(o.contract_value)} → ${money(newV)}\nInstalment: ${money(newInst)} per ${freq}\n\nRemember to update Ezidebit.`)) return;
+
+  btn.disabled=true; btn.textContent="Saving…";
+  try{
+    // Is the commission already paid?  If so we must NOT reach into a closed pay run.
+    const {data:cs,error:e0}=await sb.from("commission_sales").select("id,paid_date,pay_run_id").eq("sim_order_id",o.id).maybeSingle();
+    if(e0) throw new Error("Checking commission: "+e0.message);
+    const commissionLocked = !!(cs && cs.paid_date);
+
+    if(removed.length){
+      const {error}=await sb.from("sim_order_items").delete().in("id",removed.map(i=>i.id));
+      if(error) throw new Error("Removing products: "+error.message);
+    }
+    if(AM.add.length){
+      const base=(window._ITEMS||[]).length+1;
+      const rows=AM.add.map((a,ix)=>({order_id:o.id,line_no:base+ix,product_name:a.name,quantity:a.qty,unit_price:a.price}));
+      const {error}=await sb.from("sim_order_items").insert(rows);
+      if(error) throw new Error("Adding products: "+error.message);
+    }
+
+    const {error:e2}=await sb.from("sim_orders").update({
+      contract_value:newV, instalment_amount:newInst, term_periods:rem,
+      payment_frequency:freq, loan_start_date:o.loan_start_date||o.first_payment_date||null
+    }).eq("id",o.id);
+    if(e2) throw new Error("Updating the order: "+e2.message);
+
+    // Rebuild the commission's product lines from the order, but ONLY while the
+    // commission is still unpaid. The insert trigger only ever ADDS lines, so without
+    // this a swapped mattress would leave the old one behind and count twice.
+    let commissionMsg="";
+    if(cs && !commissionLocked){
+      const {error:e3}=await sb.from("commission_sale_items").delete().eq("sale_id",cs.id);
+      if(e3) throw new Error("Clearing commission lines: "+e3.message);
+      const {data:its,error:e4}=await sb.from("sim_order_items").select("product_name,quantity").eq("order_id",o.id);
+      if(e4) throw new Error("Re-reading products: "+e4.message);
+      const rows=[];
+      (its||[]).forEach(i=>{
+        const p=AM.commByName[(i.product_name||"").toLowerCase()];
+        if(p) rows.push({sale_id:cs.id,product_id:p.id,quantity:i.quantity||1});
+      });
+      if(rows.length){
+        const {error:e5}=await sb.from("commission_sale_items").insert(rows);
+        if(e5) throw new Error("Rebuilding commission lines: "+e5.message);
+      }
+      commissionMsg="Commission lines rebuilt from the amended order.";
+    } else if(commissionLocked){
+      commissionMsg="COMMISSION ALREADY PAID — not touched. Adjust manually in the commission screen if required.";
+    }
+
+    const {error:e6}=await sb.from("order_amendments").insert({
+      order_id:o.id,
+      amended_by:(window.SIMTEC_USER&&(window.SIMTEC_USER.full_name||window.SIMTEC_USER.email))||null,
+      change_summary:summary,
+      old_contract_value:o.contract_value, new_contract_value:newV,
+      old_instalment:o.instalment_amount, new_instalment:newInst,
+      old_term_periods:o.term_periods, new_term_periods:rem,
+      commission_changed:!!AM._commChanged,
+      commission_note:(AM._commNote||"")+(commissionMsg?(" | "+commissionMsg):""),
+      customer_consent:document.getElementById("amConsent").value,
+      notes:document.getElementById("amNotes").value||null
+    });
+    if(e6) throw new Error("Recording the amendment: "+e6.message);
+
+    closeAmend();
+    let msg="Amendment saved.\n\nUpdate Ezidebit to "+money(newInst)+" per "+freq+".";
+    if(commissionLocked) msg+="\n\n⚠ The commission for this sale was already PAID. It has not been changed — adjust it manually in the commission screen.";
+    alert(msg);
+    if(confirm("Print the Order Variation for the customer to sign?")) printVariation(o,summary,newV,newInst,freq,rem);
+    run();
+  }catch(e){
+    amErr("<b>The amendment was not saved.</b><br>"+(e.message||e));
+    btn.disabled=false; btn.textContent="Save amendment";
+  }
+}
+
+function printVariation(o,summary,newV,newInst,freq,rem){
+  const name=document.querySelector(".head h1") ? document.querySelector(".head h1").textContent : "";
+  const per = freq==="weekly"?"week":freq==="fortnightly"?"fortnight":"month";
+  const today=new Date().toLocaleDateString("en-NZ",{day:"2-digit",month:"long",year:"numeric"});
+  const w=window.open("","_blank");
+  if(!w){ alert("Allow pop-ups to print the variation."); return; }
+  w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Order Variation — ${name}</title>
+  <style>
+    body{font-family:Georgia,'Times New Roman',serif;color:#1a2334;margin:0;padding:38px 44px;line-height:1.6}
+    .hd{border-bottom:3px solid #c6a15b;padding-bottom:12px;margin-bottom:22px}
+    .hd h1{margin:0;font-size:23px;letter-spacing:.5px;color:#122347}
+    .hd .sub{font-size:11px;letter-spacing:.22em;color:#c6a15b;font-weight:bold;text-transform:uppercase}
+    h2{font-size:13px;text-transform:uppercase;letter-spacing:.08em;color:#122347;border-bottom:1px solid #d9e0ea;padding-bottom:5px;margin:24px 0 10px}
+    table{width:100%;border-collapse:collapse;font-size:14px}
+    td{padding:7px 0;vertical-align:top}
+    td.l{color:#5a6779;width:42%}
+    td.r{text-align:right;font-weight:bold}
+    .box{border:1px solid #d9e0ea;border-radius:8px;padding:14px 16px;background:#fbfcfd;margin:12px 0}
+    .sig{margin-top:34px;display:flex;gap:40px}
+    .sig div{flex:1;border-top:1px solid #1a2334;padding-top:6px;font-size:12px;color:#5a6779}
+    .note{font-size:12px;color:#5a6779;margin-top:20px;line-height:1.55}
+    @media print{body{padding:22px}}
+  </style></head><body>
+  <div class="hd"><div class="sub">Simtec Therapeutic Limited</div><h1>Order Variation</h1></div>
+  <table>
+    <tr><td class="l">Customer</td><td class="r">${name}</td></tr>
+    <tr><td class="l">Date of variation</td><td class="r">${today}</td></tr>
+    <tr><td class="l">Original order date</td><td class="r">${o.order_date?auDate(o.order_date):"—"}</td></tr>
+  </table>
+  <h2>What is changing</h2>
+  <div class="box">${summary.replace(/;/g,"<br>")}</div>
+  <h2>Your new agreement</h2>
+  <table>
+    <tr><td class="l">Previous total</td><td class="r">${money(o.contract_value)}</td></tr>
+    <tr><td class="l">New total</td><td class="r">${money(newV)}</td></tr>
+    <tr><td class="l">New payment</td><td class="r">${money(newInst)} per ${per}</td></tr>
+    <tr><td class="l">Payments remaining</td><td class="r">${rem}</td></tr>
+  </table>
+  <p class="note">All other terms of your original agreement are unchanged. There is no interest and there are no fees.
+  Your payment amount changes from the next scheduled payment. If anything here does not match what you agreed,
+  please contact us before signing.</p>
+  <div class="sig"><div>Customer signature</div><div>Date</div></div>
+  <div class="sig"><div>For Simtec Therapeutic Limited</div><div>Date</div></div>
+  <p class="note">Simtec Therapeutic Limited · NZBN 9429053287908 · Auckland, New Zealand</p>
+  <script>window.onload=function(){window.print()}<\/script>
+  </body></html>`);
+  w.document.close();
+}
+</script>
+
 </body>
 </html>
