@@ -42,9 +42,17 @@
 
   <!-- WEEKLY SALES -->
   <div class="card p-5 mb-6">
-    <div class="flex items-center justify-between mb-1">
+    <div class="flex items-center justify-between mb-1 flex-wrap gap-2">
       <h2 class="text-lg font-bold">Weekly sales</h2>
-      <div class="k" id="basis">Mon–Sun · net of same-week cancellations</div>
+      <div class="flex items-center gap-3">
+        <div class="k" id="basis">Mon–Sun · net of same-week cancellations</div>
+        <select id="salesWin" onchange="load()" class="text-xs rounded-lg px-2 py-1" style="background:#0d1728;color:#cbd5e1;border:1px solid #26375a">
+          <option value="4" selected>Last 4 weeks</option>
+          <option value="8">Last 8 weeks</option>
+          <option value="12">Last 12 weeks</option>
+          <option value="0">All weeks</option>
+        </select>
+      </div>
     </div>
     <p class="text-xs text-slate-500 mb-4">A sale counts in the week it was made if it wasn't cancelled by that Sunday. Later cancellations don't change past weeks. Click a week for the agent breakdown.</p>
     <div id="state" class="text-slate-400 text-sm py-6">Loading…</div>
@@ -141,8 +149,13 @@ function showError(msg){
 }
 // -----------------------------------------------------------------------
 
+// Cache: the dropdown only changes how many weeks we DISPLAY, so re-fetching every
+// order and line item on each change would be wasteful. Fetch once, redraw from memory.
+let _weeksCache=null;
+
 async function load(){
  try{
+  if(_weeksCache){ draw(_weeksCache); return; }
   $("state").className="text-slate-400 text-sm py-6";
   $("state").textContent="Loading…";
 
@@ -201,14 +214,26 @@ async function load(){
     const c=(w.byCon[con]=w.byCon[con]||{m:0,v:0}); c.m+=mattresses; c.v+=value;
   }
 
+  _weeksCache = weeks;
+  draw(weeks);
+
+ }catch(err){
+  // anything that went wrong — missing column, blocked table, network — is shown plainly
+  showError(err && err.message ? err.message : String(err));
+ }
+}
+
+function draw(weeks){
   const order=Object.keys(weeks).sort().reverse();
   if(!order.length){
     $("state").className="text-slate-400 text-sm py-6";
     $("state").textContent="No sales recorded yet.";
+    $("tbl").style.display="none";
     return;
   }
 
-  // tiles: this week + last 4 weeks + all-time
+  // tiles: this week + last 4 weeks + all-time.
+  // NOTE: tiles always use every week, regardless of how many rows the table shows.
   const thisWk=weekStart(new Date().toISOString().slice(0,10));
   const tw=weeks[thisWk]||{mattresses:0,value:0};
   let l4m=0,l4v=0; order.slice(0,4).forEach(k=>{l4m+=weeks[k].mattresses;l4v+=weeks[k].value;});
@@ -220,8 +245,13 @@ async function load(){
     ["All-time value",fmt(allV),""]
   ].map(([k,a,b])=>`<div class="card p-4"><div class="k mb-1">${k}</div><div class="text-2xl font-bold gold">${a}</div>${b?`<div class="text-sm text-slate-400 mt-1">${b}</div>`:""}</div>`).join("");
 
+  // table shows only the selected window (default: last 4 weeks)
+  const winW=+$("salesWin").value;
+  const shown = winW>0 ? order.slice(0,winW) : order;
+  let shownM=0, shownV=0; shown.forEach(k=>{shownM+=weeks[k].mattresses;shownV+=weeks[k].value;});
+
   let html="";
-  for(const k of order){
+  for(const k of shown){
     const w=weeks[k];
     html+=`<tr class="wk" onclick="tog('${k}')"><td>▸ ${fmtWk(k)}<span class="chip">${Object.keys(w.byCon).length} agent${Object.keys(w.byCon).length!==1?'s':''}</span></td><td class="num">${w.mattresses}</td><td class="num">${fmt(w.value)}</td></tr>`;
     const cons=Object.entries(w.byCon).sort((a,b)=>b[1].v-a[1].v);
@@ -229,14 +259,14 @@ async function load(){
       html+=`<tr class="sub" data-wk="${k}" style="display:none"><td>${esc(name)}</td><td class="num">${c.m}</td><td class="num">${fmt(c.v)}</td></tr>`;
     }
   }
-  html+=`<tr class="tot"><td>All weeks</td><td class="num">${allM}</td><td class="num">${fmt(allV)}</td></tr>`;
+  // Total row must describe exactly what's above it — never label a partial sum "All weeks".
+  const totLabel = winW>0 ? `These ${shown.length} week${shown.length!==1?"s":""}` : "All weeks";
+  html+=`<tr class="tot"><td>${totLabel}</td><td class="num">${shownM}</td><td class="num">${fmt(shownV)}</td></tr>`;
+  if(winW>0 && order.length>shown.length){
+    html+=`<tr><td colspan="3" class="text-slate-500" style="font-size:12.5px">${order.length-shown.length} earlier week${order.length-shown.length!==1?"s":""} not shown — use the dropdown above.</td></tr>`;
+  }
   $("rows").innerHTML=html;
   $("state").style.display="none"; $("tbl").style.display="";
-
- }catch(err){
-  // anything that went wrong — missing column, blocked table, network — is shown plainly
-  showError(err && err.message ? err.message : String(err));
- }
 }
 function $(id){return document.getElementById(id);}
 window.tog=function(k){
