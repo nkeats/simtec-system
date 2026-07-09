@@ -53,10 +53,54 @@
     </tr></thead><tbody id="rows"></tbody></table>
   </div>
 
-  <!-- CONVERSION (coming with booking module) -->
-  <div class="card p-5 opacity-70">
-    <h2 class="text-lg font-bold">Conversion — stand-up % &amp; closing %</h2>
-    <p class="text-sm text-slate-400 mt-2">Per-agent and office-wide stand-up rate (attended ÷ booked) and closing rate (sold ÷ attended) will appear here once the booking module is capturing appointments. The framework is ready; it needs the booked → attended → sold data first.</p>
+  <!-- CONVERSION -->
+  <div class="card p-5 mb-6">
+    <div class="flex items-center justify-between mb-1 flex-wrap gap-2">
+      <h2 class="text-lg font-bold">Conversion — stand-up % &amp; closing %</h2>
+      <select id="convWin" onchange="loadConv()" class="text-xs rounded-lg px-2 py-1" style="background:#0d1728;color:#cbd5e1;border:1px solid #26375a">
+        <option value="4" selected>Last 4 weeks</option>
+        <option value="8">Last 8 weeks</option>
+        <option value="12">Last 12 weeks</option>
+        <option value="0">All time</option>
+      </select>
+    </div>
+    <p class="text-xs text-slate-500 mb-4">
+      Appointments still booked in the future are excluded — they have no outcome yet.
+      <b class="gold">Stand-up %</b> = presented ÷ (presented + cancelled).
+      <b class="gold">Stood up first time</b> counts only those never rescheduled, so a heavy rescheduler can't hide.
+      <b class="gold">Close %</b> = sold ÷ presented.
+    </p>
+
+    <div id="convState" class="text-slate-400 text-sm py-6">Loading…</div>
+
+    <div id="convBody" style="display:none">
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6" id="convTiles"></div>
+
+      <div id="convUnresolved" class="mb-5"></div>
+
+      <h3 class="k mb-2">By consultant</h3>
+      <table class="mb-6"><thead><tr>
+        <th>Consultant</th>
+        <th class="num">Presented</th><th class="num">Cancelled</th>
+        <th class="num">Stand-up %</th><th class="num">First time %</th>
+        <th class="num">Sold</th><th class="num">Close %</th>
+      </tr></thead><tbody id="convCon"></tbody></table>
+
+      <h3 class="k mb-2">Why the sale was lost</h3>
+      <p class="text-xs text-slate-500 mb-2">Presentations that didn't sell, split by the reason recorded. A consultant whose losses are mostly "can't afford" has a qualification problem, not a closing problem.</p>
+      <table class="mb-6"><thead><tr>
+        <th>Consultant</th><th class="num">Don't need</th><th class="num">Can't afford</th>
+        <th class="num">Think about it</th><th class="num">Other</th><th class="num">Total lost</th>
+      </tr></thead><tbody id="convLoss"></tbody></table>
+
+      <h3 class="k mb-2">By week</h3>
+      <table><thead><tr>
+        <th>Week beginning</th>
+        <th class="num">Presented</th><th class="num">Cancelled</th>
+        <th class="num">Stand-up %</th><th class="num">Sold</th><th class="num">Close %</th>
+        <th class="num">Reschedule rate</th>
+      </tr></thead><tbody id="convWk"></tbody></table>
+    </div>
   </div>
 
 </div>
@@ -198,7 +242,165 @@ function $(id){return document.getElementById(id);}
 window.tog=function(k){
   document.querySelectorAll(`tr.sub[data-wk="${k}"]`).forEach(tr=>tr.style.display=tr.style.display==="none"?"":"none");
 };
+
+/* ===================== CONVERSION PANEL =====================
+   Kept completely separate from Weekly Sales: its own fetch, its own error box.
+   A broken appointments query must never take the sales report down with it. */
+
+const REASONS=[["dont_need","Don't need"],["cant_afford","Can't afford"],
+               ["think_about_it","Think about it"],["other","Other"]];
+
+function pct(num,den){ return den>0 ? Math.round(num*1000/den)/10 : null; }
+function showPct(p){ return p===null ? '<span style="color:#4b5a72">—</span>' : p+"%"; }
+
+function convError(msg){
+  const box=$("convState");
+  box.className="err"; box.style.display="";
+  box.innerHTML="<b>The conversion figures couldn't load.</b><br><br>"+esc(msg)
+    +"<br><br><span style='color:#fca5a5'>These numbers are <b>not</b> just zero — a query failed. "
+    +"If this mentions <code>appointments</code> or <code>appointment_reschedules</code>, the table migration "
+    +"may not have been run yet. Send this exact message to Claude.</span>";
+  $("convBody").style.display="none";
+}
+
+// page every fetch — never trust the 1000-row cap
+async function fetchAll(table, select, where){
+  let out=[], from=0; const PAGE=1000;
+  while(true){
+    let q=sb.from(table).select(select).range(from,from+PAGE-1);
+    if(where) q=where(q);
+    const rows=must(await q,"Loading "+table);
+    out=out.concat(rows||[]);
+    if(!rows || rows.length<PAGE) break;
+    from+=PAGE;
+  }
+  return out;
+}
+
+async function loadConv(){
+ try{
+  $("convState").className="text-slate-400 text-sm py-6";
+  $("convState").style.display=""; $("convState").textContent="Loading…";
+  $("convBody").style.display="none";
+
+  const weeksBack=+$("convWin").value;
+  let cutoff=null;
+  if(weeksBack>0){
+    const d=new Date(); d.setUTCDate(d.getUTCDate()-(weeksBack*7));
+    cutoff=weekStart(ymd(d));
+  }
+
+  const appts = await fetchAll("appointments",
+    "id,consultant_name,appt_date,status,sold,not_sold_reason,reschedule_count",
+    q=> cutoff ? q.gte("appt_date",cutoff) : q);
+
+  const today=ymd(new Date());
+
+  // An appointment counts only once its date has arrived AND an outcome exists.
+  const resolved = appts.filter(a=> a.status==="presented" || a.status==="cancelled");
+  // Date passed but still sitting on "booked" = nobody recorded what happened.
+  const unrecorded = appts.filter(a=> a.status==="booked" && String(a.appt_date)<today);
+
+  if(!appts.length){
+    $("convState").className="text-slate-400 text-sm py-6";
+    $("convState").textContent = cutoff
+      ? "No appointments in this period. Once consultants log presentations in the diary, the figures appear here."
+      : "No appointments recorded yet. Once consultants log presentations in the diary, the figures appear here.";
+    return;
+  }
+
+  // ---- aggregate ----
+  const blank=()=>({pres:0,canc:0,sold:0,firstTime:0,resched:0,total:0,
+                    reasons:{dont_need:0,cant_afford:0,think_about_it:0,other:0}});
+  const byCon={}, byWk={}, all=blank();
+
+  for(const a of appts){
+    const con=a.consultant_name||"(unassigned)";
+    const wk=weekStart(a.appt_date);
+    const c=(byCon[con]=byCon[con]||blank());
+    const w=(byWk[wk]=byWk[wk]||blank());
+    const wasResched=(+a.reschedule_count||0)>0;
+
+    for(const b of [c,w,all]){
+      b.total++;
+      if(wasResched) b.resched++;
+      if(a.status==="presented"){
+        b.pres++;
+        if(!wasResched) b.firstTime++;
+        if(a.sold===true) b.sold++;
+        else if(a.sold===false){
+          const r=REASONS.some(([k])=>k===a.not_sold_reason) ? a.not_sold_reason : "other";
+          b.reasons[r]++;
+        }
+      } else if(a.status==="cancelled"){ b.canc++; }
+    }
+  }
+
+  const den=all.pres+all.canc;
+  $("convTiles").innerHTML=[
+    ["Stand-up %", showPct(pct(all.pres,den)), all.pres+" of "+den+" resolved"],
+    ["Stood up first time", showPct(pct(all.firstTime,den)), "never rescheduled"],
+    ["Close %", showPct(pct(all.sold,all.pres)), all.sold+" of "+all.pres+" presented"],
+    ["Reschedule rate", showPct(pct(all.resched,all.total)), all.resched+" of "+all.total+" appointments"]
+  ].map(([k,a,b])=>`<div class="card p-4"><div class="k mb-1">${k}</div>
+      <div class="text-2xl font-bold gold">${a}</div>
+      <div class="text-xs text-slate-500 mt-1">${esc(b)}</div></div>`).join("");
+
+  // Unrecorded outcomes are a data-quality problem worth surfacing, not hiding.
+  $("convUnresolved").innerHTML = unrecorded.length
+    ? `<div style="background:#3a2c0d;border:1px solid #6b5214;color:#fbbf24;border-radius:10px;padding:11px 14px;font-size:13px">
+         <b>${unrecorded.length} appointment${unrecorded.length!==1?"s":""} passed with no outcome recorded.</b>
+         They're excluded from every percentage above. Ask the consultant to record what happened.
+       </div>` : "";
+
+  // by consultant, best closer first
+  const cons=Object.entries(byCon).sort((a,b)=>(pct(b[1].sold,b[1].pres)??-1)-(pct(a[1].sold,a[1].pres)??-1));
+  $("convCon").innerHTML = cons.map(([n,c])=>{
+    const d=c.pres+c.canc;
+    return `<tr><td>${esc(n)}</td>
+      <td class="num">${c.pres}</td><td class="num">${c.canc}</td>
+      <td class="num">${showPct(pct(c.pres,d))}</td>
+      <td class="num">${showPct(pct(c.firstTime,d))}</td>
+      <td class="num">${c.sold}</td>
+      <td class="num gold">${showPct(pct(c.sold,c.pres))}</td></tr>`;
+  }).join("") + `<tr class="tot"><td>All consultants</td>
+      <td class="num">${all.pres}</td><td class="num">${all.canc}</td>
+      <td class="num">${showPct(pct(all.pres,den))}</td>
+      <td class="num">${showPct(pct(all.firstTime,den))}</td>
+      <td class="num">${all.sold}</td><td class="num">${showPct(pct(all.sold,all.pres))}</td></tr>`;
+
+  // loss reasons
+  const lossRows=cons.filter(([,c])=>REASONS.some(([k])=>c.reasons[k]>0));
+  $("convLoss").innerHTML = lossRows.length
+    ? lossRows.map(([n,c])=>{
+        const tot=REASONS.reduce((s,[k])=>s+c.reasons[k],0);
+        return `<tr><td>${esc(n)}</td>`+
+          REASONS.map(([k])=>`<td class="num">${c.reasons[k]||""}</td>`).join("")+
+          `<td class="num gold">${tot}</td></tr>`;
+      }).join("") + `<tr class="tot"><td>All consultants</td>`+
+        REASONS.map(([k])=>`<td class="num">${all.reasons[k]}</td>`).join("")+
+        `<td class="num">${REASONS.reduce((s,[k])=>s+all.reasons[k],0)}</td></tr>`
+    : `<tr><td colspan="6" class="text-slate-500 text-sm">No lost presentations recorded in this period.</td></tr>`;
+
+  // by week, newest first
+  const wks=Object.keys(byWk).sort().reverse();
+  $("convWk").innerHTML = wks.map(k=>{
+    const w=byWk[k], d=w.pres+w.canc;
+    return `<tr><td>${fmtWk(k)}</td>
+      <td class="num">${w.pres}</td><td class="num">${w.canc}</td>
+      <td class="num">${showPct(pct(w.pres,d))}</td>
+      <td class="num">${w.sold}</td><td class="num gold">${showPct(pct(w.sold,w.pres))}</td>
+      <td class="num">${showPct(pct(w.resched,w.total))}</td></tr>`;
+  }).join("");
+
+  $("convState").style.display="none";
+  $("convBody").style.display="";
+
+ }catch(err){ convError(err && err.message ? err.message : String(err)); }
+}
+
 load();
+loadConv();
 </script>
 </body>
 </html>
