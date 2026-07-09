@@ -114,7 +114,7 @@
     </div>
     <div class="two">
       <div class="fld"><label>Date</label><input id="f_date" type="date"></div>
-      <div class="fld"><label>Time</label><input id="f_time" type="time"></div>
+      <div class="fld"><label>Time</label><select id="f_time"></select></div>
     </div>
     <div class="fld" id="noteWrap"><label>Note (optional)</label><textarea id="f_note" rows="2" placeholder="Anything to remember"></textarea></div>
     <div class="sheetacts">
@@ -165,7 +165,7 @@
       <p class="sub" style="margin-bottom:10px">Move to a new day / time (logged as a reschedule).</p>
       <div class="two">
         <div class="fld"><label>New date</label><input id="rs_date" type="date"></div>
-        <div class="fld"><label>New time</label><input id="rs_time" type="time"></div>
+        <div class="fld"><label>New time</label><select id="rs_time"></select></div>
       </div>
       <button class="btn btn-navy" style="width:100%" onclick="saveReschedule()">Save reschedule</button>
     </div>
@@ -192,7 +192,27 @@ const $ = id => document.getElementById(id);
 const esc = s => (s||"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 function ymd(d){return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");}
 function todayStr(){return ymd(new Date());}
-function prettyTime(t){ if(!t) return ""; const p=t.split(":"); let h=+p[0]; const m=p[1]; const ap=h<12?"am":"pm"; h=h%12; if(h===0)h=12; return h+":"+m+ap; }
+// 24-hour clock everywhere, with a plain-language pm hint on the picker so nobody
+// has to add 12 in their head.
+function prettyTime(t){ if(!t) return ""; const p=String(t).split(":"); return p[0].padStart(2,"0")+":"+p[1]; }
+function timeLabel(h,m){
+  const hhmm = String(h).padStart(2,"0")+":"+String(m).padStart(2,"0");
+  if(h===12 && m===0) return hhmm+"  (midday)";
+  if(h>12 && m===0)   return hhmm+"  ("+(h-12)+"pm)";
+  return hhmm;
+}
+// 15-minute increments, 07:00 → 21:00
+function fillTimeSelect(sel, selected){
+  let html = '<option value="">— time —</option>';
+  for(let h=7; h<=21; h++){
+    for(const m of [0,15,30,45]){
+      if(h===21 && m>0) break;
+      const v = String(h).padStart(2,"0")+":"+String(m).padStart(2,"0");
+      html += `<option value="${v}"${selected===v?" selected":""}>${timeLabel(h,m)}</option>`;
+    }
+  }
+  sel.innerHTML = html;
+}
 
 // Any load failure must be LOUD. A silent failure here previously left target.uid
 // undefined, so Save appeared to freeze with no explanation.
@@ -335,7 +355,8 @@ function apptCard(a){
 function openBook(){
   $("bookTitle").textContent="Book appointment";
   $("bookSub").textContent="New prospect appointment for "+target.name+".";
-  ["f_name","f_phone","f_suburb","f_address","f_note","f_time"].forEach(i=>$(i).value="");
+  ["f_name","f_phone","f_suburb","f_address","f_note"].forEach(i=>$(i).value="");
+  fillTimeSelect($("f_time"), "");
   $("f_date").value = todayStr();
   $("bookErr").style.display="none";
   $("bookScrim").classList.add("on");
@@ -405,12 +426,24 @@ function openReschedule(){
   $("outStep1").style.display="none";
   $("outReschedule").style.display="";
   $("rs_date").value = curAppt.appt_date || todayStr();
-  $("rs_time").value = curAppt.appt_time ? String(curAppt.appt_time).slice(0,5) : "";
+  fillTimeSelect($("rs_time"), curAppt.appt_time ? String(curAppt.appt_time).slice(0,5) : "");
 }
 async function saveReschedule(){
   const d=$("rs_date").value, t=$("rs_time").value;
   if(!d){ return outErr("Choose the new date."); }
   const next=(curAppt.reschedule_count||0)+1;
+  // Record EVERY move, not just a count — so we can report chronic slippage
+  // (booked 8th → moved 10th → moved 14th) and whether a reschedule ever stands up.
+  const hist = await sb.from('appointment_reschedules').insert({
+    appointment_id: editingId,
+    seq: next,
+    from_date: curAppt.appt_date || null,
+    from_time: curAppt.appt_time || null,
+    to_date: d,
+    to_time: t || null,
+    rescheduled_by: (U && (U.consultant_name || U.full_name || U.email)) || null
+  });
+  if(hist && hist.error){ return outErr("Couldn't record the reschedule: "+hist.error.message); }
   if(await updateAppt({appt_date:d, appt_time:t||null, status:'booked', reschedule_count:next})){ closeSheet('outScrim'); await render(); }
 }
 
