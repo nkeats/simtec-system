@@ -90,11 +90,15 @@ const CHECKS=[
     id:"nocomm",
     title:"Orders with no commission row",
     why:"The sale exists but nothing was fed to commissions, so the consultant won't be paid for it and a cancellation has nothing to reverse.",
-    fix:"Usually means the consultant name on the order doesn't match a commission consultant, or the line items never saved. Check the order's products.",
+    fix:"Usually means the line items never saved. Add the products from the paper order form — the commission is created automatically. (Orders by consultants who have left are ignored here.)",
     cols:["Consultant","Order date","Value","Order id"],
     run:async(D)=>{
       const linked=new Set(D.sales.filter(s=>s.sim_order_id).map(s=>s.sim_order_id));
-      return D.orders.filter(o=>(o.order_status||'active')!=='cancelled' && !linked.has(o.id) && onOrAfterCutoff(o.order_date))
+      // Ignore departed staff: if the order's consultant isn't a current commission
+      // consultant, no commission row is expected and flagging it is just noise.
+      const known=new Set(D.consultants.map(c=>String(c.name||'').trim().toLowerCase()));
+      return D.orders.filter(o=>(o.order_status||'active')!=='cancelled' && !linked.has(o.id) && onOrAfterCutoff(o.order_date)
+                                && known.has(String(o.consultant_name||'').trim().toLowerCase()))
         .map(o=>[o.consultant_name||'—',d(o.order_date),fmt(o.contract_value),o.id.slice(0,8)+'…']);
     }
   },
@@ -170,12 +174,13 @@ async function runAll(){
   $("checks").innerHTML="";
   let D;
   try{
-    const [orders,sales,items]=await Promise.all([
+    const [orders,sales,items,consultants]=await Promise.all([
       all("sim_orders","id,order_date,created_at,contract_value,consultant_name,order_status"),
       all("commission_sales","id,sim_order_id,customer_name,sale_date,commission_paid,status,paid_date,is_historical"),
       all("sim_order_items","order_id"),
+      all("commission_consultants","name"),
     ]);
-    D={orders,sales,items};
+    D={orders,sales,items,consultants};
   }catch(e){
     $("summary").innerHTML=`<div class="err"><b>Couldn't run the checks.</b><br><br>${esc(e.message)}</div>`;
     return;
