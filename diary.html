@@ -177,8 +177,10 @@
 </div>
 
 <script>
-const sb = window.SIMTEC_SB;
-const U  = window.SIMTEC_USER || {};
+// Assigned once auth.js has finished (see waitForAuth below). Declared with `let`
+// rather than captured at parse time, because auth.js populates the globals async.
+let sb = null;
+let U  = {};
 const DAYS_AHEAD = 7;                 // today + next 7 days always shown
 const DOW=["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
 const MON=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
@@ -205,8 +207,23 @@ function fatal(msg){
 }
 
 // ---------- boot ----------
+// auth.js sets window.SIMTEC_USER / SIMTEC_SB asynchronously (it awaits the Supabase
+// library, then getSession(), then a profiles lookup). If we read them immediately we
+// race it and wrongly conclude "not signed in". Wait for them to appear.
+async function waitForAuth(timeoutMs){
+  const started = Date.now();
+  while(Date.now() - started < timeoutMs){
+    if(window.SIMTEC_SB && window.SIMTEC_USER && window.SIMTEC_USER.id) return true;
+    await new Promise(r=>setTimeout(r,50));
+  }
+  return false;
+}
+
 (async function init(){
-  if(!sb || !U.id){ fatal("Not signed in. Please log in again."); return; }
+  const ready = await waitForAuth(8000);
+  if(!ready){ fatal("Couldn't confirm your sign-in. Try reloading the page, or log in again."); return; }
+  sb = window.SIMTEC_SB;
+  U  = window.SIMTEC_USER;
   try{
     // Everyone books against a commission_consultants record (works whether or not
     // that consultant has a login yet). consultant_uid is set only when a consultant
