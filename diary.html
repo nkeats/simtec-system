@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Simtec — My Diary</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="auth.js?v=3" data-roles="consultant,admin,manager,office"></script>
+<style>
+  :root{
+    --navy:#111f3d; --navy2:#1a2c53; --gold:#c6a15b; --gold2:#d9be86;
+    --ink:#1a2334; --sub:#64728a; --line:#e4e8ef; --bg:#f4f6f9; --card:#ffffff;
+    --green:#1c6b34; --greenbg:#e9f5ed; --red:#b4342e; --redbg:#fdecec;
+    --amber:#a9791f; --amberbg:#fbf1dc; --blue:#1c3363; --bluebg:#eef2fb;
+  }
+  *{box-sizing:border-box}
+  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:var(--ink);background:var(--bg);margin:0;-webkit-font-smoothing:antialiased}
+  header{background:linear-gradient(135deg,var(--navy),var(--navy2));color:#fff;padding:16px 18px}
+  .hwrap{max-width:820px;margin:0 auto;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+  .htitle{font-size:19px;font-weight:800;letter-spacing:.3px}
+  .htitle small{display:block;font-weight:500;font-size:12px;color:#c9d3e6;letter-spacing:.02em;margin-top:2px}
+  header a.back{color:#cbd5e1;text-decoration:none;font-size:13px}
+  .wrap{max-width:820px;margin:0 auto;padding:16px 14px 60px}
+  .bar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px}
+  select,input,textarea{font:inherit;color:var(--ink);background:#fff;border:1px solid #cbd4df;border-radius:9px;padding:10px 11px}
+  select:focus,input:focus,textarea:focus{outline:none;border-color:var(--navy2);box-shadow:0 0 0 3px rgba(26,44,83,.12)}
+  .btn{border:none;border-radius:9px;padding:11px 16px;font-weight:700;font-size:14px;cursor:pointer}
+  .btn-gold{background:linear-gradient(135deg,var(--gold),var(--gold2));color:var(--navy)}
+  .btn-navy{background:var(--navy);color:#fff}
+  .btn-ghost{background:#fff;border:1px solid #cbd4df;color:var(--ink)}
+  .btn-green{background:var(--green);color:#fff}
+  .btn-red{background:#fff;border:1px solid #e0b4b0;color:var(--red)}
+  .btn-amber{background:#fff;border:1px solid #e3cd97;color:var(--amber)}
+  .btn:disabled{opacity:.5;cursor:default}
+  .day{margin-bottom:16px}
+  .dayhd{display:flex;align-items:baseline;gap:9px;margin:0 2px 8px}
+  .dayhd .dow{font-weight:800;color:var(--navy);font-size:15px}
+  .dayhd .dt{color:var(--sub);font-size:12.5px}
+  .dayhd .todaypill{font-size:10px;font-weight:800;letter-spacing:.06em;background:var(--gold);color:var(--navy);border-radius:20px;padding:2px 8px}
+  .free{color:#9aa6ba;font-size:13px;font-style:italic;padding:4px 4px 2px}
+  .appt{background:var(--card);border:1px solid var(--line);border-radius:13px;padding:13px 14px;margin-bottom:9px;box-shadow:0 1px 2px rgba(17,31,61,.03)}
+  .appt .top{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}
+  .appt .time{font-weight:800;color:var(--navy);font-size:15px;font-variant-numeric:tabular-nums}
+  .appt .who{font-weight:700;font-size:14.5px;margin-top:1px}
+  .appt .meta{color:var(--sub);font-size:12.5px;margin-top:2px;line-height:1.5}
+  .badge{font-size:10.5px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;padding:3px 9px;border-radius:20px;white-space:nowrap}
+  .b-booked{background:var(--bluebg);color:var(--blue)}
+  .b-cancelled{background:#eef1f4;color:#7a8494}
+  .b-sold{background:var(--greenbg);color:var(--green)}
+  .b-nosold{background:var(--amberbg);color:var(--amber)}
+  .acts{display:flex;gap:8px;flex-wrap:wrap;margin-top:11px}
+  .acts .btn{padding:8px 13px;font-size:12.5px}
+  .rs{font-size:11px;color:var(--amber);font-weight:700;margin-top:6px}
+  .outcome{font-size:13px;margin-top:8px;color:var(--ink)}
+  .outcome b{color:var(--navy)}
+  /* modal */
+  .scrim{position:fixed;inset:0;background:rgba(17,25,45,.55);display:none;align-items:flex-end;justify-content:center;z-index:1000;padding:0}
+  .scrim.on{display:flex}
+  .sheet{background:#fff;width:100%;max-width:520px;border-radius:18px 18px 0 0;padding:20px 18px calc(20px + env(safe-area-inset-bottom));max-height:92vh;overflow:auto;box-shadow:0 -8px 30px rgba(0,0,0,.25)}
+  @media(min-width:560px){.scrim{align-items:center}.sheet{border-radius:18px}}
+  .sheet h3{margin:0 0 4px;color:var(--navy);font-size:18px}
+  .sheet .sub{color:var(--sub);font-size:13px;margin:0 0 16px}
+  .fld{margin-bottom:12px}
+  .fld label{display:block;font-size:12px;font-weight:700;color:var(--sub);margin-bottom:5px}
+  .fld input,.fld select,.fld textarea{width:100%}
+  .two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .sheetacts{display:flex;gap:10px;margin-top:16px}
+  .sheetacts .btn{flex:1}
+  .bigbtns{display:grid;gap:10px;margin-top:6px}
+  .bigbtns .btn{padding:15px;font-size:15px;text-align:center}
+  .msg{font-size:13px;padding:9px 11px;border-radius:9px;margin-bottom:10px;display:none}
+  .msg.err{display:block;background:var(--redbg);color:var(--red)}
+  #loading{color:var(--sub);padding:26px 4px}
+</style>
+</head>
+<body>
+<header>
+  <div class="hwrap">
+    <div>
+      <div class="htitle">My Diary<small id="whoLabel">Appointments</small></div>
+    </div>
+    <div style="text-align:right">
+      <a class="back" id="homeLink" href="my-sales.html">‹ Back</a>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+  <div class="bar">
+    <button class="btn btn-gold" onclick="openBook()">＋ Book appointment</button>
+    <span id="consultantPickWrap" style="display:none">
+      <label style="font-size:12px;color:var(--sub);font-weight:700;margin-right:6px">Viewing</label>
+      <select id="consultantPick" onchange="onPickConsultant()"></select>
+    </span>
+  </div>
+
+  <div id="loading">Loading…</div>
+  <div id="days"></div>
+</div>
+
+<!-- ============ BOOK / RESCHEDULE SHEET ============ -->
+<div class="scrim" id="bookScrim">
+  <div class="sheet">
+    <h3 id="bookTitle">Book appointment</h3>
+    <p class="sub" id="bookSub">New prospect appointment.</p>
+    <div class="msg err" id="bookErr"></div>
+    <div id="bookFields">
+      <div class="fld"><label>Prospect name</label><input id="f_name" placeholder="Full name"></div>
+      <div class="two">
+        <div class="fld"><label>Phone</label><input id="f_phone" inputmode="tel" placeholder="Mobile"></div>
+        <div class="fld"><label>Suburb</label><input id="f_suburb" placeholder="Suburb"></div>
+      </div>
+      <div class="fld"><label>Address (optional)</label><input id="f_address" placeholder="Street address"></div>
+    </div>
+    <div class="two">
+      <div class="fld"><label>Date</label><input id="f_date" type="date"></div>
+      <div class="fld"><label>Time</label><input id="f_time" type="time"></div>
+    </div>
+    <div class="fld" id="noteWrap"><label>Note (optional)</label><textarea id="f_note" rows="2" placeholder="Anything to remember"></textarea></div>
+    <div class="sheetacts">
+      <button class="btn btn-ghost" onclick="closeSheet('bookScrim')">Cancel</button>
+      <button class="btn btn-navy" id="bookSave" onclick="saveBook()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ OUTCOME SHEET ============ -->
+<div class="scrim" id="outScrim">
+  <div class="sheet">
+    <h3>Appointment outcome</h3>
+    <p class="sub" id="outWho"></p>
+    <div class="msg err" id="outErr"></div>
+
+    <!-- step 1: what happened -->
+    <div id="outStep1" class="bigbtns">
+      <button class="btn btn-red"   onclick="markCancelled()">Cancelled — didn't go ahead</button>
+      <button class="btn btn-amber" onclick="openReschedule()">Reschedule — new day / time</button>
+      <button class="btn btn-green" onclick="showPresented()">Presented — I pitched</button>
+    </div>
+
+    <!-- step 2: presented -> sold / not sold -->
+    <div id="outStep2" style="display:none">
+      <p class="sub" style="margin-bottom:10px">Did they buy?</p>
+      <div class="bigbtns">
+        <button class="btn btn-green" onclick="markSold()">✓ Sold</button>
+        <button class="btn btn-amber" onclick="showNotSold()">Not sold — record reason</button>
+      </div>
+      <div id="notSoldWrap" style="display:none;margin-top:14px">
+        <div class="fld"><label>Reason not sold</label>
+          <select id="f_reason" onchange="onReasonChange()">
+            <option value="">— choose —</option>
+            <option value="dont_need">Don't need</option>
+            <option value="cant_afford">Can't afford</option>
+            <option value="think_about_it">Think about it</option>
+            <option value="other">Other</option>
+          </select>
+        </div>
+        <div class="fld" id="reasonNoteWrap" style="display:none"><label>Details</label><textarea id="f_reasonNote" rows="2" placeholder="What was the objection?"></textarea></div>
+        <button class="btn btn-navy" style="width:100%" onclick="markNotSold()">Save outcome</button>
+      </div>
+    </div>
+
+    <!-- reschedule inputs -->
+    <div id="outReschedule" style="display:none">
+      <p class="sub" style="margin-bottom:10px">Move to a new day / time (logged as a reschedule).</p>
+      <div class="two">
+        <div class="fld"><label>New date</label><input id="rs_date" type="date"></div>
+        <div class="fld"><label>New time</label><input id="rs_time" type="time"></div>
+      </div>
+      <button class="btn btn-navy" style="width:100%" onclick="saveReschedule()">Save reschedule</button>
+    </div>
+
+    <div class="sheetacts" style="margin-top:16px">
+      <button class="btn btn-ghost" style="flex:1" onclick="closeSheet('outScrim')">Close</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const sb = window.SIMTEC_SB;
+const U  = window.SIMTEC_USER || {};
+const DAYS_AHEAD = 7;                 // today + next 7 days always shown
+const DOW=["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
+const MON=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+const REASONS={dont_need:"Don't need",cant_afford:"Can't afford",think_about_it:"Think about it",other:"Other"};
+
+let target = { uid:null, name:null };   // whose diary we're showing
+let editingId = null;                   // appointment currently in the outcome sheet
+const $ = id => document.getElementById(id);
+const esc = s => (s||"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+function ymd(d){return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");}
+function todayStr(){return ymd(new Date());}
+function prettyTime(t){ if(!t) return ""; const p=t.split(":"); let h=+p[0]; const m=p[1]; const ap=h<12?"am":"pm"; h=h%12; if(h===0)h=12; return h+":"+m+ap; }
+
+// ---------- boot ----------
+(async function init(){
+  if(!sb || !U.id){ $("loading").textContent="Not signed in. Please log in again."; return; }
+  const isConsultant = U.role === 'consultant';
+  if(isConsultant){
+    target = { uid:U.id, name:U.consultant_name || U.full_name || 'Me' };
+    $("whoLabel").textContent = target.name + " · your appointments";
+    $("homeLink").href = "my-sales.html";
+  } else {
+    // admin/manager/office: pick whose diary to view/book
+    $("homeLink").href = "home.html";
+    $("consultantPickWrap").style.display = "";
+    await loadConsultantList();
+  }
+  await render();
+})();
+
+async function loadConsultantList(){
+  const sel = $("consultantPick");
+  const { data, error } = await sb.from('profiles')
+    .select('id,consultant_name,full_name,role')
+    .eq('role','consultant').order('consultant_name');
+  sel.innerHTML = "";
+  const list = (data||[]).filter(p=>p.consultant_name||p.full_name);
+  if(!list.length){
+    // fall back: at least let admin book against themselves
+    sel.innerHTML = `<option value="${U.id}">${esc(U.consultant_name||U.full_name||U.email||'Me')}</option>`;
+  } else {
+    list.forEach(p=>{ const o=document.createElement('option'); o.value=p.id; o.textContent=p.consultant_name||p.full_name; sel.appendChild(o); });
+  }
+  target = { uid: sel.value, name: sel.options[sel.selectedIndex].textContent };
+  $("whoLabel").textContent = target.name + " · appointments";
+}
+async function onPickConsultant(){
+  const sel = $("consultantPick");
+  target = { uid: sel.value, name: sel.options[sel.selectedIndex].textContent };
+  $("whoLabel").textContent = target.name + " · appointments";
+  await render();
+}
+
+// ---------- load + render agenda ----------
+async function render(){
+  $("loading").style.display="";
+  $("days").innerHTML="";
+  const start = todayStr();
+  const { data, error } = await sb.from('appointments')
+    .select('*')
+    .eq('consultant_uid', target.uid)
+    .gte('appt_date', start)
+    .order('appt_date').order('appt_time');
+  if(error){ $("loading").textContent = "Couldn't load: "+error.message; return; }
+  $("loading").style.display="none";
+
+  // bucket by date
+  const byDate={};
+  (data||[]).forEach(a=>{ (byDate[a.appt_date]=byDate[a.appt_date]||[]).push(a); });
+
+  // build the list of dates to show: today..+DAYS_AHEAD, plus any later dates that have appts
+  const dates=[];
+  const base=new Date(); base.setHours(0,0,0,0);
+  for(let i=0;i<=DAYS_AHEAD;i++){ const d=new Date(base); d.setDate(base.getDate()+i); dates.push(ymd(d)); }
+  Object.keys(byDate).forEach(d=>{ if(!dates.includes(d)) dates.push(d); });
+  dates.sort();
+
+  let html="";
+  for(const d of dates){
+    const list=(byDate[d]||[]);
+    const [Y,M,D]=d.split("-").map(Number);
+    const dd=new Date(Y,M-1,D);
+    const isToday = d===start;
+    html+=`<div class="day"><div class="dayhd"><span class="dow">${DOW[dd.getDay()]}</span><span class="dt">${D} ${MON[M-1]}</span>${isToday?'<span class="todaypill">TODAY</span>':''}</div>`;
+    if(!list.length){ html+=`<div class="free">— no appointments —</div>`; }
+    else list.forEach(a=>{ html+=apptCard(a); });
+    html+=`</div>`;
+  }
+  $("days").innerHTML = html || `<div class="free">Nothing booked yet. Tap “Book appointment”.</div>`;
+}
+
+function apptCard(a){
+  let badge, outcome="";
+  if(a.status==='cancelled'){ badge=`<span class="badge b-cancelled">Cancelled</span>`; }
+  else if(a.status==='presented'){
+    if(a.sold){ badge=`<span class="badge b-sold">Sold</span>`; }
+    else { badge=`<span class="badge b-nosold">Not sold</span>`;
+      outcome=`<div class="outcome">Reason: <b>${esc(REASONS[a.not_sold_reason]||'—')}</b>${a.not_sold_note?` — ${esc(a.not_sold_note)}`:''}</div>`; }
+  } else { badge=`<span class="badge b-booked">Booked</span>`; }
+
+  const meta=[a.prospect_phone?esc(a.prospect_phone):'', a.suburb?esc(a.suburb):''].filter(Boolean).join(' · ');
+  const rs = a.reschedule_count>0 ? `<div class="rs">⟳ Rescheduled ${a.reschedule_count}×</div>` : '';
+  const canAct = a.status==='booked';
+  const acts = canAct
+    ? `<div class="acts"><button class="btn btn-navy" onclick="openOutcome('${a.id}')">Record outcome</button></div>`
+    : `<div class="acts"><button class="btn btn-ghost" onclick="openOutcome('${a.id}')">Change…</button></div>`;
+
+  return `<div class="appt">
+    <div class="top">
+      <div>
+        <div class="time">${a.appt_time?prettyTime(a.appt_time):'—'}</div>
+        <div class="who">${esc(a.prospect_name||'(no name)')}</div>
+        ${meta?`<div class="meta">${meta}</div>`:''}
+        ${a.note?`<div class="meta">📝 ${esc(a.note)}</div>`:''}
+        ${rs}${outcome}
+      </div>
+      ${badge}
+    </div>
+    ${acts}
+  </div>`;
+}
+
+// ---------- booking ----------
+function openBook(){
+  $("bookTitle").textContent="Book appointment";
+  $("bookSub").textContent="New prospect appointment for "+target.name+".";
+  ["f_name","f_phone","f_suburb","f_address","f_note","f_time"].forEach(i=>$(i).value="");
+  $("f_date").value = todayStr();
+  $("bookErr").style.display="none";
+  $("bookScrim").classList.add("on");
+}
+async function saveBook(){
+  const name=$("f_name").value.trim(), date=$("f_date").value, time=$("f_time").value;
+  if(!name){ return bookError("Enter the prospect's name."); }
+  if(!date){ return bookError("Choose a date."); }
+  $("bookSave").disabled=true;
+  const row={
+    consultant_uid: target.uid, consultant_name: target.name,
+    prospect_name:name, prospect_phone:$("f_phone").value.trim()||null,
+    suburb:$("f_suburb").value.trim()||null, address:$("f_address").value.trim()||null,
+    note:$("f_note").value.trim()||null, appt_date:date, appt_time:time||null,
+    status:'booked', reschedule_count:0
+  };
+  const { error } = await sb.from('appointments').insert(row);
+  $("bookSave").disabled=false;
+  if(error){ return bookError(error.message); }
+  closeSheet('bookScrim');
+  await render();
+}
+function bookError(m){ const e=$("bookErr"); e.textContent=m; e.style.display="block"; }
+
+// ---------- outcome ----------
+let curAppt=null;
+async function openOutcome(id){
+  editingId=id;
+  const { data } = await sb.from('appointments').select('*').eq('id',id).maybeSingle();
+  curAppt=data||{};
+  $("outWho").textContent = (curAppt.prospect_name||'')+(curAppt.appt_time?(' · '+prettyTime(curAppt.appt_time)):'');
+  $("outErr").style.display="none";
+  $("outStep1").style.display="";
+  $("outStep2").style.display="none";
+  $("notSoldWrap").style.display="none";
+  $("outReschedule").style.display="none";
+  $("f_reason").value=""; $("f_reasonNote").value=""; $("reasonNoteWrap").style.display="none";
+  $("outScrim").classList.add("on");
+}
+function outErr(m){ const e=$("outErr"); e.textContent=m; e.style.display="block"; }
+
+async function updateAppt(patch){
+  patch.updated_at=new Date().toISOString();
+  const { error } = await sb.from('appointments').update(patch).eq('id',editingId);
+  if(error){ outErr(error.message); return false; }
+  return true;
+}
+async function markCancelled(){
+  if(!confirm("Mark this appointment as cancelled?")) return;
+  if(await updateAppt({status:'cancelled'})){ closeSheet('outScrim'); await render(); }
+}
+function showPresented(){ $("outStep1").style.display="none"; $("outStep2").style.display=""; }
+function showNotSold(){ $("notSoldWrap").style.display=""; }
+function onReasonChange(){ $("reasonNoteWrap").style.display = $("f_reason").value==='other' ? "" : "none"; }
+async function markSold(){
+  if(await updateAppt({status:'presented', sold:true, not_sold_reason:null, not_sold_note:null})){ closeSheet('outScrim'); await render(); }
+}
+async function markNotSold(){
+  const r=$("f_reason").value;
+  if(!r){ return outErr("Choose a reason."); }
+  const note = r==='other' ? ($("f_reasonNote").value.trim()||null) : null;
+  if(r==='other' && !note){ return outErr("Add a short detail for “Other”."); }
+  if(await updateAppt({status:'presented', sold:false, not_sold_reason:r, not_sold_note:note})){ closeSheet('outScrim'); await render(); }
+}
+function openReschedule(){
+  $("outStep1").style.display="none";
+  $("outReschedule").style.display="";
+  $("rs_date").value = curAppt.appt_date || todayStr();
+  $("rs_time").value = curAppt.appt_time ? String(curAppt.appt_time).slice(0,5) : "";
+}
+async function saveReschedule(){
+  const d=$("rs_date").value, t=$("rs_time").value;
+  if(!d){ return outErr("Choose the new date."); }
+  const next=(curAppt.reschedule_count||0)+1;
+  if(await updateAppt({appt_date:d, appt_time:t||null, status:'booked', reschedule_count:next})){ closeSheet('outScrim'); await render(); }
+}
+
+function closeSheet(id){ $(id).classList.remove("on"); }
+// tap scrim background to close
+document.querySelectorAll('.scrim').forEach(s=>s.addEventListener('click',e=>{ if(e.target===s) s.classList.remove('on'); }));
+</script>
+</body>
+</html>
