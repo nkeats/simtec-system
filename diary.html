@@ -184,50 +184,63 @@ const DOW=["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday
 const MON=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 const REASONS={dont_need:"Don't need",cant_afford:"Can't afford",think_about_it:"Think about it",other:"Other"};
 
-let target = { uid:null, name:null };   // whose diary we're showing
-let editingId = null;                   // appointment currently in the outcome sheet
+let target = { cid:null, uid:null, name:null };   // whose diary we're showing
+let editingId = null;                             // appointment currently in the outcome sheet
 const $ = id => document.getElementById(id);
 const esc = s => (s||"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 function ymd(d){return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");}
 function todayStr(){return ymd(new Date());}
 function prettyTime(t){ if(!t) return ""; const p=t.split(":"); let h=+p[0]; const m=p[1]; const ap=h<12?"am":"pm"; h=h%12; if(h===0)h=12; return h+":"+m+ap; }
 
+// Any load failure must be LOUD. A silent failure here previously left target.uid
+// undefined, so Save appeared to freeze with no explanation.
+function fatal(msg){
+  $("loading").innerHTML = '<div style="background:#fdecec;border:1px solid #e0b4b0;color:#b4342e;'
+    + 'border-radius:12px;padding:14px 16px;font-size:14px;line-height:1.5">'
+    + '<b>The diary couldn\'t load.</b><br><br>' + esc(msg)
+    + '<br><br>Booking is disabled until this is fixed.</div>';
+  $("loading").style.display="";
+  $("days").innerHTML="";
+  document.querySelectorAll('.btn-gold').forEach(b=>b.disabled=true);
+}
+
 // ---------- boot ----------
 (async function init(){
-  if(!sb || !U.id){ $("loading").textContent="Not signed in. Please log in again."; return; }
-  const isConsultant = U.role === 'consultant';
-  if(isConsultant){
-    target = { uid:U.id, name:U.consultant_name || U.full_name || 'Me' };
-    $("whoLabel").textContent = target.name + " · your appointments";
-    $("homeLink").href = "my-sales.html";
-  } else {
-    // admin/manager/office: pick whose diary to view/book
-    $("homeLink").href = "home.html";
-    $("consultantPickWrap").style.display = "";
-    await loadConsultantList();
-  }
-  await render();
+  if(!sb || !U.id){ fatal("Not signed in. Please log in again."); return; }
+  try{
+    // Everyone books against a commission_consultants record (works whether or not
+    // that consultant has a login yet). consultant_uid is set only when a consultant
+    // books for themselves.
+    const {data:cons,error} = await sb.from("commission_consultants")
+      .select("id,name").eq("active",true).order("name");
+    if(error) throw new Error("Loading consultants: "+error.message);
+    if(!cons || !cons.length) throw new Error("No active consultants found.");
+
+    const myName = (U.consultant_name||"").trim().toLowerCase();
+    const isConsultant = U.role === 'consultant';
+
+    if(isConsultant){
+      const me = cons.find(c=>(c.name||"").trim().toLowerCase()===myName);
+      if(!me) throw new Error("Your login isn't linked to a consultant record ("
+                + esc(U.consultant_name||U.email||"?") + "). Ask the office to set your consultant name.");
+      target = { cid:me.id, uid:U.id, name:me.name };
+      $("whoLabel").textContent = me.name + " · your appointments";
+      $("homeLink").href = "my-sales.html";
+    } else {
+      $("homeLink").href = "home.html";
+      $("consultantPickWrap").style.display = "";
+      const sel = $("consultantPick");
+      sel.innerHTML = cons.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join("");
+      target = { cid:cons[0].id, uid:null, name:cons[0].name };
+      $("whoLabel").textContent = target.name + " · appointments";
+    }
+    await render();
+  }catch(e){ fatal(e.message||String(e)); }
 })();
 
-async function loadConsultantList(){
-  const sel = $("consultantPick");
-  const { data, error } = await sb.from('profiles')
-    .select('id,consultant_name,full_name,role')
-    .eq('role','consultant').order('consultant_name');
-  sel.innerHTML = "";
-  const list = (data||[]).filter(p=>p.consultant_name||p.full_name);
-  if(!list.length){
-    // fall back: at least let admin book against themselves
-    sel.innerHTML = `<option value="${U.id}">${esc(U.consultant_name||U.full_name||U.email||'Me')}</option>`;
-  } else {
-    list.forEach(p=>{ const o=document.createElement('option'); o.value=p.id; o.textContent=p.consultant_name||p.full_name; sel.appendChild(o); });
-  }
-  target = { uid: sel.value, name: sel.options[sel.selectedIndex].textContent };
-  $("whoLabel").textContent = target.name + " · appointments";
-}
 async function onPickConsultant(){
   const sel = $("consultantPick");
-  target = { uid: sel.value, name: sel.options[sel.selectedIndex].textContent };
+  target = { cid: sel.value, uid:null, name: sel.options[sel.selectedIndex].textContent };
   $("whoLabel").textContent = target.name + " · appointments";
   await render();
 }
@@ -239,7 +252,7 @@ async function render(){
   const start = todayStr();
   const { data, error } = await sb.from('appointments')
     .select('*')
-    .eq('consultant_uid', target.uid)
+    .eq('consultant_id', target.cid)
     .gte('appt_date', start)
     .order('appt_date').order('appt_time');
   if(error){ $("loading").textContent = "Couldn't load: "+error.message; return; }
@@ -315,8 +328,9 @@ async function saveBook(){
   if(!name){ return bookError("Enter the prospect's name."); }
   if(!date){ return bookError("Choose a date."); }
   $("bookSave").disabled=true;
+  if(!target.cid){ return bookError("No consultant selected — reload the page."); }
   const row={
-    consultant_uid: target.uid, consultant_name: target.name,
+    consultant_id: target.cid, consultant_uid: target.uid || null, consultant_name: target.name,
     prospect_name:name, prospect_phone:$("f_phone").value.trim()||null,
     suburb:$("f_suburb").value.trim()||null, address:$("f_address").value.trim()||null,
     note:$("f_note").value.trim()||null, appt_date:date, appt_time:time||null,
