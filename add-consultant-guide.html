@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Simtec — Adding a New Consultant</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="auth.js?v=3" data-roles="admin"></script>
+<style>
+  :root{--navy:#122347;--navy2:#1c3363;--gold:#c6a15b;--ink:#1a2334;--line:#d9e0ea;
+        --bg:#eef1f5;--grey:#7a8798;--red:#b4342e;--redbg:#fdecec;--green:#1c6b34;--greenbg:#e9f5ed;}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+       font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+       -webkit-font-smoothing:antialiased;line-height:1.55}
+  header{background:var(--navy);color:#fff;padding:18px 22px;display:flex;align-items:center;gap:14px}
+  header .back{color:#b9c6de;text-decoration:none;font-size:13px;font-weight:600}
+  header .back:hover{color:#fff}
+  header .brand{font-weight:700;font-size:19px;letter-spacing:.5px}
+  header .brand small{display:block;font-size:10px;letter-spacing:.22em;color:var(--gold);font-weight:600}
+  .wrap{max-width:840px;margin:22px auto 70px;padding:0 16px}
+  .lead{color:#48566b;font-size:15px;margin:0 0 22px}
+  .step{background:#fff;border:1px solid var(--line);border-radius:14px;margin-bottom:16px;overflow:hidden}
+  .step > .hd{display:flex;align-items:center;gap:12px;padding:15px 18px;border-bottom:1px solid var(--line)}
+  .step .num{flex:0 0 30px;height:30px;border-radius:50%;background:var(--navy);color:#fff;
+             font-weight:800;font-size:14px;display:flex;align-items:center;justify-content:center}
+  .step h2{margin:0;font-size:16px;color:var(--navy)}
+  .step .bd{padding:15px 18px}
+  .step p{margin:0 0 10px}
+  .step ul{margin:6px 0 10px;padding-left:20px}
+  .step li{margin-bottom:5px}
+  code{background:#eef1f6;border:1px solid #dde3ec;border-radius:5px;padding:1px 6px;font-size:13px}
+  pre{background:#0f1a30;color:#dbe4f2;border-radius:10px;padding:14px 16px;overflow:auto;
+      font-size:12.8px;line-height:1.55;margin:8px 0 4px;position:relative}
+  pre .c{color:#7f93b5}
+  .copy{position:absolute;top:8px;right:8px;background:#24365c;color:#cfdbf0;border:none;border-radius:7px;
+        padding:5px 10px;font-size:11px;font-weight:700;cursor:pointer}
+  .copy:hover{background:#2f4472}
+  .warn{background:var(--redbg);border:1px solid #e6bcb8;border-left:4px solid var(--red);
+        border-radius:9px;padding:12px 14px;margin:10px 0;font-size:14px}
+  .warn b{color:var(--red)}
+  .tip{background:var(--greenbg);border:1px solid #bcdcc6;border-left:4px solid var(--green);
+       border-radius:9px;padding:12px 14px;margin:10px 0;font-size:14px}
+  .tip b{color:var(--green)}
+  .rule{background:#fff8e9;border:1px solid #e8d5a8;border-left:4px solid var(--gold);
+        border-radius:9px;padding:12px 14px;margin:10px 0;font-size:14px}
+  .rule b{color:#8a6a1f}
+  .foot{color:var(--grey);font-size:12.5px;text-align:center;margin-top:26px}
+  @media print{header{background:#fff;color:#000} .copy{display:none} body{background:#fff}}
+</style>
+</head>
+<body>
+<header>
+  <a href="home.html" class="back">‹ Home</a>
+  <div class="brand">Adding a New Consultant<small>SIMTEC THERAPEUTIC</small></div>
+</header>
+
+<div class="wrap">
+  <p class="lead">Follow these steps in order every time you give a consultant access to the system.
+  Step&nbsp;3 is the one people forget — without it, their login exists but the system doesn't know who they are.</p>
+
+  <!-- 1 -->
+  <div class="step">
+    <div class="hd"><div class="num">1</div><h2>Add them as a consultant first</h2></div>
+    <div class="bd">
+      <p>Go to <b>Admin → Consultants &amp; Teams</b> and add the consultant. Note the exact spelling of the
+      name you use — you'll need it to match, character for character, in step 3.</p>
+      <div class="rule"><b>Why it matters:</b> the consultant record is what their sales, commissions and
+      diary all hang off. The login is added on top of it, not instead of it.</div>
+    </div>
+  </div>
+
+  <!-- 2 -->
+  <div class="step">
+    <div class="hd"><div class="num">2</div><h2>Create their login in Supabase</h2></div>
+    <div class="bd">
+      <p>In the Supabase dashboard: <b>Authentication → Users → Add user</b>.</p>
+      <ul>
+        <li>Enter their <b>email address</b>.</li>
+        <li>Set a <b>temporary password</b> — a different one for each person, never a shared password.</li>
+        <li>Tick <b>Auto Confirm User</b> (otherwise they can't sign in until they click an email link).</li>
+      </ul>
+      <p>When the user appears in the list, click them and <b>copy their UUID</b> (the long id). You need it next.</p>
+      <div class="warn"><b>Never share one password between consultants.</b> If everyone uses the same login
+      you can't tell who did what, and when someone leaves you'd have to reset it for the whole team.</div>
+    </div>
+  </div>
+
+  <!-- 3 -->
+  <div class="step">
+    <div class="hd"><div class="num">3</div><h2>Link the login to the consultant (the step people forget)</h2></div>
+    <div class="bd">
+      <p>Creating the login does <b>not</b> tell the system who they are. Run this in
+      <b>Supabase → SQL Editor → New query</b>, filling in the three highlighted values:</p>
+<pre><button class="copy" onclick="cp(this)">Copy</button><span class="c">-- Paste the UUID from step 2, their email, and their name.
+-- consultant_name MUST match the name in Consultants &amp; Teams exactly.</span>
+insert into profiles (id, email, full_name, role, consultant_name, active)
+values (
+  '<b>PASTE-UUID-HERE</b>',
+  '<b>their.email@simtectp.com</b>',
+  '<b>Their Full Name</b>',
+  'consultant',
+  '<b>Their Full Name</b>',   <span class="c">-- must match exactly</span>
+  true
+);</pre>
+      <div class="warn"><b>The name must match exactly.</b> A stray space or a different spelling and their
+      diary will refuse them with "Your login isn't linked to a consultant record." Copy and paste the name
+      rather than retyping it.</div>
+    </div>
+  </div>
+
+  <!-- 4 -->
+  <div class="step">
+    <div class="hd"><div class="num">4</div><h2>Check it worked — before you tell them the password</h2></div>
+    <div class="bd">
+      <p>Run this. Every consultant must show <b>YES ✓</b>.</p>
+<pre><button class="copy" onclick="cp(this)">Copy</button>select coalesce(string_agg(
+  p.consultant_name||' → role='||p.role
+  ||' | linked to consultant record: '||
+  case when exists(select 1 from commission_consultants cc
+       where lower(trim(cc.name))=lower(trim(p.consultant_name))) then 'YES ✓' else 'NO ✗' end,
+  E'\n' order by p.consultant_name),'none')
+from profiles p where p.role='consultant' and p.active;</pre>
+      <p>Anyone showing <b>NO ✗</b> has a name mismatch. Fix the spelling in <code>profiles.consultant_name</code>
+      so it matches <code>commission_consultants.name</code>, then re-run the check.</p>
+      <div class="tip"><b>Do this before handing over the password.</b> It takes ten seconds and saves a
+      confused phone call from someone standing on a doorstep.</div>
+    </div>
+  </div>
+
+  <!-- 5 -->
+  <div class="step">
+    <div class="hd"><div class="num">5</div><h2>Hand it over</h2></div>
+    <div class="bd">
+      <p>Give them their email address and temporary password, and tell them to:</p>
+      <ul>
+        <li>Sign in at the system address, then</li>
+        <li><b>Change their password immediately</b> (Reset password screen).</li>
+      </ul>
+      <p>They'll land on <b>My Sales</b>, with the gold <b>📅 My Diary</b> button in the top corner.</p>
+      <div class="tip"><b>What they can and can't see.</b> A consultant sees only their own sales, their own
+      customers and their own diary. They cannot see other consultants' figures, the pay runs, debt recovery,
+      product prices or commission rates. That's enforced by the database, not just by hiding buttons.</div>
+    </div>
+  </div>
+
+  <!-- 6 -->
+  <div class="step">
+    <div class="hd"><div class="num">6</div><h2>When someone leaves</h2></div>
+    <div class="bd">
+      <p>Don't delete them — their sales, commissions and history must stay intact. Instead:</p>
+<pre><button class="copy" onclick="cp(this)">Copy</button><span class="c">-- Revokes access immediately. History is preserved.</span>
+update profiles set active = false
+where consultant_name = '<b>Their Full Name</b>';</pre>
+      <p>Then in <b>Supabase → Authentication → Users</b>, delete or ban the user so the password no longer works.</p>
+      <div class="rule"><b>Setting <code>active = false</code> is what locks them out</b> — the system checks it
+      on every page load and signs them straight back out.</div>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="hd"><div class="num">!</div><h2>Two standing rules</h2></div>
+    <div class="bd">
+      <div class="warn"><b>One password per person, always.</b> Turn on leaked-password protection in
+      Supabase → Authentication → Policies. It blocks passwords known from public data breaches.</div>
+      <div class="warn"><b>Every consultant is a logged-in user of the database.</b> The only thing separating
+      them from customer records, pay runs and debt recovery is Row Level Security. Any new table must have
+      RLS enabled and a policy written <i>before</i> it holds real data. No exceptions.</div>
+    </div>
+  </div>
+
+  <p class="foot">Simtec Therapeutic · admin only · print this page if it helps</p>
+</div>
+
+<script>
+function cp(btn){
+  const pre = btn.parentElement.cloneNode(true);
+  pre.querySelector('.copy').remove();
+  navigator.clipboard.writeText(pre.innerText.trim()).then(()=>{
+    const t = btn.textContent; btn.textContent = 'Copied'; setTimeout(()=>btn.textContent=t, 1400);
+  }).catch(()=>{ btn.textContent='Select manually'; });
+}
+</script>
+</body>
+</html>
