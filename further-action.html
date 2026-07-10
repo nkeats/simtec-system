@@ -6,6 +6,7 @@
 <title>Simtec — Further Action</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="live.js?v=1" defer></script>
 <script src="auth.js?v=3" data-roles="admin,manager"></script>
 <style>
   body{background:#0b1220;color:#e2e8f0}
@@ -74,7 +75,7 @@ window.addCase=async(custId)=>{
   $("search").value=""; $("results").innerHTML=""; load();
 };
 
-async function load(){
+async function load(quiet){
   const {data:orders}=await sb.from("sim_orders")
     .select("*, sim_customers(*), sim_order_items(product_name,quantity)")
     .eq("further_action",true).order("further_action_date",{ascending:true});
@@ -146,6 +147,10 @@ window.saveContact=async(id)=>{
 window.delContact=async(cid)=>{ if(!confirm("Delete this contact record?"))return; await sb.from("debt_contacts").delete().eq("id",cid); load(); };
 window.removeCase=async(id)=>{ if(!confirm("Remove this customer from further action? Contact history is kept."))return;
   await sb.from("sim_orders").update({further_action:false}).eq("id",id); load(); };
+// live.js calls this when the database changes, when this tab regains focus,
+// and once a minute as a safety net. Nobody has to remember to refresh.
+window.SIMTEC_RELOAD = function(){ load(true); };
+
 load();
 </script>
 </body>

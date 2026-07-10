@@ -6,6 +6,7 @@
 <title>Simtec — Delivery</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://unpkg.com/@supabase/supabase-js@2.38.4/dist/umd/supabase.js"></script>
+<script src="live.js?v=1" defer></script>
 <script src="auth.js?v=3" data-roles="admin,manager,office"></script>
 <style>
 body{font-family:system-ui,sans-serif}
@@ -98,7 +99,7 @@ function cleared(order,payAcct,counts){
 
 let rows=[], filter='ready', BOOKED=[];
 
-async function load(){
+async function load(quiet){
   const {data:rules}=await sb.from('delivery_rules').select('*').order('min_deposit_pct');
   RULES=rules||[];
   const {data:orders,error}=await sb.from('sim_orders')
@@ -237,6 +238,10 @@ window.markDelivered=async(id)=>{
   if(error){alert(error.message);return;}
   await load();
 };
+
+// live.js calls this when the database changes, when this tab regains focus,
+// and once a minute as a safety net. Nobody has to remember to refresh.
+window.SIMTEC_RELOAD = function(){ load(true); };
 
 load();
 </script>
