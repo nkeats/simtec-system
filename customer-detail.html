@@ -119,22 +119,52 @@ function position(o){
   const paid=o.amount_paid_to_date!=null?Number(o.amount_paid_to_date):0;
   const delivered=(o.delivery_status||"")==="delivered";
   const freq=PERIODS[o.payment_frequency]||PERIODS.weekly;
-  const start=o.loan_start_date||o.first_payment_date||o.order_date;
+  const today=new Date(); today.setHours(0,0,0,0);
+
   if(contract==null||contract<=0) return {cls:"grey",label:"No contract value",contract,paid,expected:null,behindBy:0,periodsBehind:0,freq,balance:null,estimated:false};
   if(paid>=contract*0.999)        return {cls:"green",label:"Paid up",contract,paid,expected:contract,behindBy:0,periodsBehind:0,freq,balance:0,estimated:false};
 
   const haveTerms = o.instalment_amount!=null && Number(o.instalment_amount)>0;
   const perAmt = haveTerms ? Number(o.instalment_amount) : contract/freq.total;
-  let expected=null,behindBy=0,periodsBehind=0,cls="grey",label="No plan";
-  if(start){
-    const days=(new Date()-new Date(start))/86400000;
-    expected=Math.min(contract,perAmt*Math.max(0,days/freq.per));
-    behindBy=expected-paid; periodsBehind=perAmt>0?behindBy/perAmt:0;
-    if(behindBy<=perAmt){cls="green";label="On track";}
-    else if(!delivered){cls="amber";label="Behind — not delivered";}
-    else {cls="red";label="Behind — DELIVERED";}
-  } else { cls=delivered?"amber":"grey"; label=delivered?"Delivered, no payments seen":"No payment plan yet"; }
-  return {cls,label,contract,paid,expected,behindBy:Math.max(0,behindBy),periodsBehind:Math.max(0,periodsBehind),freq,balance:contract-paid,estimated:!haveTerms};
+
+  // When do payments actually start?  Never accrue "expected" before the first debit.
+  // A customer sold three weeks ago whose first payment is next Thursday owes nothing
+  // yet — the old code accrued from the order date and called them behind.
+  const startStr = o.loan_start_date || o.first_payment_date || null;
+  const next = o.next_payment_date ? new Date(o.next_payment_date+"T00:00:00") : null;
+
+  if(!startStr){
+    if(next && next > today){
+      return {cls:"green", label:"Payments start "+auDate(o.next_payment_date),
+              contract, paid, expected:0, behindBy:0, periodsBehind:0, freq,
+              balance:contract-paid, estimated:!haveTerms, notStarted:true};
+    }
+    // No start date and no future first debit: we genuinely don't know.
+    return {cls: delivered?"amber":"grey",
+            label: delivered?"Delivered, no payment plan recorded":"No payment plan yet",
+            contract, paid, expected:null, behindBy:0, periodsBehind:0, freq,
+            balance:contract-paid, estimated:true};
+  }
+
+  const start=new Date(String(startStr).slice(0,10)+"T00:00:00");
+  if(start > today){
+    return {cls:"green", label:"Payments start "+auDate(startStr),
+            contract, paid, expected:0, behindBy:0, periodsBehind:0, freq,
+            balance:contract-paid, estimated:!haveTerms, notStarted:true};
+  }
+
+  const days=(today-start)/86400000;
+  const expected=Math.min(contract, perAmt*Math.max(0, Math.floor(days/freq.per)+1));
+  let behindBy=expected-paid;
+  const periodsBehind = perAmt>0 ? behindBy/perAmt : 0;
+  let cls,label;
+  if(behindBy<=perAmt){ cls="green"; label="On track"; }
+  else if(!delivered){ cls="amber"; label="Behind — not delivered"; }
+  else { cls="red"; label="Behind — DELIVERED"; }
+
+  return {cls,label,contract,paid,expected,behindBy:Math.max(0,behindBy),
+          periodsBehind:Math.max(0,periodsBehind),freq,balance:contract-paid,
+          estimated:!haveTerms};
 }
 
 // ---------- search ----------
@@ -305,8 +335,10 @@ function orderSection(o, items, pays, open){
     ${o.joint_purchase?kv("Joint purchaser",esc(o.second_customer_name)||"—"):""}
   </div>`;
 
+  const money2=n=>(n==null)?"—":"$"+Number(n).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
   const termsLine = (o.instalment_amount!=null && o.term_periods!=null)
-    ? kv("Agreed payment",`${fmt(o.instalment_amount)} × ${o.term_periods} ${p.freq.word}`)
+    ? kv("Agreed payment",`${money2(o.instalment_amount)} × ${o.term_periods} ${p.freq.word}`)
+      + (o.next_payment_date?kv("Next payment",auDate(o.next_payment_date)):"")
     : kv("Agreed payment",`<span style="color:var(--amber)">not recorded — amend the order to enter it</span>`);
 
   const money = o.paid_via_order_id
