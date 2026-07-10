@@ -453,8 +453,15 @@ run();
     </p>
     <div id="amErr" style="display:none;background:#fdecec;border:1px solid #e0b4b0;color:#b4342e;border-radius:9px;padding:11px 13px;font-size:13.5px;margin-bottom:12px"></div>
 
-    <h4 style="font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:#7a8798;margin:14px 0 6px">Current products</h4>
-    <table style="width:100%;border-collapse:collapse;font-size:13.5px"><tbody id="amCur"></tbody></table>
+    <h4 style="font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:#7a8798;margin:14px 0 6px">Products on this order</h4>
+    <table style="width:100%;border-collapse:collapse;font-size:13.5px">
+      <thead><tr style="font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:#9aa6b6">
+        <th style="text-align:left;padding:0 4px 4px">Product</th>
+        <th style="text-align:right;padding:0 4px 4px">Qty</th>
+        <th style="text-align:right;padding:0 4px 4px">Unit price</th>
+        <th style="text-align:right;padding:0 4px 4px">Line total</th>
+        <th></th></tr></thead>
+      <tbody id="amCur"></tbody></table>
 
     <h4 style="font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:#7a8798;margin:16px 0 6px">Add a product</h4>
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
@@ -516,7 +523,7 @@ run();
    Term is kept; the instalment moves (Simtec steers to a 3-year ceiling).
    Outstanding balance is typed in from Ezidebit, which is the source of truth for balances. */
 
-const AM = { prods:[], prices:{}, keep:{}, add:[], edit:{}, commByName:{} };
+const AM = { prods:[], prices:{}, lines:[], commByName:{} };
 const PER = { weekly:7, fortnightly:14, monthly:30.44 };
 const isMatt = n => n && !/delivery|protector|pillow|base|topper/i.test(n);
 
@@ -541,7 +548,7 @@ async function openAmend(oid){
   const o=window._O;
   if(!o){ return; }
   amErr("");
-  AM.keep={}; AM.add=[]; AM.edit={};
+  AM.lines=[];
 
   // Read the order's products straight from the database rather than relying on
   // whatever the page happened to load. If this ever comes back empty we say so,
@@ -556,7 +563,14 @@ async function openAmend(oid){
     window._ITEMS = [];
     amErr("<b>Couldn't read this order's products.</b><br>"+(e.message||e)+"<br>Do not save — the amendment would be wrong.");
   }
-  (window._ITEMS||[]).forEach(i=>{ if(!i.cancelled){ AM.keep[i.id]=true; AM.edit[i.id]={qty:Number(i.quantity||1), price:Number(i.unit_price||0)}; } });
+  // ONE structure describes the amended order. Previously the current lines, the
+  // keep-flags and the edits lived in three parallel maps that could fall out of
+  // step — when they did, kept lines silently dropped out of the total.
+  AM.lines = (window._ITEMS||[]).filter(i=>!i.cancelled).map(i=>({
+    id:i.id, name:i.product_name||"", qty:Number(i.quantity||1),
+    price:Number(i.unit_price||0), origQty:Number(i.quantity||1),
+    origPrice:Number(i.unit_price||0), removed:false, isNew:false
+  }));
 
   try{
     const [{data:cp,error:e1},{data:cfg,error:e2}] = await Promise.all([
@@ -594,35 +608,33 @@ async function openAmend(oid){
 }
 function closeAmend(){ document.getElementById("amendModal").style.display="none"; }
 
+function amToggle(ix){ AM.lines[ix].removed=!AM.lines[ix].removed; amRenderLines(); amCalc(); }
+function amDrop(ix){ AM.lines.splice(ix,1); amRenderLines(); amCalc(); }
+function amSetQty(ix,v){ AM.lines[ix].qty=Math.max(1,parseInt(v||"1",10)); amCalc(); }
+function amSetPrice(ix,v){ AM.lines[ix].price=parseFloat(v||"0")||0; amCalc(); }
+
 function amRenderLines(){
-  const items=(window._ITEMS||[]).filter(i=>!i.cancelled);
-  document.getElementById("amCur").innerHTML = items.length ? items.map(i=>{
-    const kept=!!AM.keep[i.id];
-    const e=AM.edit[i.id]||{qty:i.quantity,price:i.unit_price};
+  const rows = AM.lines.map((l,ix)=>{
+    const on=!l.removed;
     return `
-    <tr style="border-bottom:1px solid #e6eaf0;${kept?"":"opacity:.45"}">
-      <td style="padding:8px 4px">${kept?"":"<s>"}${i.product_name||""}${kept?"":"</s>"}</td>
+    <tr style="border-bottom:1px solid #e6eaf0;${on?"":"opacity:.45"};${l.isNew?"background:#f2f8f0":""}">
+      <td style="padding:8px 4px">${l.isNew?'<span style="color:#1c6b34;font-weight:700">+ </span>':""}${on?"":"<s>"}${l.name}${on?"":"</s>"}</td>
       <td style="padding:8px 4px;text-align:right;width:74px">
-        <input type="number" min="1" value="${e.qty}" ${kept?"":"disabled"}
-          onchange="AM.edit['${i.id}'].qty=Math.max(1,parseInt(this.value||'1',10)); amCalc()"
+        <input type="number" min="1" value="${l.qty}" ${on?"":"disabled"} onchange="amSetQty(${ix},this.value)"
           style="width:62px;padding:4px 6px;border:1px solid #cbd4df;border-radius:6px;text-align:right"></td>
       <td style="padding:8px 4px;text-align:right;width:118px">
-        <input type="number" step="0.01" value="${e.price}" ${kept?"":"disabled"}
-          onchange="AM.edit['${i.id}'].price=parseFloat(this.value||'0'); amCalc()"
+        <input type="number" step="0.01" value="${l.price}" ${on?"":"disabled"} onchange="amSetPrice(${ix},this.value)"
           style="width:104px;padding:4px 6px;border:1px solid #cbd4df;border-radius:6px;text-align:right"></td>
-      <td style="padding:8px 4px;text-align:right;width:90px">
-        <button onclick="AM.keep['${i.id}']=${kept?"false":"true"}; amRenderLines(); amCalc()"
-          style="background:${kept?"none":"#1c6b34"};border:1px solid ${kept?"#e0b4b0":"#1c6b34"};color:${kept?"#b4342e":"#fff"};border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer">
-          ${kept?"Remove":"Restore"}</button></td>
-    </tr>`;}).join("")
-    : `<tr><td colspan="4" class="muted" style="padding:10px 0">This order has no product lines recorded.</td></tr>`;
-
-  document.getElementById("amAdded").innerHTML = AM.add.length ? AM.add.map((a,ix)=>`
-    <div style="display:flex;justify-content:space-between;align-items:center;background:#eef4ea;border:1px solid #cfe0c8;border-radius:8px;padding:7px 11px;margin-bottom:5px;font-size:13.5px">
-      <span>+ ${a.name} × ${a.qty}</span>
-      <span>${money(a.price*a.qty)} <button onclick="AM.add.splice(${ix},1);amRenderLines();amCalc()"
-        style="margin-left:8px;background:none;border:1px solid #cbd4df;border-radius:5px;padding:1px 7px;cursor:pointer">remove</button></span>
-    </div>`).join("") : "";
+      <td style="padding:8px 4px;text-align:right;width:104px">${money(on?l.qty*l.price:0)}</td>
+      <td style="padding:8px 4px;text-align:right;width:92px">
+        ${l.isNew
+          ? `<button onclick="amDrop(${ix})" style="background:none;border:1px solid #cbd4df;border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer">Undo</button>`
+          : `<button onclick="amToggle(${ix})" style="background:${on?"none":"#1c6b34"};border:1px solid ${on?"#e0b4b0":"#1c6b34"};color:${on?"#b4342e":"#fff"};border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer">${on?"Remove":"Restore"}</button>`}
+      </td>
+    </tr>`;}).join("");
+  document.getElementById("amCur").innerHTML = AM.lines.length ? rows
+    : `<tr><td colspan="5" class="muted" style="padding:10px 0">This order has no product lines recorded.</td></tr>`;
+  const el=document.getElementById("amAdded"); if(el) el.innerHTML="";
 }
 
 function amPrefill(){
@@ -636,32 +648,23 @@ function amAdd(){
   const price=parseFloat(document.getElementById("amPrice").value);
   if(!name){ return amErr("Choose a product to add."); }
   if(!(price>=0)){ return amErr("Enter a price for "+name+"."); }
-  if(isMatt(name)){
-    const keptM=(window._ITEMS||[]).filter(i=>!i.cancelled&&AM.keep[i.id]&&isMatt(i.product_name)).length;
-    const addM=AM.add.filter(a=>isMatt(a.name)).length;
-    if(keptM+addM>=1 && !confirm("This order already has a mattress.\n\nAdding a SECOND mattress should be written as a brand-new sale, not an amendment.\n\nContinue anyway?")) return;
+  if(isMatt(name) && amMattressesAfter().length>=1){
+    if(!confirm("This order already has a mattress.\n\nAdding a SECOND mattress should be written as a brand-new sale, not an amendment.\n\nContinue anyway?")) return;
   }
   amErr("");
-  AM.add.push({name,qty:qty>0?qty:1,price});
+  AM.lines.push({id:null,name,qty:qty>0?qty:1,price,removed:false,isNew:true});
   document.getElementById("amProd").value=""; document.getElementById("amQty").value=1; document.getElementById("amPrice").value="";
   amRenderLines(); amCalc();
 }
 
 function amNewValue(){
-  let v=0;
-  (window._ITEMS||[]).filter(i=>!i.cancelled&&AM.keep[i.id]).forEach(i=>{
-    const e=AM.edit[i.id]||{qty:i.quantity,price:i.unit_price};
-    v += Number(e.price||0)*Number(e.qty||1);
-  });
-  AM.add.forEach(a=>{ v += a.price*a.qty; });
-  return v;
+  return AM.lines.filter(l=>!l.removed).reduce((v,l)=>v + Number(l.price||0)*Number(l.qty||1), 0);
 }
 function amMattressesAfter(){
-  const kept=(window._ITEMS||[]).filter(i=>!i.cancelled&&AM.keep[i.id]&&isMatt(i.product_name)).map(i=>i.product_name);
-  return kept.concat(AM.add.filter(a=>isMatt(a.name)).map(a=>a.name));
+  return AM.lines.filter(l=>!l.removed && isMatt(l.name)).map(l=>l.name);
 }
 function amMattressesBefore(){
-  return (window._ITEMS||[]).filter(i=>!i.cancelled&&isMatt(i.product_name)).map(i=>i.product_name);
+  return (window._ITEMS||[]).filter(i=>!i.cancelled && isMatt(i.product_name)).map(i=>i.product_name);
 }
 
 function amCalc(src){
@@ -784,19 +787,16 @@ async function saveAmend(){
   const newInst=AM._newInst, rem=AM._newRem;
   if(!(newInst>0)||!(rem>0)){ return amErr("Enter either the payment amount or the number of payments remaining."); }
 
-  const removed=(window._ITEMS||[]).filter(i=>!i.cancelled && !AM.keep[i.id]);
-  const edited=(window._ITEMS||[]).filter(i=>{
-    if(i.cancelled||!AM.keep[i.id]) return false;
-    const e=AM.edit[i.id]||{}; 
-    return Number(e.qty)!==Number(i.quantity) || Number(e.price)!==Number(i.unit_price);
-  });
+  const removed = AM.lines.filter(l=>l.removed && !l.isNew);
+  const added   = AM.lines.filter(l=>l.isNew && !l.removed);
+  const edited  = AM.lines.filter(l=>!l.isNew && !l.removed &&
+                    (Number(l.qty)!==Number(l.origQty) || Number(l.price)!==Number(l.origPrice)));
   const summary=[
-    ...removed.map(i=>"removed "+i.product_name),
-    ...AM.add.map(a=>"added "+a.name+(a.qty>1?(" × "+a.qty):"")),
-    ...edited.map(i=>{ const e=AM.edit[i.id];
-      return "changed "+i.product_name+" to "+e.qty+" × "+money(e.price); })
+    ...removed.map(l=>"removed "+l.name),
+    ...added.map(l=>"added "+l.name+(l.qty>1?(" × "+l.qty):"")),
+    ...edited.map(l=>"changed "+l.name+" to "+l.qty+" × "+money(l.price))
   ].join("; ") || "no product change";
-  if(!removed.length && !AM.add.length && !edited.length && Number(o.contract_value)===newV){
+  if(!removed.length && !added.length && !edited.length && Number(o.contract_value)===newV){
     return amErr("Nothing has changed.");
   }
   if(!confirm(`Save this amendment?\n\n${summary}\n\nContract: ${money(o.contract_value)} → ${money(newV)}\nInstalment: ${money(newInst)} per ${freq}\n\nRemember to update Ezidebit.`)) return;
@@ -809,18 +809,16 @@ async function saveAmend(){
     const commissionLocked = !!(cs && cs.paid_date);
 
     if(removed.length){
-      const {error}=await sb.from("sim_order_items").delete().in("id",removed.map(i=>i.id));
+      const {error}=await sb.from("sim_order_items").delete().in("id",removed.map(l=>l.id));
       if(error) throw new Error("Removing products: "+error.message);
     }
-    // quantity / price changes on lines we're keeping
-    for(const i of edited){
-      const e=AM.edit[i.id];
-      const {error}=await sb.from("sim_order_items").update({quantity:e.qty, unit_price:e.price}).eq("id",i.id);
-      if(error) throw new Error("Updating "+i.product_name+": "+error.message);
+    for(const l of edited){
+      const {error}=await sb.from("sim_order_items").update({quantity:l.qty, unit_price:l.price}).eq("id",l.id);
+      if(error) throw new Error("Updating "+l.name+": "+error.message);
     }
-    if(AM.add.length){
+    if(added.length){
       const base=(window._ITEMS||[]).length+1;
-      const rows=AM.add.map((a,ix)=>({order_id:o.id,line_no:base+ix,product_name:a.name,quantity:a.qty,unit_price:a.price}));
+      const rows=added.map((l,ix)=>({order_id:o.id,line_no:base+ix,product_name:l.name,quantity:l.qty,unit_price:l.price}));
       const {error}=await sb.from("sim_order_items").insert(rows);
       if(error) throw new Error("Adding products: "+error.message);
     }
