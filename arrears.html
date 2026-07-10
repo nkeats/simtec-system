@@ -68,29 +68,69 @@ const titleCase=s=>(s||'').replace(/_/g,' ').replace(/\b\w/g,m=>m.toUpperCase())
 
 // ── Payment maths (same rules as the client page) ──────────────────────────
 const PERIODS={weekly:{per:7,total:156,word:"wk"},fortnightly:{per:14,total:78,word:"fn"},monthly:{per:30.44,total:36,word:"mo"}};
+
+// When did this loan actually start collecting?
+//  1. A recorded start date always wins.
+//  2. Otherwise work backwards from the next scheduled debit: if they've paid
+//     N instalments, the first one was N periods before the next one.
+//  3. If nothing has been paid and the next debit is still ahead, the loan
+//     HAS NOT STARTED. Nothing is owed. (The old code accrued from the order
+//     date and reported brand-new customers as weeks behind.)
+function loanStart(order, perAmt, perDays){
+  const s = order.loan_start_date || order.first_payment_date;
+  if(s) return {start:new Date(String(s).slice(0,10)+'T12:00:00'), estimated:false};
+  if(order.next_payment_date){
+    const next=new Date(order.next_payment_date+'T12:00:00');
+    const paid=+order.amount_paid_to_date||0;
+    const made=perAmt>0?Math.floor((paid+0.01)/perAmt):0;
+    return {start:new Date(next.getTime()-made*perDays*DAY), estimated:true};
+  }
+  if(order.order_date) return {start:new Date(String(order.order_date).slice(0,10)+'T12:00:00'), estimated:true};
+  return {start:null, estimated:true};
+}
+
 function analyse(order){
   const contract=+order.contract_value||0;
   const paid=+order.amount_paid_to_date||0;
-  const start=order.first_payment_date||order.order_date;
   const f=PERIODS[order.payment_frequency]||PERIODS.weekly;
-  const total=f.total;
-  const perAmt=total?contract/total:0;
-  const elapsed=start?Math.max(0,(today-new Date(start))/DAY/f.per):0;
-  const elapsedW=Math.min(total,Math.floor(elapsed));
-  const weeksCovered=perAmt>0?Math.min(total,Math.floor((paid+0.01)/perAmt)):0;
-  const expected=Math.min(contract,perAmt*elapsed);
-  const behindBy=Math.max(0,expected-paid);
-  const behind=behindBy>perAmt;
-  const redCount=behind?Math.max(0,elapsedW-weeksCovered):0;
+
+  // Use what the customer ACTUALLY agreed, where we know it. Falling back to
+  // contract/156 was the long-standing reason this screen was wrong: it judged
+  // every weekly customer against a 3-year term whether or not that was their deal.
+  const haveTerms = order.instalment_amount!=null && +order.instalment_amount>0;
+  const perAmt = haveTerms ? +order.instalment_amount : (f.total?contract/f.total:0);
+  const total  = (order.term_periods && +order.term_periods>0) ? +order.term_periods : f.total;
+
+  const {start, estimated} = loanStart(order, perAmt, f.per);
+
+  // Not started yet -> not in arrears, whatever the order date says.
+  if(!start || start>today){
+    return {paid,contract,balance:contract-paid,pct:contract?paid/contract*100:0,
+            cells:[],redCount:0,amberCount:0,total,perAmt,behindBy:0,
+            notStarted:true, startsOn:start, estimated:!haveTerms};
+  }
+
+  // Payments due so far: the one on the start date, plus one per elapsed period.
+  const elapsed  = Math.floor((today-start)/DAY/f.per)+1;
+  const elapsedW = Math.max(0, Math.min(total, elapsed));
+  const weeksCovered = perAmt>0?Math.min(total,Math.floor((paid+0.01)/perAmt)):0;
+  const expected = Math.min(contract, perAmt*elapsedW);
+  const behindBy = Math.max(0, expected-paid);
+  const behind   = behindBy > perAmt;                  // one period's grace for settlement lag
+  const redCount = behind?Math.max(0,elapsedW-weeksCovered):0;
+
   const cells=[];
-  for(let w=1;w<=total;w++){let cls,label;
-    const due=start?new Date(new Date(start).getTime()+(w-1)*f.per*DAY):null;
+  for(let w=1;w<=total;w++){
+    let cls,label;
+    const due=new Date(start.getTime()+(w-1)*f.per*DAY);
     if(w<=weeksCovered){cls='#1faa5a';label='Paid';}
     else if(behind&&w<=elapsedW){cls='#dc2626';label='Behind';}
     else{cls='#475569';label='Upcoming';}
-    cells.push({w,cls,label,due});}
-  const pct=contract?paid/contract*100:0;
-  return {paid,contract,balance:contract-paid,pct,cells,redCount,amberCount:0,total,perAmt,behindBy};
+    cells.push({w,cls,label,due});
+  }
+  return {paid,contract,balance:contract-paid,pct:contract?paid/contract*100:0,
+          cells,redCount,amberCount:0,total,perAmt,behindBy,
+          notStarted:false, estimated:!haveTerms};
 }
 
 // ── State ──────────────────────────────────────────────────────────────────
@@ -114,7 +154,7 @@ async function load(){
       name:`${cust.first_name||''} ${cust.last_name||''}`.trim()||'(no name)',
       mobile:cust.mobile||'', product,
       consultant:o.consultant_name||'',
-      weeks:a.redCount, arrears:a.behindBy, amber:a.amberCount,
+      weeks:a.redCount, arrears:a.behindBy, amber:a.amberCount, estimated:a.estimated,
       paid:a.paid, contract:a.contract, balance:a.balance, pct:a.pct,
       payer:o.ezidebit_payer_ref||null, lastPaid:null,
       delivered:o.delivery_status==='delivered', deliveryStatus:o.delivery_status||'pending',
@@ -161,12 +201,13 @@ function render(){
     const sev=r.weeks>=3?'#dc2626':'#e0a010';
     const strip=r.cells.filter(c=>c.due&&c.due<=today).slice(-24)
       .map(c=>`<span class="sq" style="background:${c.cls}" title="Week ${c.w} — ${c.label} (${fmtD(c.due.toISOString().slice(0,10))})"></span>`).join('');
-    return `<div class="card arr mb-3" style="cursor:pointer" onclick="location.href='client.html?c=${r.custId}'" title="Open ${esc(r.name)}'s full history">
+    return `<div class="card arr mb-3" style="cursor:pointer" onclick="location.href='customer-detail.html?cust=${r.custId}'" title="Open ${esc(r.name)}'s full history">
       <div class="flex flex-wrap items-start gap-4">
         <div class="flex-1 min-w-[180px]">
           <div class="flex items-center gap-2">
             <span class="font-semibold text-white">${esc(r.name)}</span>
             ${r.delivered?'<span class="text-[10px] px-1.5 py-0.5 rounded bg-red-900/50 text-red-300 font-semibold">DELIVERED</span>':'<span class="text-[10px] px-1.5 py-0.5 rounded bg-slate-700 text-slate-300">'+esc(titleCase(r.deliveryStatus))+'</span>'}
+            ${r.estimated?'<span class="text-[10px] px-1.5 py-0.5 rounded bg-amber-900/40 text-amber-300" title="This order has no instalment recorded — the figures assume the standard term">ESTIMATED</span>':''}
           </div>
           <div class="text-xs text-slate-500 mt-0.5">${esc(r.mobile)}</div>
           <div class="text-xs text-slate-400 mt-1">${esc(r.product)}</div>
