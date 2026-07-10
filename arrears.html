@@ -6,6 +6,7 @@
 <title>Simtec — Arrears Overview</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://unpkg.com/@supabase/supabase-js@2.38.4/dist/umd/supabase.js"></script>
+<script src="live.js?v=1" defer></script>
 <script src="auth.js?v=3" data-roles="admin,manager,office"></script>
 <style>
 body{font-family:system-ui,sans-serif}
@@ -135,7 +136,7 @@ function analyse(order){
 // ── State ──────────────────────────────────────────────────────────────────
 let rows=[], sortBy='weeks', filter='all';
 
-async function load(){
+async function load(quiet){
   const {data:orders,error}=await sb.from('sim_orders')
     .select('*, sim_customers(*), sim_order_items(product_name,quantity)')
     .eq('order_status','active');
@@ -237,6 +238,10 @@ function render(){
 
 document.querySelectorAll('[data-sort]').forEach(b=>b.onclick=()=>{sortBy=b.dataset.sort;render();});
 document.querySelectorAll('[data-filter]').forEach(b=>b.onclick=()=>{filter=b.dataset.filter;render();});
+
+// One change anywhere shows up everywhere: live.js calls this when the database
+// changes, when the tab regains focus, and once a minute as a safety net.
+window.SIMTEC_RELOAD = function(reason){ load(true); };
 
 load();
 </script>

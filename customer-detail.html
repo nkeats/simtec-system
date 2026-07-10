@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Simtec — Customer</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="live.js?v=1" defer></script>
 <script src="auth.js?v=3" data-roles="admin,manager,office"></script>
 <style>
   :root{--navy:#122347;--navy2:#1c3363;--gold:#c6a15b;--ink:#1a2334;--line:#d9e0ea;--bg:#eef1f5;
@@ -487,6 +488,10 @@ async function confirmCancel(){
   if(error){ alert("Couldn't cancel: "+error.message); return; }
   document.getElementById("cancelModal").style.display="none"; CXORD=null; run();
 }
+// Any change to this customer's orders, items or payments — made here or on
+// another screen — redraws this page. Nobody has to remember to refresh.
+window.SIMTEC_RELOAD = function(){ if(customerId) run(); };
+
 run();
 </script>
 <div id="cancelModal" class="modalbg">
