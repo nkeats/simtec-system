@@ -469,13 +469,23 @@ run();
     <div id="amTermsNote"></div>
     <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
       <div><label class="muted" style="font-size:12px">Outstanding balance (from Ezidebit)</label>
-        <input id="amOut" class="mi" type="number" step="0.01" oninput="amCalc()"></div>
+        <input id="amOut" class="mi" type="number" step="0.01" oninput="amCalc('out')"></div>
       <div><label class="muted" style="font-size:12px">Frequency</label>
-        <select id="amFreq" class="mi" onchange="amCalc()">
+        <select id="amFreq" class="mi" onchange="amCalc('freq')">
           <option value="weekly">Weekly</option><option value="fortnightly">Fortnightly</option><option value="monthly">Monthly</option>
         </select></div>
       <div><label class="muted" style="font-size:12px">Payments remaining</label>
-        <input id="amRem" class="mi" type="number" min="1" oninput="amCalc()"></div>
+        <input id="amRem" class="mi" type="number" min="1" oninput="amCalc('rem')"></div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px">
+      <div><label class="muted" style="font-size:12px">Payment amount</label>
+        <input id="amInst" class="mi" type="number" step="0.01" oninput="amCalc('inst')"></div>
+      <div style="display:flex;align-items:flex-end">
+        <div style="font-size:11.5px;color:#7a8798;line-height:1.4">
+          Set <b>either</b> one. Change the payment and the term recalculates;
+          change the term and the payment recalculates. Paying more finishes sooner.
+        </div>
+      </div>
     </div>
 
     <div id="amSummary" style="margin-top:16px"></div>
@@ -577,7 +587,8 @@ async function openAmend(oid){
     const bal = Number(o.contract_value)-Number(o.amount_paid_to_date);
     if(bal>0) document.getElementById("amOut").placeholder = "system thinks ~"+Math.round(bal);
   }
-  document.getElementById("amRem").value = o.term_periods || "";
+  document.getElementById("amRem").value  = o.term_periods || "";
+  document.getElementById("amInst").value = o.instalment_amount!=null ? Number(o.instalment_amount).toFixed(2) : "";
   amRenderLines(); amCalc();
   document.getElementById("amendModal").style.display="flex";
 }
@@ -653,37 +664,73 @@ function amMattressesBefore(){
   return (window._ITEMS||[]).filter(i=>!i.cancelled&&isMatt(i.product_name)).map(i=>i.product_name);
 }
 
-function amCalc(){
+function amCalc(src){
   const o=window._O; if(!o) return;
   const oldV=Number(o.contract_value||0), newV=amNewValue(), delta=newV-oldV;
   const out=parseFloat(document.getElementById("amOut").value);
-  const rem=parseInt(document.getElementById("amRem").value||"0",10);
   const freq=document.getElementById("amFreq").value;
+  const remEl=document.getElementById("amRem"), instEl=document.getElementById("amInst");
 
+  let rem=parseInt(remEl.value||"0",10);
+  let inst=parseFloat(instEl.value);
   let instBlock="";
-  if(out>0 && rem>0){
+
+  if(out>0){
     const newOut=out+delta;
-    const newInst=Math.round((newOut/rem)*100)/100;
-    const days=rem*PER[freq];
-    const end=new Date(Date.now()+days*86400000);
-    const weeks=Math.round(days/7);
-    instBlock=`
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:13.5px">
-        <div>Outstanding now</div><div style="text-align:right">${money(out)}</div>
-        <div>Change to balance</div><div style="text-align:right;color:${delta>=0?"#1c6b34":"#b4342e"}">${delta>=0?"+":""}${money(delta)}</div>
-        <div><b>New outstanding</b></div><div style="text-align:right"><b>${money(newOut)}</b></div>
-        <div style="border-top:1px solid #d9e0ea;padding-top:6px">New instalment</div>
-        <div style="border-top:1px solid #d9e0ea;padding-top:6px;text-align:right;font-weight:800;color:#122347">${money(newInst)} / ${freq==="weekly"?"week":freq==="fortnightly"?"fortnight":"month"}</div>
-        <div>Finishes about</div><div style="text-align:right">${end.toLocaleDateString("en-NZ",{day:"2-digit",month:"short",year:"numeric"})} (${weeks} wks)</div>
-      </div>
-      <div style="background:#fff8e9;border:1px solid #e8d5a8;border-left:4px solid #c6a15b;border-radius:9px;padding:10px 12px;font-size:13px;margin-top:10px">
-        <b>Update Ezidebit to ${money(newInst)} per ${freq==="weekly"?"week":freq==="fortnightly"?"fortnight":"month"}.</b>
-        The system records the change; the direct debit itself must be changed in Ezidebit by hand.</div>
-      ${weeks>156?`<div style="background:#fdecec;border:1px solid #e0b4b0;color:#b4342e;border-radius:9px;padding:10px 12px;font-size:13px;margin-top:8px"><b>This runs past the 3-year ceiling</b> (${weeks} weeks). Consider a larger instalment or fewer payments.</div>`:""}`;
-    AM._newInst=newInst;
+    if(newOut>0){
+      // Whichever field the user just touched is the one we hold fixed.
+      // Anything else is derived, so the two always agree.
+      if(src==="inst" && inst>0){
+        rem=Math.ceil(newOut/inst);
+        remEl.value=rem;
+      } else if(rem>0){
+        inst=Math.round((newOut/rem)*100)/100;
+        instEl.value=inst.toFixed(2);
+      } else if(inst>0){
+        rem=Math.ceil(newOut/inst);
+        remEl.value=rem;
+      }
+
+      if(rem>0 && inst>0){
+        const days=rem*PER[freq];
+        const end=new Date(Date.now()+days*86400000);
+        const weeks=Math.round(days/7);
+        const perWord = freq==="weekly"?"week":freq==="fortnightly"?"fortnight":"month";
+        // A payment above the straight-line figure clears the balance early.
+        const evenInst=Math.round((newOut/rem)*100)/100;
+        const paysMore = inst > evenInst + 0.005;
+        const finalPay = Math.round((newOut - inst*(rem-1))*100)/100;
+
+        instBlock=`
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:13.5px">
+            <div>Outstanding now</div><div style="text-align:right">${money(out)}</div>
+            <div>Change to balance</div><div style="text-align:right;color:${delta>=0?"#1c6b34":"#b4342e"}">${delta>=0?"+":""}${money(delta)}</div>
+            <div><b>New outstanding</b></div><div style="text-align:right"><b>${money(newOut)}</b></div>
+            <div style="border-top:1px solid #d9e0ea;padding-top:6px">Payment</div>
+            <div style="border-top:1px solid #d9e0ea;padding-top:6px;text-align:right;font-weight:800;color:#122347">${money(inst)} / ${perWord}</div>
+            <div>Payments remaining</div><div style="text-align:right">${rem}</div>
+            <div>Finishes about</div><div style="text-align:right">${end.toLocaleDateString("en-NZ",{day:"2-digit",month:"short",year:"numeric"})} (${weeks} wks)</div>
+            ${(finalPay>0 && Math.abs(finalPay-inst)>0.01)?`<div class="muted">Final payment</div><div style="text-align:right" class="muted">${money(finalPay)}</div>`:""}
+          </div>
+          ${paysMore?`<div style="background:#e9f5ed;border:1px solid #bcdcc6;border-radius:9px;padding:9px 12px;font-size:12.5px;margin-top:8px">
+              Paying <b>${money(inst)}</b> instead of the minimum ${money(evenInst)} clears the balance in <b>${rem}</b> payments.</div>`:""}
+          <div style="background:#fff8e9;border:1px solid #e8d5a8;border-left:4px solid #c6a15b;border-radius:9px;padding:10px 12px;font-size:13px;margin-top:10px">
+            <b>Update Ezidebit to ${money(inst)} per ${perWord}.</b>
+            The system records the change; the direct debit itself must be changed in Ezidebit by hand.</div>
+          ${weeks>156?`<div style="background:#fdecec;border:1px solid #e0b4b0;color:#b4342e;border-radius:9px;padding:10px 12px;font-size:13px;margin-top:8px"><b>This runs past the 3-year ceiling</b> (${weeks} weeks). Consider a larger payment.</div>`:""}`;
+        AM._newInst=inst; AM._newRem=rem;
+      } else {
+        instBlock=`<div class="muted" style="font-size:13px">Enter either the payment amount or the number of payments remaining.</div>`;
+        AM._newInst=null; AM._newRem=null;
+      }
+    } else {
+      instBlock=`<div style="background:#fdecec;border:1px solid #e0b4b0;color:#b4342e;border-radius:9px;padding:10px 12px;font-size:13px">
+        <b>The reduction is larger than the outstanding balance.</b> The customer would be owed a refund — handle this as a cancellation or refund, not an amendment.</div>`;
+      AM._newInst=null; AM._newRem=null;
+    }
   } else {
-    instBlock=`<div class="muted" style="font-size:13px">Enter the outstanding balance and payments remaining to see the new instalment.</div>`;
-    AM._newInst=null;
+    instBlock=`<div class="muted" style="font-size:13px">Enter the outstanding balance from Ezidebit.</div>`;
+    AM._newInst=null; AM._newRem=null;
   }
 
   document.getElementById("amSummary").innerHTML=`
@@ -729,16 +776,13 @@ async function saveAmend(){
   const after=amMattressesAfter();
   if(!after.length){ return amErr("This order would have no mattress. Cancel the order instead of amending it."); }
   const out=parseFloat(document.getElementById("amOut").value);
-  const rem=parseInt(document.getElementById("amRem").value||"0",10);
-  if(!(out>0)||!(rem>0)){ return amErr("Enter the outstanding balance and the number of payments remaining."); }
-  // A reduction bigger than the remaining balance means the customer has overpaid the
-  // new, smaller order — that's a refund, not an instalment change. Stop rather than
-  // write a negative payment.
+  if(!(out>0)){ return amErr("Enter the outstanding balance from Ezidebit."); }
   if(out + (newV - Number(o.contract_value||0)) <= 0){
     return amErr("<b>This reduction is larger than the outstanding balance.</b><br>The customer would be owed a refund. Handle this as a cancellation or a refund, not an amendment.");
   }
   const freq=document.getElementById("amFreq").value;
-  const newInst=AM._newInst;
+  const newInst=AM._newInst, rem=AM._newRem;
+  if(!(newInst>0)||!(rem>0)){ return amErr("Enter either the payment amount or the number of payments remaining."); }
 
   const removed=(window._ITEMS||[]).filter(i=>!i.cancelled && !AM.keep[i.id]);
   const edited=(window._ITEMS||[]).filter(i=>{
