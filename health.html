@@ -180,21 +180,6 @@ const CHECKS=[
     }
   },
   {
-    id:"unpriced_legacy",
-    title:"Migrated orders with no line prices (known, being cleared)",
-    why:"These came across in the spreadsheet migration on 2 July. Their contract totals are correct; the per-product breakdown was never recorded anywhere, so it cannot be recovered by the system — only from the customer's signed order form.",
-    fix:"No action needed. They correct themselves as customers are amended. Filling them from today's price list would state that a customer agreed to a price they never saw, on a credit contract.",
-    cols:["Consultant","Order date","Value","Unpriced lines"],
-    tone:"info",
-    run:async(D)=>{
-      const bad={};
-      D.items.forEach(i=>{ if(!i.cancelled && !(Number(i.unit_price)>0)) bad[i.order_id]=(bad[i.order_id]||0)+1; });
-      return D.orders.filter(o=>(o.order_status||'active')!=='cancelled' && bad[o.id]
-                              && (!o.created_at || o.created_at.slice(0,10) <= MIGRATION_DAY))
-        .map(o=>[o.consultant_name||'—',d(o.order_date),fmt(o.contract_value),bad[o.id]]);
-    }
-  },
-  {
     id:"nodate",
     title:"Orders with no order date",
     why:"Reports skips any order without a date, so the sale is invisible in weekly figures.",
@@ -233,7 +218,7 @@ async function runAll(){
     html+=`<div class="card p-5 mb-4">
       <div class="flex items-center justify-between gap-3 flex-wrap">
         <h2 class="text-base font-bold">${esc(c.title)}</h2>
-        <span class="pill ${clean?'ok':(c.tone==='info'?'info':((c.id==='unlinked')?'warn':'bad'))}">${clean?'clear':rows.length+(c.tone==='info'?' known':' found')}</span>
+        <span class="pill ${clean?'ok':((c.id==='unlinked')?'warn':'bad')}">${clean?'clear':rows.length+' found'}</span>
       </div>
       <p class="text-xs text-slate-500 mt-2">${esc(c.why)}</p>`;
     if(!clean){

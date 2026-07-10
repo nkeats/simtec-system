@@ -468,7 +468,7 @@ async function loadBook(){
     let orders=[], from=0;
     while(true){
       const res = await sb.from("sim_orders")
-        .select("id,contract_value,amount_paid_to_date,instalment_amount,payment_frequency,ezidebit_payer_ref,order_status,paid_in_full,paid_via_order_id,order_date,delivery_status")
+        .select("id,customer_id,contract_value,amount_paid_to_date,instalment_amount,payment_frequency,ezidebit_payer_ref,order_status,paid_in_full,paid_via_order_id,order_date,delivery_status")
         .eq("order_status","active")
         .range(from, from+999);
       if(res.error) throw new Error("Reading orders: "+res.error.message);
@@ -479,21 +479,39 @@ async function loadBook(){
 
     const live = orders.filter(o=>!o.paid_via_order_id && !o.paid_in_full);
 
-    let outEzi=0, outNoEzi=0, contractEzi=0, paidEzi=0, nEzi=0, nNoEzi=0, weeklyRun=0;
+    let outEzi=0, outNoEzi=0, contractEzi=0, paidEzi=0, nEzi=0, weeklyRun=0;
+    const notCollected=[];
     live.forEach(o=>{
       const contract=Number(o.contract_value||0);
       const paid=Number(o.amount_paid_to_date||0);
       const owing=Math.max(0, contract-paid);
-      if(owing<=0.01) return;                       // settled, nothing to collect
+      if(owing<=0.01) return;                       // settled, nothing left to collect
       const onEzi = !!o.ezidebit_payer_ref && Number(o.instalment_amount||0)>0;
       if(onEzi){
         outEzi+=owing; contractEzi+=contract; paidEzi+=paid; nEzi++;
         const wk=BOOK_PER[o.payment_frequency]||1;
-        weeklyRun += Number(o.instalment_amount||0)/wk;   // normalise to a weekly rate
+        weeklyRun += Number(o.instalment_amount||0)/wk;    // normalise to a weekly rate
       } else {
-        outNoEzi+=owing; nNoEzi++;
+        outNoEzi+=owing;
+        notCollected.push({id:o.id, customer_id:o.customer_id, order_date:o.order_date,
+          owing, paid, contract,
+          reason: !o.ezidebit_payer_ref ? "no Ezidebit payer reference"
+                : "payer reference, but no payment schedule"});
       }
     });
+
+    // Name them. A number this size should never sit on a screen unexplained.
+    if(notCollected.length){
+      const cids=[...new Set(notCollected.map(o=>o.customer_id).filter(Boolean))];
+      const names={};
+      for(let i=0;i<cids.length;i+=200){
+        const r=await sb.from("sim_customers").select("id,first_name,last_name").in("id",cids.slice(i,i+200));
+        if(r.error) throw new Error("Reading customers: "+r.error.message);
+        (r.data||[]).forEach(c=>names[c.id]=[c.first_name,c.last_name].filter(Boolean).join(" "));
+      }
+      notCollected.forEach(o=>o.name=names[o.customer_id]||"(no name)");
+      notCollected.sort((a,b)=>b.owing-a.owing);
+    }
 
     const money=n=>"$"+Math.round(n).toLocaleString();
     const weeksToClear = weeklyRun>0 ? Math.ceil(outEzi/weeklyRun) : null;
@@ -502,21 +520,41 @@ async function loadBook(){
       tile("Outstanding on Ezidebit", money(outEzi), "text-amber-300"),
       tile("Customers being collected", nEzi, "text-slate-100"),
       tile("Billing per week", money(weeklyRun), "text-emerald-300"),
-      tile("Not being collected", money(outNoEzi), outNoEzi>0?"text-red-400":"text-slate-100")
+      tile("Nobody is collecting", money(outNoEzi), outNoEzi>0?"text-red-400":"text-slate-100")
     ].join("");
 
     const pctPaid = contractEzi>0 ? (paidEzi/contractEzi*100) : 0;
+    const dd=v=>v?String(v).slice(0,10).split("-").reverse().join("/"):"—";
+
     $("bookSplit").innerHTML=`
       <div class="text-sm text-slate-300" style="line-height:1.7">
-        Ezidebit customers have contracted <b>${money(contractEzi)}</b> and paid
-        <b>${money(paidEzi)}</b> — ${pctPaid.toFixed(1)}% of the book.
-        ${weeksToClear?`At the current billing rate the balance clears in about <b>${weeksToClear} weeks</b>.`:""}
+        <b>Outstanding on Ezidebit</b> is what ${nEzi} customers still owe on plans that are actually being debited:
+        they contracted ${money(contractEzi)} and have paid ${money(paidEzi)} (${pctPaid.toFixed(1)}%).
+        ${weeksToClear?`At ${money(weeklyRun)} a week the balance clears in about <b>${weeksToClear} weeks</b>.`:""}
       </div>
-      ${nNoEzi?`<div class="mt-3 p-3 rounded" style="background:#2a1a12;border:1px solid #6b4a28">
-        <div class="text-sm" style="color:#f0b46a">
-          <b>${nNoEzi} live order${nNoEzi>1?"s":""} totalling ${money(outNoEzi)} have no Ezidebit schedule.</b>
-          Nobody is collecting this money.
-        </div></div>`:""}`;
+
+      ${notCollected.length?`
+      <div class="mt-4 p-4 rounded" style="background:#2a1a12;border:1px solid #6b4a28">
+        <div class="text-sm mb-1" style="color:#f0b46a">
+          <b>${money(outNoEzi)} across ${notCollected.length} live order${notCollected.length>1?"s":""} with no direct debit running.</b>
+        </div>
+        <div class="text-xs text-slate-400 mb-3">
+          These customers owe money and no payment is being taken. Either the Ezidebit mandate was never set up,
+          or it was cancelled. This is not arrears — it is money nobody has asked for.
+        </div>
+        <table class="w-full"><thead><tr>
+          <th class="text-left">Customer</th><th class="text-left">Sold</th>
+          <th class="text-right">Paid</th><th class="text-right">Owing</th><th class="text-left">Why</th>
+        </tr></thead><tbody>
+        ${notCollected.map(o=>`<tr>
+          <td><a href="customer-detail.html?cust=${o.customer_id}" style="color:#cbd5e1">${o.name}</a></td>
+          <td class="text-slate-400">${dd(o.order_date)}</td>
+          <td class="text-right text-slate-400">${money(o.paid)}</td>
+          <td class="text-right" style="color:#f0b46a;font-weight:700">${money(o.owing)}</td>
+          <td class="text-slate-500 text-xs">${o.reason}</td></tr>`).join("")}
+        </tbody></table>
+      </div>`:`
+      <div class="mt-3 text-sm" style="color:#4ade80">Every live order has a payment schedule running.</div>`}`;
 
     $("bookAsOf").textContent="As at "+new Date().toLocaleDateString("en-NZ",{day:"2-digit",month:"short",year:"numeric"});
     $("bookState").style.display="none";
