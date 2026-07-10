@@ -114,6 +114,11 @@ const isAdmin = () => (window.SIMTEC_USER && window.SIMTEC_USER.role==='admin');
 
 // Position / traffic light. Uses the order's OWN stored instalment and term where we
 // have them; only falls back to the old contract÷156 guess when we don't.
+// The schedule is a recorded fact. We never infer it from the order date.
+//   payments due so far = debits from schedule_start_date up to today
+//   expected            = instalment x payments due
+// A customer whose schedule was restarted after a bank error is behind by the
+// payments missed SINCE THE RESTART, not since the day they bought the bed.
 function position(o){
   const contract=o.contract_value!=null?Number(o.contract_value):null;
   const paid=o.amount_paid_to_date!=null?Number(o.amount_paid_to_date):0;
@@ -127,23 +132,20 @@ function position(o){
   const haveTerms = o.instalment_amount!=null && Number(o.instalment_amount)>0;
   const perAmt = haveTerms ? Number(o.instalment_amount) : contract/freq.total;
 
-  // When do payments actually start?  Never accrue "expected" before the first debit.
-  // A customer sold three weeks ago whose first payment is next Thursday owes nothing
-  // yet — the old code accrued from the order date and called them behind.
-  const startStr = o.loan_start_date || o.first_payment_date || null;
+  // Where does the CURRENT schedule begin?
+  const startStr = o.schedule_start_date || o.loan_start_date || o.first_payment_date || null;
   const next = o.next_payment_date ? new Date(o.next_payment_date+"T00:00:00") : null;
 
   if(!startStr){
     if(next && next > today){
       return {cls:"green", label:"Payments start "+auDate(o.next_payment_date),
               contract, paid, expected:0, behindBy:0, periodsBehind:0, freq,
-              balance:contract-paid, estimated:!haveTerms, notStarted:true};
+              balance:contract-paid, estimated:!haveTerms, notStarted:true, noSchedule:!haveTerms};
     }
-    // No start date and no future first debit: we genuinely don't know.
     return {cls: delivered?"amber":"grey",
-            label: delivered?"Delivered, no payment plan recorded":"No payment plan yet",
+            label: delivered?"Delivered, no schedule recorded":"No payment schedule recorded",
             contract, paid, expected:null, behindBy:0, periodsBehind:0, freq,
-            balance:contract-paid, estimated:true};
+            balance:contract-paid, estimated:true, noSchedule:true};
   }
 
   const start=new Date(String(startStr).slice(0,10)+"T00:00:00");
@@ -153,9 +155,9 @@ function position(o){
             balance:contract-paid, estimated:!haveTerms, notStarted:true};
   }
 
-  const days=(today-start)/86400000;
-  const expected=Math.min(contract, perAmt*Math.max(0, Math.floor(days/freq.per)+1));
-  let behindBy=expected-paid;
+  const dueCount = Math.floor((today-start)/86400000/freq.per)+1;   // the first debit counts
+  const expected = Math.min(contract, perAmt*Math.max(0,dueCount));
+  const behindBy = expected-paid;
   const periodsBehind = perAmt>0 ? behindBy/perAmt : 0;
   let cls,label;
   if(behindBy<=perAmt){ cls="green"; label="On track"; }
@@ -164,7 +166,7 @@ function position(o){
 
   return {cls,label,contract,paid,expected,behindBy:Math.max(0,behindBy),
           periodsBehind:Math.max(0,periodsBehind),freq,balance:contract-paid,
-          estimated:!haveTerms};
+          estimated:!haveTerms, dueCount};
 }
 
 // ---------- search ----------
@@ -336,10 +338,15 @@ function orderSection(o, items, pays, open){
   </div>`;
 
   const money2=n=>(n==null)?"—":"$"+Number(n).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
-  const termsLine = (o.instalment_amount!=null && o.term_periods!=null)
-    ? kv("Agreed payment",`${money2(o.instalment_amount)} × ${o.term_periods} ${p.freq.word}`)
+  const schedBtn = isStaff()
+    ? `<button onclick="openSched('${o.id}')" style="background:none;border:1px solid var(--line);border-radius:7px;padding:3px 9px;font-size:11.5px;cursor:pointer;color:var(--sub);margin-left:8px">Edit schedule</button>`
+    : "";
+  const termsLine = (o.instalment_amount!=null)
+    ? kv("Payment",`${money2(o.instalment_amount)} per ${p.freq.word}${o.term_periods?` × ${o.term_periods}`:""}${schedBtn}`)
+      + (o.schedule_start_date?kv("Schedule started",auDate(o.schedule_start_date)):"")
       + (o.next_payment_date?kv("Next payment",auDate(o.next_payment_date)):"")
-    : kv("Agreed payment",`<span style="color:var(--amber)">not recorded — amend the order to enter it</span>`);
+      + (p.dueCount?kv("Payments due so far",p.dueCount):"")
+    : kv("Payment",`<span style="color:var(--amber)">no schedule recorded</span>${schedBtn}`);
 
   const money = o.paid_via_order_id
     ? `<div class="card"><h2>Account</h2>${kv("Total sale value",fmt(o.contract_value))}
@@ -702,8 +709,13 @@ function closeAmend(){ document.getElementById("amendModal").style.display="none
 
 function amToggle(ix){ AM.lines[ix].removed=!AM.lines[ix].removed; amRenderLines(); amCalc(); }
 function amDrop(ix){ AM.lines.splice(ix,1); amRenderLines(); amCalc(); }
-function amSetQty(ix,v){ AM.lines[ix].qty=Math.max(1,parseInt(v||"1",10)); amCalc(); }
-function amSetPrice(ix,v){ AM.lines[ix].price=parseFloat(v||"0")||0; amCalc(); }
+function amLineTotal(ix){
+  const el=document.getElementById("amtot_"+ix); if(!el) return;
+  const l=AM.lines[ix];
+  el.textContent = money(l.removed ? 0 : l.qty*l.price);
+}
+function amSetQty(ix,v){ AM.lines[ix].qty=Math.max(1,parseInt(v||"1",10)); amLineTotal(ix); amCalc(); }
+function amSetPrice(ix,v){ AM.lines[ix].price=parseFloat(v||"0")||0; amLineTotal(ix); amCalc(); }
 
 function amRenderLines(){
   const rows = AM.lines.map((l,ix)=>{
@@ -712,13 +724,13 @@ function amRenderLines(){
     <tr style="border-bottom:1px solid #e6eaf0;${on?"":"opacity:.45"};${l.isNew?"background:#f2f8f0":""}">
       <td style="padding:8px 4px">${l.isNew?'<span style="color:#1c6b34;font-weight:700">+ </span>':""}${on?"":"<s>"}${l.name}${on?"":"</s>"}</td>
       <td style="padding:8px 4px;text-align:right;width:74px">
-        <input type="number" min="1" value="${l.qty}" ${on?"":"disabled"} onchange="amSetQty(${ix},this.value)"
+        <input type="number" min="1" value="${l.qty}" ${on?"":"disabled"} oninput="amSetQty(${ix},this.value)"
           style="width:62px;padding:4px 6px;border:1px solid #cbd4df;border-radius:6px;text-align:right"></td>
       <td style="padding:8px 4px;text-align:right;width:118px">
-        <input type="number" step="0.01" value="${l.price}" ${on?"":"disabled"} onchange="amSetPrice(${ix},this.value)"
+        <input type="number" step="0.01" value="${l.price}" ${on?"":"disabled"} oninput="amSetPrice(${ix},this.value)"
           title="${l.fromList?"Filled in from the price list — the order had no price recorded":""}"
           style="width:104px;padding:4px 6px;border:1px solid ${l.fromList?"#c6a15b":"#cbd4df"};border-radius:6px;text-align:right;${l.fromList?"background:#fff8e9":""}"></td>
-      <td style="padding:8px 4px;text-align:right;width:104px">${money(on?l.qty*l.price:0)}</td>
+      <td id="amtot_${ix}" style="padding:8px 4px;text-align:right;width:104px">${money(on?l.qty*l.price:0)}</td>
       <td style="padding:8px 4px;text-align:right;width:92px">
         ${l.isNew
           ? `<button onclick="amDrop(${ix})" style="background:none;border:1px solid #cbd4df;border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer">Undo</button>`
@@ -1060,5 +1072,174 @@ function printVariation(o,summary,newV,newInst,freq,rem,nextDate){
   w.document.close();
 }
 </script>
+
+<!-- ============ PAYMENT SCHEDULE ============ -->
+<div id="schedModal" class="modalbg">
+  <div class="modal" style="max-width:600px;max-height:92vh;overflow:auto">
+    <h3 style="margin:0 0 4px">Payment schedule</h3>
+    <p class="muted" style="font-size:12.5px;margin:0 0 14px">
+      What Ezidebit is collecting <b>right now</b>. Every screen — arrears, payments risk,
+      debt recovery — reads these figures. If the direct debit changes, change it here.
+    </p>
+    <div id="schErr" style="display:none;background:#fdecec;border:1px solid #e0b4b0;color:#b4342e;border-radius:9px;padding:11px 13px;font-size:13.5px;margin-bottom:12px"></div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <div><label class="muted" style="font-size:12px">Payment amount</label>
+        <input id="schInst" class="mi" type="number" step="0.01" oninput="schCalc()"></div>
+      <div><label class="muted" style="font-size:12px">Frequency</label>
+        <select id="schFreq" class="mi" onchange="schCalc()">
+          <option value="weekly">Weekly</option><option value="fortnightly">Fortnightly</option><option value="monthly">Monthly</option>
+        </select></div>
+      <div><label class="muted" style="font-size:12px">First debit of this schedule</label>
+        <input id="schStart" class="mi" type="date" onchange="schCalc()">
+        <div style="font-size:11px;color:#7a8798;margin-top:3px">The date the <b>current</b> plan began — not the order date.</div></div>
+      <div><label class="muted" style="font-size:12px">Next debit</label>
+        <input id="schNext" class="mi" type="date" onchange="schCalc()"></div>
+    </div>
+
+    <div style="background:#fff8e9;border:1px solid #e8d5a8;border-left:4px solid #c6a15b;border-radius:9px;padding:11px 13px;font-size:13px;margin:14px 0">
+      <label style="display:flex;gap:8px;align-items:flex-start;cursor:pointer">
+        <input type="checkbox" id="schRestart" onchange="schRestartToggle()" style="margin-top:3px">
+        <span><b>This is a restarted schedule.</b> Use when the mandate was recreated — wrong bank
+        details, a new account, a payment holiday. The customer is judged from the new first debit,
+        not from the day they bought.</span></label>
+    </div>
+
+    <div id="schSummary" style="margin:12px 0"></div>
+
+    <label class="muted" style="font-size:12px">Reason for the change</label>
+    <select id="schReason" class="mi">
+      <option value="bank_details">Bank details changed</option>
+      <option value="restart">Direct debit restarted</option>
+      <option value="payment_holiday">Payment holiday / arrangement</option>
+      <option value="amount_changed">Payment amount changed</option>
+      <option value="correction">Correcting a wrong record</option>
+      <option value="other">Other</option>
+    </select>
+    <label class="muted" style="font-size:12px;display:block;margin-top:10px">Notes</label>
+    <textarea id="schNotes" class="mi" rows="2" placeholder="e.g. first debit dishonoured — bank error, mandate recreated 07/07"></textarea>
+
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:18px;flex-wrap:wrap">
+      <button onclick="closeSched()" style="background:none;border:1px solid #cbd4df;border-radius:8px;padding:9px 15px;cursor:pointer">Cancel</button>
+      <button id="schSave" onclick="saveSched()" style="background:#1c6b34;color:#fff;border:none;border-radius:8px;padding:9px 18px;font-weight:700;cursor:pointer">Save schedule</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ============ PAYMENT SCHEDULE ============
+   One place holds the truth. Arrears, payments-risk, debt recovery and the
+   customer page all derive from these four fields — none of them may guess.  */
+let SCHORD=null;
+
+function schErr(m){ const b=document.getElementById("schErr"); if(!m){b.style.display="none";return;} b.style.display=""; b.innerHTML=m; }
+function schMoney(n){ return "$"+Number(n||0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}); }
+
+function openSched(oid){
+  const o=ORDERS[oid]; if(!o) return;
+  SCHORD=o; schErr("");
+  document.getElementById("schInst").value  = o.instalment_amount!=null?Number(o.instalment_amount).toFixed(2):"";
+  document.getElementById("schFreq").value  = o.payment_frequency || "weekly";
+  document.getElementById("schStart").value = o.schedule_start_date || o.loan_start_date || o.first_payment_date || "";
+  document.getElementById("schNext").value  = o.next_payment_date || "";
+  document.getElementById("schRestart").checked=false;
+  document.getElementById("schNotes").value="";
+  document.getElementById("schReason").value="bank_details";
+  schCalc();
+  document.getElementById("schedModal").style.display="flex";
+}
+function closeSched(){ document.getElementById("schedModal").style.display="none"; SCHORD=null; }
+
+// Ticking "restarted" means the customer's history before the new first debit is
+// no longer used to judge them. Default the start to the next debit.
+function schRestartToggle(){
+  if(document.getElementById("schRestart").checked){
+    const next=document.getElementById("schNext").value;
+    if(next) document.getElementById("schStart").value=next;
+    document.getElementById("schReason").value="restart";
+  }
+  schCalc();
+}
+
+function schCalc(){
+  const o=SCHORD; if(!o) return;
+  const inst=parseFloat(document.getElementById("schInst").value);
+  const freq=document.getElementById("schFreq").value;
+  const start=document.getElementById("schStart").value;
+  const next=document.getElementById("schNext").value;
+  const per=PER[freq];
+  const paid=Number(o.amount_paid_to_date||0);
+  const contract=Number(o.contract_value||0);
+
+  let html="";
+  if(inst>0 && start){
+    const today=new Date(); today.setHours(0,0,0,0);
+    const s=new Date(start+"T00:00:00");
+    const due = s>today ? 0 : Math.floor((today-s)/86400000/per)+1;
+    const expected=Math.min(contract, inst*due);
+    const behind=Math.max(0, expected-paid);
+    const periods=inst>0?Math.round(behind/inst*10)/10:0;
+    const still=Math.max(0, contract-paid);
+    const remaining=inst>0?Math.ceil(still/inst):0;
+
+    html=`<div style="background:#f4f7fa;border:1px solid #d9e0ea;border-radius:10px;padding:12px 14px;font-size:13.5px">
+      <div style="display:grid;grid-template-columns:1fr auto;gap:6px">
+        <div>Debits due since ${start.split("-").reverse().join("/")}</div><div style="text-align:right"><b>${due}</b></div>
+        <div>Should have paid</div><div style="text-align:right">${schMoney(expected)}</div>
+        <div>Actually paid</div><div style="text-align:right">${schMoney(paid)}</div>
+        <div style="border-top:1px solid #d9e0ea;padding-top:6px"><b>${behind>0?"Behind by":"Position"}</b></div>
+        <div style="border-top:1px solid #d9e0ea;padding-top:6px;text-align:right;font-weight:800;color:${behind>inst?"#b4342e":"#1c6b34"}">
+          ${behind>0?schMoney(behind)+"  ("+periods+" payments)":"On track"}</div>
+        <div style="color:#7a8798">Still to pay</div><div style="text-align:right;color:#7a8798">${schMoney(still)} · about ${remaining} payments</div>
+      </div>
+      ${s>today?`<div style="margin-top:9px;color:#1c6b34"><b>This schedule hasn't started.</b> Nothing is owed yet.</div>`:""}
+    </div>`;
+  } else {
+    html=`<div class="muted" style="font-size:13px">Enter the payment amount and the first debit date.</div>`;
+  }
+  document.getElementById("schSummary").innerHTML=html;
+}
+
+async function saveSched(){
+  const o=SCHORD; if(!o) return;
+  const btn=document.getElementById("schSave");
+  schErr("");
+  const inst=parseFloat(document.getElementById("schInst").value);
+  const freq=document.getElementById("schFreq").value;
+  const start=document.getElementById("schStart").value||null;
+  const next=document.getElementById("schNext").value||null;
+  if(!(inst>0)) return schErr("Enter the payment amount.");
+  if(!start)    return schErr("Enter the date of the first debit under this schedule.");
+  if(next && next < start) return schErr("The next debit cannot be before the schedule started.");
+
+  btn.disabled=true; btn.textContent="Saving…";
+  try{
+    const patch={ instalment_amount:inst, payment_frequency:freq,
+                  schedule_start_date:start, next_payment_date:next };
+    const {error}=await sb.from("sim_orders").update(patch).eq("id",o.id);
+    if(error) throw new Error("Saving the schedule: "+error.message);
+
+    const {error:e2}=await sb.from("schedule_changes").insert({
+      order_id:o.id,
+      changed_by:(window.SIMTEC_USER&&(window.SIMTEC_USER.full_name||window.SIMTEC_USER.email))||null,
+      reason:document.getElementById("schReason").value,
+      old_instalment:o.instalment_amount, new_instalment:inst,
+      old_frequency:o.payment_frequency,   new_frequency:freq,
+      old_next_payment:o.next_payment_date, new_next_payment:next,
+      old_schedule_start:o.schedule_start_date, new_schedule_start:start,
+      old_term_periods:o.term_periods, new_term_periods:o.term_periods,
+      notes:document.getElementById("schNotes").value||null
+    });
+    if(e2) throw new Error("Recording the change: "+e2.message);
+
+    closeSched();
+    run();      // every card on this page redraws from the database
+  }catch(e){
+    schErr("<b>The schedule was not saved.</b><br>"+(e.message||e));
+    btn.disabled=false; btn.textContent="Save schedule";
+  }
+}
+</script>
+
 </body>
 </html>

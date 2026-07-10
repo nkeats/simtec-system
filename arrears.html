@@ -76,8 +76,11 @@ const PERIODS={weekly:{per:7,total:156,word:"wk"},fortnightly:{per:14,total:78,w
 //  3. If nothing has been paid and the next debit is still ahead, the loan
 //     HAS NOT STARTED. Nothing is owed. (The old code accrued from the order
 //     date and reported brand-new customers as weeks behind.)
+// The schedule is recorded, not inferred. schedule_start_date is the date of the
+// first debit under the plan in force RIGHT NOW. A customer whose mandate was
+// recreated after a bank error is judged from that date, not from the day they bought.
 function loanStart(order, perAmt, perDays){
-  const s = order.loan_start_date || order.first_payment_date;
+  const s = order.schedule_start_date || order.loan_start_date || order.first_payment_date;
   if(s) return {start:new Date(String(s).slice(0,10)+'T12:00:00'), estimated:false};
   if(order.next_payment_date){
     const next=new Date(order.next_payment_date+'T12:00:00');
@@ -94,23 +97,19 @@ function analyse(order){
   const paid=+order.amount_paid_to_date||0;
   const f=PERIODS[order.payment_frequency]||PERIODS.weekly;
 
-  // Use what the customer ACTUALLY agreed, where we know it. Falling back to
-  // contract/156 was the long-standing reason this screen was wrong: it judged
-  // every weekly customer against a 3-year term whether or not that was their deal.
   const haveTerms = order.instalment_amount!=null && +order.instalment_amount>0;
   const perAmt = haveTerms ? +order.instalment_amount : (f.total?contract/f.total:0);
   const total  = (order.term_periods && +order.term_periods>0) ? +order.term_periods : f.total;
 
   const {start, estimated} = loanStart(order, perAmt, f.per);
 
-  // Not started yet -> not in arrears, whatever the order date says.
   if(!start || start>today){
     return {paid,contract,balance:contract-paid,pct:contract?paid/contract*100:0,
             cells:[],redCount:0,amberCount:0,total,perAmt,behindBy:0,
             notStarted:true, startsOn:start, estimated:!haveTerms};
   }
 
-  // Payments due so far: the one on the start date, plus one per elapsed period.
+  // Debits that have fallen due since the schedule began (the first one counts).
   const elapsed  = Math.floor((today-start)/DAY/f.per)+1;
   const elapsedW = Math.max(0, Math.min(total, elapsed));
   const weeksCovered = perAmt>0?Math.min(total,Math.floor((paid+0.01)/perAmt)):0;
