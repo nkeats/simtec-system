@@ -533,6 +533,7 @@ run();
         <th style="text-align:right;padding:0 4px 4px">Line total</th>
         <th></th></tr></thead>
       <tbody id="amCur"></tbody></table>
+    <div id="amReconcile"></div>
 
     <h4 style="font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:#7a8798;margin:16px 0 6px">Add a product</h4>
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
@@ -561,6 +562,12 @@ run();
         <input id="amInst" class="mi" type="number" step="0.01" oninput="amCalc('inst')"></div>
       <div><label class="muted" style="font-size:12px">Next payment date (from Ezidebit)</label>
         <input id="amNext" class="mi" type="date" onchange="amCalc('next')"></div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px">
+      <div><label class="muted" style="font-size:12px">First debit of the current schedule</label>
+        <input id="amStart" class="mi" type="date" onchange="amCalc('start')">
+        <div style="font-size:11px;color:#7a8798;margin-top:3px">Drives arrears. If the direct debit was restarted, use the new first debit — not the order date.</div></div>
+      <div></div>
     </div>
     <div style="font-size:11.5px;color:#7a8798;line-height:1.4;margin-top:8px">
       Set <b>either</b> the payment or the number of payments — change one and the other recalculates.
@@ -656,24 +663,22 @@ async function openAmend(oid){
       AM.prods.map(p=>`<option value="${p.name.replace(/"/g,'&quot;')}">${p.name}</option>`).join("");
   }catch(e){ amErr("<b>Couldn't load the product list.</b><br>"+(e.message||e)); }
 
-  // ONE structure describes the amended order — current lines, removals and additions
-  // all live here, so nothing can fall out of step.
-  // Some older orders were saved with NO unit price on their lines (contract value is
-  // right, the lines are blank). Backfill those from the config price list, and mark
-  // anything we still can't price so it can't be saved silently wrong.
-  let guessed=0, unknown=[];
-  AM.lines = (window._ITEMS||[]).filter(i=>!i.cancelled).map(i=>{
-    let price=Number(i.unit_price||0), fromList=false;
-    if(!(price>0)){
-      const k=priceKey(i.product_name);
-      if(k && AM.prices[k]!=null){ price=AM.prices[k]; fromList=true; guessed++; }
-      else { unknown.push(i.product_name||"(unnamed)"); }
-    }
-    return { id:i.id, name:i.product_name||"", qty:Number(i.quantity||1), price,
-             origQty:Number(i.quantity||1), origPrice:Number(i.unit_price||0),
-             removed:false, isNew:false, fromList };
-  });
-  AM._guessed=guessed; AM._unknown=unknown;
+  // ONE structure describes the amended order.
+  //
+  // We load the prices EXACTLY as stored. Some older orders were saved with no line
+  // prices at all (the contract value is right; the breakdown was never recorded).
+  // We do NOT fill those in from today's price list — today's list is not what the
+  // customer signed. The operator enters what the order form says, and the panel
+  // below shows whether it reconciles to the contract value.
+  AM.lines = (window._ITEMS||[]).filter(i=>!i.cancelled).map(i=>({
+    id:i.id, name:i.product_name||"", qty:Number(i.quantity||1),
+    price: (i.unit_price!=null && Number(i.unit_price)>0) ? Number(i.unit_price) : 0,
+    origQty:Number(i.quantity||1),
+    origPrice:(i.unit_price!=null)?Number(i.unit_price):0,
+    removed:false, isNew:false,
+    needsPrice: !(i.unit_price!=null && Number(i.unit_price)>0)
+  }));
+  AM.origContract = Number(o.contract_value||0);
 
   // seed the terms box from what we know
   document.getElementById("amFreq").value = o.payment_frequency || "weekly";
@@ -693,21 +698,11 @@ async function openAmend(oid){
   document.getElementById("amRem").value  = o.term_periods || "";
   document.getElementById("amInst").value = o.instalment_amount!=null ? Number(o.instalment_amount).toFixed(2) : "";
   document.getElementById("amNext").value = o.next_payment_date || "";
+  document.getElementById("amStart").value = o.schedule_start_date || o.loan_start_date || o.first_payment_date || "";
   amRenderLines(); amCalc();
 
-  // Say plainly when the order's own prices were missing. Never fix data behind
-  // someone's back without telling them.
-  let warn="";
-  if(AM._unknown && AM._unknown.length){
-    warn=`<div style="background:#fdecec;border:1px solid #e0b4b0;color:#b4342e;border-radius:9px;padding:10px 12px;font-size:13px;margin-bottom:10px">
-      <b>These lines have no price recorded and aren't in the price list:</b> ${AM._unknown.join(", ")}.<br>
-      Type the correct price for each before saving, or the new contract value will be wrong.</div>`;
-  } else if(AM._guessed){
-    warn=`<div style="background:#fff8e9;border:1px solid #e8d5a8;border-left:4px solid #c6a15b;border-radius:9px;padding:10px 12px;font-size:13px;margin-bottom:10px">
-      <b>${AM._guessed} line${AM._guessed>1?"s were":" was"} saved without a price.</b>
-      The current price list has been filled in — check ${AM._guessed>1?"they match":"it matches"} what the customer actually agreed before saving.</div>`;
-  }
-  document.getElementById("amPriceWarn").innerHTML=warn;
+  amPriceBanner();
+
   document.getElementById("amendModal").style.display="flex";
 }
 function closeAmend(){ document.getElementById("amendModal").style.display="none"; }
@@ -721,6 +716,36 @@ function amLineTotal(ix){
 }
 function amSetQty(ix,v){ AM.lines[ix].qty=Math.max(1,parseInt(v||"1",10)); amLineTotal(ix); amCalc(); }
 function amSetPrice(ix,v){ AM.lines[ix].price=parseFloat(v||"0")||0; amLineTotal(ix); amCalc(); }
+
+// Prices that were never recorded are shown as blank, never guessed.
+function amPriceBanner(){
+  const missing=AM.lines.filter(l=>!l.isNew && l.needsPrice);
+  const box=document.getElementById("amPriceWarn");
+  if(!missing.length){ box.innerHTML=""; return; }
+  box.innerHTML=`
+    <div style="background:#fdecec;border:1px solid #e0b4b0;border-left:4px solid #b4342e;border-radius:9px;padding:11px 13px;font-size:13px;margin-bottom:10px">
+      <b>This order was saved without line prices.</b>
+      The contract total (${money(AM.origContract)}) is correct, but the breakdown was never recorded.<br>
+      Enter what the customer actually agreed, from their signed order form. The check below tells you when it balances.
+      <div style="margin-top:8px">
+        <button onclick="amFillFromList()" style="background:none;border:1px solid #b4342e;color:#b4342e;border-radius:7px;padding:5px 11px;font-size:12px;cursor:pointer">
+          Fill from today's price list</button>
+        <span style="color:#8a4a46;font-size:11.5px;margin-left:8px">Only if you know prices haven't changed since this sale.</span>
+      </div>
+    </div>`;
+}
+
+// Explicit, deliberate, and only when the operator asks for it.
+function amFillFromList(){
+  let filled=0;
+  AM.lines.forEach(l=>{
+    if(l.isNew || !l.needsPrice) return;
+    const k=priceKey(l.name);
+    if(k && AM.prices[k]!=null){ l.price=AM.prices[k]; filled++; }
+  });
+  amRenderLines(); amCalc();
+  if(!filled) amErr("None of those products are in the current price list. Enter the prices by hand.");
+}
 
 function amRenderLines(){
   const rows = AM.lines.map((l,ix)=>{
@@ -745,6 +770,22 @@ function amRenderLines(){
   document.getElementById("amCur").innerHTML = AM.lines.length ? rows
     : `<tr><td colspan="5" class="muted" style="padding:10px 0">This order has no product lines recorded.</td></tr>`;
   const el=document.getElementById("amAdded"); if(el) el.innerHTML="";
+
+  // Does the ORIGINAL order (before your changes) add up to the contract value?
+  // Only shown while some price was missing — it's the check on the operator's typing.
+  const rec=document.getElementById("amReconcile");
+  const hadMissing=AM.lines.some(l=>!l.isNew && l.needsPrice);
+  if(rec && hadMissing){
+    const origTotal=AM.lines.filter(l=>!l.isNew).reduce((v,l)=>v+Number(l.price||0)*Number(l.origQty||1),0);
+    const diff=Math.round((origTotal-AM.origContract)*100)/100;
+    const ok=Math.abs(diff)<0.01;
+    rec.innerHTML=`<div style="margin-top:8px;font-size:12.5px;padding:8px 11px;border-radius:8px;
+        background:${ok?"#e9f5ed":"#fff8e9"};border:1px solid ${ok?"#bcdcc6":"#e8d5a8"}">
+        Original lines total <b>${money(origTotal)}</b> · contract value <b>${money(AM.origContract)}</b>
+        ${ok?'<span style="color:#1c6b34;font-weight:700">— balances ✓</span>'
+            :`<span style="color:#8a6a1f;font-weight:700">— out by ${money(Math.abs(diff))} ${diff>0?"too much":"too little"}</span>`}
+      </div>`;
+  } else if(rec){ rec.innerHTML=""; }
 }
 
 function amPrefill(){
@@ -912,8 +953,8 @@ async function saveAmend(){
   if(!after.length){ return amErr("This order would have no mattress. Cancel the order instead of amending it."); }
   const unpriced=AM.lines.filter(l=>!l.removed && !(Number(l.price)>0));
   if(unpriced.length){
-    return amErr("<b>These lines have no price:</b> "+unpriced.map(l=>l.name).join(", ")
-      +".<br>Enter a price for each — saving now would write a wrong contract value.");
+    return amErr("<b>These lines still have no price:</b> "+unpriced.map(l=>l.name).join(", ")
+      +".<br>Enter what the customer agreed, from their order form. Saving now would write a wrong contract value.");
   }
   const paid=parseFloat(document.getElementById("amPaid").value);
   if(isNaN(paid) || paid<0){ return amErr("Enter how much the customer has paid so far (0 if nothing yet)."); }
@@ -968,10 +1009,12 @@ async function saveAmend(){
     }
 
     const nextDate=document.getElementById("amNext").value||null;
+    const startDate=document.getElementById("amStart").value||null;
     const patch={ contract_value:newV, payment_frequency:freq,
       loan_start_date:o.loan_start_date||o.first_payment_date||null };
     if(newInst>0 && rem>0){ patch.instalment_amount=newInst; patch.term_periods=rem; }
-    if(nextDate) patch.next_payment_date=nextDate;
+    if(nextDate)  patch.next_payment_date=nextDate;
+    if(startDate) patch.schedule_start_date=startDate;   // arrears reads this
     const {error:e2}=await sb.from("sim_orders").update(patch).eq("id",o.id);
     if(e2) throw new Error("Updating the order: "+e2.message);
 
