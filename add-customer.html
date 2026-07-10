@@ -96,13 +96,17 @@
           <option value="cash">Cash</option>
         </select></div>
       <div><label for="payFreq">Payment frequency</label>
-        <select id="payFreq"><option value="">—</option><option value="weekly">Weekly</option><option value="fortnightly">Fortnightly</option><option value="monthly">Monthly</option></select></div>
+        <select id="payFreq" onchange="schedulePreview()"><option value="">—</option><option value="weekly">Weekly</option><option value="fortnightly">Fortnightly</option><option value="monthly">Monthly</option></select></div>
+      <div><label for="payAmount">Payment amount ($ per period)</label>
+        <input id="payAmount" type="number" min="0" step="0.01" placeholder="minimum" oninput="scheduleTouched=true;schedulePreview()">
+        <div class="hint" id="payAmountHint">Leave blank to use the minimum. Enter a higher figure if the customer chose to pay more.</div></div>
       <div><label for="payerRef">Ezidebit Payer ID</label><input id="payerRef" placeholder="551-000-000" autocomplete="off"></div>
 
       <div class="req"><label for="contract">Total sale value ($)</label><input id="contract" type="number" min="0" step="0.01" readonly><div class="hint" id="totalHint">Calculated from the products below.</div></div>
       <div><label for="deposit">Deposit amount ($)</label><input id="deposit" type="number" min="0" step="0.01" value="0"></div>
 
-      <div><label for="firstPay">First payment date</label><input id="firstPay" type="date"></div>
+      <div><label for="firstPay">First payment date</label><input id="firstPay" type="date" onchange="schedulePreview()"></div>
+      <div style="grid-column:1/-1"><div id="schedPreview" class="hint" style="padding:8px 10px;background:#f4f7fa;border:1px solid #d9e0ea;border-radius:8px"></div></div>
       <div><label for="delStatus">Delivery status</label>
         <select id="delStatus">
           <option value="pending">Pending</option>
@@ -194,6 +198,60 @@ function productName(range,size){
   if(range==="Delivery") return "Delivery fee";
   return range;
 }
+const PERIODS={weekly:{per:7,total:156,word:"week"},fortnightly:{per:14,total:78,word:"fortnight"},monthly:{per:30.44,total:36,word:"month"}};
+let scheduleTouched=false;   // did the operator type an amount, or are we showing the minimum?
+
+// Minimum instalment = contract spread over the standard term for that frequency.
+function minInstalment(){
+  const contract=Number($("contract").value)||0;
+  const f=PERIODS[$("payFreq").value]; if(!f||contract<=0) return 0;
+  return contract/f.total;
+}
+
+// What we will actually store: the typed amount if given, else the minimum.
+function chosenInstalment(){
+  const typed=parseFloat($("payAmount").value);
+  if(typed>0) return typed;
+  return minInstalment();
+}
+
+function schedulePreview(){
+  const box=$("schedPreview"); if(!box) return;
+  const f=PERIODS[$("payFreq").value];
+  const contract=Number($("contract").value)||0;
+  if(!f || contract<=0){ box.textContent="Choose a frequency to see the schedule."; return; }
+
+  const min=minInstalment();
+  const inst=chosenInstalment();
+  if(!(inst>0)){ box.textContent=""; return; }
+
+  // Placeholder shows the minimum until they type their own.
+  $("payAmount").placeholder = "min "+min.toFixed(2);
+
+  // Deposit reduces what's financed.
+  const deposit=Number($("deposit").value)||0;
+  const financed=Math.max(0, contract-deposit);
+  const payments=inst>0?Math.ceil(financed/inst):0;
+  const last=financed-inst*(payments-1);
+  const weeks=Math.round(payments*f.per/7);
+  const yrs=(weeks/52).toFixed(1);
+
+  let msg=`<b>${payments} payment${payments!==1?"s":""}</b> of $${inst.toFixed(2)} per ${f.word}`;
+  if(last>0 && Math.abs(last-inst)>0.01) msg+=` (last one $${last.toFixed(2)})`;
+  msg+=` — about <b>${weeks} weeks</b> (${yrs} yrs) to clear ${deposit>0?`$${financed.toFixed(2)} after the deposit`:"the balance"}.`;
+
+  if(inst>min+0.01){
+    const minPayments=Math.ceil(financed/min);
+    const saved=minPayments-payments;
+    msg+=`<br><span style="color:#1c6b34">Paying $${(inst-min).toFixed(2)} more than the $${min.toFixed(2)} minimum — clears about ${saved} ${f.word}s sooner.</span>`;
+  }
+  if(inst<min-0.01){
+    msg+=`<br><span style="color:#b4342e">This is below the $${min.toFixed(2)} minimum for a ${($("payFreq").value)} plan — the loan would run past the standard term.</span>`;
+  }
+  if(weeks>156) msg+=`<br><span style="color:#b8860b">Over the 3-year (156-week) target.</span>`;
+  box.innerHTML=msg;
+}
+
 function recalcTotal(){
   if(!Object.keys(PRICES).length) return;          // prices didn't load → leave total editable
   let total=0, missing=false;
@@ -213,6 +271,7 @@ function recalcTotal(){
   if(hnt) hnt.textContent = missing
     ? "⚠ A selected product has no price in the products config — check the total."
     : "Calculated from the products above.";
+  schedulePreview();
 }
 async function loadPrices(){
   try{
@@ -228,6 +287,7 @@ async function loadPrices(){
   document.querySelectorAll('#prodTable input[data-range]').forEach(inp=>inp.addEventListener("input",recalcTotal));
   $("pillow").addEventListener("input",recalcTotal);
   $("delivery").addEventListener("input",recalcTotal);
+  $("deposit").addEventListener("input",schedulePreview);
 }
 
 // ---- phone normalise / validate ----
@@ -329,6 +389,13 @@ async function save(){
 
     // 2. order
     const method=$("payMethod").value||null;
+    // Record the agreed payment. chosenInstalment() returns the typed amount if the
+    // operator entered one, otherwise the minimum (contract ÷ standard term).
+    const schedInst = (method==="pay_in_full"||method==="cash") ? 0 : chosenInstalment();
+    const _f = PERIODS[$("payFreq").value];
+    const _dep = Number($("deposit").value)||0;
+    const _fin = Math.max(0, contract-_dep);
+    const schedTerm = (schedInst>0) ? Math.ceil(_fin/schedInst) : 0;
     const order = {
       customer_id:cust.id, order_date:orderDate, consultant_name:consultant,
       team_leader_name:TEAM[consultant]||null,
@@ -341,6 +408,12 @@ async function save(){
       deposit_date:$("firstPay").value||null,
       ezidebit_payer_ref:($("payerRef").value.replace(/\D/g,"")||null),
       first_payment_date:$("firstPay").value||null,
+      // The schedule, recorded at the point of sale so arrears is right from day one.
+      // Store what the customer actually agreed — the typed amount, or the minimum.
+      instalment_amount: schedInst>0 ? schedInst : null,
+      term_periods:      schedTerm>0 ? schedTerm : null,
+      schedule_start_date: $("firstPay").value||null,   // arrears reads this
+      next_payment_date:   $("firstPay").value||null,
       delivery_status:$("delStatus").value,
       order_status:"active",
       paid_in_full: method==="pay_in_full"
