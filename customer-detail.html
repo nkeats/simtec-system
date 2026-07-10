@@ -528,6 +528,11 @@ run();
 
 const AM = { prods:[], prices:{}, lines:[], commByName:{} };
 const PER = { weekly:7, fortnightly:14, monthly:30.44 };
+// The 3-year target is 156 weeks. A small overrun is usually a rounding artefact or a
+// consultant's arithmetic and is accepted with a warning. Beyond the hard limit it is a
+// materially different loan and must not be saved.
+const TERM_TARGET_WEEKS = 156;
+const TERM_MAX_WEEKS    = 170;
 const isMatt = n => n && !/delivery|protector|pillow|base|topper/i.test(n);
 
 function amErr(m){ const b=document.getElementById("amErr"); if(!m){b.style.display="none";return;} b.style.display=""; b.innerHTML=m; }
@@ -710,7 +715,7 @@ function amCalc(src){
   let rem=parseInt(remEl.value||"0",10);
   let inst=parseFloat(instEl.value);
   let instBlock="";
-  AM._paidUp=false;
+  AM._paidUp=false; AM._weeks=null;
 
   if(paid>=0 && !isNaN(paid)){
     const newOut = Math.round((newV - paid)*100)/100;
@@ -759,8 +764,15 @@ function amCalc(src){
           <div style="background:#fff8e9;border:1px solid #e8d5a8;border-left:4px solid #c6a15b;border-radius:9px;padding:10px 12px;font-size:13px;margin-top:10px">
             <b>Update Ezidebit to ${money(inst)} per ${perWord}.</b>
             The system records the change; the direct debit itself must be changed in Ezidebit by hand.</div>
-          ${weeks>156?`<div style="background:#fdecec;border:1px solid #e0b4b0;color:#b4342e;border-radius:9px;padding:10px 12px;font-size:13px;margin-top:8px"><b>This runs past the 3-year ceiling</b> (${weeks} weeks). Consider a larger payment.</div>`:""}`;
-        AM._newInst=inst; AM._newRem=rem;
+          ${weeks>TERM_MAX_WEEKS
+              ? `<div style="background:#fdecec;border:1px solid #e0b4b0;color:#b4342e;border-radius:9px;padding:10px 12px;font-size:13px;margin-top:8px">
+                   <b>Too long — this cannot be saved.</b> ${weeks} weeks is beyond the ${TERM_MAX_WEEKS}-week limit.
+                   Increase the payment to bring it back inside the limit.</div>`
+              : weeks>TERM_TARGET_WEEKS
+                ? `<div style="background:#fff8e9;border:1px solid #e8d5a8;border-left:4px solid #c6a15b;border-radius:9px;padding:10px 12px;font-size:13px;margin-top:8px">
+                     <b>Past the 3-year target</b> (${weeks} weeks, ${weeks-TERM_TARGET_WEEKS} over). This can still be saved.</div>`
+                : ""}`;
+        AM._newInst=inst; AM._newRem=rem; AM._weeks=weeks;
       } else {
         instBlock=`<div class="muted" style="font-size:13px">Enter either the payment amount or the number of payments remaining.</div>`;
         AM._newInst=null; AM._newRem=null;
@@ -836,6 +848,10 @@ async function saveAmend(){
   const freq=document.getElementById("amFreq").value;
   const newInst=AM._newInst, rem=AM._newRem;
   if(!AM._paidUp && (!(newInst>0)||!(rem>0))){ return amErr("Enter either the payment amount or the number of payments remaining."); }
+  if(AM._weeks && AM._weeks > TERM_MAX_WEEKS){
+    return amErr("<b>This schedule runs "+AM._weeks+" weeks — beyond the "+TERM_MAX_WEEKS+"-week limit.</b><br>"
+      +"Increase the payment amount, or reduce the number of payments, until it fits.");
+  }
 
   const removed = AM.lines.filter(l=>l.removed && !l.isNew);
   const added   = AM.lines.filter(l=>l.isNew && !l.removed);
