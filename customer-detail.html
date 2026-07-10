@@ -146,13 +146,39 @@ async function doSearch(){
   const q=(document.getElementById("q").value||"").trim();
   const box=document.getElementById("results");
   if(q.length<2){ box.style.display="none"; return; }
-  const like=`%${q}%`;
+
+  // A full name like "Ana Taufa" lives in TWO columns, so searching for that string
+  // inside either one finds nobody. Split on spaces: with two or more words, look for
+  // one word in the first name and another in the last name (either way round).
+  const words=q.split(/\s+/).filter(Boolean);
+  const safe=w=>w.replace(/[,()*]/g,"");     // characters PostgREST treats as syntax
+  let filter;
+  if(words.length===1){
+    const like=`%${safe(q)}%`;
+    filter=`first_name.ilike.${like},last_name.ilike.${like},mobile.ilike.${like},email.ilike.${like},address.ilike.${like}`;
+  } else {
+    const a=`%${safe(words[0])}%`, b=`%${safe(words.slice(1).join(" "))}%`;
+    const whole=`%${safe(q)}%`;
+    const parts=[
+      `and(first_name.ilike.${a},last_name.ilike.${b})`,   // Ana + Taufa
+      `and(first_name.ilike.${b},last_name.ilike.${a})`,   // Taufa + Ana (reversed)
+      `last_name.ilike.${whole}`,                          // double-barrelled surname
+      `first_name.ilike.${whole}`,
+      `address.ilike.${whole}`
+    ];
+    // "021 555 1234" is a phone number, not a name — search the mobile column
+    // on the digits alone, since it's stored without spaces.
+    const digits=q.replace(/\D/g,"");
+    if(digits.length>=5) parts.push(`mobile.ilike.%${digits}%`);
+    filter=parts.join(",");
+  }
+
   const {data,error}=await sb.from("sim_customers")
     .select("id,first_name,last_name,mobile,address")
-    .or(`first_name.ilike.${like},last_name.ilike.${like},mobile.ilike.${like},email.ilike.${like},address.ilike.${like}`)
-    .limit(8);
+    .or(filter)
+    .limit(12);
   if(error){ box.innerHTML=`<div style="padding:10px 13px;color:#b4342e;font-size:13px">${esc(error.message)}</div>`; box.style.display=""; return; }
-  if(!data||!data.length){ box.innerHTML=`<div style="padding:10px 13px;color:#7a8798;font-size:13px">No matches</div>`; box.style.display=""; return; }
+  if(!data||!data.length){ box.innerHTML=`<div style="padding:10px 13px;color:#7a8798;font-size:13px">No matches for “${esc(q)}”. Try just the surname, or a phone number.</div>`; box.style.display=""; return; }
   box.innerHTML=data.map(c=>`<div style="padding:9px 13px;cursor:pointer;border-bottom:1px solid #eef1f5" onmouseover="this.style.background='#f4f7fa'" onmouseout="this.style.background='#fff'" onclick="goCustomer('${c.id}')">
       <div style="font-size:14px;font-weight:600">${esc(c.first_name)} ${esc(c.last_name)}</div>
       <div style="font-size:12px;color:#7a8798">${esc(c.mobile||"")}${c.address?" · "+esc(c.address):""}</div></div>`).join("");
