@@ -133,7 +133,10 @@ function parse(text){
   const paid=[],refunds=[],dishonours=[];
   let settle=null;
   for(let i=0;i<ms.length;i++){
-    const m=ms[i]; const trans=m[1], settleD=m[2], payer=m[3];
+    const m=ms[i]; const trans=m[1], settleD=m[2];
+    // Ezidebit prints the payer ID with dashes (562-115-292); sim_orders stores it
+    // without (562115292). Normalise HERE, once, so nothing downstream can miss.
+    const payer=m[3].replace(/-/g,"");
     settle=settleD;
     const span=text.slice(m.index, i+1<ms.length?ms[i+1].index:text.length);
     const res=span.match(/\b(Paid|Failed|Refund)\b/); if(!res) continue;
@@ -168,7 +171,8 @@ async function onFile(file){
     }
     // match payers to orders
     const {data:orders}=await sb.from("sim_orders").select("id,ezidebit_payer_ref,amount_paid_to_date").not("ezidebit_payer_ref","is",null);
-    const omap={}; (orders||[]).forEach(o=>{ if(o.ezidebit_payer_ref) omap[o.ezidebit_payer_ref.trim()]=o; });
+    const norm=r=>String(r||"").replace(/-/g,"").trim();
+    const omap={}; (orders||[]).forEach(o=>{ if(o.ezidebit_payer_ref) omap[norm(o.ezidebit_payer_ref)]=o; });
     // fetch existing dedup keys for this settlement date
     const [pk,dk]=await Promise.all([
       sb.from("sim_payments").select("dedup_key").eq("settlement_date",p.settle).not("dedup_key","is",null),
@@ -221,6 +225,15 @@ function renderPreview(){
     $("unmatched").innerHTML=um.map(x=>`<tr><td>${x}</td><td class="muted">not found in customers</td></tr>`).join(""); }
   else { $("unmatchedWrap").style.display="none"; }
 
+  // A payment that matches nobody updates nobody's balance. If that is happening at
+  // scale it means the whole import is failing silently — say so, loudly, above the
+  // fold. This exact failure ran unnoticed for weeks.
+  const total=[...newPaid,...newRef,...newDis].length;
+  if(um.length && total && (unmatched.length/total) > 0.25){
+    show("⚠ "+unmatched.length+" of "+total+" transactions in this report match no customer.\n"
+      +"Their balances will NOT be updated. Check the payer references before applying.","err");
+  }
+
   $("dishList").innerHTML = newDis.length
     ? newDis.map(r=>`<tr><td>${auDate(r.trans)}</td><td>${p.nameFor(r.payer)||('<span class="muted">'+r.payer+' (no match)</span>')}</td><td class="num">${fmt(r.payamt)}</td></tr>`).join("")
     : `<tr><td colspan="3" class="muted">No new dishonours.</td></tr>`;
@@ -241,15 +254,32 @@ async function apply(){
     const disRows=p.newDis.map(r=>({payer_ref:r.payer,dishonour_date:r.trans,settlement_date:r.settle,amount:r.payamt,failed_reason:r.reason||null,dedup_key:keyOf(r,"dishonour")}));
     if(disRows.length){ const {error}=await sb.from("sim_dishonours").insert(disRows); if(error) throw new Error("Dishonours: "+error.message); }
 
-    // 3. update balances (net delta per matched order)
-    const delta={}; // orderId -> {order, add}
-    [...p.newPaid,...p.newRef].forEach(r=>{ const o=p.omap[r.payer]; if(!o) return; if(!delta[o.id]) delta[o.id]={o,add:0}; delta[o.id].add+=r.payamt; });
+    // 3. Recompute balances FROM THE LEDGER, rather than adding to a running total.
+    //    Two numbers meaning the same thing always drift. sim_payments is the truth;
+    //    amount_paid_to_date is a cached copy of it and is rebuilt each import.
+    const touched={};   // payer_ref -> order
+    [...p.newPaid,...p.newRef].forEach(r=>{ const o=p.omap[r.payer]; if(o) touched[r.payer]=o; });
+    const refs=Object.keys(touched);
     let updated=0;
-    for(const id in delta){
-      const {o,add}=delta[id];
-      const newVal=Number(o.amount_paid_to_date||0)+add;
-      const {error}=await sb.from("sim_orders").update({amount_paid_to_date:newVal}).eq("id",id);
-      if(!error) updated++;
+    if(refs.length){
+      // pull every payment for those refs (paged; refunds carry a negative amount)
+      let all=[], from=0;
+      while(true){
+        const {data,error}=await sb.from("sim_payments")
+          .select("payer_ref,amount").in("payer_ref",refs).range(from,from+999);
+        if(error) throw new Error("Re-reading the ledger: "+error.message);
+        all=all.concat(data||[]);
+        if(!data || data.length<1000) break;
+        from+=1000;
+      }
+      const sums={}; all.forEach(r=>{ sums[r.payer_ref]=(sums[r.payer_ref]||0)+Number(r.amount||0); });
+      for(const ref of refs){
+        const o=touched[ref];
+        const total=Math.round((sums[ref]||0)*100)/100;
+        const {error}=await sb.from("sim_orders").update({amount_paid_to_date:total}).eq("id",o.id);
+        if(error) throw new Error("Updating balance: "+error.message);
+        updated++;
+      }
     }
 
     const paidTotal=p.newPaid.reduce((s,r)=>s+r.payamt,0)+p.newRef.reduce((s,r)=>s+r.payamt,0);
