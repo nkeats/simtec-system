@@ -19,6 +19,7 @@
   .ok{background:#0f2f1c;color:#4ade80}
   .warn{background:#3a2c0d;color:#fbbf24}
   .bad{background:#3a1414;color:#f87171}
+  .info{background:#16233c;color:#8fa8cc}   /* known, expected, no action */
   .muted{color:#7c8aa5;font-size:13px}
   .err{background:#2a1113;border:1px solid #7f1d1d;color:#fecaca;border-radius:12px;padding:14px 16px;font-size:13.5px;line-height:1.5;margin-bottom:14px}
   code{background:#0d1728;color:#9fb0cc;padding:1px 6px;border-radius:5px;font-size:12.5px}
@@ -52,6 +53,9 @@ const sb = window.SIMTEC_SB || supabase.createClient("https://jvqjoenaungubpoegy
 // Orders before go-live are migrated history (closed, commissions handled outside this
 // system). Checking them just produces noise, so every check ignores them.
 const CUTOFF="2026-06-01";
+// The day the spreadsheet migration ran. Orders created on or before this date
+// were imported, not entered, and never carried line prices.
+const MIGRATION_DAY="2026-07-02";
 const onOrAfterCutoff=dt=>!!dt && String(dt).slice(0,10)>=CUTOFF;
 const $=id=>document.getElementById(id);
 const esc=s=>String(s==null?"":s).replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
@@ -159,14 +163,34 @@ const CHECKS=[
   },
   {
     id:"unpriced",
-    title:"Orders with line items that have no price",
-    why:"The order's total is right, but its product lines carry no money. Anything that adds up line items (product reporting, margins, priced dockets) will read zero for these.",
-    fix:"These are mostly older orders priced from a previous price list, so they can't be filled in automatically without misstating what the customer agreed. They correct themselves when someone amends that customer — the amend screen fills the price in and asks you to check it.",
-    cols:["Consultant","Order date","Value","Unpriced lines"],
+    title:"NEW orders saved without line prices",
+    why:"An order whose product lines carry no money. The contract total is still right, but anything that adds up line items — product reporting, margins, priced dockets — reads zero. If this ever shows a row, the sale entry screen has stopped recording prices and every sale from now on inherits the problem.",
+    fix:"Open the customer, press Amend order, and enter the prices from their signed order form. The reconciliation strip tells you when the lines balance to the contract value.",
+    cols:["Consultant","Order date","Entered","Value","Unpriced lines"],
     run:async(D)=>{
       const bad={};
       D.items.forEach(i=>{ if(!i.cancelled && !(Number(i.unit_price)>0)) bad[i.order_id]=(bad[i.order_id]||0)+1; });
-      return D.orders.filter(o=>(o.order_status||'active')!=='cancelled' && bad[o.id] && onOrAfterCutoff(o.order_date))
+      // Only orders ENTERED after the spreadsheet migration. The migrated rows have
+      // recent order_dates but were all created on 2 July and never had prices —
+      // flagging them here is a warning that can never be cleared, and a check that
+      // is always red is a check nobody reads.
+      return D.orders.filter(o=>(o.order_status||'active')!=='cancelled' && bad[o.id]
+                              && o.created_at && o.created_at.slice(0,10) > MIGRATION_DAY)
+        .map(o=>[o.consultant_name||'—',d(o.order_date),d(o.created_at),fmt(o.contract_value),bad[o.id]]);
+    }
+  },
+  {
+    id:"unpriced_legacy",
+    title:"Migrated orders with no line prices (known, being cleared)",
+    why:"These came across in the spreadsheet migration on 2 July. Their contract totals are correct; the per-product breakdown was never recorded anywhere, so it cannot be recovered by the system — only from the customer's signed order form.",
+    fix:"No action needed. They correct themselves as customers are amended. Filling them from today's price list would state that a customer agreed to a price they never saw, on a credit contract.",
+    cols:["Consultant","Order date","Value","Unpriced lines"],
+    tone:"info",
+    run:async(D)=>{
+      const bad={};
+      D.items.forEach(i=>{ if(!i.cancelled && !(Number(i.unit_price)>0)) bad[i.order_id]=(bad[i.order_id]||0)+1; });
+      return D.orders.filter(o=>(o.order_status||'active')!=='cancelled' && bad[o.id]
+                              && (!o.created_at || o.created_at.slice(0,10) <= MIGRATION_DAY))
         .map(o=>[o.consultant_name||'—',d(o.order_date),fmt(o.contract_value),bad[o.id]]);
     }
   },
@@ -209,7 +233,7 @@ async function runAll(){
     html+=`<div class="card p-5 mb-4">
       <div class="flex items-center justify-between gap-3 flex-wrap">
         <h2 class="text-base font-bold">${esc(c.title)}</h2>
-        <span class="pill ${clean?'ok':((c.id==='unlinked'||c.id==='unpriced')?'warn':'bad')}">${clean?'clear':rows.length+' found'}</span>
+        <span class="pill ${clean?'ok':(c.tone==='info'?'info':((c.id==='unlinked')?'warn':'bad'))}">${clean?'clear':rows.length+(c.tone==='info'?' known':' found')}</span>
       </div>
       <p class="text-xs text-slate-500 mt-2">${esc(c.why)}</p>`;
     if(!clean){
