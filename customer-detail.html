@@ -453,6 +453,7 @@ run();
     </p>
     <div id="amErr" style="display:none;background:#fdecec;border:1px solid #e0b4b0;color:#b4342e;border-radius:9px;padding:11px 13px;font-size:13.5px;margin-bottom:12px"></div>
 
+    <div id="amPriceWarn"></div>
     <h4 style="font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:#7a8798;margin:14px 0 6px">Products on this order</h4>
     <table style="width:100%;border-collapse:collapse;font-size:13.5px">
       <thead><tr style="font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:#9aa6b6">
@@ -475,8 +476,9 @@ run();
     <h4 style="font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:#7a8798;margin:18px 0 6px">Payment terms</h4>
     <div id="amTermsNote"></div>
     <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
-      <div><label class="muted" style="font-size:12px">Outstanding balance (from Ezidebit)</label>
-        <input id="amOut" class="mi" type="number" step="0.01" oninput="amCalc('out')"></div>
+      <div><label class="muted" style="font-size:12px">Total paid so far (from Ezidebit)</label>
+        <input id="amPaid" class="mi" type="number" step="0.01" oninput="amCalc('paid')">
+        <div style="font-size:11px;color:#7a8798;margin-top:3px">Everything they've paid to date, including the deposit.</div></div>
       <div><label class="muted" style="font-size:12px">Frequency</label>
         <select id="amFreq" class="mi" onchange="amCalc('freq')">
           <option value="weekly">Weekly</option><option value="fortnightly">Fortnightly</option><option value="monthly">Monthly</option>
@@ -487,12 +489,13 @@ run();
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px">
       <div><label class="muted" style="font-size:12px">Payment amount</label>
         <input id="amInst" class="mi" type="number" step="0.01" oninput="amCalc('inst')"></div>
-      <div style="display:flex;align-items:flex-end">
-        <div style="font-size:11.5px;color:#7a8798;line-height:1.4">
-          Set <b>either</b> one. Change the payment and the term recalculates;
-          change the term and the payment recalculates. Paying more finishes sooner.
-        </div>
-      </div>
+      <div><label class="muted" style="font-size:12px">Next payment date (from Ezidebit)</label>
+        <input id="amNext" class="mi" type="date" onchange="amCalc('next')"></div>
+    </div>
+    <div style="font-size:11.5px;color:#7a8798;line-height:1.4;margin-top:8px">
+      Set <b>either</b> the payment or the number of payments — change one and the other recalculates.
+      Paying more finishes sooner. The next payment date is what Ezidebit will debit next; it's used to
+      work out when the loan actually finishes.
     </div>
 
     <div id="amSummary" style="margin-top:16px"></div>
@@ -563,15 +566,6 @@ async function openAmend(oid){
     window._ITEMS = [];
     amErr("<b>Couldn't read this order's products.</b><br>"+(e.message||e)+"<br>Do not save — the amendment would be wrong.");
   }
-  // ONE structure describes the amended order. Previously the current lines, the
-  // keep-flags and the edits lived in three parallel maps that could fall out of
-  // step — when they did, kept lines silently dropped out of the total.
-  AM.lines = (window._ITEMS||[]).filter(i=>!i.cancelled).map(i=>({
-    id:i.id, name:i.product_name||"", qty:Number(i.quantity||1),
-    price:Number(i.unit_price||0), origQty:Number(i.quantity||1),
-    origPrice:Number(i.unit_price||0), removed:false, isNew:false
-  }));
-
   try{
     const [{data:cp,error:e1},{data:cfg,error:e2}] = await Promise.all([
       sb.from("commission_products").select("id,name,commission_type,fixed_amount,active").eq("active",true).order("name"),
@@ -587,6 +581,25 @@ async function openAmend(oid){
       AM.prods.map(p=>`<option value="${p.name.replace(/"/g,'&quot;')}">${p.name}</option>`).join("");
   }catch(e){ amErr("<b>Couldn't load the product list.</b><br>"+(e.message||e)); }
 
+  // ONE structure describes the amended order — current lines, removals and additions
+  // all live here, so nothing can fall out of step.
+  // Some older orders were saved with NO unit price on their lines (contract value is
+  // right, the lines are blank). Backfill those from the config price list, and mark
+  // anything we still can't price so it can't be saved silently wrong.
+  let guessed=0, unknown=[];
+  AM.lines = (window._ITEMS||[]).filter(i=>!i.cancelled).map(i=>{
+    let price=Number(i.unit_price||0), fromList=false;
+    if(!(price>0)){
+      const k=priceKey(i.product_name);
+      if(k && AM.prices[k]!=null){ price=AM.prices[k]; fromList=true; guessed++; }
+      else { unknown.push(i.product_name||"(unnamed)"); }
+    }
+    return { id:i.id, name:i.product_name||"", qty:Number(i.quantity||1), price,
+             origQty:Number(i.quantity||1), origPrice:Number(i.unit_price||0),
+             removed:false, isNew:false, fromList };
+  });
+  AM._guessed=guessed; AM._unknown=unknown;
+
   // seed the terms box from what we know
   document.getElementById("amFreq").value = o.payment_frequency || "weekly";
   const haveTerms = o.instalment_amount!=null && o.term_periods!=null;
@@ -597,13 +610,29 @@ async function openAmend(oid){
     : `<div style="background:#fff8e9;border:1px solid #e8d5a8;border-left:4px solid #c6a15b;border-radius:9px;padding:10px 12px;font-size:13px;margin-bottom:10px">
          <b>We don't have this customer's payment terms yet.</b> Look them up in Ezidebit and enter them below —
          they'll be saved, so you only do this once per customer.</div>`;
-  if(o.instalment_amount!=null && o.amount_paid_to_date!=null && o.contract_value!=null){
-    const bal = Number(o.contract_value)-Number(o.amount_paid_to_date);
-    if(bal>0) document.getElementById("amOut").placeholder = "system thinks ~"+Math.round(bal);
-  }
+  const paidEl=document.getElementById("amPaid");
+  if(o.amount_paid_to_date!=null){
+    paidEl.value = Number(o.amount_paid_to_date).toFixed(2);
+    paidEl.placeholder = "";
+  } else { paidEl.value=""; paidEl.placeholder="0.00"; }
   document.getElementById("amRem").value  = o.term_periods || "";
   document.getElementById("amInst").value = o.instalment_amount!=null ? Number(o.instalment_amount).toFixed(2) : "";
+  document.getElementById("amNext").value = o.next_payment_date || "";
   amRenderLines(); amCalc();
+
+  // Say plainly when the order's own prices were missing. Never fix data behind
+  // someone's back without telling them.
+  let warn="";
+  if(AM._unknown && AM._unknown.length){
+    warn=`<div style="background:#fdecec;border:1px solid #e0b4b0;color:#b4342e;border-radius:9px;padding:10px 12px;font-size:13px;margin-bottom:10px">
+      <b>These lines have no price recorded and aren't in the price list:</b> ${AM._unknown.join(", ")}.<br>
+      Type the correct price for each before saving, or the new contract value will be wrong.</div>`;
+  } else if(AM._guessed){
+    warn=`<div style="background:#fff8e9;border:1px solid #e8d5a8;border-left:4px solid #c6a15b;border-radius:9px;padding:10px 12px;font-size:13px;margin-bottom:10px">
+      <b>${AM._guessed} line${AM._guessed>1?"s were":" was"} saved without a price.</b>
+      The current price list has been filled in — check ${AM._guessed>1?"they match":"it matches"} what the customer actually agreed before saving.</div>`;
+  }
+  document.getElementById("amPriceWarn").innerHTML=warn;
   document.getElementById("amendModal").style.display="flex";
 }
 function closeAmend(){ document.getElementById("amendModal").style.display="none"; }
@@ -624,7 +653,8 @@ function amRenderLines(){
           style="width:62px;padding:4px 6px;border:1px solid #cbd4df;border-radius:6px;text-align:right"></td>
       <td style="padding:8px 4px;text-align:right;width:118px">
         <input type="number" step="0.01" value="${l.price}" ${on?"":"disabled"} onchange="amSetPrice(${ix},this.value)"
-          style="width:104px;padding:4px 6px;border:1px solid #cbd4df;border-radius:6px;text-align:right"></td>
+          title="${l.fromList?"Filled in from the price list — the order had no price recorded":""}"
+          style="width:104px;padding:4px 6px;border:1px solid ${l.fromList?"#c6a15b":"#cbd4df"};border-radius:6px;text-align:right;${l.fromList?"background:#fff8e9":""}"></td>
       <td style="padding:8px 4px;text-align:right;width:104px">${money(on?l.qty*l.price:0)}</td>
       <td style="padding:8px 4px;text-align:right;width:92px">
         ${l.isNew
@@ -670,16 +700,20 @@ function amMattressesBefore(){
 function amCalc(src){
   const o=window._O; if(!o) return;
   const oldV=Number(o.contract_value||0), newV=amNewValue(), delta=newV-oldV;
-  const out=parseFloat(document.getElementById("amOut").value);
+  // We ask for TOTAL PAID, not the outstanding balance. Paid-to-date doesn't change
+  // when the order is amended, so there's no ambiguity about whether the figure you
+  // typed is before or after the change.
+  const paid=parseFloat(document.getElementById("amPaid").value);
   const freq=document.getElementById("amFreq").value;
   const remEl=document.getElementById("amRem"), instEl=document.getElementById("amInst");
 
   let rem=parseInt(remEl.value||"0",10);
   let inst=parseFloat(instEl.value);
   let instBlock="";
+  AM._paidUp=false;
 
-  if(out>0){
-    const newOut=out+delta;
+  if(paid>=0 && !isNaN(paid)){
+    const newOut = Math.round((newV - paid)*100)/100;
     if(newOut>0){
       // Whichever field the user just touched is the one we hold fixed.
       // Anything else is derived, so the two always agree.
@@ -695,9 +729,13 @@ function amCalc(src){
       }
 
       if(rem>0 && inst>0){
-        const days=rem*PER[freq];
-        const end=new Date(Date.now()+days*86400000);
-        const weeks=Math.round(days/7);
+        // The loan finishes on the LAST payment: next payment + (rem-1) periods.
+        // Measuring from today would be wrong whenever the next debit isn't today.
+        const nextStr=document.getElementById("amNext").value;
+        const base = nextStr ? new Date(nextStr+"T00:00:00") : new Date();
+        const end = new Date(base.getTime() + (rem-1)*PER[freq]*86400000);
+        const days = (end - new Date())/86400000;
+        const weeks = Math.max(0, Math.round(days/7));
         const perWord = freq==="weekly"?"week":freq==="fortnightly"?"fortnight":"month";
         // A payment above the straight-line figure clears the balance early.
         const evenInst=Math.round((newOut/rem)*100)/100;
@@ -706,13 +744,14 @@ function amCalc(src){
 
         instBlock=`
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:13.5px">
-            <div>Outstanding now</div><div style="text-align:right">${money(out)}</div>
-            <div>Change to balance</div><div style="text-align:right;color:${delta>=0?"#1c6b34":"#b4342e"}">${delta>=0?"+":""}${money(delta)}</div>
-            <div><b>New outstanding</b></div><div style="text-align:right"><b>${money(newOut)}</b></div>
+            <div>New contract value</div><div style="text-align:right">${money(newV)}</div>
+            <div>Less paid so far</div><div style="text-align:right;color:#1c6b34">− ${money(paid)}</div>
+            <div><b>Still to pay</b></div><div style="text-align:right"><b>${money(newOut)}</b></div>
             <div style="border-top:1px solid #d9e0ea;padding-top:6px">Payment</div>
             <div style="border-top:1px solid #d9e0ea;padding-top:6px;text-align:right;font-weight:800;color:#122347">${money(inst)} / ${perWord}</div>
             <div>Payments remaining</div><div style="text-align:right">${rem}</div>
-            <div>Finishes about</div><div style="text-align:right">${end.toLocaleDateString("en-NZ",{day:"2-digit",month:"short",year:"numeric"})} (${weeks} wks)</div>
+            <div>${nextStr?"Last payment":"Finishes about"}</div>
+            <div style="text-align:right">${end.toLocaleDateString("en-NZ",{day:"2-digit",month:"short",year:"numeric"})}${nextStr?"":" (estimated from today)"} · ${weeks} wks away</div>
             ${(finalPay>0 && Math.abs(finalPay-inst)>0.01)?`<div class="muted">Final payment</div><div style="text-align:right" class="muted">${money(finalPay)}</div>`:""}
           </div>
           ${paysMore?`<div style="background:#e9f5ed;border:1px solid #bcdcc6;border-radius:9px;padding:9px 12px;font-size:12.5px;margin-top:8px">
@@ -726,13 +765,19 @@ function amCalc(src){
         instBlock=`<div class="muted" style="font-size:13px">Enter either the payment amount or the number of payments remaining.</div>`;
         AM._newInst=null; AM._newRem=null;
       }
+    } else if(newOut===0){
+      instBlock=`<div style="background:#e9f5ed;border:1px solid #bcdcc6;border-radius:9px;padding:10px 12px;font-size:13px">
+        <b>This order is paid in full.</b> Nothing further is owing, so there's no payment to change.
+        You can still save the product change.</div>`;
+      AM._newInst=null; AM._newRem=null; AM._paidUp=true;
     } else {
       instBlock=`<div style="background:#fdecec;border:1px solid #e0b4b0;color:#b4342e;border-radius:9px;padding:10px 12px;font-size:13px">
-        <b>The reduction is larger than the outstanding balance.</b> The customer would be owed a refund — handle this as a cancellation or refund, not an amendment.</div>`;
+        <b>They've already paid ${money(paid)}, which is more than the new total of ${money(newV)}.</b>
+        The customer would be owed ${money(-newOut)} back — handle this as a refund, not an amendment.</div>`;
       AM._newInst=null; AM._newRem=null;
     }
   } else {
-    instBlock=`<div class="muted" style="font-size:13px">Enter the outstanding balance from Ezidebit.</div>`;
+    instBlock=`<div class="muted" style="font-size:13px">Enter how much the customer has paid so far.</div>`;
     AM._newInst=null; AM._newRem=null;
   }
 
@@ -778,14 +823,19 @@ async function saveAmend(){
   const newV=amNewValue();
   const after=amMattressesAfter();
   if(!after.length){ return amErr("This order would have no mattress. Cancel the order instead of amending it."); }
-  const out=parseFloat(document.getElementById("amOut").value);
-  if(!(out>0)){ return amErr("Enter the outstanding balance from Ezidebit."); }
-  if(out + (newV - Number(o.contract_value||0)) <= 0){
-    return amErr("<b>This reduction is larger than the outstanding balance.</b><br>The customer would be owed a refund. Handle this as a cancellation or a refund, not an amendment.");
+  const unpriced=AM.lines.filter(l=>!l.removed && !(Number(l.price)>0));
+  if(unpriced.length){
+    return amErr("<b>These lines have no price:</b> "+unpriced.map(l=>l.name).join(", ")
+      +".<br>Enter a price for each — saving now would write a wrong contract value.");
+  }
+  const paid=parseFloat(document.getElementById("amPaid").value);
+  if(isNaN(paid) || paid<0){ return amErr("Enter how much the customer has paid so far (0 if nothing yet)."); }
+  if(newV - paid < 0){
+    return amErr("<b>They've already paid more than the new total.</b><br>The customer would be owed money back. Handle this as a refund, not an amendment.");
   }
   const freq=document.getElementById("amFreq").value;
   const newInst=AM._newInst, rem=AM._newRem;
-  if(!(newInst>0)||!(rem>0)){ return amErr("Enter either the payment amount or the number of payments remaining."); }
+  if(!AM._paidUp && (!(newInst>0)||!(rem>0))){ return amErr("Enter either the payment amount or the number of payments remaining."); }
 
   const removed = AM.lines.filter(l=>l.removed && !l.isNew);
   const added   = AM.lines.filter(l=>l.isNew && !l.removed);
@@ -799,7 +849,10 @@ async function saveAmend(){
   if(!removed.length && !added.length && !edited.length && Number(o.contract_value)===newV){
     return amErr("Nothing has changed.");
   }
-  if(!confirm(`Save this amendment?\n\n${summary}\n\nContract: ${money(o.contract_value)} → ${money(newV)}\nInstalment: ${money(newInst)} per ${freq}\n\nRemember to update Ezidebit.`)) return;
+  const payLine = (newInst>0 && rem>0)
+    ? `Payment: ${money(newInst)} per ${freq} × ${rem}\n\nRemember to update Ezidebit.`
+    : `This order is paid in full — no payment change.`;
+  if(!confirm(`Save this amendment?\n\n${summary}\n\nContract: ${money(o.contract_value)} → ${money(newV)}\n${payLine}`)) return;
 
   btn.disabled=true; btn.textContent="Saving…";
   try{
@@ -823,10 +876,12 @@ async function saveAmend(){
       if(error) throw new Error("Adding products: "+error.message);
     }
 
-    const {error:e2}=await sb.from("sim_orders").update({
-      contract_value:newV, instalment_amount:newInst, term_periods:rem,
-      payment_frequency:freq, loan_start_date:o.loan_start_date||o.first_payment_date||null
-    }).eq("id",o.id);
+    const nextDate=document.getElementById("amNext").value||null;
+    const patch={ contract_value:newV, payment_frequency:freq,
+      loan_start_date:o.loan_start_date||o.first_payment_date||null };
+    if(newInst>0 && rem>0){ patch.instalment_amount=newInst; patch.term_periods=rem; }
+    if(nextDate) patch.next_payment_date=nextDate;
+    const {error:e2}=await sb.from("sim_orders").update(patch).eq("id",o.id);
     if(e2) throw new Error("Updating the order: "+e2.message);
 
     // Rebuild the commission's product lines from the order, but ONLY while the
@@ -859,6 +914,7 @@ async function saveAmend(){
       old_contract_value:o.contract_value, new_contract_value:newV,
       old_instalment:o.instalment_amount, new_instalment:newInst,
       old_term_periods:o.term_periods, new_term_periods:rem,
+      old_next_payment_date:o.next_payment_date||null, new_next_payment_date:nextDate,
       commission_changed:!!AM._commChanged,
       commission_note:(AM._commNote||"")+(commissionMsg?(" | "+commissionMsg):""),
       customer_consent:document.getElementById("amConsent").value,
@@ -867,10 +923,12 @@ async function saveAmend(){
     if(e6) throw new Error("Recording the amendment: "+e6.message);
 
     closeAmend();
-    let msg="Amendment saved.\n\nUpdate Ezidebit to "+money(newInst)+" per "+freq+".";
+    let msg = (newInst>0)
+      ? "Amendment saved.\n\nUpdate Ezidebit to "+money(newInst)+" per "+freq+"."
+      : "Amendment saved. This order is paid in full, so there's no direct debit to change.";
     if(commissionLocked) msg+="\n\n⚠ The commission for this sale was already PAID. It has not been changed — adjust it manually in the commission screen.";
     alert(msg);
-    if(confirm("Print the Order Variation for the customer to sign?")) printVariation(o,summary,newV,newInst,freq,rem);
+    if(confirm("Print the Order Variation for the customer to sign?")) printVariation(o,summary,newV,newInst,freq,rem,nextDate);
     run();
   }catch(e){
     amErr("<b>The amendment was not saved.</b><br>"+(e.message||e));
@@ -878,7 +936,7 @@ async function saveAmend(){
   }
 }
 
-function printVariation(o,summary,newV,newInst,freq,rem){
+function printVariation(o,summary,newV,newInst,freq,rem,nextDate){
   const name=document.querySelector(".head h1") ? document.querySelector(".head h1").textContent : "";
   const per = freq==="weekly"?"week":freq==="fortnightly"?"fortnight":"month";
   const today=new Date().toLocaleDateString("en-NZ",{day:"2-digit",month:"long",year:"numeric"});
@@ -913,11 +971,12 @@ function printVariation(o,summary,newV,newInst,freq,rem){
   <table>
     <tr><td class="l">Previous total</td><td class="r">${money(o.contract_value)}</td></tr>
     <tr><td class="l">New total</td><td class="r">${money(newV)}</td></tr>
-    <tr><td class="l">New payment</td><td class="r">${money(newInst)} per ${per}</td></tr>
+    ${(newInst>0&&rem>0)?`<tr><td class="l">New payment</td><td class="r">${money(newInst)} per ${per}</td></tr>
     <tr><td class="l">Payments remaining</td><td class="r">${rem}</td></tr>
+    ${nextDate?`<tr><td class="l">First payment at the new amount</td><td class="r">${auDate(nextDate)}</td></tr>`:""}`:`<tr><td class="l">Payments</td><td class="r">Paid in full</td></tr>`}
   </table>
   <p class="note">All other terms of your original agreement are unchanged. There is no interest and there are no fees.
-  Your payment amount changes from the next scheduled payment. If anything here does not match what you agreed,
+  Your payment amount changes from your next scheduled payment. If anything here does not match what you agreed,
   please contact us before signing.</p>
   <div class="sig"><div>Customer signature</div><div>Date</div></div>
   <div class="sig"><div>For Simtec Therapeutic Limited</div><div>Date</div></div>
