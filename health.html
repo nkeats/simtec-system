@@ -152,9 +152,22 @@ const CHECKS=[
     fix:"Add the product lines from the paper order form. (Historic cause: the schema-cache bug, now fixed.)",
     cols:["Consultant","Order date","Value","Order id"],
     run:async(D)=>{
-      const withItems=new Set(D.items.map(i=>i.order_id));
+      const withItems=new Set(D.items.filter(i=>!i.cancelled).map(i=>i.order_id));
       return D.orders.filter(o=>(o.order_status||'active')!=='cancelled' && !withItems.has(o.id) && onOrAfterCutoff(o.order_date))
         .map(o=>[o.consultant_name||'—',d(o.order_date),fmt(o.contract_value),o.id.slice(0,8)+'…']);
+    }
+  },
+  {
+    id:"unpriced",
+    title:"Orders with line items that have no price",
+    why:"The order's total is right, but its product lines carry no money. Anything that adds up line items (product reporting, margins, priced dockets) will read zero for these.",
+    fix:"These are mostly older orders priced from a previous price list, so they can't be filled in automatically without misstating what the customer agreed. They correct themselves when someone amends that customer — the amend screen fills the price in and asks you to check it.",
+    cols:["Consultant","Order date","Value","Unpriced lines"],
+    run:async(D)=>{
+      const bad={};
+      D.items.forEach(i=>{ if(!i.cancelled && !(Number(i.unit_price)>0)) bad[i.order_id]=(bad[i.order_id]||0)+1; });
+      return D.orders.filter(o=>(o.order_status||'active')!=='cancelled' && bad[o.id] && onOrAfterCutoff(o.order_date))
+        .map(o=>[o.consultant_name||'—',d(o.order_date),fmt(o.contract_value),bad[o.id]]);
     }
   },
   {
@@ -177,7 +190,7 @@ async function runAll(){
     const [orders,sales,items,consultants]=await Promise.all([
       all("sim_orders","id,order_date,created_at,contract_value,consultant_name,order_status"),
       all("commission_sales","id,sim_order_id,customer_name,sale_date,commission_paid,status,paid_date,is_historical"),
-      all("sim_order_items","order_id"),
+      all("sim_order_items","order_id,product_name,unit_price,cancelled"),
       all("commission_consultants","name"),
     ]);
     D={orders,sales,items,consultants};
@@ -196,7 +209,7 @@ async function runAll(){
     html+=`<div class="card p-5 mb-4">
       <div class="flex items-center justify-between gap-3 flex-wrap">
         <h2 class="text-base font-bold">${esc(c.title)}</h2>
-        <span class="pill ${clean?'ok':(c.id==='unlinked'?'warn':'bad')}">${clean?'clear':rows.length+' found'}</span>
+        <span class="pill ${clean?'ok':((c.id==='unlinked'||c.id==='unpriced')?'warn':'bad')}">${clean?'clear':rows.length+' found'}</span>
       </div>
       <p class="text-xs text-slate-500 mt-2">${esc(c.why)}</p>`;
     if(!clean){
