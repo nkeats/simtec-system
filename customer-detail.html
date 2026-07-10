@@ -65,292 +65,363 @@
     .head{background:var(--navy)!important;-webkit-print-color-adjust:exact;print-color-adjust:exact}
   }
   @media(max-width:640px){.cards{grid-template-columns:1fr}}
-</style>
-</head>
-<body>
-<div class="sheet" id="sheet">
-  <div class="topbar no-print">
-    <div class="brand">SIMTEC<small>THERAPEUTIC</small></div>
-    <div class="btns">
-      <button class="ghost" onclick="location.href='home.html'">‹ Home</button>
-      <button class="ghost" onclick="history.length>1?history.back():window.close()">Back</button>
-      <span id="statusBtns"></span>
-      <button onclick="window.print()">Print</button>
-    </div>
-  </div>
-  <div id="content"><p class="muted" style="padding:20px">Loading…</p></div>
-</div>
 
+  .topbar{display:flex;align-items:center;gap:14px;padding:12px 18px;background:#122347;flex-wrap:wrap}
+  .topbar .back{color:#b9c6de;text-decoration:none;font-size:13px;font-weight:600}
+  .ordsec{border:1px solid var(--line);border-radius:12px;margin:16px 0;overflow:hidden;background:#fff}
+  .ordhd{display:flex;align-items:center;gap:6px;padding:12px 16px;background:#f4f7fa;cursor:pointer;font-size:14.5px;border-bottom:1px solid var(--line)}
+  .ordhd:hover{background:#eef2f7}
+  .ordhd .caret{width:14px;color:#7a8798}
+  .ordbody{padding:14px 16px}
+</style>
+</head><body>
+
+<div class="sheet" id="sheet">
+  <div class="topbar">
+    <a href="home.html" class="back">‹ Home</a>
+    <div style="position:relative;flex:1;max-width:460px">
+      <input id="q" placeholder="Search name, mobile, email or address…" autocomplete="off"
+        style="width:100%;padding:9px 12px;border:1px solid #cbd4df;border-radius:9px;font-size:14px">
+      <div id="results" style="display:none;position:absolute;left:0;right:0;top:42px;background:#fff;border:1px solid #cbd4df;border-radius:10px;overflow:hidden;z-index:40;box-shadow:0 8px 24px rgba(16,24,40,.14)"></div>
+    </div>
+    <span id="statusBtns"></span>
+  </div>
+  <div id="content"><p class="muted" style="padding:20px">Search for a customer above.</p></div>
+</div>
 <script>
 const sb = supabase.createClient("https://jvqjoenaungubpoegyvf.supabase.co","sb_publishable_J4MYTdJJyEaWe-GadpwdYA_upPT2rKw");
 const params=new URLSearchParams(location.search);
-const orderId=params.get("id");
+
+// One page per CUSTOMER. Accepts either ?cust=<customer_id> or, for the many
+// existing links from arrears / payments-risk / delivery, ?id=<order_id>,
+// which we resolve back to the customer and then show every order they've had.
+let customerId = params.get("cust");
+const linkedOrderId = params.get("id");
+
+let ORDERS={}, ITEMSBY={}, CUST={};
 
 const fmt=n=>(n==null||n==="")?"—":"$"+Number(n).toLocaleString(undefined,{maximumFractionDigits:0});
 function auDate(v){ if(!v) return "—"; const m=String(v).match(/^(\d{4})-(\d{2})-(\d{2})/); if(m) return m[3]+"/"+m[2]+"/"+m[1]; const d=new Date(v); return isNaN(d)?v:String(d.getDate()).padStart(2,"0")+"/"+String(d.getMonth()+1).padStart(2,"0")+"/"+d.getFullYear(); }
 const cap=s=>s?s.charAt(0).toUpperCase()+s.slice(1):"—";
+const esc=s=>String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const PM={weekly_dd:"Weekly direct debit",fortnightly_dd:"Fortnightly direct debit",deposit_50:"50% deposit",pay_in_full:"Pay in full",cash:"Cash"};
 const DS={pending:"Pending",scheduled:"Scheduled",partial:"Part-delivered",delivered:"Delivered",on_hold:"On hold",cancelled:"Cancelled"};
-const CXT={customer_request:"customer requested",company_overcommit:"we cancelled — over-committed",company_other:"we cancelled"};
 const PERIODS={weekly:{per:7,total:156,word:"wk"},fortnightly:{per:14,total:78,word:"fn"},monthly:{per:30.44,total:36,word:"mo"}};
+function kv(k,v){ return `<div class="kv"><span class="k">${k}</span><span class="v">${v}</span></div>`; }
+const isStaff = () => (window.SIMTEC_USER && ['admin','manager','office'].includes(window.SIMTEC_USER.role));
+const isMgr   = () => (window.SIMTEC_USER && ['admin','manager'].includes(window.SIMTEC_USER.role));
+const isAdmin = () => (window.SIMTEC_USER && window.SIMTEC_USER.role==='admin');
 
+// Position / traffic light. Uses the order's OWN stored instalment and term where we
+// have them; only falls back to the old contract÷156 guess when we don't.
 function position(o){
   const contract=o.contract_value!=null?Number(o.contract_value):null;
   const paid=o.amount_paid_to_date!=null?Number(o.amount_paid_to_date):0;
   const delivered=(o.delivery_status||"")==="delivered";
   const freq=PERIODS[o.payment_frequency]||PERIODS.weekly;
-  const start=o.first_payment_date||o.order_date;
+  const start=o.loan_start_date||o.first_payment_date||o.order_date;
+  if(contract==null||contract<=0) return {cls:"grey",label:"No contract value",contract,paid,expected:null,behindBy:0,periodsBehind:0,freq,balance:null,estimated:false};
+  if(paid>=contract*0.999)        return {cls:"green",label:"Paid up",contract,paid,expected:contract,behindBy:0,periodsBehind:0,freq,balance:0,estimated:false};
+
+  const haveTerms = o.instalment_amount!=null && Number(o.instalment_amount)>0;
+  const perAmt = haveTerms ? Number(o.instalment_amount) : contract/freq.total;
   let expected=null,behindBy=0,periodsBehind=0,cls="grey",label="No plan";
-  if(contract==null||contract<=0) return {cls:"grey",label:"No contract value",contract,paid,expected:null,behindBy:0,periodsBehind:0,freq,balance:null};
-  if(paid>=contract*0.999) return {cls:"green",label:"Paid up",contract,paid,expected:contract,behindBy:0,periodsBehind:0,freq,balance:0};
   if(start){
     const days=(new Date()-new Date(start))/86400000;
-    const perAmt=contract/freq.total;
     expected=Math.min(contract,perAmt*Math.max(0,days/freq.per));
     behindBy=expected-paid; periodsBehind=perAmt>0?behindBy/perAmt:0;
     if(behindBy<=perAmt){cls="green";label="On track";}
     else if(!delivered){cls="amber";label="Behind — not delivered";}
     else {cls="red";label="Behind — DELIVERED";}
   } else { cls=delivered?"amber":"grey"; label=delivered?"Delivered, no payments seen":"No payment plan yet"; }
-  return {cls,label,contract,paid,expected,behindBy:Math.max(0,behindBy),periodsBehind:Math.max(0,periodsBehind),freq,balance:contract-paid};
+  return {cls,label,contract,paid,expected,behindBy:Math.max(0,behindBy),periodsBehind:Math.max(0,periodsBehind),freq,balance:contract-paid,estimated:!haveTerms};
 }
 
+// ---------- search ----------
+let tmr=null;
+document.addEventListener("input",e=>{ if(e.target.id==="q"){ clearTimeout(tmr); tmr=setTimeout(doSearch,220);} });
+document.addEventListener("click",e=>{ const r=document.getElementById("results"); if(r && !r.contains(e.target) && e.target.id!=="q") r.style.display="none"; });
+
+async function doSearch(){
+  const q=(document.getElementById("q").value||"").trim();
+  const box=document.getElementById("results");
+  if(q.length<2){ box.style.display="none"; return; }
+  const like=`%${q}%`;
+  const {data,error}=await sb.from("sim_customers")
+    .select("id,first_name,last_name,mobile,address")
+    .or(`first_name.ilike.${like},last_name.ilike.${like},mobile.ilike.${like},email.ilike.${like},address.ilike.${like}`)
+    .limit(8);
+  if(error){ box.innerHTML=`<div style="padding:10px 13px;color:#b4342e;font-size:13px">${esc(error.message)}</div>`; box.style.display=""; return; }
+  if(!data||!data.length){ box.innerHTML=`<div style="padding:10px 13px;color:#7a8798;font-size:13px">No matches</div>`; box.style.display=""; return; }
+  box.innerHTML=data.map(c=>`<div style="padding:9px 13px;cursor:pointer;border-bottom:1px solid #eef1f5" onmouseover="this.style.background='#f4f7fa'" onmouseout="this.style.background='#fff'" onclick="goCustomer('${c.id}')">
+      <div style="font-size:14px;font-weight:600">${esc(c.first_name)} ${esc(c.last_name)}</div>
+      <div style="font-size:12px;color:#7a8798">${esc(c.mobile||"")}${c.address?" · "+esc(c.address):""}</div></div>`).join("");
+  box.style.display="";
+}
+function goCustomer(id){
+  document.getElementById("results").style.display="none";
+  document.getElementById("q").value="";
+  customerId=id;
+  history.replaceState(null,"","customer-detail.html?cust="+id);
+  run();
+}
+
+// ---------- load ----------
 async function run(){
-  if(!orderId){ document.getElementById("content").innerHTML='<div id="err">No customer specified.</div>'; return; }
+  const content=document.getElementById("content");
+  if(!customerId && !linkedOrderId){ content.innerHTML='<p class="muted" style="padding:20px">Search for a customer above.</p>'; return; }
+  content.innerHTML='<p class="muted" style="padding:20px">Loading…</p>';
   try{
-    const {data:o,error}=await sb.from("sim_orders").select("*").eq("id",orderId).single();
-    if(error||!o) throw new Error("Customer record not found.");
-    if(o.paid_via_order_id){
-      const {data:po}=await sb.from("sim_orders").select("customer_id").eq("id",o.paid_via_order_id).maybeSingle();
-      if(po&&po.customer_id){ const {data:pc}=await sb.from("sim_customers").select("first_name,last_name").eq("id",po.customer_id).maybeSingle(); o._payerName=pc?`${pc.first_name||""} ${pc.last_name||""}`.trim():""; }
+    if(!customerId && linkedOrderId){
+      const {data:o,error}=await sb.from("sim_orders").select("customer_id").eq("id",linkedOrderId).single();
+      if(error||!o) throw new Error("That order could not be found.");
+      customerId=o.customer_id;
     }
-    let cust={};
-    if(o.customer_id){ const {data}=await sb.from("sim_customers").select("*").eq("id",o.customer_id).single(); cust=data||{}; }
-    const {data:items}=await sb.from("sim_order_items").select("id,product_name,quantity,unit_price,delivered,delivered_date,cancelled,cancelled_date").eq("order_id",orderId).order("line_no");
-    let pays=[];
-    if(o.ezidebit_payer_ref){ const {data}=await sb.from("sim_payments").select("payment_date,amount").eq("payer_ref",o.ezidebit_payer_ref).order("payment_date",{ascending:false}); pays=data||[]; }
+    const {data:c,error:e1}=await sb.from("sim_customers").select("*").eq("id",customerId).single();
+    if(e1||!c) throw new Error("Customer record not found.");
+    CUST=c;
+
+    const {data:orders,error:e2}=await sb.from("sim_orders").select("*").eq("customer_id",customerId).order("order_date",{ascending:false});
+    if(e2) throw new Error("Loading orders: "+e2.message);
+
+    ORDERS={}; (orders||[]).forEach(o=>ORDERS[o.id]=o);
+
+    const ids=(orders||[]).map(o=>o.id);
+    ITEMSBY={};
+    if(ids.length){
+      const {data:items,error:e3}=await sb.from("sim_order_items")
+        .select("id,order_id,product_name,quantity,unit_price,delivered,delivered_date,cancelled,cancelled_date")
+        .in("order_id",ids).order("line_no");
+      if(e3) throw new Error("Loading products: "+e3.message);
+      (items||[]).forEach(i=>{ (ITEMSBY[i.order_id]=ITEMSBY[i.order_id]||[]).push(i); });
+    }
+
+    // payments, grouped by the payer reference on each order
+    const refs=[...new Set((orders||[]).map(o=>o.ezidebit_payer_ref).filter(Boolean))];
+    let paysByRef={};
+    if(refs.length){
+      const {data:pays,error:e4}=await sb.from("sim_payments").select("payer_ref,payment_date,amount").in("payer_ref",refs).order("payment_date",{ascending:false});
+      if(e4) throw new Error("Loading payments: "+e4.message);
+      (pays||[]).forEach(p=>{ (paysByRef[p.payer_ref]=paysByRef[p.payer_ref]||[]).push(p); });
+    }
+
     let comms=[];
-    { const orf = o.customer_id ? `customer_id.eq.${o.customer_id},order_id.eq.${orderId}` : `order_id.eq.${orderId}`;
-      const {data}=await sb.from("sim_communications").select("*").or(orf).order("created_at",{ascending:false}); comms=data||[]; }
-    render(o,cust,items||[],pays,comms);
-  }catch(e){ document.getElementById("content").innerHTML='<div id="err">'+(e.message||e)+'</div>'; }
+    { const {data}=await sb.from("sim_communications").select("*").eq("customer_id",customerId).order("created_at",{ascending:false});
+      comms=data||[]; }
+
+    renderAll(c, orders||[], paysByRef, comms);
+  }catch(e){
+    content.innerHTML='<div id="err">'+esc(e.message||e)+'</div>';
+  }
 }
 
-function render(o,c,items,pays,comms){
-  window._O=o; window._ITEMS=items;
+// ---------- render ----------
+function renderAll(c, orders, paysByRef, comms){
   const name=[c.first_name,c.last_name].filter(Boolean).join(" ")||"(no name)";
-  const p=position(o);
-  const behindTxt = p.behindBy>1 ? `${fmt(p.behindBy)} behind (${p.periodsBehind.toFixed(0)} ${p.freq.word})` : (p.cls==="green"?"On track":"—");
+  document.title="Simtec — "+name;
+
+  const live = orders.filter(o=>(o.order_status||"active")!=="cancelled");
+  const headBadge = orders.length
+    ? (live.length ? `<span class="badge ${position(live[0]).cls}">${position(live[0]).label}</span>`
+                   : `<span class="badge grey">Cancelled</span>`)
+    : `<span class="badge grey">No orders</span>`;
 
   const contact=`<div class="card"><h2>Contact</h2>
-    ${kv("Mobile",c.mobile||"—")}
-    ${kv("Email",c.email||"—")}
-    ${kv("Address",c.address||"—")}
-    ${o.joint_purchase?kv("Joint purchaser",(o.second_customer_name||"—")+(o.second_customer_mobile?" · "+o.second_customer_mobile:"")):""}
-    ${o.referrer_name?kv("Referred by",o.referrer_name):""}
+    ${kv("Mobile",esc(c.mobile)||"—")}
+    ${kv("Email",esc(c.email)||"—")}
+    ${kv("Address",esc(c.address)||"—")}
   </div>`;
+
+  const commRows = comms.length
+    ? comms.slice(0,20).map(x=>`<tr><td>${auDate(x.created_at)}</td><td>${esc(x.channel||x.type||"")}</td><td>${esc(x.body||x.message||x.note||"")}</td></tr>`).join("")
+    : `<tr><td colspan="3" class="muted">Nothing recorded.</td></tr>`;
+  const commsCard=`<div class="card full"><h2>Communications</h2>
+    <table><thead><tr><th>Date</th><th>Channel</th><th>Detail</th></tr></thead><tbody>${commRows}</tbody></table></div>`;
+
+  const orderBlocks = orders.length
+    ? orders.map((o,ix)=>orderSection(o, ITEMSBY[o.id]||[], paysByRef[o.ezidebit_payer_ref]||[], ix===0)).join("")
+    : `<div class="card full"><p class="muted">This customer has no orders recorded.</p></div>`;
+
+  document.getElementById("content").innerHTML=`
+    <div class="head"><h1>${esc(name)}</h1>${headBadge}
+      <span class="muted" style="margin-left:auto;font-size:13px">${orders.length} order${orders.length!==1?"s":""}</span>
+    </div>
+    <div class="cards">${contact}${commsCard}</div>
+    ${orderBlocks}`;
+  document.getElementById("statusBtns").innerHTML="";
+}
+
+function orderSection(o, items, pays, open){
+  const p=position(o);
+  const st=(o.order_status||"active");
+  const isCancelled = st==="cancelled", isHold = st==="on_hold";
+  const badgeCls = isCancelled ? "grey" : (isHold ? "amber" : p.cls);
+  const badgeLabel = isCancelled ? "Cancelled" : (isHold ? "On hold" : p.label);
+  const behindTxt = p.behindBy>1 ? `${fmt(p.behindBy)} behind (${p.periodsBehind.toFixed(0)} ${p.freq.word})` : (p.cls==="green"?"On track":"—");
+
+  const actions = isStaff() ? `
+    ${!isCancelled?`<button onclick="openAmend('${o.id}')" style="background:#c6a15b;color:#122347;border:none;border-radius:8px;padding:8px 14px;font-size:13.5px;font-weight:700;cursor:pointer;margin-right:6px">✎ Amend order</button>`:""}
+    ${(isCancelled||isHold)?`<button onclick="reinstate('${o.id}')" style="background:#1c6b34;color:#fff;border:none;border-radius:8px;padding:8px 14px;font-size:13.5px;font-weight:600;cursor:pointer;margin-right:6px">↩ Reinstate</button>`:""}
+    <label class="muted" style="font-size:12px;margin-right:5px">Status</label>
+    <select onchange="onStatusChange('${o.id}',this.value)" style="padding:7px 9px;border:1px solid #cbd4df;border-radius:8px;font-size:13.5px;font-weight:600">
+      <option value="active"${st==="active"?" selected":""}>Active</option>
+      <option value="on_hold"${st==="on_hold"?" selected":""}>On hold</option>
+      <option value="cancelled"${st==="cancelled"?" selected":""}>Cancelled</option>
+    </select>` : "";
 
   const sale=`<div class="card"><h2>Sale</h2>
-    ${kv("Consultant",o.consultant_name||"—")}
-    ${o.team_leader_name?kv("Team leader",o.team_leader_name):""}
+    ${kv("Consultant",esc(o.consultant_name)||"—")}
     ${kv("Sale date",auDate(o.order_date))}
-    ${kv("Sale type",cap(o.sale_type))}
     ${kv("Payment method",PM[o.payment_method]||o.payment_method||"—")}
     ${kv("Frequency",cap(o.payment_frequency))}
-    ${kv("Ezidebit Payer ID",o.ezidebit_payer_ref||"—")}
+    ${kv("Ezidebit Payer ID",esc(o.ezidebit_payer_ref)||"—")}
     ${kv("First payment",auDate(o.first_payment_date))}
+    ${o.joint_purchase?kv("Joint purchaser",esc(o.second_customer_name)||"—"):""}
   </div>`;
+
+  const termsLine = (o.instalment_amount!=null && o.term_periods!=null)
+    ? kv("Agreed payment",`${fmt(o.instalment_amount)} × ${o.term_periods} ${p.freq.word}`)
+    : kv("Agreed payment",`<span style="color:var(--amber)">not recorded — amend the order to enter it</span>`);
 
   const money = o.paid_via_order_id
-    ? `<div class="card"><h2>Account</h2>
-        ${kv("Total sale value",fmt(o.contract_value))}
-        <div class="cancelbanner" style="background:#eef4ff;color:#1a3a6b;border-color:#c7d8f0">Payments covered by ${o._payerName?o._payerName:"another account"} — this mattress is paid on their Ezidebit account, so it isn't tracked for arrears here.</div>
-       </div>`
+    ? `<div class="card"><h2>Account</h2>${kv("Total sale value",fmt(o.contract_value))}
+        <div class="cancelbanner" style="background:#eef4ff;color:#1a3a6b;border-color:#c7d8f0">Payments are covered by another account.</div></div>`
     : `<div class="card"><h2>Account</h2>
-    ${kv("Total sale value",fmt(o.contract_value))}
-    ${kv("Paid to date",fmt(o.amount_paid_to_date))}
-    ${kv("Balance owing",fmt(p.balance))}
-    ${kv("Expected by now",fmt(p.expected))}
-    ${kv("Position",`<span class="${p.cls==='red'?'':''}" style="color:${p.cls==='red'?'var(--red)':p.cls==='amber'?'var(--amber)':p.cls==='green'?'var(--green)':'var(--grey)'}">${behindTxt}</span>`)}
-    ${kv("Paid in full",o.paid_in_full?"Yes":"No")}
-  </div>`;
+        ${kv("Total sale value",fmt(o.contract_value))}
+        ${termsLine}
+        ${kv("Paid to date",fmt(o.amount_paid_to_date))}
+        ${kv("Balance owing",fmt(p.balance))}
+        ${kv("Expected by now",fmt(p.expected))}
+        ${kv("Position",`<span style="color:${p.cls==='red'?'var(--red)':p.cls==='amber'?'var(--amber)':p.cls==='green'?'var(--green)':'var(--grey)'}">${behindTxt}</span>`)}
+        ${p.estimated?`<div style="font-size:11.5px;color:var(--amber);margin-top:6px">Estimated — this order's real instalment isn't recorded, so "expected by now" assumes the standard term.</div>`:""}
+      </div>`;
 
-  const isAdmin = (window.SIMTEC_USER&&window.SIMTEC_USER.role==='admin');
-  const isMgr = (window.SIMTEC_USER&&['admin','manager'].includes(window.SIMTEC_USER.role));
-  const faLine = isMgr ? (o.further_action
-      ? kv("Debt status",`<span style="color:#e0a34a;font-weight:700">In further action</span> <button onclick="setFurtherAction(false)" style="margin-left:6px;font-size:11px;background:none;border:1px solid var(--line);border-radius:5px;padding:1px 6px;cursor:pointer;color:var(--sub)">remove</button> <a href="further-action.html" style="font-size:11px;margin-left:4px">open</a>`)
-      : kv("Debt status",`<button onclick="setFurtherAction(true)" style="background:#7a2420;color:#fff;border:none;border-radius:7px;padding:5px 11px;font-size:12px;cursor:pointer">Move to further action</button>`)
-    ) : "";
+  const faLine = isMgr() ? (o.further_action
+      ? kv("Debt status",`<span style="color:#e0a34a;font-weight:700">In further action</span> <button onclick="setFurtherAction('${o.id}',false)" style="margin-left:6px;font-size:11px;background:none;border:1px solid var(--line);border-radius:5px;padding:1px 6px;cursor:pointer;color:var(--sub)">remove</button>`)
+      : kv("Debt status",`<button onclick="setFurtherAction('${o.id}',true)" style="background:#7a2420;color:#fff;border:none;border-radius:7px;padding:5px 11px;font-size:12px;cursor:pointer">Move to further action</button>`)) : "";
+
   const delivery=`<div class="card"><h2>Delivery</h2>
     ${kv("Status",DS[o.delivery_status]||o.delivery_status||"—")}
     ${kv("Delivery date",auDate(o.delivery_date))}
-    ${o.driver_name?kv("Driver",o.driver_name):""}
     ${kv("Order status",cap(o.order_status))}
     ${faLine}
     ${o.delivery_authorised
-      ? kv("Delivery clearance",`<span style="color:var(--green);font-weight:700">✓ Authorised${o.delivery_authorised_by?" by "+o.delivery_authorised_by:""}</span>`)
-      : (isAdmin ? `<div style="margin-top:10px"><button onclick="authoriseDelivery()" style="background:#1c6b34;color:#fff;border:none;border-radius:8px;padding:9px 15px;font-size:13.5px;font-weight:600;cursor:pointer">✓ Authorise delivery (override)</button><div style="font-size:11.5px;color:#8794a6;margin-top:5px">Clears this customer for delivery regardless of payment history.</div></div>` : "")}
+      ? kv("Delivery clearance",`<span style="color:var(--green);font-weight:700">✓ Authorised${o.delivery_authorised_by?" by "+esc(o.delivery_authorised_by):""}</span>`)
+      : (isAdmin()?`<div style="margin-top:10px"><button onclick="authoriseDelivery('${o.id}')" style="background:#1c6b34;color:#fff;border:none;border-radius:8px;padding:9px 15px;font-size:13.5px;font-weight:600;cursor:pointer">✓ Authorise delivery (override)</button></div>`:"")}
   </div>`;
 
-  const isStaff = (window.SIMTEC_USER && ['admin','manager','office'].includes(window.SIMTEC_USER.role));
-  const skip = n => /delivery fee|protector|pillow/i.test(n||"");   // accessories aren't "delivered" items
-  const prodRows = items.length
-    ? items.map(i=>{
-        if(i.cancelled){
-          return `<tr style="opacity:.6"><td><s>${i.product_name||""}</s></td><td class="num">${i.quantity}</td><td class="num">${i.unit_price!=null?fmt(i.unit_price):""}</td><td class="num"><span style="color:var(--red);font-weight:700">✕ Cancelled${i.cancelled_date?" "+auDate(i.cancelled_date):""}</span>${isStaff?` <button onclick="markItemCancelled('${i.id}',false)" style="margin-left:6px;font-size:11px;background:none;border:1px solid var(--line);border-radius:5px;padding:1px 6px;cursor:pointer;color:var(--sub)">undo</button>`:""}</td></tr>`;
-        }
-        const delivCell = skip(i.product_name)
-          ? `<td class="num muted">—</td>`
-          : i.delivered
-            ? `<td class="num"><span style="color:var(--green);font-weight:700">✓ ${i.delivered_date?auDate(i.delivered_date):"Delivered"}</span>${isStaff?` <button onclick="markItem('${i.id}',false)" style="margin-left:6px;font-size:11px;background:none;border:1px solid var(--line);border-radius:5px;padding:1px 6px;cursor:pointer;color:var(--sub)">undo</button>`:""}</td>`
-            : `<td class="num">${isStaff?`<button onclick="markItem('${i.id}',true)" style="background:#1c6b34;color:#fff;border:none;border-radius:6px;padding:3px 9px;font-size:12px;cursor:pointer">Mark delivered</button> <button onclick="markItemCancelled('${i.id}',true)" style="background:none;border:1px solid #e0b4b0;color:var(--red);border-radius:6px;padding:3px 8px;font-size:11.5px;cursor:pointer">Cancel item</button>`:`<span class="muted">Not delivered</span>`}</td>`;
-        return `<tr><td>${i.product_name||""}</td><td class="num">${i.quantity}</td><td class="num">${i.unit_price!=null?fmt(i.unit_price):""}</td>${delivCell}</tr>`;
-      }).join("")
-    : `<tr><td colspan="4" class="muted">No product lines recorded.</td></tr>`;
+  const skip = n => /delivery fee|protector|pillow/i.test(n||"");
+  const prodRows = items.length ? items.map(i=>{
+      if(i.cancelled) return `<tr style="opacity:.6"><td><s>${esc(i.product_name)}</s></td><td class="num">${i.quantity}</td><td class="num">${i.unit_price!=null?fmt(i.unit_price):""}</td><td class="num"><span style="color:var(--red);font-weight:700">✕ Cancelled${i.cancelled_date?" "+auDate(i.cancelled_date):""}</span>${isStaff()?` <button onclick="markItemCancelled('${i.id}','${o.id}',false)" style="margin-left:6px;font-size:11px;background:none;border:1px solid var(--line);border-radius:5px;padding:1px 6px;cursor:pointer;color:var(--sub)">undo</button>`:""}</td></tr>`;
+      const delivCell = skip(i.product_name) ? `<td class="num muted">—</td>`
+        : i.delivered
+          ? `<td class="num"><span style="color:var(--green);font-weight:700">✓ ${i.delivered_date?auDate(i.delivered_date):"Delivered"}</span>${isStaff()?` <button onclick="markItem('${i.id}','${o.id}',false)" style="margin-left:6px;font-size:11px;background:none;border:1px solid var(--line);border-radius:5px;padding:1px 6px;cursor:pointer;color:var(--sub)">undo</button>`:""}</td>`
+          : `<td class="num">${isStaff()?`<button onclick="markItem('${i.id}','${o.id}',true)" style="background:#1c6b34;color:#fff;border:none;border-radius:6px;padding:3px 9px;font-size:12px;cursor:pointer">Mark delivered</button> <button onclick="markItemCancelled('${i.id}','${o.id}',true)" style="background:none;border:1px solid #e0b4b0;color:var(--red);border-radius:6px;padding:3px 8px;font-size:11.5px;cursor:pointer">Cancel item</button>`:`<span class="muted">Not delivered</span>`}</td>`;
+      return `<tr><td>${esc(i.product_name)}</td><td class="num">${i.quantity}</td><td class="num">${i.unit_price!=null?fmt(i.unit_price):""}</td>${delivCell}</tr>`;
+    }).join("") : `<tr><td colspan="4" class="muted">No product lines recorded.</td></tr>`;
+
   const products=`<div class="card full"><h2>Products</h2>
-    <table><thead><tr><th>Product</th><th class="num">Qty</th><th class="num">Unit price</th><th class="num">Delivery</th></tr></thead><tbody>${prodRows}</tbody></table>
-    <div style="font-size:11.5px;color:var(--sub);margin-top:8px">Mattresses can be delivered separately — mark each as it goes out. The order shows as <b>Part-delivered</b> until all mattresses are delivered.</div></div>`;
+    <table><thead><tr><th>Product</th><th class="num">Qty</th><th class="num">Unit price</th><th class="num">Delivery</th></tr></thead><tbody>${prodRows}</tbody></table></div>`;
 
-  const payRows = pays.length
-    ? pays.slice(0,60).map(x=>`<tr><td>${auDate(x.payment_date)}</td><td class="num">${fmt(x.amount)}</td></tr>`).join("")
+  const totalPaid = pays.reduce((s,x)=>s+Number(x.amount||0),0);
+  const payRows = pays.length ? pays.slice(0,40).map(x=>`<tr><td>${auDate(x.payment_date)}</td><td class="num">${fmt(x.amount)}</td></tr>`).join("")
     : `<tr><td colspan="2" class="muted">No payments recorded yet.</td></tr>`;
-  const totalPaidLedger = pays.reduce((s,x)=>s+Number(x.amount||0),0);
-
-  let missedBlock="";
-  if(p.cls==="red"||p.cls==="amber"){
-    const startStr=o.first_payment_date||o.order_date;
-    if(startStr){
-      const due=[]; let d=new Date(startStr); const now=new Date();
-      while(d<=now && due.length<500){ due.push(new Date(d)); d=new Date(d.getTime()+p.freq.per*86400000); }
-      const missedN=Math.min(due.length, Math.max(1, Math.round(p.periodsBehind)));
-      if(missedN>0){
-        const missedDates=due.slice(due.length-missedN).map(x=>auDate(x.toISOString().slice(0,10)));
-        missedBlock=`<div class="missed"><b>Behind by about ${missedN} payment${missedN>1?"s":""}</b> (based on the ${cap(o.payment_frequency||"weekly")} plan). Due dates not covered by payments to date: ${missedDates.join(", ")}.</div>`;
-      }
-    }
-  }
-
-  const history=`<div class="card full"><h2>Payment history${pays.length?` — ${pays.length} payments, ${fmt(totalPaidLedger)}`:""}</h2>
-    ${missedBlock}
+  const history=`<div class="card full"><h2>Payment history${pays.length?` — ${pays.length} payments, ${fmt(totalPaid)}`:""}</h2>
     <table><thead><tr><th>Date</th><th class="num">Amount</th></tr></thead><tbody>${payRows}</tbody></table></div>`;
 
-  const st = (o.order_status||"active");
-  const isCancelled = st==="cancelled";
-  const isHold = st==="on_hold";
-  const badgeCls = isCancelled ? "grey" : (isHold ? "amber" : p.cls);
-  const badgeLabel = isCancelled ? "Cancelled" : (isHold ? "On hold" : p.label);
-  let banner = "";
-  if(isCancelled){ const ct=CXT[o.cancellation_type]||""; banner = `<div class="cancelbanner">Cancelled${o.cancellation_date?" on "+auDate(o.cancellation_date):""}${ct?" · "+ct:""}${o.refunded?" · refunded":""}${o.cancellation_reason?" — "+o.cancellation_reason:""}</div>`; }
-  else if(isHold) banner = `<div class="holdbanner">On hold — excluded from risk and arrears until set back to active.</div>`;
-
-  const escc=s=>(s||"").replace(/[&<>]/g,x=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[x]));
-  const commLabels={arrears_reminder:"Arrears reminder",welcome:"Welcome",delivery:"Delivery notice"};
-  const commRows=(comms||[]).map(m=>{
-    const icon=m.channel==="email"?"✉":(m.channel==="call"?"☎":"💬");
-    const st=(m.status==="failed")?`<span style="color:#c0332e">failed</span>`:(m.status||"sent");
-    const when=m.created_at?auDate(String(m.created_at).slice(0,10)):"";
-    const label=commLabels[m.comm_type]||m.comm_type||m.channel||"Message";
-    return `<div class="commrow"><div class="commhead"><span>${icon} ${label}</span><span class="commmeta">${when} · ${st}</span></div>${m.subject?`<div class="commmeta">${escc(m.subject)}</div>`:""}${m.body?`<div class="commbody">${escc(m.body)}</div>`:""}</div>`;
-  }).join("");
-  const comms_card=`<div class="card full"><h2>Communications</h2>${(comms&&comms.length)?commRows:`<div class="muted" style="padding:4px 0">No messages sent yet.</div>`}</div>`;
-
-  document.getElementById("content").innerHTML=`
-    <div class="head"><h1>${name}</h1><span class="badge ${badgeCls}">${badgeLabel}</span></div>
-    ${banner}
-    <div class="cards">${contact}${sale}${money}${delivery}${products}${history}${comms_card}</div>`;
-  document.title="Simtec — "+name;
-
-  document.getElementById("statusBtns").innerHTML =
-    (isStaff && st!=="cancelled"
-      ? `<button onclick="openAmend()" style="background:#c6a15b;color:#122347;border:none;border-radius:8px;padding:8px 14px;font-size:14px;font-weight:700;cursor:pointer;margin-right:8px">✎ Amend order</button>`
-      : "") +
-    ((st==="cancelled"||st==="on_hold")
-      ? `<button onclick="reinstate()" style="background:#1c6b34;color:#fff;border:none;border-radius:8px;padding:8px 14px;font-size:14px;font-weight:600;cursor:pointer;margin-right:8px">↩ Reinstate</button>`
-      : "") +
-    `<label style="color:#9fb0c9;font-size:12px;margin-right:6px">Status</label>` +
-    `<select id="statusSel" onchange="onStatusChange(this.value)" style="padding:8px 10px;border:1px solid #cbd4df;border-radius:8px;font-size:14px;font-weight:600">` +
-      `<option value="active"${st==="active"?" selected":""}>Active</option>` +
-      `<option value="on_hold"${st==="on_hold"?" selected":""}>On hold</option>` +
-      `<option value="cancelled"${st==="cancelled"?" selected":""}>Cancelled</option>` +
-    `</select>`;
+  const oid=o.id;
+  return `<div class="ordsec">
+    <div class="ordhd" onclick="togOrder('${oid}')">
+      <span class="caret" id="car_${oid}">${open?"▾":"▸"}</span>
+      <b>${auDate(o.order_date)}</b>
+      <span class="muted" style="margin-left:10px">${fmt(o.contract_value)}</span>
+      <span class="badge ${badgeCls}" style="margin-left:10px">${badgeLabel}</span>
+      <span class="muted" style="margin-left:auto;font-size:12px">${esc(o.consultant_name)||""}</span>
+    </div>
+    <div class="ordbody" id="ord_${oid}" style="display:${open?"":"none"}">
+      <div style="display:flex;justify-content:flex-end;align-items:center;flex-wrap:wrap;gap:6px;margin:0 0 12px">${actions}</div>
+      <div class="cards">${sale}${money}${delivery}${products}${history}</div>
+    </div>
+  </div>`;
 }
-async function markItemCancelled(itemId, val){
-  if(!(window.SIMTEC_USER && ['admin','manager','office'].includes(window.SIMTEC_USER.role))){ alert("Staff only."); return; }
-  if(val && !confirm("Cancel this mattress from the order? It stays on record but is excluded from sales figures.")) return;
-  const who = (window.SIMTEC_USER.full_name||window.SIMTEC_USER.email||"staff");
+function togOrder(oid){
+  const b=document.getElementById("ord_"+oid), c=document.getElementById("car_"+oid);
+  const shown=b.style.display!=="none";
+  b.style.display=shown?"none":""; c.textContent=shown?"▸":"▾";
+}
+
+// ---------- actions (all scoped to one order) ----------
+async function markItemCancelled(itemId, oid, val){
+  if(!isStaff()){ alert("Staff only."); return; }
+  if(val && !confirm("Cancel this item from the order? It stays on record but is excluded from sales figures.")) return;
+  const who=(window.SIMTEC_USER.full_name||window.SIMTEC_USER.email||"staff");
   const patch = val ? {cancelled:true, cancelled_date:new Date().toISOString().slice(0,10), cancelled_by:who}
                     : {cancelled:false, cancelled_date:null, cancelled_by:null};
   const {error}=await sb.from("sim_order_items").update(patch).eq("id",itemId);
   if(error){ alert("Couldn't update: "+error.message); return; }
   run();
 }
-async function markItem(itemId, val){
-  if(!(window.SIMTEC_USER && ['admin','manager','office'].includes(window.SIMTEC_USER.role))){ alert("Staff only."); return; }
-  const who = (window.SIMTEC_USER.full_name||window.SIMTEC_USER.email||"staff");
+async function markItem(itemId, oid, val){
+  if(!isStaff()){ alert("Staff only."); return; }
+  const who=(window.SIMTEC_USER.full_name||window.SIMTEC_USER.email||"staff");
   const patch = val ? {delivered:true, delivered_date:new Date().toISOString().slice(0,10), delivered_by:who}
                     : {delivered:false, delivered_date:null, delivered_by:null};
   const {error}=await sb.from("sim_order_items").update(patch).eq("id",itemId);
   if(error){ alert("Couldn't update: "+error.message); return; }
-  // recompute the order's overall delivery_status from its mattress lines
-  const {data:its}=await sb.from("sim_order_items").select("product_name,delivered").eq("order_id",orderId);
+  const {data:its}=await sb.from("sim_order_items").select("product_name,delivered").eq("order_id",oid);
   const mattresses=(its||[]).filter(i=>!/delivery fee|protector|pillow/i.test(i.product_name||""));
   let status="pending";
   if(mattresses.length){
     const done=mattresses.filter(i=>i.delivered).length;
     status = done===0 ? "pending" : done===mattresses.length ? "delivered" : "partial";
   }
-  await sb.from("sim_orders").update({delivery_status:status}).eq("id",orderId);
+  await sb.from("sim_orders").update({delivery_status:status}).eq("id",oid);
   run();
 }
-async function setFurtherAction(val){
-  if(!(window.SIMTEC_USER&&['admin','manager'].includes(window.SIMTEC_USER.role))){ alert("Admins and managers only."); return; }
+async function setFurtherAction(oid, val){
+  if(!isMgr()){ alert("Admins and managers only."); return; }
   const who=(window.SIMTEC_USER.full_name||window.SIMTEC_USER.email||"admin");
   const patch = val ? {further_action:true,further_action_date:new Date().toISOString().slice(0,10),further_action_by:who} : {further_action:false};
-  const {error}=await sb.from("sim_orders").update(patch).eq("id",orderId);
+  const {error}=await sb.from("sim_orders").update(patch).eq("id",oid);
   if(error){ alert("Couldn't update: "+error.message); return; }
   run();
 }
-async function authoriseDelivery(){
-  if(!(window.SIMTEC_USER&&window.SIMTEC_USER.role==='admin')){ alert("Admins only."); return; }
+async function authoriseDelivery(oid){
+  if(!isAdmin()){ alert("Admins only."); return; }
   if(!confirm("Authorise this customer for delivery, overriding the payment-history check? This is recorded against your name.")) return;
-  const who = (window.SIMTEC_USER.full_name||window.SIMTEC_USER.email||"admin");
-  const {error}=await sb.from("sim_orders").update({delivery_authorised:true,delivery_authorised_by:who,delivery_authorised_at:new Date().toISOString()}).eq("id",orderId);
+  const who=(window.SIMTEC_USER.full_name||window.SIMTEC_USER.email||"admin");
+  const {error}=await sb.from("sim_orders").update({delivery_authorised:true,delivery_authorised_by:who,delivery_authorised_at:new Date().toISOString()}).eq("id",oid);
   if(error){ alert("Couldn't authorise: "+error.message); return; }
   run();
 }
-async function reinstate(){
-  if(!confirm("Reinstate this customer as Active? This clears the cancellation and returns them to risk and arrears.")) return;
-  const {error} = await sb.from("sim_orders").update({order_status:"active",cancellation_date:null,cancellation_reason:null,cancellation_type:null,refunded:null}).eq("id",orderId);
+async function reinstate(oid){
+  if(!confirm("Reinstate this order as Active? This clears the cancellation and returns it to risk and arrears.")) return;
+  const {error}=await sb.from("sim_orders").update({order_status:"active",cancellation_date:null,cancellation_reason:null,cancellation_type:null,refunded:null}).eq("id",oid);
   if(error){ alert("Couldn't reinstate: "+error.message); return; }
   run();
 }
-function kv(k,v){ return `<div class="kv"><span class="k">${k}</span><span class="v">${v}</span></div>`; }
-
-async function onStatusChange(newStatus){
-  if(newStatus==="cancelled"){ openCancel(); return; }   // handled by the dialog below
-  let patch = { order_status:newStatus, cancellation_date:null, cancellation_reason:null, cancellation_type:null, refunded:null };
-  if(newStatus==="on_hold"){
-    if(!confirm("Put this customer on hold? They'll be paused from risk and arrears until set back to active.")){ run(); return; }
-  }
-  const {error} = await sb.from("sim_orders").update(patch).eq("id",orderId);
-  if(error){ alert("Couldn't update status: "+error.message); run(); return; }
+let CXORD=null;
+async function onStatusChange(oid, newStatus){
+  if(newStatus==="cancelled"){ openCancel(oid); return; }
+  if(newStatus==="on_hold" && !confirm("Put this order on hold? It'll be paused from risk and arrears until set back to active.")){ run(); return; }
+  const patch={order_status:newStatus, cancellation_date:null, cancellation_reason:null, cancellation_type:null, refunded:null};
+  const {error}=await sb.from("sim_orders").update(patch).eq("id",oid);
+  if(error){ alert("Couldn't update status: "+error.message); }
   run();
 }
-function openCancel(){ document.getElementById("cxNotes").value=""; document.getElementById("cxRefund").checked=false; document.getElementById("cxType").value="customer_request"; document.getElementById("cancelModal").style.display="flex"; }
+function openCancel(oid){ CXORD=oid; document.getElementById("cxNotes").value=""; document.getElementById("cxRefund").checked=false; document.getElementById("cxType").value="customer_request"; document.getElementById("cancelModal").style.display="flex"; }
 function closeCancel(){ document.getElementById("cancelModal").style.display="none"; run(); }
 async function confirmCancel(){
-  const patch = {
-    order_status:"cancelled",
+  if(!CXORD) return closeCancel();
+  const patch={ order_status:"cancelled",
     cancellation_date:new Date().toISOString().slice(0,10),
     cancellation_type:document.getElementById("cxType").value,
     refunded:document.getElementById("cxRefund").checked,
-    cancellation_reason:(document.getElementById("cxNotes").value||"").trim()||null
-  };
-  const {error} = await sb.from("sim_orders").update(patch).eq("id",orderId);
+    cancellation_reason:(document.getElementById("cxNotes").value||"").trim()||null };
+  const {error}=await sb.from("sim_orders").update(patch).eq("id",CXORD);
   if(error){ alert("Couldn't cancel: "+error.message); return; }
-  document.getElementById("cancelModal").style.display="none"; run();
+  document.getElementById("cancelModal").style.display="none"; CXORD=null; run();
 }
-
 run();
 </script>
 <div id="cancelModal" class="modalbg">
@@ -435,7 +506,7 @@ run();
    Term is kept; the instalment moves (Simtec steers to a 3-year ceiling).
    Outstanding balance is typed in from Ezidebit, which is the source of truth for balances. */
 
-const AM = { prods:[], prices:{}, keep:{}, add:[], commByName:{} };
+const AM = { prods:[], prices:{}, keep:{}, add:[], edit:{}, commByName:{} };
 const PER = { weekly:7, fortnightly:14, monthly:30.44 };
 const isMatt = n => n && !/delivery|protector|pillow|base|topper/i.test(n);
 
@@ -455,12 +526,27 @@ function priceKey(name){
   return (mk&&size)?(mk+"_"+size):null;
 }
 
-async function openAmend(){
+async function openAmend(oid){
+  if(oid && ORDERS[oid]) window._O=ORDERS[oid];
   const o=window._O;
   if(!o){ return; }
   amErr("");
-  AM.keep={}; AM.add=[];
-  (window._ITEMS||[]).forEach(i=>{ if(!i.cancelled) AM.keep[i.id]=true; });
+  AM.keep={}; AM.add=[]; AM.edit={};
+
+  // Read the order's products straight from the database rather than relying on
+  // whatever the page happened to load. If this ever comes back empty we say so,
+  // instead of quietly showing an empty list.
+  try{
+    const {data:its,error}=await sb.from("sim_order_items")
+      .select("id,product_name,quantity,unit_price,cancelled")
+      .eq("order_id",o.id).order("line_no");
+    if(error) throw new Error(error.message);
+    window._ITEMS = its||[];
+  }catch(e){
+    window._ITEMS = [];
+    amErr("<b>Couldn't read this order's products.</b><br>"+(e.message||e)+"<br>Do not save — the amendment would be wrong.");
+  }
+  (window._ITEMS||[]).forEach(i=>{ if(!i.cancelled){ AM.keep[i.id]=true; AM.edit[i.id]={qty:Number(i.quantity||1), price:Number(i.unit_price||0)}; } });
 
   try{
     const [{data:cp,error:e1},{data:cfg,error:e2}] = await Promise.all([
@@ -499,15 +585,26 @@ function closeAmend(){ document.getElementById("amendModal").style.display="none
 
 function amRenderLines(){
   const items=(window._ITEMS||[]).filter(i=>!i.cancelled);
-  document.getElementById("amCur").innerHTML = items.length ? items.map(i=>`
-    <tr style="border-bottom:1px solid #e6eaf0">
-      <td style="padding:7px 4px">
-        <label style="cursor:pointer"><input type="checkbox" ${AM.keep[i.id]?"checked":""}
-          onchange="AM.keep['${i.id}']=this.checked; amCalc()"> ${i.product_name||""}</label>
-      </td>
-      <td style="padding:7px 4px;text-align:right;width:60px">${i.quantity}</td>
-      <td style="padding:7px 4px;text-align:right;width:110px">${money(i.unit_price)}</td>
-    </tr>`).join("") : `<tr><td class="muted" style="padding:8px 0">No product lines.</td></tr>`;
+  document.getElementById("amCur").innerHTML = items.length ? items.map(i=>{
+    const kept=!!AM.keep[i.id];
+    const e=AM.edit[i.id]||{qty:i.quantity,price:i.unit_price};
+    return `
+    <tr style="border-bottom:1px solid #e6eaf0;${kept?"":"opacity:.45"}">
+      <td style="padding:8px 4px">${kept?"":"<s>"}${i.product_name||""}${kept?"":"</s>"}</td>
+      <td style="padding:8px 4px;text-align:right;width:74px">
+        <input type="number" min="1" value="${e.qty}" ${kept?"":"disabled"}
+          onchange="AM.edit['${i.id}'].qty=Math.max(1,parseInt(this.value||'1',10)); amCalc()"
+          style="width:62px;padding:4px 6px;border:1px solid #cbd4df;border-radius:6px;text-align:right"></td>
+      <td style="padding:8px 4px;text-align:right;width:118px">
+        <input type="number" step="0.01" value="${e.price}" ${kept?"":"disabled"}
+          onchange="AM.edit['${i.id}'].price=parseFloat(this.value||'0'); amCalc()"
+          style="width:104px;padding:4px 6px;border:1px solid #cbd4df;border-radius:6px;text-align:right"></td>
+      <td style="padding:8px 4px;text-align:right;width:90px">
+        <button onclick="AM.keep['${i.id}']=${kept?"false":"true"}; amRenderLines(); amCalc()"
+          style="background:${kept?"none":"#1c6b34"};border:1px solid ${kept?"#e0b4b0":"#1c6b34"};color:${kept?"#b4342e":"#fff"};border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer">
+          ${kept?"Remove":"Restore"}</button></td>
+    </tr>`;}).join("")
+    : `<tr><td colspan="4" class="muted" style="padding:10px 0">This order has no product lines recorded.</td></tr>`;
 
   document.getElementById("amAdded").innerHTML = AM.add.length ? AM.add.map((a,ix)=>`
     <div style="display:flex;justify-content:space-between;align-items:center;background:#eef4ea;border:1px solid #cfe0c8;border-radius:8px;padding:7px 11px;margin-bottom:5px;font-size:13.5px">
@@ -541,7 +638,10 @@ function amAdd(){
 
 function amNewValue(){
   let v=0;
-  (window._ITEMS||[]).filter(i=>!i.cancelled&&AM.keep[i.id]).forEach(i=>{ v += Number(i.unit_price||0)*Number(i.quantity||1); });
+  (window._ITEMS||[]).filter(i=>!i.cancelled&&AM.keep[i.id]).forEach(i=>{
+    const e=AM.edit[i.id]||{qty:i.quantity,price:i.unit_price};
+    v += Number(e.price||0)*Number(e.qty||1);
+  });
   AM.add.forEach(a=>{ v += a.price*a.qty; });
   return v;
 }
@@ -641,11 +741,18 @@ async function saveAmend(){
   const newInst=AM._newInst;
 
   const removed=(window._ITEMS||[]).filter(i=>!i.cancelled && !AM.keep[i.id]);
+  const edited=(window._ITEMS||[]).filter(i=>{
+    if(i.cancelled||!AM.keep[i.id]) return false;
+    const e=AM.edit[i.id]||{}; 
+    return Number(e.qty)!==Number(i.quantity) || Number(e.price)!==Number(i.unit_price);
+  });
   const summary=[
     ...removed.map(i=>"removed "+i.product_name),
-    ...AM.add.map(a=>"added "+a.name+(a.qty>1?(" × "+a.qty):""))
+    ...AM.add.map(a=>"added "+a.name+(a.qty>1?(" × "+a.qty):"")),
+    ...edited.map(i=>{ const e=AM.edit[i.id];
+      return "changed "+i.product_name+" to "+e.qty+" × "+money(e.price); })
   ].join("; ") || "no product change";
-  if(!removed.length && !AM.add.length && Number(o.contract_value)===newV){
+  if(!removed.length && !AM.add.length && !edited.length && Number(o.contract_value)===newV){
     return amErr("Nothing has changed.");
   }
   if(!confirm(`Save this amendment?\n\n${summary}\n\nContract: ${money(o.contract_value)} → ${money(newV)}\nInstalment: ${money(newInst)} per ${freq}\n\nRemember to update Ezidebit.`)) return;
@@ -660,6 +767,12 @@ async function saveAmend(){
     if(removed.length){
       const {error}=await sb.from("sim_order_items").delete().in("id",removed.map(i=>i.id));
       if(error) throw new Error("Removing products: "+error.message);
+    }
+    // quantity / price changes on lines we're keeping
+    for(const i of edited){
+      const e=AM.edit[i.id];
+      const {error}=await sb.from("sim_order_items").update({quantity:e.qty, unit_price:e.price}).eq("id",i.id);
+      if(error) throw new Error("Updating "+i.product_name+": "+error.message);
     }
     if(AM.add.length){
       const base=(window._ITEMS||[]).length+1;
@@ -772,6 +885,5 @@ function printVariation(o,summary,newV,newInst,freq,rem){
   w.document.close();
 }
 </script>
-
 </body>
 </html>
