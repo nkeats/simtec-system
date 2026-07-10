@@ -40,6 +40,21 @@
   <!-- summary tiles -->
   <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6" id="tiles"></div>
 
+  <!-- PAYMENT BOOK — what Ezidebit is still due to collect -->
+  <div class="card p-5 mb-6">
+    <div class="flex items-center justify-between mb-1 flex-wrap gap-2">
+      <h2 class="text-lg font-bold">Payment book</h2>
+      <div class="k" id="bookAsOf"></div>
+    </div>
+    <div class="k mb-4">Contract value still to be collected. Cancelled orders and orders paid in full are excluded.</div>
+    <div id="bookErr" style="display:none;background:#2a1416;border:1px solid #6b2b28;color:#ffb4ae;border-radius:10px;padding:11px 13px;font-size:13.5px;margin-bottom:12px"></div>
+    <div id="bookState" class="text-slate-400 text-sm py-4">Loading…</div>
+    <div id="bookBody" style="display:none">
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4" id="bookTiles"></div>
+      <div id="bookSplit"></div>
+    </div>
+  </div>
+
   <!-- WEEKLY SALES -->
   <div class="card p-5 mb-6">
     <div class="flex items-center justify-between mb-1 flex-wrap gap-2">
@@ -429,7 +444,99 @@ async function loadConv(){
  }catch(err){ convError(err && err.message ? err.message : String(err)); }
 }
 
+
+/* ============ PAYMENT BOOK ============
+   Outstanding = contract value minus what has been paid, across every live order.
+   Split by whether Ezidebit is actually collecting it, because "outstanding" and
+   "being collected" are not the same number and the difference is the risk.
+
+   Reads sim_orders directly. amount_paid_to_date is the cache rebuilt from the
+   payment ledger, so this figure follows every import, lump sum and cancellation.  */
+const BOOK_PER = {weekly:1, fortnightly:2, monthly:4.333};   // periods -> weeks
+
+function bookErr(m){
+  const b=$("bookErr");
+  if(!m){ b.style.display="none"; return; }
+  b.style.display=""; b.innerHTML=m;
+  $("bookState").style.display="none";
+}
+
+async function loadBook(){
+  bookErr("");
+  try{
+    // Paginate. PostgREST returns at most 1000 rows and says nothing about it.
+    let orders=[], from=0;
+    while(true){
+      const res = await sb.from("sim_orders")
+        .select("id,contract_value,amount_paid_to_date,instalment_amount,payment_frequency,ezidebit_payer_ref,order_status,paid_in_full,paid_via_order_id,order_date,delivery_status")
+        .eq("order_status","active")
+        .range(from, from+999);
+      if(res.error) throw new Error("Reading orders: "+res.error.message);
+      orders = orders.concat(res.data||[]);
+      if(!res.data || res.data.length<1000) break;
+      from += 1000;
+    }
+
+    const live = orders.filter(o=>!o.paid_via_order_id && !o.paid_in_full);
+
+    let outEzi=0, outNoEzi=0, contractEzi=0, paidEzi=0, nEzi=0, nNoEzi=0, weeklyRun=0;
+    live.forEach(o=>{
+      const contract=Number(o.contract_value||0);
+      const paid=Number(o.amount_paid_to_date||0);
+      const owing=Math.max(0, contract-paid);
+      if(owing<=0.01) return;                       // settled, nothing to collect
+      const onEzi = !!o.ezidebit_payer_ref && Number(o.instalment_amount||0)>0;
+      if(onEzi){
+        outEzi+=owing; contractEzi+=contract; paidEzi+=paid; nEzi++;
+        const wk=BOOK_PER[o.payment_frequency]||1;
+        weeklyRun += Number(o.instalment_amount||0)/wk;   // normalise to a weekly rate
+      } else {
+        outNoEzi+=owing; nNoEzi++;
+      }
+    });
+
+    const money=n=>"$"+Math.round(n).toLocaleString();
+    const weeksToClear = weeklyRun>0 ? Math.ceil(outEzi/weeklyRun) : null;
+
+    $("bookTiles").innerHTML=[
+      tile("Outstanding on Ezidebit", money(outEzi), "text-amber-300"),
+      tile("Customers being collected", nEzi, "text-slate-100"),
+      tile("Billing per week", money(weeklyRun), "text-emerald-300"),
+      tile("Not being collected", money(outNoEzi), outNoEzi>0?"text-red-400":"text-slate-100")
+    ].join("");
+
+    const pctPaid = contractEzi>0 ? (paidEzi/contractEzi*100) : 0;
+    $("bookSplit").innerHTML=`
+      <div class="text-sm text-slate-300" style="line-height:1.7">
+        Ezidebit customers have contracted <b>${money(contractEzi)}</b> and paid
+        <b>${money(paidEzi)}</b> — ${pctPaid.toFixed(1)}% of the book.
+        ${weeksToClear?`At the current billing rate the balance clears in about <b>${weeksToClear} weeks</b>.`:""}
+      </div>
+      ${nNoEzi?`<div class="mt-3 p-3 rounded" style="background:#2a1a12;border:1px solid #6b4a28">
+        <div class="text-sm" style="color:#f0b46a">
+          <b>${nNoEzi} live order${nNoEzi>1?"s":""} totalling ${money(outNoEzi)} have no Ezidebit schedule.</b>
+          Nobody is collecting this money.
+        </div></div>`:""}`;
+
+    $("bookAsOf").textContent="As at "+new Date().toLocaleDateString("en-NZ",{day:"2-digit",month:"short",year:"numeric"});
+    $("bookState").style.display="none";
+    $("bookBody").style.display="";
+  }catch(e){
+    bookErr("<b>Couldn't work out the payment book.</b><br>"+(e.message||e));
+  }
+}
+
+function tile(label,val,tone){
+  return `<div class="card p-4"><div class="k">${label}</div>
+    <div class="text-2xl font-bold mt-1 ${tone||""}">${val}</div></div>`;
+}
+
+
+// live.js: new sales and cancellations redraw this page on their own.
+window.SIMTEC_RELOAD = function(){ load(); loadBook(); if(typeof loadConv==="function") loadConv(); };
+
 load();
+loadBook();
 loadConv();
 </script>
 </body>
