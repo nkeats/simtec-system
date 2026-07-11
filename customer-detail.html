@@ -495,17 +495,87 @@ async function onStatusChange(oid, newStatus){
   if(error){ alert("Couldn't update status: "+error.message); }
   run();
 }
-function openCancel(oid){ CXORD=oid; document.getElementById("cxNotes").value=""; document.getElementById("cxRefund").checked=false; document.getElementById("cxType").value="customer_request"; document.getElementById("cancelModal").style.display="flex"; }
+async function openCancel(oid){
+  CXORD=oid;
+  document.getElementById("cxNotes").value="";
+  document.getElementById("cxRefund").checked=false;
+  document.getElementById("cxType").value="customer_request";
+  const warn=document.getElementById("cxCommWarn");
+  if(warn){ warn.style.display="none"; warn.innerHTML=""; }
+  document.getElementById("cancelModal").style.display="flex";
+  // Tell the operator up front if cancelling will claw back paid commission.
+  try{
+    const {data:cs}=await sb.from("commission_sales")
+      .select("commission_paid,paid_date,status,consultant_id")
+      .or(`sim_order_id.eq.${oid},order_id.eq.${oid}`).maybeSingle();
+    if(cs && (cs.status||"active")!=="cancelled" && cs.paid_date && Number(cs.commission_paid)>0 && warn){
+      warn.style.display="";
+      warn.innerHTML="This sale's <b>$"+Number(cs.commission_paid)+"</b> commission has already been paid. "
+        +"Cancelling will claw it back from the consultant's retention balance.";
+    }
+  }catch(e){/* non-fatal: the cancel still works */}
+}
 function closeCancel(){ document.getElementById("cancelModal").style.display="none"; run(); }
 async function confirmCancel(){
   if(!CXORD) return closeCancel();
+  const oid=CXORD;
+  const notes=(document.getElementById("cxNotes").value||"").trim();
   const patch={ order_status:"cancelled",
     cancellation_date:new Date().toISOString().slice(0,10),
     cancellation_type:document.getElementById("cxType").value,
     refunded:document.getElementById("cxRefund").checked,
-    cancellation_reason:(document.getElementById("cxNotes").value||"").trim()||null };
-  const {error}=await sb.from("sim_orders").update(patch).eq("id",CXORD);
+    cancellation_reason:notes||null };
+  const {error}=await sb.from("sim_orders").update(patch).eq("id",oid);
   if(error){ alert("Couldn't cancel: "+error.message); return; }
+
+  // Commission cleanup. A sale that was NOT yet paid: just cancel the commission
+  // row (no money moved). A sale already PAID: claw the commission back from the
+  // consultant's retention balance — matching the existing cancellation_clawback
+  // adjustments — and record it, so it doesn't drift into the Health Check.
+  try{
+    const {data:cs}=await sb.from("commission_sales")
+      .select("id,consultant_id,commission_paid,paid_date,status")
+      .or(`sim_order_id.eq.${oid},order_id.eq.${oid}`).maybeSingle();
+    if(cs && (cs.status||"active")!=="cancelled"){
+      if(cs.paid_date && Number(cs.commission_paid)>0){
+        // paid -> retention clawback
+        const amt=Number(cs.commission_paid);
+        await sb.from("commission_retention_adjustments").insert({
+          consultant_id:cs.consultant_id,
+          adjustment_date:new Date().toISOString().slice(0,10),
+          amount:-amt,
+          reason:"cancellation_clawback",
+          sale_id:cs.id,
+          notes:"Cancellation clawback — order cancelled after commission paid"+(notes?" — "+notes:"")
+        });
+        // decrement the running retention balance
+        const {data:rb}=await sb.from("commission_retention")
+          .select("balance").eq("consultant_id",cs.consultant_id).maybeSingle();
+        if(rb){
+          await sb.from("commission_retention")
+            .update({balance:Number(rb.balance||0)-amt, updated_at:new Date().toISOString()})
+            .eq("consultant_id",cs.consultant_id);
+        }
+        await sb.from("commission_sales").update({
+          status:"cancelled", cancelled_date:new Date().toISOString().slice(0,10),
+          cancellation_notes:"[retention clawback $"+amt+" applied]"
+        }).eq("id",cs.id);
+        if(window.SIMTEC_TOAST) window.SIMTEC_TOAST("Order cancelled. $"+amt+" commission clawed back from retention.");
+      } else {
+        // not paid -> just cancel the commission, no money moved
+        await sb.from("commission_sales").update({
+          status:"cancelled", cancelled_date:new Date().toISOString().slice(0,10),
+          cancellation_notes:"Order cancelled"+(notes?" — "+notes:"")
+        }).eq("id",cs.id);
+      }
+    }
+  }catch(e){
+    // The order IS cancelled; only the commission step failed. Tell the operator
+    // so they can square it by hand rather than have it silently drift.
+    alert("Order cancelled, but the commission couldn't be updated automatically:\n"
+      +(e.message||e)+"\n\nSquare the commission/retention manually.");
+  }
+
   document.getElementById("cancelModal").style.display="none"; CXORD=null; run();
 }
 // Any change to this customer's orders, items or payments — made here or on
@@ -517,6 +587,7 @@ run();
 <div id="cancelModal" class="modalbg">
   <div class="modal">
     <h3>Cancel this customer</h3>
+    <div id="cxCommWarn" style="display:none;background:#fff8e9;border:1px solid #e8d5a8;border-left:4px solid #c6a15b;border-radius:9px;padding:10px 12px;font-size:13px;margin-bottom:12px"></div>
     <label class="ml">Who initiated the cancellation?</label>
     <select id="cxType" class="mi">
       <option value="customer_request">Customer requested it</option>
