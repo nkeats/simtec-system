@@ -437,7 +437,7 @@ async function save(){
 
     let note = flag==="landline" ? "  (Heads up: the number looks like a landline — it won't receive texts.)" : "";
     show(`Saved ${first} ${last}.` + note, "ok");
-    clearForm(true);
+    clearForm();
     loadRecent();
   }catch(err){
     show(String(err.message||err), "err");
@@ -446,15 +446,27 @@ async function save(){
   }
 }
 
-$("clear").addEventListener("click", ()=>clearForm(false));
-function clearForm(keepDate){
-  ["first","last","mobile","email","address","city","postcode","payerRef","contract","firstPay"].forEach(id=>$(id).value="");
-  $("deposit").value="0"; $("pillow").value=""; $("delivery").value="";
+$("clear").addEventListener("click", clearForm);
+function clearForm(){
+  // A clean slate after every save. Everything the operator can type or choose is
+  // reset — no field is left carrying data from the last customer, which is how a
+  // half-filled or duplicate order slips through.
+  ["first","last","mobile","email","address","city","postcode","payerRef",
+   "contract","firstPay","payAmount","deposit","pillow","delivery"].forEach(id=>{
+     const el=$(id); if(el) el.value="";
+  });
+  $("deposit").value="0";
   $("saleType").value=""; $("payMethod").value=""; $("payFreq").value=""; $("delStatus").value="pending";
-  $("mobileHint").textContent="";
+  $("consultant").value="";
+  $("orderDate").value = new Date().toISOString().slice(0,10);   // reset to today
+  const mh=$("mobileHint"); if(mh) mh.textContent="";
+  const sp=$("schedPreview"); if(sp) sp.innerHTML="";
+  const ah=$("payAmountHint"); if(ah) ah.textContent="Leave blank to use the minimum. Enter a higher figure if the customer chose to pay more.";
+  $("payAmount").placeholder="minimum";
+  scheduleTouched=false;
   document.querySelectorAll('#prodTable input[data-range]').forEach(i=>i.value="");
   recalcTotal();
-  if(!keepDate) $("consultant").value="";
+  window.scrollTo({top:0,behavior:"smooth"});   // back to the top for the next entry
 }
 
 // init
