@@ -35,6 +35,8 @@
 
   /* Urgent */
   .alert{background:var(--card);border:1px solid var(--line);border-radius:14px;overflow:hidden;box-shadow:0 1px 3px rgba(17,31,61,.04)}
+  .alert-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  @media(max-width:820px){.alert-grid{grid-template-columns:1fr}}
   .alert-top{display:flex;align-items:center;gap:13px;padding:16px 20px;border-bottom:1px solid var(--line)}
   .alert-badge{min-width:44px;height:44px;padding:0 12px;border-radius:11px;background:var(--redbg);color:var(--red);font-weight:800;font-size:20px;display:flex;align-items:center;justify-content:center}
   .alert-badge.clear{background:#e9f5ed;color:var(--green)}
@@ -85,13 +87,23 @@
   <!-- URGENT ARREARS -->
   <div class="sec">
     <div class="sec-h">Attention needed</div>
-    <div class="alert">
-      <div class="alert-top">
-        <span class="alert-badge" id="urgentBadge">–</span>
-        <div><div class="alert-tt">Delivered &amp; behind on payments</div>
-          <div class="alert-sub">Customers who have their product but have fallen behind</div></div>
+    <div class="alert-grid">
+      <div class="alert">
+        <div class="alert-top">
+          <span class="alert-badge" id="urgentBadge">–</span>
+          <div><div class="alert-tt">Delivered &amp; behind</div>
+            <div class="alert-sub">Have their product, two or more payments behind, not yet contacted</div></div>
+        </div>
+        <div id="urgentBody"><div class="load">Loading…</div></div>
       </div>
-      <div id="urgentBody"><div class="load">Loading…</div></div>
+      <div class="alert">
+        <div class="alert-top">
+          <span class="alert-badge" id="brokeBadge" style="background:#7a2420">–</span>
+          <div><div class="alert-tt">Contacted &amp; still a problem</div>
+            <div class="alert-sub">We agreed a plan and a payment has since failed</div></div>
+        </div>
+        <div id="brokeBody"><div class="load">Loading…</div></div>
+      </div>
     </div>
   </div>
 
@@ -174,27 +186,91 @@ const PERIODS={weekly:{per:7,total:156,word:"wk"},fortnightly:{per:14,total:78,w
 const today=new Date();
 
 function isBehindDelivered(o){
-  if(o.paid_via_order_id) return null;               // paid on another account — not their debt
+  if(o.paid_via_order_id) return null;                 // paid on another account
   const contract=o.contract_value!=null?Number(o.contract_value):null;
   const paid=o.amount_paid_to_date!=null?Number(o.amount_paid_to_date):0;
-  if((o.delivery_status||"")!=="delivered") return null;
+  if((o.delivery_status||"")!=="delivered") return null;   // must have the mattress
   if(contract==null||contract<=0) return null;
-  if(paid>=contract*0.999) return null;
-  const start=o.first_payment_date||o.order_date; if(!start) return null;
+  if(paid>=contract*0.999) return null;                    // paid up
+
+  // Decide which box (if any) this customer belongs in.
+  //   never contacted                              -> "urgent"  (left: chase)
+  //   contacted, a debit FAILED since              -> "broke"   (right: plan broke)
+  //   contacted, a payment was DUE and didn't come -> "broke"   (silently stopped)
+  //   contacted, paying on track (watch not yet met)-> hidden
+  //   contacted, watch SATISFIED                    -> hidden for good
+  let bucket="urgent";
+  if(o.arrears_contacted_at){
+    const contactDay=new Date(String(o.arrears_contacted_at).slice(0,10)+"T00:00:00");
+    const nowD=new Date(); nowD.setHours(0,0,0,0);
+    const base=Number(o.arrears_watch_paid_base||0);
+    const want=Number(o.arrears_watch_payments||2);
+    const f0=PERIODS[o.payment_frequency]||PERIODS.weekly;
+    const inst0=(o.instalment_amount!=null&&Number(o.instalment_amount)>0)?Number(o.instalment_amount):(contract/f0.total);
+    const cleanSeen=inst0>0?Math.floor((paid-base)/inst0 + 0.01):0;
+
+    if(cleanSeen >= want){
+      return null;                       // watch satisfied — gone for good
+    }
+    if(o._dishonourAfter===true){
+      bucket="broke";                    // an actual dishonour
+    } else {
+      // How many payments SHOULD have landed since we spoke to them? If more are
+      // due than we've seen clean, they've quietly stopped — that's a broken watch.
+      const periodsSince=Math.floor((nowD-contactDay)/86400000/f0.per);
+      const dueSinceContact=Math.min(want, periodsSince);   // one grace period built in via floor
+      if(cleanSeen < dueSinceContact){
+        bucket="broke";                  // payments were due and didn't arrive
+      } else {
+        return null;                     // on track, keep watching — hidden
+      }
+    }
+  }
+
   const f=PERIODS[o.payment_frequency]||PERIODS.weekly;
-  const perAmt=contract/f.total;
-  const expected=Math.min(contract, perAmt*Math.max(0,(today-new Date(start))/86400000/f.per));
+  // Use the real instalment where we have it; only fall back to contract/term.
+  const perAmt = (o.instalment_amount!=null && Number(o.instalment_amount)>0)
+                 ? Number(o.instalment_amount) : contract/f.total;
+
+  // Count from the schedule now in force, not the order date.
+  const startStr = o.schedule_start_date || o.loan_start_date || o.first_payment_date || null;
+  if(!startStr) return null;                                // no schedule -> not judged here
+  const start=new Date(String(startStr).slice(0,10)+"T00:00:00");
+  const now=new Date(); now.setHours(0,0,0,0);
+  if(start>now) return null;                                // hasn't started
+
+  const due=Math.floor((now-start)/86400000/f.per)+1;      // first debit counts
+  const expected=Math.min(contract, perAmt*Math.max(0,due));
   const behindBy=expected-paid;
-  if(behindBy<=perAmt) return null;               // within one payment = ok
-  return {behindBy, periods:perAmt>0?behindBy/perAmt:0, word:f.word};
+
+  // EXCLUDE anyone only one payment behind (settlement lag / a single miss).
+  if(behindBy <= perAmt*1.5) return null;                  // must be MORE than ~1 payment
+  return {behindBy, periods:perAmt>0?behindBy/perAmt:0, word:f.word,
+          bucket, note:o.arrears_contact_note||"", contactedBy:o.arrears_contacted_by||""};
 }
 
 async function loadUrgent(){
   const badge=document.getElementById("urgentBadge");
   try{
     const {data:orders}=await sb.from("sim_orders")
-      .select("id,customer_id,order_date,first_payment_date,payment_frequency,contract_value,amount_paid_to_date,delivery_status,consultant_name,order_status,paid_via_order_id")
+      .select("id,customer_id,order_date,first_payment_date,loan_start_date,schedule_start_date,payment_frequency,instalment_amount,contract_value,amount_paid_to_date,delivery_status,consultant_name,order_status,paid_via_order_id,ezidebit_payer_ref,arrears_contacted_at,arrears_watch_paid_base,arrears_watch_payments")
       .eq("order_status","active");
+    // Which contacted orders have dishonoured SINCE we spoke to them?
+    const watched=(orders||[]).filter(o=>o.arrears_contacted_at && o.ezidebit_payer_ref);
+    if(watched.length){
+      const refs=[...new Set(watched.map(o=>o.ezidebit_payer_ref))];
+      const earliest=watched.reduce((m,o)=>o.arrears_contacted_at<m?o.arrears_contacted_at:m, watched[0].arrears_contacted_at);
+      const {data:dis}=await sb.from("sim_dishonours")
+        .select("payer_ref,dishonour_date").in("payer_ref",refs).gte("dishonour_date",String(earliest).slice(0,10));
+      const failByRef={};
+      (dis||[]).forEach(d=>{ (failByRef[d.payer_ref]=failByRef[d.payer_ref]||[]).push(d.dishonour_date); });
+      watched.forEach(o=>{
+        const fails=failByRef[o.ezidebit_payer_ref]||[];
+        const contactDay=String(o.arrears_contacted_at).slice(0,10);
+        o._dishonourAfter = fails.some(d=>d >= contactDay);
+      });
+    }
+
     const rows=[];
     for(const o of (orders||[])){ const b=isBehindDelivered(o); if(b) rows.push({o,b}); }
     const ids=[...new Set(rows.map(r=>r.o.customer_id).filter(Boolean))];
@@ -204,18 +280,63 @@ async function loadUrgent(){
       (cs||[]).forEach(c=>nm[c.id]={name:[c.first_name,c.last_name].filter(Boolean).join(" ")||"(no name)",mobile:c.mobile||""});
     }
     rows.sort((a,b)=>b.b.behindBy-a.b.behindBy);
-    badge.textContent=rows.length; badge.classList.toggle("clear",rows.length===0);
-    const body=document.getElementById("urgentBody");
-    if(!rows.length){ body.innerHTML=`<div class="none">Nothing urgent — no delivered customers are behind right now.</div>`; return; }
-    body.innerHTML=`<table><thead><tr><th>Customer</th><th>Consultant</th><th>Mobile</th><th class="num">Behind by</th></tr></thead><tbody>`+
-      rows.map(r=>{const c=nm[r.o.customer_id]||{};
-        return `<tr class="row" onclick="location.href='customer-detail.html?id=${r.o.id}'">
-          <td>${c.name||""}</td><td>${r.o.consultant_name||'<span style="color:#98a4b3">—</span>'}</td>
-          <td style="color:#6b7889">${c.mobile||""}</td>
-          <td class="num">${fmt(r.b.behindBy)} (${r.b.periods.toFixed(0)} ${r.b.word})</td></tr>`;
-      }).join("")+`</tbody></table>`;
+
+    const urgent=rows.filter(r=>r.b.bucket==="urgent");
+    const broke =rows.filter(r=>r.b.bucket==="broke");
+
+    document.getElementById("urgentBadge").textContent=urgent.length;
+    document.getElementById("urgentBadge").classList.toggle("clear",urgent.length===0);
+    document.getElementById("brokeBadge").textContent=broke.length;
+
+    const rowHtml=(r,withContact)=>{
+      const c=nm[r.o.customer_id]||{};
+      const goto=`onclick="location.href='customer-detail.html?id=${r.o.id}'" style="cursor:pointer"`;
+      const action = withContact
+        ? `<td class="num"><button onclick="markContacted('${r.o.id}','${(c.name||"").replace(/'/g,"\\'")}',${Number(r.o.amount_paid_to_date||0)})" style="background:none;border:1px solid #26324a;color:#9db4d6;border-radius:7px;padding:4px 10px;font-size:12px;cursor:pointer;white-space:nowrap">✓ Contacted</button></td>`
+        : `<td class="num"><button onclick="markContacted('${r.o.id}','${(c.name||"").replace(/'/g,"\\'")}',${Number(r.o.amount_paid_to_date||0)})" style="background:#7a2420;border:none;color:#ffd9d5;border-radius:7px;padding:4px 10px;font-size:12px;cursor:pointer;white-space:nowrap">Re-contact</button></td>`;
+      return `<tr class="row">
+        <td ${goto}>${c.name||""}</td>
+        <td ${goto}>${r.o.consultant_name||'<span style="color:#98a4b3">—</span>'}</td>
+        <td style="color:#6b7889">${c.mobile||""}</td>
+        <td class="num">${fmt(r.b.behindBy)} (${r.b.periods.toFixed(0)} ${r.b.word})</td>
+        ${action}</tr>`;
+    };
+    const tableHtml=(list,withContact,emptyMsg)=> list.length
+      ? `<table><thead><tr><th>Customer</th><th>Consultant</th><th>Mobile</th><th class="num">Behind by</th><th></th></tr></thead><tbody>`
+        + list.map(r=>rowHtml(r,withContact)).join("") + `</tbody></table>`
+      : `<div class="none">${emptyMsg}</div>`;
+
+    document.getElementById("urgentBody").innerHTML=
+      tableHtml(urgent,true,"Nothing to chase — no un-contacted delivered customers are behind.");
+    document.getElementById("brokeBody").innerHTML=
+      tableHtml(broke,false,"None — every contacted customer is paying as agreed.");
   }catch(e){ document.getElementById("urgentBody").innerHTML=`<div class="load">Couldn't load: ${e.message||e}</div>`; }
 }
+// "We've spoken to them and agreed a plan." Put them on watch: off the list
+// while their next payments go through, back on if a debit fails or they don't pay.
+window.markContacted=async function(orderId, name, paidNow){
+  const choice=prompt(
+    "Put "+(name||"this customer")+" on watch after contact.\n\n"
+    +"How many clean payments do you want to see before they're considered settled?\n"
+    +"(They'll reappear immediately if a debit dishonours in the meantime.)",
+    "2");
+  if(choice===null) return;
+  const want=parseInt(choice,10);
+  if(isNaN(want)||want<1){ alert("Enter how many payments to watch for (1 or more)."); return; }
+  const note=prompt("Optional note (what was agreed):","")||null;
+  try{
+    const {error}=await sb.from("sim_orders").update({
+      arrears_contacted_at:new Date().toISOString(),
+      arrears_contacted_by:(window.SIMTEC_USER&&(window.SIMTEC_USER.full_name||window.SIMTEC_USER.email))||null,
+      arrears_watch_paid_base: Number(paidNow||0),
+      arrears_watch_payments: want,
+      arrears_contact_note: note
+    }).eq("id",orderId);
+    if(error) throw error;
+    loadUrgent();
+  }catch(e){ alert("Couldn't save: "+(e.message||e)); }
+};
+
 loadUrgent();
 </script>
 </body>
