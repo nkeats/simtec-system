@@ -337,8 +337,11 @@ function orderSection(o, items, pays, open){
       <option value="cancelled"${st==="cancelled"?" selected":""}>Cancelled</option>
     </select>` : "";
 
+  const conBtn = isMgr()
+    ? `<button onclick="openReassign('${o.id}')" style="background:none;border:1px solid var(--line);border-radius:7px;padding:2px 8px;font-size:11px;cursor:pointer;color:var(--sub);margin-left:8px">Change</button>`
+    : "";
   const sale=`<div class="card"><h2>Sale</h2>
-    ${kv("Consultant",esc(o.consultant_name)||"—")}
+    ${kv("Consultant",(esc(o.consultant_name)||"—")+conBtn)}
     ${kv("Sale date",auDate(o.order_date))}
     ${kv("Payment method",PM[o.payment_method]||o.payment_method||"—")}
     ${kv("Frequency",cap(o.payment_frequency))}
@@ -968,13 +971,30 @@ function amCalc(src){
 async function saveAmend(){
   const o=window._O, btn=document.getElementById("amSave");
   amErr("");
-  const newV=amNewValue();
   const after=amMattressesAfter();
   if(!after.length){ return amErr("This order would have no mattress. Cancel the order instead of amending it."); }
-  const unpriced=AM.lines.filter(l=>!l.removed && !(Number(l.price)>0));
-  if(unpriced.length){
-    return amErr("<b>These lines still have no price:</b> "+unpriced.map(l=>l.name).join(", ")
-      +".<br>Enter what the customer agreed, from their order form. Saving now would write a wrong contract value.");
+
+  // Did any PRODUCT actually move? (removed, added, or qty/price edited)
+  const removed = AM.lines.filter(l=>l.removed && !l.isNew);
+  const added   = AM.lines.filter(l=>l.isNew && !l.removed);
+  const edited  = AM.lines.filter(l=>!l.isNew && !l.removed &&
+                    (Number(l.qty)!==Number(l.origQty) || Number(l.price)!==Number(l.origPrice)));
+  const productsChanged = removed.length || added.length || edited.length;
+
+  // If products changed, the value is the sum of the (now priced) lines.
+  // If they didn't, keep the stored contract value untouched — recomputing from
+  // unpriced lines would write $0 over a real balance.
+  const newV = productsChanged ? amNewValue() : Number(o.contract_value||0);
+
+  // Unpriced lines only matter when products changed — then a blank price would
+  // write a wrong contract value. For a schedule-only edit the lines are untouched,
+  // so leave them exactly as they were stored and don't force a price in.
+  if(productsChanged){
+    const unpriced=AM.lines.filter(l=>!l.removed && !(Number(l.price)>0));
+    if(unpriced.length){
+      return amErr("<b>These lines still have no price:</b> "+unpriced.map(l=>l.name).join(", ")
+        +".<br>Enter what the customer agreed, from their order form. Saving now would write a wrong contract value.");
+    }
   }
   const paid=parseFloat(document.getElementById("amPaid").value);
   if(isNaN(paid) || paid<0){ return amErr("Enter how much the customer has paid so far (0 if nothing yet)."); }
@@ -989,10 +1009,6 @@ async function saveAmend(){
       +"Increase the payment amount, or reduce the number of payments, until it fits.");
   }
 
-  const removed = AM.lines.filter(l=>l.removed && !l.isNew);
-  const added   = AM.lines.filter(l=>l.isNew && !l.removed);
-  const edited  = AM.lines.filter(l=>!l.isNew && !l.removed &&
-                    (Number(l.qty)!==Number(l.origQty) || Number(l.price)!==Number(l.origPrice)));
   const summary=[
     ...removed.map(l=>"removed "+l.name),
     ...added.map(l=>"added "+l.name+(l.qty>1?(" × "+l.qty):"")),
@@ -1523,6 +1539,107 @@ async function rebuildPaid(o){
   const total=Math.round((data||[]).reduce((s,r)=>s+Number(r.amount||0),0)*100)/100;
   const {error:e2}=await sb.from("sim_orders").update({amount_paid_to_date:total}).eq("id",o.id);
   if(e2) throw new Error("Updating the balance: "+e2.message);
+}
+</script>
+
+
+<!-- ============ REASSIGN CONSULTANT ============ -->
+<div id="reassignModal" class="modalbg">
+  <div class="modal" style="max-width:480px">
+    <h3 style="margin:0 0 4px">Change consultant</h3>
+    <p class="muted" style="font-size:12.5px;margin:0 0 14px">
+      Move this sale to a different consultant. The sale credit and its commission move together.
+    </p>
+    <div id="reErr" style="display:none;background:#fdecec;border:1px solid #e0b4b0;color:#b4342e;border-radius:9px;padding:11px 13px;font-size:13.5px;margin-bottom:12px"></div>
+
+    <label class="muted" style="font-size:12px">New consultant</label>
+    <select id="reName" class="mi"></select>
+    <div class="muted" style="font-size:11.5px;margin-top:4px">Currently: <b id="reCurrent"></b></div>
+
+    <div id="reCommNote" style="margin-top:12px"></div>
+
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:18px">
+      <button onclick="closeReassign()" style="background:none;border:1px solid #cbd4df;border-radius:8px;padding:9px 15px;cursor:pointer">Cancel</button>
+      <button id="reSave" onclick="saveReassign()" style="background:#1c6b34;color:#fff;border:none;border-radius:8px;padding:9px 18px;font-weight:700;cursor:pointer">Move sale</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ============ REASSIGN CONSULTANT ============
+   The order shows the credit as consultant_name (free text). commission_sales
+   links to the consultant by consultant_id (uuid -> commission_consultants.id).
+   To move a sale we update BOTH: the name on the order, and the consultant_id on
+   the commission row. We only offer REAL consultants (from commission_consultants)
+   so a sale can't be credited to someone with no commission profile.
+   If the commission is already paid, we flag it and don't touch the closed run. */
+let REORD=null, RECONS=[];   // RECONS: [{id,name}]
+
+function reErr(m){ const b=document.getElementById("reErr"); if(!m){b.style.display="none";return;} b.style.display=""; b.innerHTML=m; }
+
+async function openReassign(oid){
+  const o=ORDERS[oid]; if(!o) return;
+  REORD=o; reErr("");
+  document.getElementById("reCurrent").textContent=o.consultant_name||"(unassigned)";
+  document.getElementById("reCommNote").innerHTML="";
+  const sel=document.getElementById("reName");
+  sel.innerHTML=`<option value="">Loading consultants…</option>`;
+  document.getElementById("reassignModal").style.display="flex";
+
+  // real consultants, active first, alphabetical
+  const {data,error}=await sb.from("commission_consultants")
+    .select("id,name,active").order("name");
+  if(error){ reErr("Couldn't load the consultant list: "+error.message); return; }
+  RECONS=(data||[]).filter(c=>c.name);
+  sel.innerHTML=`<option value="">— choose a consultant —</option>`
+    + RECONS.map(c=>`<option value="${c.id}">${esc(c.name)}${c.active===false?" (inactive)":""}</option>`).join("");
+}
+function closeReassign(){ document.getElementById("reassignModal").style.display="none"; REORD=null; }
+
+async function saveReassign(){
+  const o=REORD; if(!o) return;
+  const btn=document.getElementById("reSave");
+  reErr("");
+  const newId=document.getElementById("reName").value;
+  const chosen=RECONS.find(c=>c.id===newId);
+  if(!chosen) return reErr("Pick the consultant this sale should belong to.");
+  if(chosen.name===(o.consultant_name||"")) return reErr("That's already the consultant on this sale.");
+
+  btn.disabled=true; btn.textContent="Moving…";
+  try{
+    // 1. the credit shown everywhere: consultant_name on the order
+    const {error}=await sb.from("sim_orders").update({consultant_name:chosen.name}).eq("id",o.id);
+    if(error) throw new Error("Updating the order: "+error.message);
+
+    // 2. the commission row links by consultant_id. Match the sale by either key.
+    const {data:cs,error:e0}=await sb.from("commission_sales")
+      .select("id,paid_date,consultant_id")
+      .or(`sim_order_id.eq.${o.id},order_id.eq.${o.id}`)
+      .maybeSingle();
+    if(e0) throw new Error("Checking commission: "+e0.message);
+
+    let note="Sale moved to "+chosen.name+".";
+    if(cs){
+      if(cs.paid_date){
+        note="Sale credit moved to "+chosen.name+", but this sale's commission has ALREADY BEEN PAID. "
+           +"That pay run is closed — adjust it by hand. No paid commission was moved.";
+      } else {
+        const {error:e1}=await sb.from("commission_sales")
+          .update({consultant_id:chosen.id}).eq("id",cs.id);
+        if(e1) throw new Error("Moving the commission: "+e1.message);
+        note="Sale and its (unpaid) commission both moved to "+chosen.name+".";
+      }
+    } else {
+      note="Sale moved to "+chosen.name+". No commission record exists for it yet.";
+    }
+
+    closeReassign();
+    if(window.SIMTEC_TOAST) window.SIMTEC_TOAST(note);
+    run();
+  }catch(e){
+    reErr("<b>The sale was not moved.</b><br>"+(e.message||e));
+    btn.disabled=false; btn.textContent="Move sale";
+  }
 }
 </script>
 
