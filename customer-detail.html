@@ -351,6 +351,11 @@ function orderSection(o, items, pays, open){
   const schedBtn = isStaff()
     ? `<button onclick="openSched('${o.id}')" style="background:none;border:1px solid var(--line);border-radius:7px;padding:3px 9px;font-size:11.5px;cursor:pointer;color:var(--sub);margin-left:8px">Edit schedule</button>`
     : "";
+  // No schedule recorded -> make setting one up the obvious next action, not a
+  // faint grey link the operator has to hunt for.
+  const setupBtn = isStaff()
+    ? `<button onclick="openSched('${o.id}')" style="background:#c6a15b;color:#122347;border:none;border-radius:7px;padding:5px 12px;font-size:12px;font-weight:700;cursor:pointer;margin-left:8px">Set up payment schedule</button>`
+    : "";
   const payBtn = isStaff()
     ? `<button onclick="openPay('${o.id}')" style="background:#1c6b34;color:#fff;border:none;border-radius:7px;padding:4px 11px;font-size:11.5px;font-weight:700;cursor:pointer;margin-left:8px">+ Record payment</button>`
     : "";
@@ -359,7 +364,7 @@ function orderSection(o, items, pays, open){
       + (o.schedule_start_date?kv("Schedule started",auDate(o.schedule_start_date)):"")
       + (o.next_payment_date?kv("Next payment",auDate(o.next_payment_date)):"")
       + (p.dueCount?kv("Payments due so far",p.dueCount):"")
-    : kv("Payment",`<span style="color:var(--amber)">no schedule recorded</span>${schedBtn}`);
+    : kv("Payment",`<span style="color:var(--amber)">no schedule recorded</span>${setupBtn}`);
 
   const money = o.paid_via_order_id
     ? `<div class="card"><h2>Account</h2>${kv("Total sale value",fmt(o.contract_value))}
@@ -993,8 +998,22 @@ async function saveAmend(){
     ...added.map(l=>"added "+l.name+(l.qty>1?(" × "+l.qty):"")),
     ...edited.map(l=>"changed "+l.name+" to "+l.qty+" × "+money(l.price))
   ].join("; ") || "no product change";
-  if(!removed.length && !added.length && !edited.length && Number(o.contract_value)===newV){
-    return amErr("Nothing has changed.");
+  // Did anything about the SCHEDULE change? Entering a schedule on an order that
+  // never had one is a real, saveable change even when no product moved.
+  const amRefNow = (document.getElementById("amRef").value.trim().replace(/\D/g,"")) || null;
+  const startNow = document.getElementById("amStart").value || null;
+  const nextNow  = document.getElementById("amNext").value || null;
+  const schedChanged =
+       (newInst>0 && Number(newInst)!==Number(o.instalment_amount||0))
+    || (rem>0 && Number(rem)!==Number(o.term_periods||0))
+    || (freq && freq!==(o.payment_frequency||""))
+    || (startNow!==(o.schedule_start_date||null))
+    || (nextNow!==(o.next_payment_date||null))
+    || (amRefNow!==(o.ezidebit_payer_ref||null));
+
+  if(!removed.length && !added.length && !edited.length
+     && Number(o.contract_value)===newV && !schedChanged){
+    return amErr("Nothing has changed. Enter a payment amount, schedule, or payer reference — or change a product — before saving.");
   }
   const payLine = (newInst>0 && rem>0)
     ? `Payment: ${money(newInst)} per ${freq} × ${rem}\n\nRemember to update Ezidebit.`
