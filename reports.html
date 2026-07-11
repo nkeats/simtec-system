@@ -176,7 +176,7 @@ async function load(){
 
   // pull orders
   const orders = must(await sb.from("sim_orders")
-    .select("id,order_date,contract_value,consultant_name,order_status,cancellation_date"),
+    .select("id,customer_id,order_date,contract_value,consultant_name,order_status,cancellation_date"),
     "Loading orders from sim_orders");
 
   // pull their line items — batched by order id AND paged, so we NEVER hit the
@@ -202,7 +202,16 @@ async function load(){
     }
   }
 
-  const weeks={};   // mondayStr -> {mattresses, value, byCon:{name:{m,v}}}
+  // Customer names, for the drill-down under each consultant.
+  const custIds=[...new Set((orders||[]).map(o=>o.customer_id).filter(Boolean))];
+  const custName={};
+  for(let i=0;i<custIds.length;i+=200){
+    const cs = must(await sb.from("sim_customers").select("id,first_name,last_name").in("id",custIds.slice(i,i+200)),
+      "Loading customer names");
+    (cs||[]).forEach(c=>custName[c.id]=[c.first_name,c.last_name].filter(Boolean).join(" ")||"(no name)");
+  }
+
+  const weeks={};   // mondayStr -> {mattresses, value, byCon:{name:{m,v,sales:[]}}}
   for(const o of (orders||[])){
     if(!o.order_date) continue;
     const wk=weekStart(o.order_date), wEnd=weekEnd(wk);
@@ -226,7 +235,9 @@ async function load(){
     const con=o.consultant_name||"(unassigned)";
     const w=(weeks[wk]=weeks[wk]||{mattresses:0,value:0,byCon:{}});
     w.mattresses+=mattresses; w.value+=value;
-    const c=(w.byCon[con]=w.byCon[con]||{m:0,v:0}); c.m+=mattresses; c.v+=value;
+    const c=(w.byCon[con]=w.byCon[con]||{m:0,v:0,sales:[]}); c.m+=mattresses; c.v+=value;
+    c.sales.push({ id:o.id, name:custName[o.customer_id]||"(no name)",
+                   mattresses, value, partCancel:hadPartCancel });
   }
 
   _weeksCache = weeks;
@@ -271,7 +282,16 @@ function draw(weeks){
     html+=`<tr class="wk" onclick="tog('${k}')"><td>▸ ${fmtWk(k)}<span class="chip">${Object.keys(w.byCon).length} agent${Object.keys(w.byCon).length!==1?'s':''}</span></td><td class="num">${w.mattresses}</td><td class="num">${fmt(w.value)}</td></tr>`;
     const cons=Object.entries(w.byCon).sort((a,b)=>b[1].v-a[1].v);
     for(const [name,c] of cons){
-      html+=`<tr class="sub" data-wk="${k}" style="display:none"><td>${esc(name)}</td><td class="num">${c.m}</td><td class="num">${fmt(c.v)}</td></tr>`;
+      const cid=`${k}__${name}`.replace(/[^a-zA-Z0-9_]/g,"_");
+      html+=`<tr class="sub" data-wk="${k}" style="display:none;cursor:pointer" onclick="togCon('${cid}')">`
+        +`<td>▸ ${esc(name)}</td><td class="num">${c.m}</td><td class="num">${fmt(c.v)}</td></tr>`;
+      // the consultant's individual sales — customer names, to check crediting
+      for(const sale of c.sales.sort((a,b)=>b.value-a.value)){
+        html+=`<tr class="sale" data-con="${cid}" style="display:none">`
+          +`<td style="padding-left:2.5rem"><a href="customer-detail.html?id=${sale.id}" onclick="event.stopPropagation()" style="color:#9db4d6">${esc(sale.name)}</a>`
+          +`${sale.partCancel?' <span style="color:#e0a34a;font-size:11px">(part-cancelled)</span>':''}</td>`
+          +`<td class="num">${sale.mattresses||""}</td><td class="num">${fmt(sale.value)}</td></tr>`;
+      }
     }
   }
   // Total row must describe exactly what's above it — never label a partial sum "All weeks".
@@ -285,7 +305,20 @@ function draw(weeks){
 }
 function $(id){return document.getElementById(id);}
 window.tog=function(k){
-  document.querySelectorAll(`tr.sub[data-wk="${k}"]`).forEach(tr=>tr.style.display=tr.style.display==="none"?"":"none");
+  const subs=document.querySelectorAll(`tr.sub[data-wk="${k}"]`);
+  const opening = subs.length && subs[0].style.display==="none";
+  subs.forEach(tr=>tr.style.display=opening?"":"none");
+  if(!opening){
+    // collapsing the week: also hide every customer row beneath it
+    document.querySelectorAll(`tr.sale`).forEach(tr=>{
+      if(tr.dataset.con.indexOf(k.replace(/[^a-zA-Z0-9_]/g,"_"))===0) tr.style.display="none";
+    });
+  }
+};
+window.togCon=function(cid){
+  const sales=document.querySelectorAll(`tr.sale[data-con="${cid}"]`);
+  const opening = sales.length && sales[0].style.display==="none";
+  sales.forEach(tr=>tr.style.display=opening?"":"none");
 };
 
 /* ===================== CONVERSION PANEL =====================
