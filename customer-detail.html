@@ -579,7 +579,9 @@ run();
       <div><label class="muted" style="font-size:12px">First debit of the current schedule</label>
         <input id="amStart" class="mi" type="date" onchange="amCalc('start')">
         <div style="font-size:11px;color:#7a8798;margin-top:3px">Drives arrears. If the direct debit was restarted, use the new first debit — not the order date.</div></div>
-      <div></div>
+      <div><label class="muted" style="font-size:12px">Ezidebit payer reference</label>
+        <input id="amRef" class="mi" placeholder="561-000-000" autocomplete="off">
+        <div style="font-size:11px;color:#7a8798;margin-top:3px">Links this order to its payments. Dashes are fine.</div></div>
     </div>
     <div style="font-size:11.5px;color:#7a8798;line-height:1.4;margin-top:8px">
       Set <b>either</b> the payment or the number of payments — change one and the other recalculates.
@@ -711,6 +713,7 @@ async function openAmend(oid){
   document.getElementById("amInst").value = o.instalment_amount!=null ? Number(o.instalment_amount).toFixed(2) : "";
   document.getElementById("amNext").value = o.next_payment_date || "";
   document.getElementById("amStart").value = o.schedule_start_date || o.loan_start_date || o.first_payment_date || "";
+  document.getElementById("amRef").value = o.ezidebit_payer_ref || "";
   amRenderLines(); amCalc();
 
   amPriceBanner();
@@ -1027,6 +1030,11 @@ async function saveAmend(){
     if(newInst>0 && rem>0){ patch.instalment_amount=newInst; patch.term_periods=rem; }
     if(nextDate)  patch.next_payment_date=nextDate;
     if(startDate) patch.schedule_start_date=startDate;   // arrears reads this
+    const amRefRaw=document.getElementById("amRef").value.trim();
+    const amRef = amRefRaw ? amRefRaw.replace(/\D/g,"") : null;
+    if(amRefRaw && (!amRef || amRef.length<6))
+      return amErr("That payer reference doesn't look right — nine digits, e.g. 561-000-000.");
+    patch.ezidebit_payer_ref = amRef;
     const {error:e2}=await sb.from("sim_orders").update(patch).eq("id",o.id);
     if(e2) throw new Error("Updating the order: "+e2.message);
 
@@ -1143,6 +1151,11 @@ function printVariation(o,summary,newV,newInst,freq,rem,nextDate){
     </p>
     <div id="schErr" style="display:none;background:#fdecec;border:1px solid #e0b4b0;color:#b4342e;border-radius:9px;padding:11px 13px;font-size:13.5px;margin-bottom:12px"></div>
 
+    <div style="margin-bottom:10px">
+      <label class="muted" style="font-size:12px">Ezidebit payer reference</label>
+      <input id="schRef" class="mi" placeholder="561-000-000" autocomplete="off">
+      <div style="font-size:11px;color:#7a8798;margin-top:3px">The Contract/Payer ID from Ezidebit. Links this customer to their payments — enter it exactly as Ezidebit shows it; dashes are fine.</div>
+    </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
       <div><label class="muted" style="font-size:12px">Payment amount</label>
         <input id="schInst" class="mi" type="number" step="0.01" oninput="schCalc()"></div>
@@ -1198,6 +1211,7 @@ function schMoney(n){ return "$"+Number(n||0).toLocaleString(undefined,{minimumF
 function openSched(oid){
   const o=ORDERS[oid]; if(!o) return;
   SCHORD=o; schErr("");
+  document.getElementById("schRef").value   = o.ezidebit_payer_ref || "";
   document.getElementById("schInst").value  = o.instalment_amount!=null?Number(o.instalment_amount).toFixed(2):"";
   document.getElementById("schFreq").value  = o.payment_frequency || "weekly";
   document.getElementById("schStart").value = o.schedule_start_date || o.loan_start_date || o.first_payment_date || "";
@@ -1272,12 +1286,40 @@ async function saveSched(){
   if(!start)    return schErr("Enter the date of the first debit under this schedule.");
   if(next && next < start) return schErr("The next debit cannot be before the schedule started.");
 
+  // Ezidebit prints the reference with dashes; sim_orders stores it without, so
+  // payments match. Normalise here, the same as the daily import does.
+  const refRaw=document.getElementById("schRef").value.trim();
+  const ref = refRaw ? refRaw.replace(/\D/g,"") : null;
+  if(refRaw && (!ref || ref.length<6))
+    return schErr("That payer reference doesn't look right — it should be nine digits, e.g. 561-000-000.");
+
   btn.disabled=true; btn.textContent="Saving…";
   try{
+    // Guard: a reference already used by a DIFFERENT order would misdirect payments.
+    if(ref && ref!==o.ezidebit_payer_ref){
+      const {data:clash}=await sb.from("sim_orders")
+        .select("id").eq("ezidebit_payer_ref",ref).neq("id",o.id).limit(1);
+      if(clash && clash.length){
+        btn.disabled=false; btn.textContent="Save schedule";
+        return schErr("That payer reference is already on another customer's order. Check the number — the same reference cannot pay two orders.");
+      }
+    }
+
     const patch={ instalment_amount:inst, payment_frequency:freq,
-                  schedule_start_date:start, next_payment_date:next };
+                  schedule_start_date:start, next_payment_date:next,
+                  ezidebit_payer_ref:ref };
     const {error}=await sb.from("sim_orders").update(patch).eq("id",o.id);
     if(error) throw new Error("Saving the schedule: "+error.message);
+
+    // If this reference already has payments in the ledger (they arrived before the
+    // order was linked), attach them and rebuild the paid balance from the ledger.
+    if(ref){
+      const {data:led}=await sb.from("sim_payments").select("amount").eq("payer_ref",ref);
+      if(led && led.length){
+        const total=Math.round(led.reduce((s,r)=>s+Number(r.amount||0),0)*100)/100;
+        await sb.from("sim_orders").update({amount_paid_to_date:total}).eq("id",o.id);
+      }
+    }
 
     const {error:e2}=await sb.from("schedule_changes").insert({
       order_id:o.id,
