@@ -37,6 +37,9 @@
   .dayhd .dow{font-weight:800;color:var(--navy);font-size:15px}
   .dayhd .dt{color:var(--sub);font-size:12.5px}
   .dayhd .todaypill{font-size:10px;font-weight:800;letter-spacing:.06em;background:var(--gold);color:var(--navy);border-radius:20px;padding:2px 8px}
+  .dayhd .needpill{font-size:10px;font-weight:800;letter-spacing:.06em;background:#8a5a1a;color:#ffe6c2;border-radius:20px;padding:2px 8px;margin-left:6px}
+  .day.past .dayhd{opacity:.72}
+  .day.past{background:linear-gradient(0deg,rgba(0,0,0,.015),rgba(0,0,0,.015))}
   .free{color:#9aa6ba;font-size:13px;font-style:italic;padding:4px 4px 2px}
   .appt{background:var(--card);border:1px solid var(--line);border-radius:13px;padding:13px 14px;margin-bottom:9px;box-shadow:0 1px 2px rgba(17,31,61,.03)}
   .appt .top{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}
@@ -181,7 +184,8 @@
 // rather than captured at parse time, because auth.js populates the globals async.
 let sb = null;
 let U  = {};
-const DAYS_AHEAD = 7;                 // today + next 7 days always shown
+const DAYS_AHEAD = 7;                 // today + next 7 days
+const DAYS_BACK  = 7;                 // ...and the past 7, so a missed status update can be fixed
 const DOW=["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
 const MON=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 const REASONS={dont_need:"Don't need",cant_afford:"Can't afford",think_about_it:"Think about it",other:"Other"};
@@ -287,10 +291,12 @@ async function render(){
   $("loading").style.display="";
   $("days").innerHTML="";
   const start = todayStr();
+  const back = new Date(); back.setHours(0,0,0,0); back.setDate(back.getDate()-DAYS_BACK);
+  const windowStart = ymd(back);
   const { data, error } = await sb.from('appointments')
     .select('*')
     .eq('consultant_id', target.cid)
-    .gte('appt_date', start)
+    .gte('appt_date', windowStart)
     .order('appt_date').order('appt_time');
   if(error){ $("loading").textContent = "Couldn't load: "+error.message; return; }
   $("loading").style.display="none";
@@ -302,7 +308,7 @@ async function render(){
   // build the list of dates to show: today..+DAYS_AHEAD, plus any later dates that have appts
   const dates=[];
   const base=new Date(); base.setHours(0,0,0,0);
-  for(let i=0;i<=DAYS_AHEAD;i++){ const d=new Date(base); d.setDate(base.getDate()+i); dates.push(ymd(d)); }
+  for(let i=-DAYS_BACK;i<=DAYS_AHEAD;i++){ const d=new Date(base); d.setDate(base.getDate()+i); dates.push(ymd(d)); }
   Object.keys(byDate).forEach(d=>{ if(!dates.includes(d)) dates.push(d); });
   dates.sort();
 
@@ -312,7 +318,9 @@ async function render(){
     const [Y,M,D]=d.split("-").map(Number);
     const dd=new Date(Y,M-1,D);
     const isToday = d===start;
-    html+=`<div class="day"><div class="dayhd"><span class="dow">${DOW[dd.getDay()]}</span><span class="dt">${D} ${MON[M-1]}</span>${isToday?'<span class="todaypill">TODAY</span>':''}</div>`;
+    const isPast = d < start;
+    const needsOutcome = isPast && list.some(a=>(a.status||'booked')==='booked');
+    html+=`<div class="day${isPast?' past':''}"><div class="dayhd"><span class="dow">${DOW[dd.getDay()]}</span><span class="dt">${D} ${MON[M-1]}</span>${isToday?'<span class="todaypill">TODAY</span>':''}${needsOutcome?'<span class="needpill">NEEDS OUTCOME</span>':''}</div>`;
     if(!list.length){ html+=`<div class="free">— no appointments —</div>`; }
     else list.forEach(a=>{ html+=apptCard(a); });
     html+=`</div>`;
