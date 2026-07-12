@@ -274,8 +274,10 @@ async function run(){
     }
 
     let comms=[];
-    { const {data}=await sb.from("sim_communications").select("*").eq("customer_id",customerId).order("created_at",{ascending:false});
+    { const {data}=await sb.from("sim_contacts").select("*").eq("customer_id",customerId).order("contacted_at",{ascending:false});
       comms=data||[]; }
+    window.__CUST_ID__=customerId;
+    window.__ORDER_ID__=(orders&&orders[0])?orders[0].id:null;
 
     renderAll(c, orders||[], paysByRef, comms);
   }catch(e){
@@ -300,11 +302,33 @@ function renderAll(c, orders, paysByRef, comms){
     ${kv("Address",esc(c.address)||"—")}
   </div>`;
 
+  const ICON={phone:"\u{1F4DE}",text:"\u{1F4AC}",email:"\u2709\uFE0F",letter:"\u{1F4EE}",in_person:"\u{1F91D}"};
+  const CHLABEL={phone:"Phone",text:"Text",email:"Email",letter:"Letter",in_person:"In person"};
+  const cnt={phone:0,text:0,email:0,letter:0,in_person:0};
+  comms.forEach(x=>{ if(cnt[x.channel]!=null) cnt[x.channel]++; });
+  const summary=["phone","text","email","letter","in_person"].map(ch=>
+    `<span style="margin-right:14px;white-space:nowrap">${ICON[ch]} <b>${cnt[ch]}</b> <span class="muted">${CHLABEL[ch]}${cnt[ch]===1?"":"s"}</span></span>`).join("");
   const commRows = comms.length
-    ? comms.slice(0,20).map(x=>`<tr><td>${auDate(x.created_at)}</td><td>${esc(x.channel||x.type||"")}</td><td>${esc(x.body||x.message||x.note||"")}</td></tr>`).join("")
-    : `<tr><td colspan="3" class="muted">Nothing recorded.</td></tr>`;
-  const commsCard=`<div class="card full"><h2>Communications</h2>
-    <table><thead><tr><th>Date</th><th>Channel</th><th>Detail</th></tr></thead><tbody>${commRows}</tbody></table></div>`;
+    ? comms.map(x=>{
+        const dir = (x.direction==="inbound")
+          ? `<span title="Customer contacted us" style="color:#2a7">\u2199 In</span>`
+          : `<span title="We contacted the customer" style="color:#c6841b">\u2197 Out</span>`;
+        const auto = x.auto_source ? ` <span class="muted" title="Auto-logged on send (${esc(x.auto_ref||"")})" style="font-size:11px">\u2699\uFE0F auto</span>` : "";
+        const body = esc(x.body||"").replace(/\n/g,"<br>");
+        const outcome = x.outcome ? `<div class="muted" style="font-size:11.5px;margin-top:3px">Outcome: ${esc(x.outcome)}</div>` : "";
+        return `<tr>
+          <td style="white-space:nowrap;vertical-align:top">${auDate(x.contacted_at)}<div class="muted" style="font-size:11px">${new Date(x.contacted_at).toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"})}</div></td>
+          <td style="vertical-align:top;white-space:nowrap">${ICON[x.channel]||""} ${CHLABEL[x.channel]||esc(x.channel||"")}<div style="font-size:11px">${dir}${auto}</div></td>
+          <td style="vertical-align:top">${x.subject?`<b>${esc(x.subject)}</b><br>`:""}${body}${outcome}<div class="muted" style="font-size:11px;margin-top:2px">${esc(x.staff_name||"")}</div></td>
+        </tr>`;
+      }).join("")
+    : `<tr><td colspan="3" class="muted">No contacts recorded yet.</td></tr>`;
+  const commsCard=`<div class="card full"><h2>Communications
+      <button onclick="openContact()" style="float:right;background:#c6a15b;color:#122347;border:none;border-radius:8px;padding:6px 12px;font-size:12.5px;font-weight:700;cursor:pointer">+ Log contact</button>
+      <button onclick="window.print()" class="noprint" style="float:right;margin-right:8px;background:none;border:1px solid var(--line);border-radius:8px;padding:6px 12px;font-size:12.5px;cursor:pointer">\u{1F5A8} Print history</button>
+    </h2>
+    <div style="margin:2px 0 12px;font-size:13.5px">${summary}</div>
+    <table><thead><tr><th style="width:110px">When</th><th style="width:120px">Channel</th><th>Detail</th></tr></thead><tbody>${commRows}</tbody></table></div>`;
 
   const orderBlocks = orders.length
     ? orders.map((o,ix)=>orderSection(o, ITEMSBY[o.id]||[], paysByRef[o.ezidebit_payer_ref]||[], ix===0)).join("")
@@ -516,6 +540,41 @@ async function openCancel(oid){
   }catch(e){/* non-fatal: the cancel still works */}
 }
 function closeCancel(){ document.getElementById("cancelModal").style.display="none"; run(); }
+
+// ── Contact log ──────────────────────────────────────────────────────────────
+function openContact(){
+  document.getElementById("ctErr").style.display="none";
+  ["ctStaff","ctSubject","ctBody","ctOutcome"].forEach(id=>document.getElementById(id).value="");
+  document.getElementById("ctChannel").value="phone";
+  document.getElementById("ctDir").value="outbound";
+  document.getElementById("contactModal").style.display="flex";
+}
+function closeContact(){ document.getElementById("contactModal").style.display="none"; }
+async function saveContact(){
+  const cust=window.__CUST_ID__;
+  if(!cust){ return; }
+  const body=document.getElementById("ctBody").value.trim();
+  const subject=document.getElementById("ctSubject").value.trim();
+  if(!body && !subject){
+    const e=document.getElementById("ctErr"); e.textContent="Add a subject or some detail before saving."; e.style.display="block"; return;
+  }
+  const btn=document.getElementById("ctSave"); btn.disabled=true; btn.textContent="Saving…";
+  const row={
+    customer_id:cust,
+    order_id:window.__ORDER_ID__||null,
+    channel:document.getElementById("ctChannel").value,
+    direction:document.getElementById("ctDir").value,
+    contacted_at:new Date().toISOString(),
+    staff_name:document.getElementById("ctStaff").value.trim()||null,
+    subject:subject||null,
+    body:body||null,
+    outcome:document.getElementById("ctOutcome").value.trim()||null
+  };
+  const {error}=await sb.from("sim_contacts").insert(row);
+  btn.disabled=false; btn.textContent="Save contact";
+  if(error){ const e=document.getElementById("ctErr"); e.textContent="Could not save: "+error.message; e.style.display="block"; return; }
+  closeContact(); run();
+}
 async function confirmCancel(){
   if(!CXORD) return closeCancel();
   const oid=CXORD;
@@ -584,6 +643,45 @@ window.SIMTEC_RELOAD = function(){ if(customerId) run(); };
 
 run();
 </script>
+<div id="contactModal" class="modalbg">
+  <div class="modal">
+    <h3>Log a contact</h3>
+    <p class="muted" style="font-size:13px;margin:0 0 12px">Record a phone call, text, email, letter or in-person contact with this customer. Keep the full detail — it forms the account's contact record.</p>
+    <div style="display:flex;gap:10px;margin-bottom:10px">
+      <div style="flex:1">
+        <label class="muted" style="font-size:12px;display:block;margin-bottom:3px">Channel</label>
+        <select id="ctChannel" class="mi">
+          <option value="phone">📞 Phone call</option>
+          <option value="text">💬 Text</option>
+          <option value="email">✉️ Email</option>
+          <option value="letter">📮 Letter</option>
+          <option value="in_person">🤝 In person</option>
+        </select>
+      </div>
+      <div style="flex:1">
+        <label class="muted" style="font-size:12px;display:block;margin-bottom:3px">Direction</label>
+        <select id="ctDir" class="mi">
+          <option value="outbound">↗ We contacted them</option>
+          <option value="inbound">↙ They contacted us</option>
+        </select>
+      </div>
+    </div>
+    <label class="muted" style="font-size:12px;display:block;margin-bottom:3px">Who (staff)</label>
+    <input id="ctStaff" class="mi" placeholder="Your name" style="margin-bottom:10px">
+    <label class="muted" style="font-size:12px;display:block;margin-bottom:3px">Subject</label>
+    <input id="ctSubject" class="mi" placeholder="e.g. Arrears follow-up" style="margin-bottom:10px">
+    <label class="muted" style="font-size:12px;display:block;margin-bottom:3px">Detail / full copy</label>
+    <textarea id="ctBody" class="mi" rows="4" placeholder="Notes from the call, or paste the full text/email/letter content…" style="margin-bottom:10px"></textarea>
+    <label class="muted" style="font-size:12px;display:block;margin-bottom:3px">Outcome (optional)</label>
+    <input id="ctOutcome" class="mi" placeholder="e.g. Promised to catch up, No answer, Disputed…" style="margin-bottom:14px">
+    <div id="ctErr" style="display:none;background:#fdecec;border:1px solid #e0b4b0;color:#b4342e;border-radius:9px;padding:9px 11px;font-size:13px;margin-bottom:10px"></div>
+    <div style="display:flex;gap:8px">
+      <button id="ctSave" onclick="saveContact()" style="flex:1;background:#c6a15b;color:#122347;border:none;border-radius:8px;padding:10px;font-size:14px;font-weight:700;cursor:pointer">Save contact</button>
+      <button onclick="closeContact()" style="flex:1;background:none;border:1px solid var(--line);border-radius:8px;padding:10px;font-size:14px;cursor:pointer">Cancel</button>
+    </div>
+  </div>
+</div>
+
 <div id="cancelModal" class="modalbg">
   <div class="modal">
     <h3>Cancel this customer</h3>
