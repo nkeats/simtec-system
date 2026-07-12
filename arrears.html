@@ -18,6 +18,15 @@ body{font-family:system-ui,sans-serif}
 .btn{padding:.4rem .8rem;border-radius:.5rem;font-size:.8rem;font-weight:600;cursor:pointer;border:1px solid #334155;background:#1e293b;color:#94a3b8}
 .btn.on{background:#c9a84c;color:#1a2438;border-color:#c9a84c}
 .arr:hover{background:#243049}
+/* Scrolling window for the arrears list — keeps the summary + controls in view */
+.scrollwrap{max-height:calc(100vh - 320px);min-height:200px;overflow-y:auto;padding:.75rem .4rem .75rem .75rem;
+  border:1px solid #23324a;border-radius:.6rem;background:#0d1526}
+.scrollwrap::-webkit-scrollbar{width:10px}
+.scrollwrap::-webkit-scrollbar-track{background:#0d1526;border-radius:8px}
+.scrollwrap::-webkit-scrollbar-thumb{background:#334155;border-radius:8px}
+.scrollwrap::-webkit-scrollbar-thumb:hover{background:#475569}
+.scrollwrap .card{margin-left:.15rem}
+@media print{.scrollwrap{max-height:none;overflow:visible;border:none;background:transparent}}
 @media print{.noprint{display:none!important}body{background:#fff;color:#000}.card{border-color:#ccc}}
 </style>
 </head>
@@ -40,10 +49,11 @@ body{font-family:system-ui,sans-serif}
     <span class="text-xs text-slate-500 mr-1">Show</span>
     <button class="btn" data-filter="all">All in arrears</button>
     <button class="btn" data-filter="red">3+ weeks only</button>
+    <button class="btn" data-filter="watching">👁 Watching <span id="watchcount"></span></button>
     <button class="btn ml-auto" onclick="window.print()">🖨 Print</button>
   </div>
 
-  <div id="list"></div>
+  <div id="list" class="scrollwrap"></div>
   <div id="state" class="text-center text-slate-500 py-20">Loading arrears…</div>
 
   <div class="mt-5 flex flex-wrap gap-4 text-xs text-slate-500 noprint">
@@ -51,6 +61,30 @@ body{font-family:system-ui,sans-serif}
     <span><span class="sq" style="background:#e0a010"></span> Late — recovered</span>
     <span><span class="sq" style="background:#dc2626"></span> Missed / overdue</span>
     <span><span class="sq" style="background:#475569"></span> Upcoming</span>
+  </div>
+</div>
+
+<!-- Contact / watch modal -->
+<div id="contactModal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 noprint" style="background:rgba(0,0,0,.6)">
+  <div class="card w-full max-w-md" style="cursor:default" onclick="event.stopPropagation()">
+    <div class="lbl mb-1">Record contact</div>
+    <div class="text-white font-semibold text-lg mb-3" id="cm_name"></div>
+    <p class="text-xs text-slate-400 mb-4">Log that you've spoken to this customer and what was agreed. They'll drop off the arrears list while they pay, and come back automatically if they bounce again or a due payment doesn't arrive.</p>
+    <label class="k block mb-1">Who spoke to them</label>
+    <input id="cm_by" type="text" placeholder="Your name" class="w-full mb-3 px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm">
+    <label class="k block mb-1">What was agreed / notes</label>
+    <textarea id="cm_note" rows="3" placeholder="e.g. Promised to catch up 2 weeks, changed pay day to Fridays…" class="w-full mb-3 px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm"></textarea>
+    <label class="k block mb-1">Clean payments to see before clearing</label>
+    <select id="cm_watch" class="w-full mb-4 px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm">
+      <option value="1">1 payment</option>
+      <option value="2" selected>2 payments</option>
+      <option value="3">3 payments</option>
+      <option value="4">4 payments</option>
+    </select>
+    <div class="flex gap-2">
+      <button id="cm_save" class="btn on flex-1" onclick="saveContact()">Save & watch</button>
+      <button class="btn flex-1" onclick="closeContact()">Cancel</button>
+    </div>
   </div>
 </div>
 
@@ -136,6 +170,40 @@ function analyse(order){
 // ── State ──────────────────────────────────────────────────────────────────
 let rows=[], sortBy='weeks', filter='all';
 
+// ── Contact / watch modal ───────────────────────────────────────────────────
+// Records that we've spoken to a customer, what was agreed, and puts them on a
+// "watch": they drop off the arrears list while they pay, and only resurface if
+// they bounce again or a due payment doesn't arrive.
+let contactCtx=null;
+function openContact(orderId,name,paidNow,perAmt){
+  contactCtx={orderId,paidNow:+paidNow||0,perAmt:+perAmt||0};
+  $('cm_name').textContent=name;
+  $('cm_by').value='';
+  $('cm_note').value='';
+  $('cm_watch').value='2';
+  $('contactModal').classList.remove('hidden');
+  $('cm_by').focus();
+}
+function closeContact(){ $('contactModal').classList.add('hidden'); contactCtx=null; }
+async function saveContact(){
+  if(!contactCtx) return;
+  const by=$('cm_by').value.trim();
+  const note=$('cm_note').value.trim();
+  const watch=parseInt($('cm_watch').value)||2;
+  const btn=$('cm_save'); btn.disabled=true; btn.textContent='Saving…';
+  const {error}=await sb.from('sim_orders').update({
+    arrears_contacted_at:new Date().toISOString(),
+    arrears_contacted_by:by||null,
+    arrears_contact_note:note||null,
+    arrears_watch_paid_base:contactCtx.paidNow,   // their paid figure right now
+    arrears_watch_payments:watch                   // clean payments to see before clearing
+  }).eq('id',contactCtx.orderId);
+  btn.disabled=false; btn.textContent='Save & watch';
+  if(error){ alert('Could not save: '+error.message); return; }
+  closeContact();
+  load(true);
+}
+
 async function load(quiet){
   const {data:orders,error}=await sb.from('sim_orders')
     .select('*, sim_customers(*), sim_order_items(product_name,quantity)')
@@ -150,6 +218,7 @@ async function load(quiet){
     const cust=o.sim_customers||{};
     const product=(o.sim_order_items||[]).map(i=>i.product_name).filter(Boolean).join(', ')||'—';
     behind.push({
+      orderId:o.id,
       custId:cust.id||o.customer_id,
       name:`${cust.first_name||''} ${cust.last_name||''}`.trim()||'(no name)',
       mobile:cust.mobile||'', product,
@@ -158,7 +227,13 @@ async function load(quiet){
       paid:a.paid, contract:a.contract, balance:a.balance, pct:a.pct,
       payer:o.ezidebit_payer_ref||null, lastPaid:null,
       delivered:o.delivery_status==='delivered', deliveryStatus:o.delivery_status||'pending',
-      cells:a.cells
+      cells:a.cells, perAmt:a.perAmt,
+      // watch fields
+      contactedAt:o.arrears_contacted_at||null,
+      contactedBy:o.arrears_contacted_by||'',
+      contactNote:o.arrears_contact_note||'',
+      watchPaidBase:o.arrears_watch_paid_base,
+      watchPayments:o.arrears_watch_payments
     });
   }
   // last successful payment date for the behind customers (one batched query)
@@ -168,6 +243,28 @@ async function load(quiet){
     const lastByRef={};
     (pmts||[]).forEach(p=>{ if(p.result&&p.result.toLowerCase()==='refund')return; if(!lastByRef[p.payer_ref]||p.payment_date>lastByRef[p.payer_ref]) lastByRef[p.payer_ref]=p.payment_date; });
     behind.forEach(r=>{ if(r.payer) r.lastPaid=lastByRef[r.payer]||null; });
+    // dishonours SINCE contact — a watch is broken if they bounce again after being spoken to
+    const {data:dis}=await sb.from('sim_dishonours').select('payer_ref,payment_date').in('payer_ref',refs);
+    behind.forEach(r=>{
+      r.watchBroken=false; r.onWatch=false;
+      if(!r.contactedAt) return;
+      const contactDay=String(r.contactedAt).slice(0,10);
+      // clean payments seen since contact = (paid now − paid at contact) / instalment
+      const cleared = r.perAmt>0 ? Math.floor(((r.paid-(+r.watchPaidBase||0))+0.01)/r.perAmt) : 0;
+      const need = (r.watchPayments!=null? +r.watchPayments : 2);
+      // dishonour dated after contact = broken promise, resurfaces
+      const bouncedAfter=(dis||[]).some(d=>d.payer_ref===r.payer && d.payment_date>contactDay);
+      // silent quitter: enough time has passed since contact for a payment to be
+      // due, but nothing new has cleared (paid figure hasn't moved at all).
+      const daysSince=Math.floor((today-new Date(contactDay+'T12:00:00'))/DAY);
+      const periodDays=(r.perAmt>0 && r.contract>0)? 7 : 7; // arrears list is weekly-cadence
+      const paymentDue = daysSince > (periodDays+3);         // one period + settlement grace
+      const nothingCleared = cleared<1;
+      if(bouncedAfter){ r.watchBroken=true; r.onWatch=false; }            // bounced again
+      else if(paymentDue && nothingCleared){ r.watchBroken=true; r.onWatch=false; } // silent quitter
+      else if(cleared>=need){ r.onWatch=false; }                          // honoured — resurfaces for fresh review if still behind
+      else { r.onWatch=true; }                                            // watching, hide
+    });
   }
   rows=behind;
   render();
@@ -179,7 +276,15 @@ function render(){
   document.querySelectorAll('[data-filter]').forEach(b=>b.classList.toggle('on',b.dataset.filter===filter));
 
   let view=rows.slice();
-  if(filter==='red')view=view.filter(r=>r.weeks>=3);
+
+  if(filter==='watching'){
+    // the watch list: everyone currently on an active, unbroken watch
+    view=view.filter(r=>r.onWatch);
+  } else {
+    // main lists: hide customers on an active watch; broken watches resurface (flagged)
+    view=view.filter(r=>!r.onWatch);
+    if(filter==='red')view=view.filter(r=>r.weeks>=3);
+  }
   view.sort((a,b)=> sortBy==='name'?a.name.localeCompare(b.name)
                   : sortBy==='arrears'?b.arrears-a.arrears
                   : b.weeks-a.weeks || b.arrears-a.arrears);
@@ -195,23 +300,43 @@ function render(){
     stat('Total behind', fmt(totArr), 'text-red-400')+
     stat('Outstanding balance', fmt(totBal), 'text-amber-300');
 
-  if(!view.length){$('list').innerHTML=`<div class="text-center text-slate-500 py-16">🎉 No customers in arrears${filter==='red'?' by 3+ weeks':''}.</div>`;return;}
+  // watch count badge
+  const wc=$('watchcount'); if(wc){const n=rows.filter(r=>r.onWatch).length; wc.textContent=n?`(${n})`:'';}
+
+  if(!view.length){
+    const msg = filter==='watching'
+      ? 'No customers on watch. Use “✓ Contacted” on a customer to start watching them.'
+      : `🎉 No customers in arrears${filter==='red'?' by 3+ weeks':''}.`;
+    $('list').innerHTML=`<div class="text-center text-slate-500 py-16">${msg}</div>`;return;
+  }
 
   $('list').innerHTML=view.map(r=>{
     const sev=r.weeks>=3?'#dc2626':'#e0a010';
     const strip=r.cells.filter(c=>c.due&&c.due<=today).slice(-24)
       .map(c=>`<span class="sq" style="background:${c.cls}" title="Week ${c.w} — ${c.label} (${fmtD(c.due.toISOString().slice(0,10))})"></span>`).join('');
+    const nm=esc(r.name).replace(/'/g,"\\'");
+    // watch state badges + button
+    let watchBadge='';
+    if(r.watchBroken) watchBadge='<span class="text-[10px] px-1.5 py-0.5 rounded bg-red-900/60 text-red-200 font-semibold" title="Contacted but bounced again — the arrangement failed">CONTACTED — STILL BEHIND</span>';
+    else if(filter==='watching') watchBadge='<span class="text-[10px] px-1.5 py-0.5 rounded bg-sky-900/50 text-sky-300 font-semibold">ON WATCH</span>';
+    const contactLine = r.contactedAt
+      ? `<div class="text-xs text-slate-400 mt-1">📞 Contacted ${fmtD(String(r.contactedAt).slice(0,10))}${r.contactedBy?' by '+esc(r.contactedBy):''}${r.contactNote?' — <span class="text-slate-300">'+esc(r.contactNote)+'</span>':''}</div>`
+      : '';
+    const btnLabel = r.watchBroken ? '↻ Re-contact' : (r.contactedAt ? '✎ Update contact' : '✓ Contacted');
+    const btnTone = r.watchBroken ? 'background:#7f1d1d;color:#fecaca;border-color:#7f1d1d' : '';
     return `<div class="card arr mb-3" style="cursor:pointer" onclick="location.href='customer-detail.html?cust=${r.custId}'" title="Open ${esc(r.name)}'s full history">
       <div class="flex flex-wrap items-start gap-4">
         <div class="flex-1 min-w-[180px]">
-          <div class="flex items-center gap-2">
+          <div class="flex items-center gap-2 flex-wrap">
             <span class="font-semibold text-white">${esc(r.name)}</span>
             ${r.delivered?'<span class="text-[10px] px-1.5 py-0.5 rounded bg-red-900/50 text-red-300 font-semibold">DELIVERED</span>':'<span class="text-[10px] px-1.5 py-0.5 rounded bg-slate-700 text-slate-300">'+esc(titleCase(r.deliveryStatus))+'</span>'}
             ${r.estimated?'<span class="text-[10px] px-1.5 py-0.5 rounded bg-amber-900/40 text-amber-300" title="This order has no instalment recorded — the figures assume the standard term">ESTIMATED</span>':''}
+            ${watchBadge}
           </div>
           <div class="text-xs text-slate-500 mt-0.5">${esc(r.mobile)}</div>
           <div class="text-xs text-slate-400 mt-1">${esc(r.product)}</div>
           ${r.consultant?`<div class="text-xs text-slate-500 mt-1">Consultant: <span class="text-slate-300">${esc(r.consultant)}</span></div>`:''}
+          ${contactLine}
         </div>
         <div class="text-center px-2">
           <div class="k">Weeks behind</div>
@@ -230,7 +355,10 @@ function render(){
       </div>
       <div class="mt-3 flex items-center justify-between gap-3">
         <div class="flex flex-wrap gap-1">${strip}</div>
-        <span class="text-xs text-yellow-500/80 whitespace-nowrap noprint">View full history →</span>
+        <div class="flex items-center gap-2 noprint">
+          <button class="btn" style="${btnTone}" onclick="event.stopPropagation();openContact('${r.orderId}','${nm}',${r.paid},${r.perAmt})">${btnLabel}</button>
+          <span class="text-xs text-yellow-500/80 whitespace-nowrap">View full history →</span>
+        </div>
       </div>
     </div>`;
   }).join('');
