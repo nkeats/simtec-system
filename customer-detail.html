@@ -175,6 +175,29 @@ let tmr=null;
 document.addEventListener("input",e=>{ if(e.target.id==="q"){ clearTimeout(tmr); tmr=setTimeout(doSearch,220);} });
 document.addEventListener("click",e=>{ const r=document.getElementById("results"); if(r && !r.contains(e.target) && e.target.id!=="q") r.style.display="none"; });
 
+// Close any open modal when the dark backdrop itself is clicked (not its content).
+// Each modal has a proper close fn (some re-run the page); route to the right one.
+function closeAnyModal(id){
+  switch(id){
+    case "contactModal": closeContact(); break;
+    case "cancelModal":  closeCancel();  break;
+    case "amendModal":   closeAmend();   break;
+    case "schedModal":   closeSched();   break;
+    case "payModal":     if(typeof closePay==="function") closePay(); break;
+    case "reassignModal":if(typeof closeReassign==="function") closeReassign(); break;
+    default: document.getElementById(id).style.display="none";
+  }
+}
+document.addEventListener("click",e=>{
+  if(e.target.classList && e.target.classList.contains("modalbg")){ closeAnyModal(e.target.id); }
+});
+document.addEventListener("keydown",e=>{
+  if(e.key==="Escape"){
+    const open=[...document.querySelectorAll(".modalbg")].find(m=>m.style.display==="flex"||m.style.display==="block"||(m.style.display&&m.style.display!=="none"));
+    if(open) closeAnyModal(open.id);
+  }
+});
+
 async function doSearch(){
   const q=(document.getElementById("q").value||"").trim();
   const box=document.getElementById("results");
@@ -323,9 +346,11 @@ function renderAll(c, orders, paysByRef, comms){
         </tr>`;
       }).join("")
     : `<tr><td colspan="3" class="muted">No contacts recorded yet.</td></tr>`;
-  const commsCard=`<div class="card full"><h2>Communications
-      <button onclick="openContact()" style="float:right;background:#c6a15b;color:#122347;border:none;border-radius:8px;padding:6px 12px;font-size:12.5px;font-weight:700;cursor:pointer">+ Log contact</button>
-      <button onclick="window.print()" class="noprint" style="float:right;margin-right:8px;background:none;border:1px solid var(--line);border-radius:8px;padding:6px 12px;font-size:12.5px;cursor:pointer">\u{1F5A8} Print history</button>
+  const commsCard=`<div class="card full"><h2 style="display:flex;align-items:center;gap:10px">Communications
+      <span style="margin-left:auto;display:flex;gap:8px">
+        <button onclick="window.print()" class="noprint" style="background:none;border:1px solid var(--line);border-radius:8px;padding:6px 12px;font-size:12.5px;cursor:pointer">🖨 Print history</button>
+        <button onclick="openContact()" style="background:#c6a15b;color:#122347;border:none;border-radius:8px;padding:6px 12px;font-size:12.5px;font-weight:700;cursor:pointer">+ Log contact</button>
+      </span>
     </h2>
     <div style="margin:2px 0 12px;font-size:13.5px">${summary}</div>
     <table><thead><tr><th style="width:110px">When</th><th style="width:120px">Channel</th><th>Detail</th></tr></thead><tbody>${commRows}</tbody></table></div>`;
