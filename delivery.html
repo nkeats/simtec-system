@@ -35,7 +35,7 @@ body{font-family:system-ui,sans-serif}
 </nav>
 
 <div class="max-w-5xl mx-auto p-6">
-  <div id="summary" class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5"></div>
+  <div id="summary" class="mb-5"></div>
   <div id="tabs" class="flex flex-wrap items-center gap-2 mb-4 noprint"></div>
   <div id="runhead"></div>
   <div id="list"></div>
@@ -93,7 +93,13 @@ function cleanRun(pays, dishonours){
   for(const e of events){ if(e.ok) run++; else break; }   // stop at the first (most recent) miss
   return {run, total:events.length};
 }
-const CLEAN_RUN_REQUIRED = 5;   // most recent N debits must all be clean
+// Clean-payment run required before delivery, by payment frequency.
+// Slower frequencies need fewer payments (each represents more elapsed time),
+// so the "have they stuck with it" signal stays strong without an absurd wait.
+const CLEAN_RUN_BY_FREQ = { weekly:5, fortnightly:4, monthly:3 };
+function cleanRunRequired(freq){
+  return CLEAN_RUN_BY_FREQ[(freq||'weekly').toLowerCase()] || 5;
+}
 
 function cleared(order,payAcct,pays,dishonours){
   if(order.order_status==='cancelled')return false;
@@ -105,18 +111,65 @@ function cleared(order,payAcct,pays,dishonours){
   const contract=+payAcct.contract_value||0;
   const paid=+payAcct.amount_paid_to_date||0;                       // includes manual payments
   const isCash=(payAcct.payment_method||'').toLowerCase()==='cash';
-  const depositPct = contract>0 ? (+payAcct.deposit_amount||0)/contract : 0;
-  if(payAcct.paid_in_full || isCash || depositPct>=0.5) return true; // immediate
   if(contract<=0) return false;
-  const rule=ruleFor(depositPct);
+  const paidPct = paid/contract*100;
+  // Immediate clearance: paid in full, cash, OR total paid has reached 50%
+  // (half the contract in hand is proof enough — bypasses the streak rule).
+  if(payAcct.paid_in_full || isCash || paidPct>=50) return true;
+  const freq=payAcct.payment_frequency||order.payment_frequency||'weekly';
+  const runNeeded=cleanRunRequired(freq);
+  const rule=ruleFor(contract>0 ? (+payAcct.deposit_amount||0)/contract : 0);
   const need=(rule && rule.required_pct!=null) ? rule.required_pct : 10;   // % of contract required
-  // NEW RULE: need 10% paid AND the most recent 5 debit attempts all clean.
+  // RULE: need 10% paid AND the most recent N debit attempts all clean (N by frequency).
   const {run}=cleanRun(pays,dishonours);
-  if(run < CLEAN_RUN_REQUIRED) return false;                         // not enough clean-in-a-row
-  return (paid/contract*100) >= need;                                // AND % paid threshold
+  if(run < runNeeded) return false;                                  // not enough clean-in-a-row
+  return paidPct >= need;                                            // AND % paid threshold
 }
 
 let rows=[], filter='ready', BOOKED=[];
+
+// ── Delivery forecast ────────────────────────────────────────────────────────
+// Projects, for a not-yet-cleared customer, WHICH future payment date would tip
+// them over the delivery threshold — ASSUMING every scheduled payment succeeds.
+// It's a best-case forecast for stock planning, clearly labelled as such.
+const FREQ_DAYS={weekly:7,fortnightly:14,monthly:30};
+function projectReadyDate(r){
+  // already cleared or no schedule → not a forecast candidate
+  if(r.cleared || r.booked || r.delivered) return null;
+  const contract=r.contract, instal=r.instal;
+  if(contract<=0 || instal<=0) return null;
+  const freq=(r.freq||'weekly').toLowerCase();
+  const stepDays=FREQ_DAYS[freq]||7;
+  const needPct=r.needPct||10;
+  const runNeeded=r.runNeeded||5;
+  // starting point: their next scheduled payment date
+  let nd=r.nextDate?new Date(r.nextDate+'T12:00:00'):null;
+  if(!nd) return null;
+  let paid=r.paid;
+  let streak=r.cleanStreak;
+  // step forward up to ~40 future payments looking for the crossover
+  for(let i=0;i<40;i++){
+    // apply this scheduled payment (assumed successful)
+    paid+=instal;
+    streak+=1;
+    const pct=paid/contract*100;
+    const moneyOK = pct>=needPct;
+    const fiftyOK = pct>=50;
+    const streakOK = streak>=runNeeded;
+    if(fiftyOK || (moneyOK && streakOK)){
+      return new Date(nd);   // the date this payment lands = predicted ready date
+    }
+    nd=new Date(nd.getTime()+stepDays*DAY);
+  }
+  return null;   // won't clear within horizon
+}
+// Monday of the current week (weeks run Mon–Sun)
+function weekStart(d){
+  const x=new Date(d); x.setHours(12,0,0,0);
+  const dow=(x.getDay()+6)%7;   // 0=Mon
+  x.setDate(x.getDate()-dow);
+  return x;
+}
 
 async function load(quiet){
   const {data:rules}=await sb.from('delivery_rules').select('*').order('min_deposit_pct');
@@ -129,7 +182,7 @@ async function load(quiet){
   const pvIds=[...new Set((orders||[]).map(o=>o.paid_via_order_id).filter(Boolean))];
   let payerMap={};
   if(pvIds.length){
-    const {data:po}=await sb.from('sim_orders').select('id,contract_value,amount_paid_to_date,first_payment_date,payment_frequency,order_date,payment_method,paid_in_full,deposit_amount,ezidebit_payer_ref').in('id',pvIds);
+    const {data:po}=await sb.from('sim_orders').select('id,contract_value,amount_paid_to_date,first_payment_date,next_payment_date,instalment_amount,payment_frequency,order_date,payment_method,paid_in_full,deposit_amount,ezidebit_payer_ref').in('id',pvIds);
     (po||[]).forEach(p=>payerMap[p.id]=p);
   }
   // payment + dishonour counts per payer ref (one RPC)
@@ -160,24 +213,28 @@ async function load(quiet){
     const dishonours = (ref?disByRef[ref]:[])||[];
     const {run:cleanStreak} = cleanRun(pays,dishonours);
     const isCleared = cleared(o,payAcct,pays,dishonours);
-    // Requirements for full clearance: 10% paid AND 5 most-recent debits clean.
+    const freq=payAcct.payment_frequency||o.payment_frequency||'weekly';
+    const runNeeded=cleanRunRequired(freq);
+    // Requirements for full clearance: 10% paid AND N most-recent debits clean (N by freq) — OR 50% paid.
     const rule=ruleFor(contract>0?(+payAcct.deposit_amount||0)/contract:0);
     const needPct=(rule&&rule.required_pct!=null)?rule.required_pct:10;
     const coolStr=o.cooling_off_expires;
     const coolOK = coolStr?new Date(coolStr+'T12:00:00')<=today:true;
     const baseOK = o.affordability_passed!==false && coolOK && o.order_status!=='cancelled';
-    // "one payment away": one more CLEAN payment would satisfy BOTH conditions.
-    //   money side: (paid + instal) crosses needPct
-    //   streak side: cleanStreak is exactly one short (== required-1) with no fresh miss on top
-    const moneyAfterNext = contract>0 && instal>0 ? ((paid+instal)/contract*100)>=needPct : false;
+    // "one payment away": one more CLEAN payment would satisfy the rule.
+    //   money side: (paid + instal) crosses needPct, OR crosses the 50% fast-track
+    //   streak side: cleanStreak is one short of the frequency's requirement
     const moneyOK_now = pct>=needPct;
-    const streakAfterNext = (cleanStreak+1) >= CLEAN_RUN_REQUIRED;   // one more clean = 5
-    const nearReady = !isCleared && baseOK &&
-                      (moneyOK_now || moneyAfterNext) &&              // money met now or after next
-                      (cleanStreak>=CLEAN_RUN_REQUIRED || streakAfterNext); // streak met now or after next
+    const moneyAfterNext = contract>0 && instal>0 ? ((paid+instal)/contract*100)>=needPct : false;
+    const fiftyAfterNext = contract>0 && instal>0 ? ((paid+instal)/contract*100)>=50 : false;
+    const streakAfterNext = (cleanStreak+1) >= runNeeded;
+    const nearReady = !isCleared && baseOK && (
+        fiftyAfterNext ||                                            // one payment hits 50% (auto-clears)
+        ((moneyOK_now || moneyAfterNext) && (cleanStreak>=runNeeded || streakAfterNext))
+      );
     // rating from the recent clean run (aligns with the delivery rule)
     let rating='good';
-    if(cleanStreak<2) rating='risky'; else if(cleanStreak<CLEAN_RUN_REQUIRED) rating='watch';
+    if(cleanStreak<2) rating='risky'; else if(cleanStreak<runNeeded) rating='watch';
     rows.push({
       id:o.id, custId:cust.id||o.customer_id,
       name:`${cust.first_name||''} ${cust.last_name||''}`.trim()||'(no name)',
@@ -190,7 +247,9 @@ async function load(quiet){
       deliveryDate:o.delivery_date, deliveryTime:o.delivery_time||'',
       deliveryStatus:o.delivery_status||'pending',
       // scorecard
-      contract, paid, pct, instal, misses, payCount, rating, needPct, nearReady, cleanStreak,
+      contract, paid, pct, instal, misses, payCount, rating, needPct, nearReady, cleanStreak, runNeeded,
+      freq:(payAcct.payment_frequency||o.payment_frequency||'weekly'),
+      nextDate:(o.next_payment_date||payAcct.next_payment_date||null),
       pays:(ref?paysByRef[ref]:[])||[], dishonours:(ref?disByRef[ref]:[])||[]
     });
   }
@@ -208,18 +267,48 @@ function render(){
   BOOKED=booked;
 
   const stat=(l,v,t)=>`<div class="card" style="padding:1rem"><div class="lbl">${l}</div><div class="text-2xl font-bold mt-1 ${t}">${v}</div></div>`;
-  $('summary').innerHTML=
+
+  // Today's booked deliveries — a reminder banner at the very top
+  const todaysDeliveries=booked.filter(r=>r.deliveryDate===todayStr);
+  let todayBanner='';
+  if(todaysDeliveries.length){
+    const rows_=todaysDeliveries
+      .sort((a,b)=>(a.deliveryTime||'').localeCompare(b.deliveryTime||'')||suburb(a.address).localeCompare(suburb(b.address)))
+      .map(r=>`<div class="flex flex-wrap items-center justify-between gap-2" style="padding:5px 0;border-bottom:1px solid #2a2410">
+        <div><span class="font-semibold text-white">${esc(r.name)}</span>${r.deliveryTime?`<span class="k"> · ${esc(r.deliveryTime)}</span>`:''}<span class="k"> · ${esc(r.product)}</span></div>
+        <div>${r.address?`<a class="maplink" href="${mapLink(r.address)}" target="_blank">${esc(suburb(r.address))} ↗</a>`:'<span class="k">no address</span>'}</div>
+      </div>`).join('');
+    todayBanner=`<div class="card mb-4" style="border-color:#c9a84c;background:#211d0f">
+      <div class="flex items-center justify-between mb-1">
+        <div class="lbl" style="color:#e6c260">📦 Booked for today — ${today.toLocaleDateString('en-NZ',{weekday:'long',day:'2-digit',month:'short'})}</div>
+        <span class="text-xl font-bold text-amber-300">${todaysDeliveries.length}</span>
+      </div>
+      ${rows_}
+      <button class="btn gold noprint mt-3" onclick="window.open('docket.html?date='+encodeURIComponent('${todayStr}'),'_blank')">🖨 Print today's dockets</button>
+    </div>`;
+  }
+
+  $('summary').innerHTML= todayBanner +
+    '<div class="grid grid-cols-2 md:grid-cols-4 gap-3">'+
     stat('Ready to book',readyToBook.length,'text-green-400')+
     stat('One payment away',nearReady.length,'text-amber-300')+
     stat('Booked',booked.length,'text-sky-300')+
-    stat('Delivered',delivered.length,'text-slate-200');
+    stat('Delivered',delivered.length,'text-slate-200')+
+    '</div>';
+
+  // forecast count (projected to become ready within 5 weeks) for the tab badge
+  const fcMon=weekStart(today), fcEnd=new Date(fcMon.getTime()+5*7*DAY);
+  const fcCount=rows.filter(r=>!r.cleared&&!r.booked&&!r.delivered).reduce((n,r)=>{
+    const w=projectReadyDate(r); return n+(w&&w>=fcMon&&w<fcEnd?1:0);
+  },0);
 
   const tab=(id,label,n)=>`<button class="btn ${filter===id?'on':''}" onclick="setFilter('${id}')">${label}${n?`<span class="pill" ${filter===id?'style="background:#1a2438;color:#c9a84c"':''}>${n}</span>`:''}</button>`;
-  $('tabs').innerHTML=tab('ready','Ready to book',readyToBook.length)+tab('near','One payment away',nearReady.length)+tab('booked','Booked',booked.length)+tab('delivered','Delivered',delivered.length);
+  $('tabs').innerHTML=tab('ready','Ready to book',readyToBook.length)+tab('near','One payment away',nearReady.length)+tab('forecast','Forecast',fcCount)+tab('booked','Booked',booked.length)+tab('delivered','Delivered',delivered.length);
 
   $('runhead').innerHTML='';
   if(filter==='ready')       { renderList(readyToBook,'ready'); }
   else if(filter==='near')   { renderList(nearReady,'near'); }
+  else if(filter==='forecast'){ renderForecast(); }
   else if(filter==='booked') { renderBookedHead(booked); renderList(booked,'booked'); }
   else                       { renderList(delivered,'delivered'); }
 }
@@ -254,7 +343,7 @@ window.printDayDockets=function(){
 
 // Builds the payment scorecard + inline history for a delivery card.
 function scorecard(r){
-  const need=5;
+  const need=r.runNeeded||5;
   const ratingMap={
     good:{txt:'GOOD',bg:'#14361f',fg:'#4ade80'},
     watch:{txt:'WATCH',bg:'#3a2f10',fg:'#fbbf24'},
@@ -264,13 +353,15 @@ function scorecard(r){
   const pctTxt=r.pct.toFixed(1)+'%';
   const thresholdMet=r.pct>=r.needPct;
   const streakMet=r.cleanStreak>=need;
-  // recommendation reflects the actual rule: 10% paid AND 5 clean in a row
+  const fiftyMet=r.pct>=50;
+  // recommendation reflects the actual rule: (10% paid AND N clean in a row) OR 50% paid
   let rec;
-  if(thresholdMet && streakMet) rec='Meets both rules (10% paid + 5 clean payments) — safe to deliver.';
+  if(fiftyMet) rec='50% paid — clears immediately regardless of payment run.';
+  else if(thresholdMet && streakMet) rec=`Meets both rules (10% paid + ${need} clean payments) — safe to deliver.`;
   else if(!streakMet && !thresholdMet) rec=`Not yet: needs 10% paid and ${need} clean payments in a row (has ${r.cleanStreak}).`;
   else if(!streakMet) rec=`10% is met, but only ${r.cleanStreak} of ${need} recent payments are clean — not yet safe.`;
   else rec=`Payment run is clean (${r.cleanStreak}), but under 10% paid — not yet.`;
-  const recColour = (thresholdMet&&streakMet)?'#4ade80':'#fbbf24';
+  const recColour = ((thresholdMet&&streakMet)||fiftyMet)?'#4ade80':'#fbbf24';
   // combine payments (result) + dishonours into one date-sorted history
   const hist=[
     ...r.pays.map(p=>({d:p.payment_date, amt:+p.amount||0, kind:(p.result&&p.result.toLowerCase()==='refund')?'refund':'paid'})),
@@ -296,6 +387,66 @@ function scorecard(r){
     <button class="btn noprint" style="margin-top:8px;font-size:11px;padding:3px 9px" onclick="event.stopPropagation();var e=document.getElementById('${histId}');e.style.display=e.style.display==='none'?'block':'none'">Payment history ▾</button>
     <div id="${histId}" style="display:none;margin-top:8px;max-height:180px;overflow-y:auto">${histRows}</div>
   </div>`;
+}
+
+function renderForecast(){
+  const thisMon=weekStart(today);
+  // 5 buckets: this week + next 4
+  const buckets=[];
+  for(let i=0;i<5;i++){
+    const start=new Date(thisMon.getTime()+i*7*DAY);
+    const end=new Date(start.getTime()+7*DAY);
+    buckets.push({start,end,label:i===0?'This week':`Week of ${start.toLocaleDateString('en-NZ',{day:'2-digit',month:'short'})}`,items:[]});
+  }
+  // project every pending customer
+  const candidates=rows.filter(r=>!r.cleared&&!r.booked&&!r.delivered);
+  let beyond=0;
+  candidates.forEach(r=>{
+    const when=projectReadyDate(r);
+    if(!when) { beyond++; return; }
+    const idx=buckets.findIndex(b=>when>=b.start && when<b.end);
+    if(idx>=0) buckets[idx].items.push({r,when});
+    else if(when>=buckets[4].end) beyond++;   // clears, but past our 5-week horizon
+    // (when < thisMon shouldn't happen — those are already cleared)
+  });
+
+  const stock=items=>{
+    const m={};
+    items.forEach(({r})=>r.items.forEach(it=>{ m[it.name]=(m[it.name]||0)+(it.qty||1); }));
+    const keys=Object.keys(m).sort();
+    return keys.length? keys.map(k=>`${m[k]}× ${esc(k)}`).join(' · ') : '—';
+  };
+
+  let html=`<div class="card mb-4" style="border-color:#c9a84c">
+    <div class="lbl mb-1">Delivery forecast — next 5 weeks</div>
+    <div class="text-xs text-slate-400">Projected dates a customer will become deliverable, <b>assuming every scheduled payment goes through</b>. Use for stock and delivery planning — not a commitment. A missed payment pushes a customer back.</div>
+  </div>`;
+
+  html+=buckets.map(b=>{
+    const n=b.items.length;
+    const dateRange=`${b.start.toLocaleDateString('en-NZ',{day:'2-digit',month:'short'})} – ${new Date(b.end.getTime()-DAY).toLocaleDateString('en-NZ',{day:'2-digit',month:'short'})}`;
+    const list = n? b.items
+        .sort((a,c)=>a.when-c.when)
+        .map(({r,when})=>`<div class="flex flex-wrap items-center justify-between gap-2" style="padding:6px 0;border-bottom:1px solid #1e293b">
+          <div><a href="client.html?c=${r.custId}" style="color:#e2e8f0;text-decoration:none;font-weight:600">${esc(r.name)}</a>
+            <span class="k"> · ${esc(r.product)}</span></div>
+          <div class="text-right"><span class="k">${when.toLocaleDateString('en-NZ',{weekday:'short',day:'2-digit',month:'short'})}</span>
+            <span class="text-xs" style="color:#fbbf24"> · ${r.pct.toFixed(0)}% now</span></div>
+        </div>`).join('')
+      : `<div class="text-slate-500 text-sm py-2">No deliveries projected to become ready this week.</div>`;
+    return `<div class="card mb-3">
+      <div class="flex items-center justify-between mb-1">
+        <div><span class="font-semibold text-white">${b.label}</span> <span class="k">${dateRange}</span></div>
+        <span class="text-2xl font-bold ${n?'text-green-400':'text-slate-600'}">${n}</span>
+      </div>
+      ${n?`<div class="text-xs mb-2" style="color:#7dd3fc">Stock needed: ${stock(b.items)}</div>`:''}
+      ${list}
+    </div>`;
+  }).join('');
+
+  if(beyond) html+=`<div class="text-center text-slate-500 text-sm py-3">+${beyond} more pending customer${beyond>1?'s':''} will become ready beyond the next 5 weeks (or can't be projected).</div>`;
+
+  $('list').innerHTML=html;
 }
 
 function renderList(view,mode){
