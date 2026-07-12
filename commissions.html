@@ -1318,8 +1318,7 @@ async function showCustomers(){
               <td class="py-2 text-right ${s.paid_date?'text-yellow-400':'text-slate-500'}">${s.paid_date?fmt(s.commission_paid):'Not yet paid'}</td>
               <td class="py-2 pl-2 whitespace-nowrap text-right">
                 <button onclick="showEditModal('${s.id}','${consId}')" class="text-xs px-2 py-1 rounded bg-slate-700 text-slate-200 hover:bg-slate-600 mr-1">Edit</button>
-                <button onclick="showCancelModal('${s.id}','${s.customer_name.replace(/'/g,"\'")}',${s.commission_paid||0},'${consId}',${s.paid_date?'true':'false'})"
-                class="text-xs px-2 py-1 rounded bg-red-900/40 text-red-400 hover:bg-red-900">Cancel</button></td>
+                <span title="Cancel customers in the main system (customer page) — that automatically claws back retention and keeps both systems in sync." class="text-xs px-2 py-1 rounded bg-slate-800 text-slate-500 cursor-help">Cancel in main system ↗</span></td>
             </tr>`).join('')}
           </tbody>
         </table></div>`}
