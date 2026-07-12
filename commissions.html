@@ -61,7 +61,7 @@ const toast=(msg,ok=true)=>{const t=$('toast');t.textContent=msg;t.className=`fi
 const err=e=>{console.error(e);toast(e?.message||'An error occurred',false)};
 
 // ── Commission calc ────────────────────────────────────────────────────────
-function calc(sales,bonuses,deds,retBal){
+function calc(sales,bonuses,deds,retBal,payBasis){
   const s=S();
   let units=0;
   for(const sale of sales){if(sale.status==='cancelled')continue;for(const it of(sale.items||[]))
@@ -83,7 +83,8 @@ function calc(sales,bonuses,deds,retBal){
   const mb=(bonuses||[]).filter(b=>b.description!=='__RETENTION_PAYOUT__').reduce((a,b)=>a+(+b.amount||0),0);
   const gs=sc+ac,gross=gs+mb;
   let ret=0;
-  if(retBal<s.retention_cap)ret=Math.min(gs*s.retention_rate,s.retention_cap-retBal);
+  // Retention only accrues for consultants on 'commission'. On 'retainer' → no retention withheld.
+  if(payBasis!=='retainer' && retBal<s.retention_cap)ret=Math.min(gs*s.retention_rate,s.retention_cap-retBal);
   const td=(deds||[]).reduce((a,d)=>a+(+d.amount||0),0);
   return{units,rate,sc,ac,mb,gs,gross,ret,td,payout:payoutAmt,net:gross-ret-td+payoutAmt,retAfter:retBal+ret-payoutAmt};
 }
@@ -305,7 +306,7 @@ async function showRun(){
       sb.from('commission_deductions').select('*').eq('pay_run_id',runId).eq('consultant_id',c.id),
     ]);
     const sales=(sl||[]).map(s=>({...s,items:(s.commission_sale_items||[]).map(i=>({...i,product:i.commission_products}))}));
-    sums[c.id]=calc(sales,bo||[],de||[],retMap[c.id]||0);
+    sums[c.id]=calc(sales,bo||[],de||[],retMap[c.id]||0,c.pay_basis);
   }));
 
   $('app').innerHTML=`
@@ -368,7 +369,7 @@ async function showCon(){
 
   function saleComm(sale){
     const s=S();let c=0,el=false;
-    const r=calc(sales,bonuses||[],deds||[],retBal).rate;
+    const r=calc(sales,bonuses||[],deds||[],retBal,con.pay_basis).rate;
     for(const it of sale.items){const p=it.product;if(!p)continue;
       if(p.commission_type==='fixed'){c+=p.fixed_amount*it.quantity;el=true;}
       if(p.commission_type==='tier'){c+=r*it.quantity;el=true;}
@@ -376,7 +377,7 @@ async function showCon(){
   }
 
   function render(){
-    const cv=calc(sales,bonuses||[],deds||[],retBal);
+    const cv=calc(sales,bonuses||[],deds||[],retBal,con.pay_basis);
     const s=S();
     const locked=run?.status==='finalised';
     $('app').innerHTML=`
@@ -647,7 +648,7 @@ async function showInv(){
   ]);
   const sales=(rawSales||[]).map(s=>({...s,items:(s.commission_sale_items||[]).map(i=>({...i,product:i.commission_products}))}));
   const retBal=await openingRetBal(+ret?.balance||0, run, consId);
-  const cv=calc(sales,bons||[],deds||[],retBal);
+  const cv=calc(sales,bons||[],deds||[],retBal,con.pay_basis);
   const gstReg=!!gstRow?.gst_registered;
   const gstRate=+gstRow?.gst_rate||15;
   const gstAmt=gstReg?cv.net*gstRate/100:0;
@@ -1107,6 +1108,15 @@ async function showSetup(){
                 <span id="retmsg_${c.id}" class="text-xs text-green-400 hidden">Saved</span>
               </div>
               <div class="flex items-center gap-3 mt-2">
+                <label class="flex items-center gap-1.5 text-xs text-slate-400">Pay basis:
+                  <select id="paybasis_${c.id}" onchange="savePayBasis('${c.id}')" class="inp text-sm py-1 w-36">
+                    <option value="commission" ${(c.pay_basis||'commission')==='commission'?'selected':''}>Commission</option>
+                    <option value="retainer" ${c.pay_basis==='retainer'?'selected':''}>Retainer (no retention)</option>
+                  </select>
+                </label>
+                <span id="pbmsg_${c.id}" class="text-xs text-green-400 hidden">Saved</span>
+              </div>
+              <div class="flex items-center gap-3 mt-2">
                 <label class="flex items-center gap-1.5 text-xs text-slate-400"><input type="checkbox" id="gstreg_${c.id}" ${c.gst_registered?'checked':''} onchange="saveGst('${c.id}')"> GST registered</label>
                 <select id="gstrate_${c.id}" onchange="saveGst('${c.id}')" class="inp text-sm py-1 w-32" ${c.gst_registered?'':'disabled'}>
                   <option value="15" ${(+c.gst_rate||15)===15?'selected':''}>15% (NZ)</option>
@@ -1136,6 +1146,13 @@ async function showSetup(){
         const{error}=await sb.from('commission_retention').upsert({consultant_id:id,balance:val,updated_at:new Date().toISOString()},{onConflict:'consultant_id'});
         if(error){err(error);return;}
         const msg=$('retmsg_'+id);if(msg){msg.classList.remove('hidden');setTimeout(()=>msg.classList.add('hidden'),2000);}
+      };
+      window.savePayBasis=async(id)=>{
+        const val=$('paybasis_'+id)?.value||'commission';
+        const{error}=await sb.from('commission_consultants').update({pay_basis:val}).eq('id',id);
+        if(error){err(error);return;}
+        const c=consultants.find(x=>x.id===id);if(c)c.pay_basis=val;
+        const msg=$('pbmsg_'+id);if(msg){msg.classList.remove('hidden');setTimeout(()=>msg.classList.add('hidden'),2000);}
       };
       window.saveGst=async(id)=>{
         const reg=$('gstreg_'+id)?.checked||false;
@@ -1547,7 +1564,7 @@ window.finaliseRun=async(rid)=>{
         sb.from('commission_deductions').select('*').eq('pay_run_id',rid).eq('consultant_id',c.id),
       ]);
       const sales=(sl||[]).map(x=>({...x,items:(x.commission_sale_items||[]).map(i=>({...i,product:i.commission_products}))}));
-      const cv=calc(sales,bo||[],de||[],retMap[c.id]||0);
+      const cv=calc(sales,bo||[],de||[],retMap[c.id]||0,c.pay_basis);
       const rate=cv.rate;
       for(const sale of sales){
         if(sale.status==='cancelled')continue;
