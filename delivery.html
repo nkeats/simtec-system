@@ -66,6 +66,8 @@ const today=new Date();today.setHours(12,0,0,0);
 const now=new Date();
 const todayStr=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
 const fmtD=d=>d?new Date(d+'T12:00:00').toLocaleDateString('en-NZ',{weekday:'short',day:'2-digit',month:'short'}):'—';
+const fmt=n=>'$'+(+n||0).toLocaleString('en-NZ',{minimumFractionDigits:2,maximumFractionDigits:2});
+const shortD=d=>d?new Date(d+'T12:00:00').toLocaleDateString('en-NZ',{day:'2-digit',month:'short',year:'2-digit'}):'—';
 const esc=s=>(s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const titleCase=s=>(s||'').replace(/_/g,' ').replace(/\b\w/g,m=>m.toUpperCase());
 const suburb=a=>{const p=(a||'').split(',');return (p[1]||p[0]||'').trim();};
@@ -117,22 +119,53 @@ async function load(quiet){
   const refs=[...new Set((orders||[]).map(o=>{const pa=o.paid_via_order_id?(payerMap[o.paid_via_order_id]||o):o; return pa.ezidebit_payer_ref;}).filter(Boolean))];
   let counts={};
   if(refs.length){ const {data:cd}=await sb.rpc('sim_delivery_counts',{refs}); (cd||[]).forEach(r=>counts[r.payer_ref]={paid_count:r.paid_count,dishonour_count:r.dishonour_count}); }
+  // actual payment + dishonour rows per payer ref (for the scorecard + inline history)
+  let paysByRef={}, disByRef={};
+  if(refs.length){
+    const {data:pmts}=await sb.from('sim_payments').select('payer_ref,payment_date,amount,result').in('payer_ref',refs).order('payment_date',{ascending:false});
+    (pmts||[]).forEach(p=>{ (paysByRef[p.payer_ref]=paysByRef[p.payer_ref]||[]).push(p); });
+    const {data:dis}=await sb.from('sim_dishonours').select('payer_ref,payment_date,amount').in('payer_ref',refs).order('payment_date',{ascending:false});
+    (dis||[]).forEach(d=>{ (disByRef[d.payer_ref]=disByRef[d.payer_ref]||[]).push(d); });
+  }
   rows=[];
   for(const o of (orders||[])){
     const payAcct = o.paid_via_order_id ? (payerMap[o.paid_via_order_id]||o) : o;
     const cust=o.sim_customers||{};
     const items=(o.sim_order_items||[]).map(i=>({name:i.product_name,qty:+i.quantity||1}));
+    const ref=payAcct.ezidebit_payer_ref;
+    const contract=+payAcct.contract_value||0;
+    const paid=+payAcct.amount_paid_to_date||0;
+    const instal=+payAcct.instalment_amount||0;
+    const pct = contract>0 ? paid/contract*100 : 0;
+    const misses = ref&&counts[ref] ? (counts[ref].dishonour_count||0) : 0;
+    const payCount = ref&&counts[ref] ? (counts[ref].paid_count||0) : 0;
+    const isCleared = cleared(o,payAcct,counts);
+    // "one payment away": not cleared, but would cross the 10% threshold with one more instalment,
+    // AND fails ONLY on the threshold (history/cooling-off/affordability all OK)
+    const rule=ruleFor(contract>0?(+payAcct.deposit_amount||0)/contract:0);
+    const needPct=(rule&&rule.required_pct!=null)?rule.required_pct:10;
+    const coolStr=o.cooling_off_expires;
+    const coolOK = coolStr?new Date(coolStr+'T12:00:00')<=today:true;
+    const histOK = misses<=(rule?rule.miss_allowed:1) && o.affordability_passed!==false && coolOK;
+    const wouldPassNext = contract>0 && instal>0 && ((paid+instal)/contract*100)>=needPct && (paid/contract*100)<needPct;
+    const nearReady = !isCleared && histOK && wouldPassNext;
+    // rating from payment history: Good / Watch / Risky
+    let rating='good';
+    if(misses>=3) rating='risky'; else if(misses>=1) rating='watch';
     rows.push({
       id:o.id, custId:cust.id||o.customer_id,
       name:`${cust.first_name||''} ${cust.last_name||''}`.trim()||'(no name)',
       phone:cust.mobile||'', address:o.delivery_address||cust.address||'',
       items, product:items.map(i=>(i.qty>1?i.qty+'× ':'')+i.name).join(', ')||'—',
-      cleared:cleared(o,payAcct,counts),
+      cleared:isCleared,
       authorised:o.delivery_authorised===true,
       delivered:o.delivery_status==='delivered',
       booked:!!o.delivery_date && o.delivery_status!=='delivered',
       deliveryDate:o.delivery_date, deliveryTime:o.delivery_time||'',
-      deliveryStatus:o.delivery_status||'pending'
+      deliveryStatus:o.delivery_status||'pending',
+      // scorecard
+      contract, paid, pct, instal, misses, payCount, rating, needPct, nearReady,
+      pays:(ref?paysByRef[ref]:[])||[], dishonours:(ref?disByRef[ref]:[])||[]
     });
   }
   render();
@@ -143,6 +176,7 @@ function mapLink(a){return a?`https://www.google.com/maps/search/?api=1&query=${
 function render(){
   $('state').classList.add('hidden');
   const readyToBook=rows.filter(r=>r.cleared&&!r.booked&&!r.delivered);
+  const nearReady=rows.filter(r=>r.nearReady&&!r.booked&&!r.delivered).sort((a,b)=>b.pct-a.pct);
   const booked=rows.filter(r=>r.booked&&!r.delivered).sort((x,y)=>(x.deliveryDate||'').localeCompare(y.deliveryDate||'')||suburb(x.address).localeCompare(suburb(y.address)));
   const delivered=rows.filter(r=>r.delivered);
   BOOKED=booked;
@@ -150,14 +184,16 @@ function render(){
   const stat=(l,v,t)=>`<div class="card" style="padding:1rem"><div class="lbl">${l}</div><div class="text-2xl font-bold mt-1 ${t}">${v}</div></div>`;
   $('summary').innerHTML=
     stat('Ready to book',readyToBook.length,'text-green-400')+
+    stat('One payment away',nearReady.length,'text-amber-300')+
     stat('Booked',booked.length,'text-sky-300')+
     stat('Delivered',delivered.length,'text-slate-200');
 
   const tab=(id,label,n)=>`<button class="btn ${filter===id?'on':''}" onclick="setFilter('${id}')">${label}${n?`<span class="pill" ${filter===id?'style="background:#1a2438;color:#c9a84c"':''}>${n}</span>`:''}</button>`;
-  $('tabs').innerHTML=tab('ready','Ready to book',readyToBook.length)+tab('booked','Booked',booked.length)+tab('delivered','Delivered',delivered.length);
+  $('tabs').innerHTML=tab('ready','Ready to book',readyToBook.length)+tab('near','One payment away',nearReady.length)+tab('booked','Booked',booked.length)+tab('delivered','Delivered',delivered.length);
 
   $('runhead').innerHTML='';
   if(filter==='ready')       { renderList(readyToBook,'ready'); }
+  else if(filter==='near')   { renderList(nearReady,'near'); }
   else if(filter==='booked') { renderBookedHead(booked); renderList(booked,'booked'); }
   else                       { renderList(delivered,'delivered'); }
 }
@@ -190,12 +226,55 @@ window.printDayDockets=function(){
   window.open('docket.html?date='+encodeURIComponent(d.value),'_blank');
 };
 
+// Builds the payment scorecard + inline history for a delivery card.
+function scorecard(r){
+  const ratingMap={
+    good:{txt:'GOOD',bg:'#14361f',fg:'#4ade80',rec:'Payment history is clean — safe to deliver.'},
+    watch:{txt:'WATCH',bg:'#3a2f10',fg:'#fbbf24',rec:'Some missed payments — check history before delivering.'},
+    risky:{txt:'RISKY',bg:'#3a1616',fg:'#f87171',rec:'Repeated misses — review carefully before delivering.'}
+  };
+  const rt=ratingMap[r.rating]||ratingMap.good;
+  const pctTxt=r.pct.toFixed(1)+'%';
+  const thresholdMet=r.pct>=r.needPct;
+  // combine payments (result) + dishonours into one date-sorted history
+  const hist=[
+    ...r.pays.map(p=>({d:p.payment_date, amt:+p.amount||0, kind:(p.result&&p.result.toLowerCase()==='refund')?'refund':'paid'})),
+    ...r.dishonours.map(x=>({d:x.payment_date, amt:+x.amount||0, kind:'missed'}))
+  ].sort((a,b)=>(b.d||'').localeCompare(a.d||''));
+  const kindStyle={paid:'color:#4ade80',refund:'color:#94a3b8',missed:'color:#f87171'};
+  const kindLbl={paid:'✓ Paid',refund:'↩ Refund',missed:'✗ Missed'};
+  const histRows = hist.length
+    ? hist.map(h=>`<div class="flex justify-between" style="font-size:11.5px;padding:2px 0;border-bottom:1px solid #1e293b">
+        <span class="text-slate-400">${shortD(h.d)}</span>
+        <span style="${kindStyle[h.kind]}">${kindLbl[h.kind]}</span>
+        <span class="text-slate-300">${fmt(h.amt)}</span></div>`).join('')
+    : '<div class="text-slate-500" style="font-size:11.5px">No payment records yet.</div>';
+  const histId='hist_'+r.id;
+  return `<div style="margin-top:10px;background:#0f1830;border:1px solid #26324a;border-radius:.6rem;padding:10px 12px">
+    <div class="flex flex-wrap items-center gap-2 mb-2">
+      <span class="badge" style="background:${rt.bg};color:${rt.fg}">${rt.txt}</span>
+      <span class="k">Paid</span><span class="text-sm font-semibold" style="color:${thresholdMet?'#4ade80':'#e2e8f0'}">${fmt(r.paid)} <span class="text-slate-500 font-normal">/ ${fmt(r.contract)}</span> (${pctTxt})</span>
+      <span class="k">·</span><span class="text-sm text-slate-300">${r.payCount} payment${r.payCount===1?'':'s'}</span>
+      ${r.misses?`<span class="k">·</span><span class="text-sm" style="color:#f87171">${r.misses} missed</span>`:''}
+    </div>
+    <div class="text-xs" style="color:${rt.fg}">${rt.rec}</div>
+    <button class="btn noprint" style="margin-top:8px;font-size:11px;padding:3px 9px" onclick="event.stopPropagation();var e=document.getElementById('${histId}');e.style.display=e.style.display==='none'?'block':'none'">Payment history ▾</button>
+    <div id="${histId}" style="display:none;margin-top:8px;max-height:180px;overflow-y:auto">${histRows}</div>
+  </div>`;
+}
+
 function renderList(view,mode){
   if(!view.length){$('list').innerHTML=`<div class="text-center text-slate-500 py-16">Nothing here right now.</div>`;return;}
   $('list').innerHTML=view.map((r,i)=>{
     const maps=r.address?`<a class="maplink" href="${mapLink(r.address)}" target="_blank" onclick="event.stopPropagation()">Open in Maps ↗</a>`:'';
     let right='', warn='';
     if(mode==='ready') right=`<button class="btn gold noprint" onclick="event.stopPropagation();openBook('${r.id}','${esc(r.name).replace(/'/g,"\\'")}')">Book delivery</button>`;
+    else if(mode==='near'){
+      const shortfall=Math.max(0, (r.contract*r.needPct/100)-r.paid);
+      right=`<div class="text-right"><div class="k">One payment away</div>
+        <div class="text-sm font-semibold text-amber-300 mt-1">${fmt(shortfall)} to go</div>
+        <div class="k mt-1">next instalment ${fmt(r.instal)}</div></div>`;
+    }
     else if(mode==='booked'){
       right=`<div class="text-right"><div class="text-sm font-semibold text-slate-200">${fmtD(r.deliveryDate)}</div>${r.deliveryTime?`<div class="k">${esc(r.deliveryTime)}</div>`:''}
         <button class="btn noprint mt-2" onclick="event.stopPropagation();openBook('${r.id}','${esc(r.name).replace(/'/g,"\\'")}')">Reschedule</button>
@@ -212,6 +291,7 @@ function renderList(view,mode){
           <div class="mt-1">${maps}</div>
           <div class="text-xs text-slate-400 mt-2">${esc(r.phone)}${r.phone&&r.product?' · ':''}${esc(r.product)}</div>
           ${warn}
+          ${(mode==='ready'||mode==='near')?scorecard(r):''}
         </div>
         <div class="min-w-[120px] flex justify-end">${right}</div>
       </div>
