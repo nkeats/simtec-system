@@ -226,10 +226,10 @@ function goCustomer(id){
 }
 
 // ---------- load ----------
-async function run(){
+async function run(quiet){
   const content=document.getElementById("content");
   if(!customerId && !linkedOrderId){ content.innerHTML='<p class="muted" style="padding:20px">Search for a customer above.</p>'; return; }
-  content.innerHTML='<p class="muted" style="padding:20px">Loading…</p>';
+  if(!quiet) content.innerHTML='<p class="muted" style="padding:20px">Loading…</p>';
   try{
     if(!customerId && linkedOrderId){
       const {data:o,error}=await sb.from("sim_orders").select("customer_id").eq("id",linkedOrderId).single();
@@ -281,7 +281,7 @@ async function run(){
 
     renderAll(c, orders||[], paysByRef, comms);
   }catch(e){
-    content.innerHTML='<div id="err">'+esc(e.message||e)+'</div>';
+    if(!quiet) content.innerHTML='<div id="err">'+esc(e.message||e)+'</div>';
   }
 }
 
@@ -639,7 +639,7 @@ async function confirmCancel(){
 }
 // Any change to this customer's orders, items or payments — made here or on
 // another screen — redraws this page. Nobody has to remember to refresh.
-window.SIMTEC_RELOAD = function(){ if(customerId) run(); };
+window.SIMTEC_RELOAD = function(){ if(customerId) run(true); };
 
 run();
 </script>
