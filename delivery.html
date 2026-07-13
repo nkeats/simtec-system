@@ -126,7 +126,7 @@ function cleared(order,payAcct,pays,dishonours){
   return paidPct >= need;                                            // AND % paid threshold
 }
 
-let rows=[], filter='ready', BOOKED=[];
+let rows=[], filter='ready', BOOKED=[], diaryWeekOffset=0;
 
 // ── Delivery forecast ────────────────────────────────────────────────────────
 // Projects, for a not-yet-cleared customer, WHICH future payment date would tip
@@ -243,7 +243,8 @@ async function load(quiet){
       cleared:isCleared,
       authorised:o.delivery_authorised===true,
       delivered:o.delivery_status==='delivered',
-      booked:!!o.delivery_date && o.delivery_status!=='delivered',
+      overdue: !!o.delivery_date && o.delivery_status!=='delivered' && o.delivery_date < todayStr,
+      booked:!!o.delivery_date && o.delivery_status!=='delivered' && o.delivery_date >= todayStr,
       deliveryDate:o.delivery_date, deliveryTime:o.delivery_time||'',
       deliveryStatus:o.delivery_status||'pending',
       // scorecard
@@ -260,7 +261,7 @@ function mapLink(a){return a?`https://www.google.com/maps/search/?api=1&query=${
 
 function render(){
   $('state').classList.add('hidden');
-  const readyToBook=rows.filter(r=>r.cleared&&!r.booked&&!r.delivered);
+  const readyToBook=rows.filter(r=>(r.cleared||r.overdue)&&!r.booked&&!r.delivered);
   const nearReady=rows.filter(r=>r.nearReady&&!r.booked&&!r.delivered).sort((a,b)=>b.pct-a.pct);
   const booked=rows.filter(r=>r.booked&&!r.delivered).sort((x,y)=>(x.deliveryDate||'').localeCompare(y.deliveryDate||'')||suburb(x.address).localeCompare(suburb(y.address)));
   const delivered=rows.filter(r=>r.delivered);
@@ -303,11 +304,12 @@ function render(){
   },0);
 
   const tab=(id,label,n)=>`<button class="btn ${filter===id?'on':''}" onclick="setFilter('${id}')">${label}${n?`<span class="pill" ${filter===id?'style="background:#1a2438;color:#c9a84c"':''}>${n}</span>`:''}</button>`;
-  $('tabs').innerHTML=tab('ready','Ready to book',readyToBook.length)+tab('near','One payment away',nearReady.length)+tab('forecast','Forecast',fcCount)+tab('booked','Booked',booked.length)+tab('delivered','Delivered',delivered.length);
+  $('tabs').innerHTML=tab('ready','Ready to book',readyToBook.length)+tab('near','One payment away',nearReady.length)+tab('diary','Diary',booked.length)+tab('forecast','Forecast',fcCount)+tab('booked','Booked',booked.length)+tab('delivered','Delivered',delivered.length);
 
   $('runhead').innerHTML='';
   if(filter==='ready')       { renderList(readyToBook,'ready'); }
   else if(filter==='near')   { renderList(nearReady,'near'); }
+  else if(filter==='diary')  { renderDiary(booked); }
   else if(filter==='forecast'){ renderForecast(); }
   else if(filter==='booked') { renderBookedHead(booked); renderList(booked,'booked'); }
   else                       { renderList(delivered,'delivered'); }
@@ -389,6 +391,52 @@ function scorecard(r){
   </div>`;
 }
 
+// Week-view diary of booked deliveries (Mon–Sat), showing time + suburb per day.
+window.diaryNav=function(delta){ diaryWeekOffset+=delta; render(); };
+function renderDiary(booked){
+  // Monday of the target week
+  const base=new Date(today.getTime()+diaryWeekOffset*7*DAY);
+  const mon=weekStart(base);
+  const days=[];
+  for(let i=0;i<6;i++){ days.push(new Date(mon.getTime()+i*DAY)); }  // Mon–Sat
+  const dstr=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+
+  const weekLabel = `${mon.toLocaleDateString('en-NZ',{day:'2-digit',month:'short'})} – ${days[5].toLocaleDateString('en-NZ',{day:'2-digit',month:'short'})}`;
+  const weekTotal = booked.filter(r=>days.some(d=>dstr(d)===r.deliveryDate)).length;
+
+  let html=`<div class="card mb-4" style="border-color:#c9a84c">
+    <div class="flex items-center justify-between flex-wrap gap-2">
+      <div><div class="lbl">Delivery diary — week of ${weekLabel}</div>
+        <div class="text-xs text-slate-400 mt-1">${weekTotal} deliver${weekTotal===1?'y':'ies'} booked this week</div></div>
+      <div class="flex gap-2 noprint">
+        <button class="btn" onclick="diaryNav(-1)">‹ Prev</button>
+        <button class="btn ${diaryWeekOffset===0?'on':''}" onclick="diaryWeekOffset=0;render()">This week</button>
+        <button class="btn" onclick="diaryNav(1)">Next ›</button>
+      </div>
+    </div></div>`;
+
+  html+=`<div style="display:grid;grid-template-columns:repeat(6,1fr);gap:10px">`;
+  const dayNames=['Mon','Tue','Wed','Thu','Fri','Sat'];
+  days.forEach((d,i)=>{
+    const ds=dstr(d);
+    const isToday = ds===todayStr;
+    const list=booked.filter(r=>r.deliveryDate===ds)
+      .sort((a,b)=>(a.deliveryTime||'~').localeCompare(b.deliveryTime||'~')||suburb(a.address).localeCompare(suburb(b.address)));
+    const stops=list.map(r=>`<div style="padding:6px 8px;background:#0f1830;border:1px solid #26324a;border-radius:7px;margin-bottom:6px">
+        <div class="text-sm font-semibold" style="color:${r.deliveryTime?'#e2e8f0':'#64748b'}">${r.deliveryTime?esc(r.deliveryTime):'no time set'}</div>
+        <div class="text-xs text-slate-400">${esc(suburb(r.address))||'—'}</div>
+      </div>`).join('') || `<div class="text-xs text-slate-600 py-2 text-center">—</div>`;
+    html+=`<div class="card" style="padding:.7rem .6rem;${isToday?'border-color:#c9a84c;background:#1a1f12':''}">
+      <div class="flex items-center justify-between mb-2">
+        <div><span class="font-bold" style="color:${isToday?'#e6c260':'#e2e8f0'}">${dayNames[i]}</span>
+          <span class="k"> ${d.getDate()}/${d.getMonth()+1}</span></div>
+        <span class="text-sm font-bold ${list.length?'text-sky-300':'text-slate-600'}">${list.length||''}</span>
+      </div>${stops}</div>`;
+  });
+  html+=`</div>`;
+  $('list').innerHTML=html;
+}
+
 function renderForecast(){
   const thisMon=weekStart(today);
   // 5 buckets: this week + next 4
@@ -454,7 +502,7 @@ function renderList(view,mode){
   $('list').innerHTML=view.map((r,i)=>{
     const maps=r.address?`<a class="maplink" href="${mapLink(r.address)}" target="_blank" onclick="event.stopPropagation()">Open in Maps ↗</a>`:'';
     let right='', warn='';
-    if(mode==='ready') right=`<button class="btn gold noprint" onclick="event.stopPropagation();openBook('${r.id}','${esc(r.name).replace(/'/g,"\\'")}')">Book delivery</button>`;
+    if(mode==='ready') right=`<button class="btn gold noprint" onclick="event.stopPropagation();openBook('${r.id}','${esc(r.name).replace(/'/g,"\\'")}')">${r.overdue?'Rebook delivery':'Book delivery'}</button>`;
     else if(mode==='near'){
       const shortfall=Math.max(0, (r.contract*r.needPct/100)-r.paid);
       right=`<div class="text-right"><div class="k">One payment away</div>
@@ -472,7 +520,7 @@ function renderList(view,mode){
     return `<div class="card dl mb-3" style="cursor:pointer" onclick="location.href='client.html?c=${r.custId}'" title="Open ${esc(r.name)}'s details">
       <div class="flex flex-wrap items-start gap-4">
         <div class="flex-1 min-w-[220px]">
-          <div class="flex items-center mb-1"><span class="font-semibold text-white">${esc(r.name)}</span></div>
+          <div class="flex items-center gap-2 mb-1 flex-wrap"><span class="font-semibold text-white">${esc(r.name)}</span>${r.overdue?`<span class="badge" style="background:#3a1616;color:#f87171">⚠ REBOOK — missed ${fmtD(r.deliveryDate)}</span>`:''}</div>
           <div class="text-base text-slate-100 mt-1">${esc(r.address)||'<span class="text-slate-500">No delivery address on file</span>'}</div>
           <div class="mt-1">${maps}</div>
           <div class="text-xs text-slate-400 mt-2">${esc(r.phone)}${r.phone&&r.product?' · ':''}${esc(r.product)}</div>
