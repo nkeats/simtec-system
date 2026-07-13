@@ -125,7 +125,8 @@ async function loadList(){
       <td><select onchange="changeRole('${u.id}', this.value)">${ROLES.map(r=>`<option value="${r}"${u.role===r?" selected":""}>${r[0].toUpperCase()+r.slice(1)}</option>`).join("")}</select></td>
       <td>${u.role==="consultant" ? esc(u.consultant_name)||'<span class="muted">not linked</span>' : '<span class="muted">—</span>'}</td>
       <td><span class="badge ${u.active?"on":"off"}">${u.active?"Active":"Off"}</span></td>
-      <td><button class="mini ghost" onclick="toggleActive('${u.id}', ${u.active?"false":"true"})">${u.active?"Deactivate":"Reactivate"}</button></td>
+      <td><button class="mini ghost" onclick="resendLink('${esc(u.email)}')">Resend link</button>
+        <button class="mini ghost" onclick="toggleActive('${u.id}', ${u.active?"false":"true"})">${u.active?"Deactivate":"Reactivate"}</button></td>
     </tr>`).join("");
   }catch(e){
     $("listState").style.display="block"; $("listState").textContent="Couldn't load users: "+e.message;
@@ -164,6 +165,19 @@ async function toggleActive(id, active){
   clearMsg();
   try{ await call("setActive", { id, active: active===true||active==="true" }); loadList(); }
   catch(e){ show(e.message, false); }
+}
+
+async function resendLink(email){
+  clearMsg();
+  if(!email){ return show("No email on file for this person.", false); }
+  if(!confirm("Send a fresh password-set link to "+email+"?\n\nThis replaces any earlier link (expired or not).")) return;
+  try{
+    const { error } = await sb.auth.resetPasswordForEmail(email, {
+      redirectTo: new URL("reset-password.html", location.href).href
+    });
+    if(error) throw error;
+    show("Fresh link sent to "+email+". Ask them to check their inbox (and spam). The link is valid for a limited time — reset promptly.", true);
+  }catch(e){ show("Couldn't send link: "+(e.message||e), false); }
 }
 
 // init
