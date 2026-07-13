@@ -185,6 +185,7 @@ function closeAnyModal(id){
     case "schedModal":   closeSched();   break;
     case "payModal":     if(typeof closePay==="function") closePay(); break;
     case "reassignModal":if(typeof closeReassign==="function") closeReassign(); break;
+    case "editCustModal":if(typeof closeEditCust==="function") closeEditCust(); break;
     default: document.getElementById(id).style.display="none";
   }
 }
@@ -319,7 +320,9 @@ function renderAll(c, orders, paysByRef, comms){
                    : `<span class="badge grey">Cancelled</span>`)
     : `<span class="badge grey">No orders</span>`;
 
-  const contact=`<div class="card"><h2>Contact</h2>
+  const contact=`<div class="card"><h2 style="display:inline-block">Contact</h2>
+    <button onclick="openEditCust()" style="float:right;background:#fff;color:var(--navy);border:1px solid #cbd4df;border-radius:7px;padding:5px 11px;font-size:12.5px;font-weight:600;cursor:pointer">Edit details</button>
+    ${kv("Name",esc(name))}
     ${kv("Mobile",esc(c.mobile)||"—")}
     ${kv("Email",esc(c.email)||"—")}
     ${kv("Address",esc(c.address)||"—")}
@@ -1738,6 +1741,69 @@ async function rebuildPaid(o){
 }
 </script>
 
+
+<!-- ============ EDIT CUSTOMER DETAILS ============ -->
+<div id="editCustModal" class="modalbg">
+  <div class="modal" style="max-width:480px">
+    <h3 style="margin:0 0 4px">Edit customer details</h3>
+    <p class="muted" style="font-size:12.5px;margin:0 0 14px">
+      Update contact details if the customer moves or changes phone or email. This changes their record everywhere in the system.
+    </p>
+    <div id="ecErr" style="display:none;background:#fdecec;border:1px solid #e0b4b0;color:#b4342e;border-radius:9px;padding:11px 13px;font-size:13.5px;margin-bottom:12px"></div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px 12px">
+      <div><label class="muted" style="font-size:12px">First name</label><input id="ecFirst" class="mi"></div>
+      <div><label class="muted" style="font-size:12px">Last name</label><input id="ecLast" class="mi"></div>
+      <div><label class="muted" style="font-size:12px">Mobile</label><input id="ecMobile" class="mi"></div>
+      <div><label class="muted" style="font-size:12px">Email</label><input id="ecEmail" class="mi" type="email"></div>
+      <div style="grid-column:1/-1"><label class="muted" style="font-size:12px">Address</label><input id="ecAddress" class="mi"></div>
+    </div>
+
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:18px">
+      <button onclick="closeEditCust()" style="background:none;border:1px solid #cbd4df;border-radius:8px;padding:9px 15px;cursor:pointer">Cancel</button>
+      <button id="ecSave" onclick="saveEditCust()" style="background:#1c6b34;color:#fff;border:none;border-radius:8px;padding:9px 18px;font-weight:700;cursor:pointer">Save changes</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ============ EDIT CUSTOMER DETAILS ============
+   Updates the sim_customers record (contact fields only — not financial data).
+   CUST holds the current customer; on save we write back and re-render. */
+function ecErr(m){ const b=document.getElementById("ecErr"); if(!m){b.style.display="none";return;} b.style.display=""; b.innerHTML=m; }
+function openEditCust(){
+  if(!CUST||!CUST.id){ return; }
+  ecErr("");
+  document.getElementById("ecFirst").value  = CUST.first_name||"";
+  document.getElementById("ecLast").value   = CUST.last_name||"";
+  document.getElementById("ecMobile").value = CUST.mobile||"";
+  document.getElementById("ecEmail").value  = CUST.email||"";
+  document.getElementById("ecAddress").value= CUST.address||"";
+  document.getElementById("editCustModal").style.display="flex";
+}
+function closeEditCust(){ document.getElementById("editCustModal").style.display="none"; }
+async function saveEditCust(){
+  if(!CUST||!CUST.id){ return; }
+  ecErr("");
+  const patch={
+    first_name: document.getElementById("ecFirst").value.trim()||null,
+    last_name:  document.getElementById("ecLast").value.trim()||null,
+    mobile:     document.getElementById("ecMobile").value.trim()||null,
+    email:      document.getElementById("ecEmail").value.trim()||null,
+    address:    document.getElementById("ecAddress").value.trim()||null
+  };
+  if(!patch.first_name && !patch.last_name){ return ecErr("Enter at least a first or last name."); }
+  const btn=document.getElementById("ecSave"); btn.disabled=true; const orig=btn.textContent; btn.textContent="Saving…";
+  try{
+    const {error}=await sb.from("sim_customers").update(patch).eq("id",CUST.id);
+    if(error) throw error;
+    Object.assign(CUST, patch);           // keep local copy in sync
+    closeEditCust();
+    run(true);                            // re-render with fresh details (quiet, no blank)
+  }catch(e){ ecErr("Couldn't save: "+(e.message||e)); }
+  finally{ btn.disabled=false; btn.textContent=orig; }
+}
+</script>
 
 <!-- ============ REASSIGN CONSULTANT ============ -->
 <div id="reassignModal" class="modalbg">
