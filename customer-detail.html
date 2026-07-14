@@ -101,7 +101,7 @@ const linkedOrderId = params.get("id");
 
 let ORDERS={}, ITEMSBY={}, CUST={};
 
-const fmt=n=>(n==null||n==="")?"—":"$"+Number(n).toLocaleString(undefined,{maximumFractionDigits:0});
+const fmt=n=>(n==null||n==="")?"—":"$"+Number(n).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
 function auDate(v){ if(!v) return "—"; const m=String(v).match(/^(\d{4})-(\d{2})-(\d{2})/); if(m) return m[3]+"/"+m[2]+"/"+m[1]; const d=new Date(v); return isNaN(d)?v:String(d.getDate()).padStart(2,"0")+"/"+String(d.getMonth()+1).padStart(2,"0")+"/"+d.getFullYear(); }
 const cap=s=>s?s.charAt(0).toUpperCase()+s.slice(1):"—";
 const esc=s=>String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
