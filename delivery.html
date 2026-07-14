@@ -308,11 +308,28 @@ function render(){
 
   $('runhead').innerHTML='';
   if(filter==='ready')       { renderList(readyToBook,'ready'); }
-  else if(filter==='near')   { renderList(nearReady,'near'); }
+  else if(filter==='near')   { renderNearSummary(nearReady); renderList(nearReady,'near'); }
   else if(filter==='diary')  { renderDiary(booked); }
   else if(filter==='forecast'){ renderForecast(); }
   else if(filter==='booked') { renderBookedHead(booked); renderList(booked,'booked'); }
   else                       { renderList(delivered,'delivered'); }
+}
+
+// Suburb summary for the "one payment away" list — shows where the near-ready
+// deliveries cluster, so a route can be planned. Cards below keep the %-paid sort.
+function renderNearSummary(list){
+  if(!list.length){ $('runhead').innerHTML=''; return; }
+  const counts={};
+  list.forEach(r=>{ const s=suburb(r.address)||'(no suburb)'; counts[s]=(counts[s]||0)+1; });
+  const chips=Object.entries(counts)
+    .sort((a,b)=>b[1]-a[1]||a[0].localeCompare(b[0]))
+    .map(([s,n])=>`<span style="display:inline-block;background:#0f1830;border:1px solid #26324a;border-radius:999px;padding:4px 12px;margin:0 6px 6px 0;font-size:13px">
+        <span class="text-slate-200">${esc(s)}</span> <span class="text-amber-300 font-bold">×${n}</span></span>`).join('');
+  $('runhead').innerHTML=`<div class="card mb-4" style="border-color:#c9a84c">
+    <div class="lbl mb-2">Where they are — for planning a run</div>
+    <div class="flex flex-wrap">${chips}</div>
+    <div class="text-xs text-slate-500 mt-1">These are one clean payment from clearing. Grouped by suburb so you can spot a run; the list below stays sorted by how close each is.</div>
+  </div>`;
 }
 
 function renderBookedHead(booked){
