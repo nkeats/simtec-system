@@ -86,11 +86,24 @@
   // inject a Log out button
   function addLogout() {
     if (document.getElementById('simtec-logout')) return;
+    // style: top-right on wide screens; bottom-right on phones so it never
+    // sits on top of a page's own top navigation (e.g. diary/back buttons).
+    if (!document.getElementById('simtec-logout-css')) {
+      var st = document.createElement('style');
+      st.id = 'simtec-logout-css';
+      st.textContent =
+        '#simtec-logout{position:fixed;top:10px;right:12px;bottom:auto;z-index:99999;' +
+        'background:#c6a15b;color:#122347;border:none;border-radius:7px;padding:7px 15px;' +
+        'font:700 12.5px -apple-system,Segoe UI,Roboto,Arial,sans-serif;cursor:pointer;' +
+        'box-shadow:0 2px 8px rgba(0,0,0,.28)}' +
+        '@media(max-width:640px){#simtec-logout{top:auto;bottom:14px;right:14px;' +
+        'border-radius:22px;padding:9px 16px;box-shadow:0 3px 12px rgba(0,0,0,.35)}}';
+      document.head.appendChild(st);
+    }
     var b = document.createElement('button');
     b.id = 'simtec-logout';
     b.textContent = 'Log out';
     b.title = window.SIMTEC_USER.email + ' (' + (role || 'no role') + ')';
-    b.style.cssText = 'position:fixed;top:10px;right:12px;z-index:99999;background:#c6a15b;color:#122347;border:none;border-radius:7px;padding:7px 15px;font:700 12.5px -apple-system,Segoe UI,Roboto,Arial,sans-serif;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.28)';
     b.onclick = async function () { b.disabled = true; await _sb.auth.signOut(); toLogin(); };
     document.body.appendChild(b);
   }
