@@ -129,21 +129,48 @@ const failLabel=r=>{const c=r.failCount||1,w=r.failWeeks||0;const txt=w?`${c}× 
 
 // ---- Review + send ----
 let current=[];
+let SENDABLE=[];   // the matched rows currently shown, indexed to the checkboxes
+
+function toggleAll(on){
+  document.querySelectorAll('.sendchk').forEach(cb=>cb.checked=on);
+  updateCount();
+}
+function selectedRows(){
+  const out=[];
+  document.querySelectorAll('.sendchk').forEach(cb=>{ if(cb.checked){ const i=+cb.dataset.i; if(SENDABLE[i]) out.push(SENDABLE[i]); }});
+  return out;
+}
+function updateCount(){
+  const n=document.querySelectorAll('.sendchk:checked').length;
+  const total=document.querySelectorAll('.sendchk').length;
+  const el=$('selCount'); if(el) el.textContent=`${n} of ${total} selected to send`;
+  const sa=$('selAll'); if(sa) sa.checked = (n===total && total>0);
+  const btn=$('sendBtn'); if(btn){ btn.textContent = n? `Send ${n} text${n===1?'':'s'}` : 'Send texts'; btn.disabled = n===0; btn.style.opacity = n===0?.5:1; }
+}
 function review(list){
   current=list;
   const ok=list.filter(r=>r.matched).sort((a,b)=>b.failCount-a.failCount), no=list.filter(r=>!r.matched);
   let html=`<div class="card"><div class="lbl mb-3">Review, then send (${ok.length} ready)</div>`;
   if(ok.length){
-    html+=`<div class="k mb-2">Repeat failures are highlighted — a single miss is auto-rescheduled by Ezidebit, so focus on the amber/red ones.</div>`;
+    html+=`<div class="k mb-2">Repeat failures are highlighted — a single miss is auto-rescheduled by Ezidebit, so focus on the amber/red ones. Everyone's ticked by default — <b>untick anyone you don't want to text this run</b>.</div>`;
+    html+=`<div class="flex items-center gap-3 mb-2">
+      <label class="flex items-center gap-2 cursor-pointer text-sm text-slate-300">
+        <input type="checkbox" id="selAll" checked onchange="toggleAll(this.checked)" style="width:16px;height:16px;accent-color:#c9a84c">
+        Select all
+      </label>
+      <span class="k" id="selCount"></span>
+    </div>`;
     html+=`<table class="w-full text-sm"><thead><tr class="text-left text-slate-500 border-b border-slate-700">
-      <th class="pb-2">Customer</th><th class="pb-2">Failures</th><th class="pb-2">Mobile</th><th class="pb-2">Message preview</th></tr></thead><tbody>`;
-    html+=ok.map(r=>`<tr class="border-b border-slate-800">
+      <th class="pb-2 pr-2"></th><th class="pb-2">Customer</th><th class="pb-2">Failures</th><th class="pb-2">Mobile</th><th class="pb-2">Message preview</th></tr></thead><tbody>`;
+    html+=ok.map((r,i)=>`<tr class="border-b border-slate-800" id="trow${i}">
+      <td class="py-2 pr-2"><input type="checkbox" class="sendchk" data-i="${i}" checked onchange="updateCount()" style="width:16px;height:16px;accent-color:#c9a84c"></td>
       <td class="py-2 pr-3 font-medium">${esc(r.name)}</td>
       <td class="py-2 pr-3">${failLabel(r)}</td>
       <td class="py-2 pr-3 text-slate-300">${esc(r.mobile)}</td>
       <td class="py-2 text-slate-400 text-xs">${esc(MESSAGE(r.firstName))}</td></tr>`).join('');
     html+=`</tbody></table>
-      <button class="btn gold mt-4" onclick="sendAll()">Send all ${ok.length} texts</button>`;
+      <button class="btn gold mt-4" id="sendBtn" onclick="sendAll()">Send texts</button>`;
+    SENDABLE=ok;
   }else{
     html+=`<div class="k">Nothing to send — no active customer on this report has a mobile to text.</div>`;
   }
@@ -155,6 +182,7 @@ function review(list){
       <div class="k mt-2">These have no active customer record with a mobile (new, cancelled, on-hold, or missing payer ref).</div></div>`;
   }
   $('review').innerHTML=html;
+  updateCount();
 }
 
 async function postOne(name,mobile,message){
@@ -165,11 +193,12 @@ async function postOne(name,mobile,message){
 }
 
 async function sendAll(){
-  const ok=current.filter(r=>r.matched);
-  if(!ok.length) return;
-  if(!confirm(`Send ${ok.length} arrears text(s) now?`)) return;
+  const chosen=selectedRows();
+  if(!chosen.length){ alert('No one is ticked — select at least one customer to text.'); return; }
+  const names=chosen.map(r=>r.name||r.mobile).slice(0,8).join(', ')+(chosen.length>8?`, +${chosen.length-8} more`:'');
+  if(!confirm(`Send an arrears text to ${chosen.length} customer${chosen.length===1?'':'s'}?\n\n${names}`)) return;
   let sent=0,failed=0;
-  for(const r of ok){
+  for(const r of chosen){
     const msg=MESSAGE(r.firstName);
     let status='sent',resp='';
     try{await postOne(r.name,r.mobile,msg);sent++;}
@@ -177,7 +206,8 @@ async function sendAll(){
     await sb.from('sim_communications').insert({customer_id:r.customer_id,order_id:r.order_id,channel:'sms',direction:'outbound',comm_type:'arrears_reminder',body:msg,status,provider_response:resp,source:'brain',mobile:r.mobile});
   }
   $('review').innerHTML=`<div class="card"><div class="font-semibold text-green-400">Done</div>
-    <div class="text-slate-200 mt-1">Sent ${sent}${failed?`, ${failed} failed`:''}. All logged.</div></div>`;
+    <div class="text-slate-200 mt-1">Sent ${sent}${failed?`, ${failed} failed`:''}. All logged.</div>
+    <button class="btn mt-3" onclick="loadDishonours()" style="font-size:.8rem">Back to list</button></div>`;
 }
 
 window.sendTest=async()=>{
