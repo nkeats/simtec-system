@@ -187,6 +187,7 @@ function closeAnyModal(id){
     case "reassignModal":if(typeof closeReassign==="function") closeReassign(); break;
     case "editCustModal":if(typeof closeEditCust==="function") closeEditCust(); break;
     case "gateModal":if(typeof closeGate==="function") closeGate(); break;
+    case "saleDateModal":if(typeof closeSaleDate==="function") closeSaleDate(); break;
     default: document.getElementById(id).style.display="none";
   }
 }
@@ -398,7 +399,7 @@ function orderSection(o, items, pays, open){
     : "";
   const sale=`<div class="card"><h2>Sale</h2>
     ${kv("Consultant",(esc(o.consultant_name)||"—")+conBtn)}
-    ${kv("Sale date",auDate(o.order_date))}
+    ${kv("Sale date",auDate(o.order_date)+(isMgr()?` <button onclick="openSaleDate('${o.id}')" style="background:#fff;color:var(--navy);border:1px solid #cbd4df;border-radius:6px;padding:2px 8px;font-size:11.5px;font-weight:600;cursor:pointer;margin-left:8px">change</button>`:""))}
     ${kv("Payment method",PM[o.payment_method]||o.payment_method||"—")}
     ${kv("Frequency",cap(o.payment_frequency))}
     ${kv("Ezidebit Payer ID",esc(o.ezidebit_payer_ref)||"—")}
@@ -529,6 +530,56 @@ async function setFurtherAction(oid, val){
   if(error){ alert("Couldn't update: "+error.message); return; }
   run();
 }
+/* ============ CHANGE THE SALE DATE ============
+   The order date decides which commission week a sale lands in, so it has to move
+   on commission_sales too — otherwise the sale sits in one week here and another
+   there. If the commission has already been PAID (paid_date set) the pay run is
+   closed and we must not reach into it, so the change is refused. */
+window.openSaleDate=async function(oid){
+  const o=ORDERS[oid]; if(!o) return;
+  document.getElementById("sdOid").value=oid;
+  document.getElementById("sdCurrent").textContent=auDate(o.order_date)||"not set";
+  document.getElementById("sdDate").value=(o.order_date||"").slice(0,10);
+  document.getElementById("sdErr").style.display="none";
+  const lock=document.getElementById("sdLock"); lock.style.display="none";
+  document.getElementById("sdSave").disabled=false;
+  document.getElementById("saleDateModal").style.display="flex";
+  // is the commission already paid?
+  try{
+    const {data:cs}=await sb.from("commission_sales").select("id,paid_date,pay_run_id").eq("sim_order_id",oid).maybeSingle();
+    if(cs&&cs.paid_date){
+      lock.innerHTML="<b>The commission on this sale has already been paid.</b> Moving it to another week would reach into a closed pay run, so the date can't be changed here. This one needs sorting by hand.";
+      lock.style.display="";
+      document.getElementById("sdSave").disabled=true;
+    }
+  }catch(e){}
+};
+window.closeSaleDate=function(){ document.getElementById("saleDateModal").style.display="none"; };
+
+window.saveSaleDate=async function(){
+  const oid=document.getElementById("sdOid").value;
+  const d=document.getElementById("sdDate").value;
+  const err=document.getElementById("sdErr");
+  const o=ORDERS[oid];
+  if(!d){ err.style.display=""; err.textContent="Pick a date."; return; }
+  if(d===(o.order_date||"").slice(0,10)){ closeSaleDate(); return; }
+  const btn=document.getElementById("sdSave"); btn.disabled=true; const orig=btn.textContent; btn.textContent="Saving…";
+  try{
+    const {data:cs}=await sb.from("commission_sales").select("id,paid_date").eq("sim_order_id",oid).maybeSingle();
+    if(cs&&cs.paid_date) throw new Error("The commission has been paid — the date can't be moved.");
+    if(!confirm("Change the sale date from "+auDate(o.order_date)+" to "+auDate(d)+"?\n\nThis moves the sale into a different commission week"+(cs?" and updates the commission record.":"."))){
+      btn.disabled=false; btn.textContent=orig; return; }
+    const {error:e1}=await sb.from("sim_orders").update({order_date:d}).eq("id",oid);
+    if(e1) throw new Error("Saving the order: "+e1.message);
+    if(cs){
+      const {error:e2}=await sb.from("commission_sales").update({sale_date:d}).eq("id",cs.id);
+      if(e2) throw new Error("The order date was changed, but the commission record wasn\u2019t: "+e2.message);
+    }
+    closeSaleDate(); run(true);
+  }catch(e){ err.style.display=""; err.textContent=e.message||String(e); }
+  finally{ btn.disabled=false; btn.textContent=orig; }
+};
+
 /* ============ AGREED DELIVERY GATE ============
    Sometimes a customer rings wanting their mattress early — often they didn't
    fully grasp the terms they signed. If their payment history is good we can
@@ -1838,6 +1889,26 @@ async function rebuildPaid(o){
 }
 </script>
 
+
+<div id="saleDateModal" class="modalbg">
+  <div class="modal" style="max-width:440px">
+    <h3 style="margin:0 0 4px">Change the sale date</h3>
+    <p class="muted" style="font-size:12.5px;margin:0 0 14px">
+      Use this when a sale was entered with the wrong date. The date decides which
+      <b>commission week</b> the sale falls in, so it's moved on the commission record too.
+    </p>
+    <div id="sdErr" style="display:none;background:#fdecec;border:1px solid #e0b4b0;color:#b4342e;border-radius:9px;padding:11px 13px;font-size:13.5px;margin-bottom:12px"></div>
+    <div id="sdLock" style="display:none;background:#fff4e5;border:1px solid #e0b877;color:#8a5a12;border-radius:9px;padding:11px 13px;font-size:13px;margin-bottom:12px"></div>
+    <input type="hidden" id="sdOid">
+    <div style="font-size:12.5px;color:#7a8798;margin-bottom:4px">Currently <b id="sdCurrent" style="color:#1a2334"></b></div>
+    <label class="muted" style="font-size:12px">New sale date</label>
+    <input type="date" id="sdDate" class="mi">
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:18px">
+      <button onclick="closeSaleDate()" style="background:none;border:1px solid #cbd4df;border-radius:8px;padding:9px 15px;cursor:pointer">Cancel</button>
+      <button id="sdSave" onclick="saveSaleDate()" style="background:#1f5aa8;color:#fff;border:none;border-radius:8px;padding:9px 18px;font-weight:700;cursor:pointer">Save date</button>
+    </div>
+  </div>
+</div>
 
 <div id="gateModal" class="modalbg">
   <div class="modal" style="max-width:440px">
