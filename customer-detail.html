@@ -468,9 +468,15 @@ function orderSection(o, items, pays, open){
     <table><thead><tr><th>Product</th><th class="num">Qty</th><th class="num">Unit price</th><th class="num">Delivery</th></tr></thead><tbody>${prodRows}</tbody></table></div>`;
 
   const totalPaid = pays.reduce((s,x)=>s+Number(x.amount||0),0);
+  const lastPayDate = pays.length ? pays.reduce((m,x)=> (String(x.payment_date||"")>m ? String(x.payment_date||"") : m), "") : "";
   const payRows = pays.length ? pays.slice(0,40).map(x=>`<tr><td>${auDate(x.payment_date)}</td><td class="num">${fmt(x.amount)}</td></tr>`).join("")
     : `<tr><td colspan="2" class="muted">No payments recorded yet.</td></tr>`;
-  const history=`<div class="card full"><h2>Payment history${pays.length?` — ${pays.length} payments, ${fmt(totalPaid)}`:""}</h2>
+  const history=`<div class="card full">
+    <h2 style="display:flex;align-items:center;flex-wrap:wrap;gap:12px">
+      <span>Payment history${pays.length?` — ${pays.length} payments, ${fmt(totalPaid)}`:""}</span>
+      ${lastPayDate?`<span style="font-weight:400;font-size:12.5px;color:var(--sub)">Last payment: ${auDate(lastPayDate)}</span>`:""}
+      <button onclick="printStatement('${o.id}')" style="margin-left:auto;background:#122347;color:#fff;border:none;border-radius:7px;padding:5px 12px;font-size:12px;font-weight:600;cursor:pointer">🖨 Print statement</button>
+    </h2>
     <table><thead><tr><th>Date</th><th class="num">Amount</th></tr></thead><tbody>${payRows}</tbody></table></div>`;
 
   const oid=o.id;
@@ -1517,6 +1523,109 @@ function printVariation(o,summary,newV,newInst,freq,rem,nextDate){
   <div class="sig"><div>Customer signature</div><div>Date</div></div>
   <div class="sig"><div>For Simtec Therapeutic Limited</div><div>Date</div></div>
   <p class="note">Simtec Therapeutic Limited · NZBN 9429053287908 · Auckland, New Zealand</p>
+  <script>window.onload=function(){window.print()}<\/script>
+  </body></html>`);
+  w.document.close();
+}
+
+// ---------- printable customer statement (order + full payment history) ------
+// Re-reads the order, customer, items and payments fresh so it always reflects
+// the current ledger. Payments are gathered by the order's Ezidebit payer_ref
+// AND by order_id, so manual / cash "extra" payments are included alongside the
+// Ezidebit debits. Read-only; opens a print window like the Order Variation.
+window.printStatement=async function(oid){
+  const money=n=>(n==null||n==="")?"—":(Number(n)<0?"-$":"$")+Math.abs(Number(n)).toLocaleString("en-NZ",{minimumFractionDigits:2,maximumFractionDigits:2});
+  const {data:o,error:eo}=await sb.from("sim_orders").select("*").eq("id",oid).single();
+  if(eo||!o){ alert("Couldn't load the order for this statement."); return; }
+  const {data:c}=await sb.from("sim_customers").select("*").eq("id",o.customer_id).single();
+  const {data:items}=await sb.from("sim_order_items")
+      .select("product_name,quantity,unit_price,cancelled").eq("order_id",oid).order("line_no");
+  const filters=[];
+  if(o.ezidebit_payer_ref) filters.push(`payer_ref.eq.${o.ezidebit_payer_ref}`);
+  filters.push(`order_id.eq.${oid}`);
+  const {data:paysRaw}=await sb.from("sim_payments")
+      .select("payment_date,amount,source,method,notes,payer_ref,order_id").or(filters.join(","));
+  const pays=(paysRaw||[]).slice().sort((a,b)=>String(a.payment_date||"").localeCompare(String(b.payment_date||"")));
+
+  const cname=[c&&c.first_name,c&&c.last_name].filter(Boolean).join(" ")||"(no name)";
+  const activeItems=(items||[]).filter(i=>!i.cancelled);
+  const prodRows=activeItems.length ? activeItems.map(i=>{
+      const qty=Number(i.quantity||1);
+      const lt=(i.unit_price!=null&&i.unit_price!=="")?Number(i.unit_price)*qty:null;
+      return `<tr><td>${esc(i.product_name)}</td><td class="c">${qty}</td><td class="r">${i.unit_price!=null?money(i.unit_price):"—"}</td><td class="r">${lt!=null?money(lt):"—"}</td></tr>`;
+    }).join("") : `<tr><td colspan="4" class="muted">No product lines recorded.</td></tr>`;
+
+  const payType=p=>{ const s=String(p.source||"").toLowerCase();
+    return s==="manual" ? "Extra payment"+(p.notes?` — ${esc(p.notes)}`:"") : "Ezidebit direct debit"; };
+  const payRows=pays.length ? pays.map(p=>
+      `<tr><td>${auDate(p.payment_date)}</td><td>${payType(p)}</td><td class="r">${money(p.amount)}</td></tr>`).join("")
+    : `<tr><td colspan="3" class="muted">No payments recorded yet.</td></tr>`;
+
+  const totalPaid=pays.reduce((s,p)=>s+Number(p.amount||0),0);
+  const balance=Number(o.contract_value||0)-totalPaid;
+  const lastPay=pays.length?pays[pays.length-1].payment_date:null;
+  const today=new Date().toLocaleDateString("en-NZ",{day:"2-digit",month:"long",year:"numeric"});
+
+  const w=window.open("","_blank");
+  if(!w){ alert("Allow pop-ups to print the statement."); return; }
+  w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Statement — ${esc(cname)}</title>
+  <style>
+    body{font-family:Georgia,'Times New Roman',serif;color:#1a2334;margin:0;padding:34px 40px;line-height:1.55}
+    .hd{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #c6a15b;padding-bottom:14px;margin-bottom:20px}
+    .brand{font-family:Arial,Helvetica,sans-serif;font-weight:800;letter-spacing:2px;font-size:26px;color:#122347;line-height:1}
+    .brand small{display:block;font-size:11px;letter-spacing:4px;color:#c6a15b;font-weight:700;margin-top:3px}
+    .co{text-align:right;font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#5a6779;line-height:1.5}
+    h1{font-size:19px;letter-spacing:.5px;color:#122347;margin:0 0 2px}
+    .doctitle{margin:0 0 18px}
+    .doctitle .sub{font-size:11px;letter-spacing:.06em;color:#5a6779}
+    h2{font-size:12px;text-transform:uppercase;letter-spacing:.09em;color:#122347;border-bottom:1px solid #d9e0ea;padding-bottom:5px;margin:22px 0 8px}
+    table{width:100%;border-collapse:collapse;font-size:13.5px}
+    th{text-align:left;font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:#8593a4;border-bottom:1px solid #d9e0ea;padding:0 0 5px}
+    td{padding:6px 0;vertical-align:top;border-bottom:1px solid #eef1f5}
+    td.r,th.r{text-align:right} td.c,th.c{text-align:center;width:52px}
+    .kv td{border:none;padding:4px 0}
+    .kv td.l{color:#5a6779;width:55%}
+    .kv td.v{text-align:right;font-weight:bold}
+    .totals{margin-top:10px;border-top:2px solid #122347}
+    .totals td{padding:7px 0;border:none;font-size:14px}
+    .totals td.v{text-align:right;font-weight:bold}
+    .totals tr.bal td{font-size:16px;color:#122347}
+    .muted{color:#8593a4}
+    .note{font-size:11.5px;color:#5a6779;margin-top:22px}
+    @media print{body{padding:20px}}
+  </style></head><body>
+  <div class="hd">
+    <div class="brand">SIMTEC<small>THERAPEUTIC</small></div>
+    <div class="co"><b>Simtec Therapeutic Limited</b><br>297 Neilsons Rd, Onehunga, Auckland<br>Phone 09 886 9897<br>NZBN 9429053287908</div>
+  </div>
+
+  <div class="doctitle"><h1>Statement of Account</h1>
+    <div class="sub">Issued ${today}${lastPay?` · Last payment received ${auDate(lastPay)}`:""}</div></div>
+
+  <table class="kv">
+    <tr><td class="l">Customer</td><td class="v">${esc(cname)}</td></tr>
+    ${c&&c.mobile?`<tr><td class="l">Mobile</td><td class="v">${esc(c.mobile)}</td></tr>`:""}
+    ${c&&c.address?`<tr><td class="l">Address</td><td class="v">${esc(c.address)}</td></tr>`:""}
+    <tr><td class="l">Order date</td><td class="v">${auDate(o.order_date)}</td></tr>
+    <tr><td class="l">Payment method</td><td class="v">${PM[o.payment_method]||o.payment_method||"—"}</td></tr>
+    ${o.ezidebit_payer_ref?`<tr><td class="l">Ezidebit payer ID</td><td class="v">${esc(o.ezidebit_payer_ref)}</td></tr>`:""}
+  </table>
+
+  <h2>Your order</h2>
+  <table><thead><tr><th>Product</th><th class="c">Qty</th><th class="r">Unit price</th><th class="r">Line total</th></tr></thead>
+    <tbody>${prodRows}</tbody></table>
+
+  <h2>Payments received</h2>
+  <table><thead><tr><th>Date</th><th>Type</th><th class="r">Amount</th></tr></thead>
+    <tbody>${payRows}</tbody></table>
+
+  <table class="totals">
+    <tr><td class="l">Total sale value</td><td class="v">${money(o.contract_value)}</td></tr>
+    <tr><td class="l">Total paid to date</td><td class="v">${money(totalPaid)}</td></tr>
+    <tr class="bal"><td class="l">Balance owing</td><td class="v">${money(balance)}</td></tr>
+  </table>
+
+  <p class="note">Thank you. This statement lists every payment received to date, including any extra payments made on top of the scheduled Ezidebit debits. If anything here does not look right, please contact us on 09 886 9897.</p>
   <script>window.onload=function(){window.print()}<\/script>
   </body></html>`);
   w.document.close();
