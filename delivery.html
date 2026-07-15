@@ -362,7 +362,7 @@ function renderNearSummary(list){
 
 
 // ── Map of booked deliveries (Leaflet + OpenStreetMap, no API key) ─────────
-let MAP=null, MAPLAYER=null;
+let MAP=null, MAPLAYER=null, MAPVIEW=null;
 function renderMap(booked){
   const withPins = booked.filter(r=>r.lat!=null && r.lng!=null);
   const missing  = booked.filter(r=>r.lat==null || r.lng==null);
@@ -372,13 +372,27 @@ function renderMap(booked){
     box.innerHTML='<div style="padding:20px;color:#fbbf24;font-size:13px">Map library didn\'t load \u2014 check the internet connection, then refresh.</div>';
     return;
   }
+  // This panel is rebuilt on every reload (live.js refreshes once a minute and
+  // whenever the tab regains focus), which destroys the old map element. If our
+  // map is still bound to a container that has gone, remember where the user was
+  // looking, throw the dead map away and build a fresh one.
+  if(MAP){
+    let alive=false;
+    try{ alive = document.body.contains(MAP.getContainer()); }catch(e){ alive=false; }
+    if(!alive){
+      try{ MAPVIEW={center:MAP.getCenter(), zoom:MAP.getZoom()}; }catch(e){}
+      try{ MAP.remove(); }catch(e){}
+      MAP=null; MAPLAYER=null;
+    }
+  }
   if(!MAP){
     MAP=L.map('mapbox',{scrollWheelZoom:false});
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
       {maxZoom:19, attribution:'\u00a9 OpenStreetMap'}).addTo(MAP);
-    MAP.setView([-36.8485,174.7633], 10);   // Auckland default
+    if(MAPVIEW){ MAP.setView(MAPVIEW.center, MAPVIEW.zoom); }
+    else { MAP.setView([-36.8485,174.7633], 10); }   // Auckland default
   }
-  if(MAPLAYER){ MAP.removeLayer(MAPLAYER); }
+  if(MAPLAYER){ try{ MAP.removeLayer(MAPLAYER); }catch(e){} }
   MAPLAYER=L.layerGroup().addTo(MAP);
   withPins.forEach(r=>{
     const label=`${esc(r.name)}${r.deliveryTime?' \u00b7 '+esc(winTxt(r.deliveryTime)):''}`;
@@ -386,7 +400,9 @@ function renderMap(booked){
     m.bindTooltip(label,{permanent:false,direction:'top',className:'pintag',offset:[0,-8]});
     m.bindPopup(`<b>${esc(r.name)}</b><br>${esc(fmtD(r.deliveryDate))}${r.deliveryTime?'<br>'+esc(winTxt(r.deliveryTime)):''}<br>${esc(r.address)}<br>${esc(r.product)}`);
   });
-  if(withPins.length){
+  // Fit to the pins only on the first draw. After that keep wherever the user
+  // panned/zoomed to, so a background refresh doesn't snatch the map back.
+  if(withPins.length && !MAPVIEW){
     const b=L.latLngBounds(withPins.map(r=>[r.lat,r.lng]));
     MAP.fitBounds(b,{padding:[36,36],maxZoom:14});
   }
