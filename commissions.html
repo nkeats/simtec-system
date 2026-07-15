@@ -18,7 +18,9 @@ select.inp{appearance:auto}
 .dark{background:#1e293b;color:#94a3b8;border:1px solid #334155}.dark:hover:not(:disabled){color:#fff}
 .card{background:#1e293b;border:1px solid #334155;border-radius:.75rem;padding:1.25rem}
 .lbl{font-size:.7rem;letter-spacing:.06em;text-transform:uppercase;color:#eab308;font-weight:700}
-.cwin{padding:.25rem .3rem;background:#0f172a;border:1px solid #334155;border-radius:.3rem;color:#fff;font-size:11px;text-align:right}
+.cwin{padding:.15rem .2rem;background:#0f172a;border:1px solid #334155;border-radius:.25rem;color:#fff;font-size:10.5px;text-align:right}
+.cwin::-webkit-outer-spin-button,.cwin::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+.cwin[type=number]{-moz-appearance:textfield}
 .cwin:focus{outline:none;border-color:#eab308}
 .cwin::placeholder{color:#475569}
 @media print{@page{size:A4;margin:0}html,body{background:#fff!important;margin:0!important;padding:0!important}#nav,.noprint{display:none!important}.inv-wrap{padding:0!important;margin:0!important;display:block!important}.inv-page{width:210mm!important;min-height:auto!important;box-shadow:none!important;margin:0!important;padding:12mm!important}}
@@ -124,7 +126,7 @@ function renderNav(){
     <a href="home.html" style="color:#cbd5e1;text-decoration:none;font-size:.8rem;margin-right:4px">‹ Home</a>
     <div class="flex items-center gap-2 mr-4"><div class="w-1.5 h-5 bg-yellow-500 rounded-sm"></div>
     <span class="font-bold text-sm tracking-wide">SIMTEC COMMISSIONS</span></div>
-    ${[['runs','Pay Runs'],['cashweek','Cash Week'],['customers','Customer History'],['giveaways','Giveaways'],['setup','Consultants & Products'],['settings','Commission Rates']].map(([p,l])=>
+    ${[['runs','Pay Runs'],['cashweek','Cash Week'],['customers','Customer History'],['giveaways','Money Owed'],['setup','Consultants & Products'],['settings','Commission Rates']].map(([p,l])=>
       `<button onclick="go('${p}')" class="text-sm font-medium pb-0.5 border-b-2 transition-colors ${page===p?'border-yellow-500 text-yellow-400':'border-transparent text-slate-400 hover:text-white'}">${l}</button>`
     ).join('')}`;
 }
@@ -250,7 +252,7 @@ function render_cw(){
   const {weekStart,weekEnd,days,rows}=CWDATA;
   const inp=(cls,ri,di,val,ph)=>`<input type="number" step="${cls==='u'?'1':'0.01'}" data-r="${ri}" data-d="${di}" data-k="${cls}"
       oninput="cwEdit(this)" value="${val||''}" placeholder="${ph}"
-      class="cwin" style="width:${cls==='u'?'44':'62'}px">`;
+      class="cwin" style="width:${cls==='u'?'30':'48'}px">`;
 
   $('app').innerHTML=`
   <div class="p-6 max-w-full mx-auto">
@@ -276,7 +278,7 @@ function render_cw(){
         <thead>
           <tr class="text-slate-500">
             <th class="text-left pb-1 pr-3" style="position:sticky;left:0;background:#1e293b;z-index:2">Consultant</th>
-            ${days.map(d=>`<th colspan="3" class="text-center pb-1 px-2" style="border-left:1px solid #334155">
+            ${days.map(d=>`<th colspan="3" class="text-center pb-1 px-1" style="border-left:1px solid #334155">
                 <div class="text-slate-300 font-semibold">${d.lbl} ${d.dm}</div>
                 <div class="text-slate-600" style="font-size:10px">pays ${d.sales}'s sales</div></th>`).join('')}
             <th colspan="3" class="text-center pb-1 px-2" style="border-left:2px solid #c9a84c">
@@ -284,7 +286,7 @@ function render_cw(){
           </tr>
           <tr class="text-slate-600" style="font-size:10px">
             <th style="position:sticky;left:0;background:#1e293b;z-index:2"></th>
-            ${days.map(()=>`<th class="pb-2 px-1" style="border-left:1px solid #334155">Sales</th><th class="pb-2 px-1">Paid</th><th class="pb-2 px-1">Ret</th>`).join('')}
+            ${days.map(()=>`<th class="pb-1 px-0.5" style="border-left:1px solid #334155">Sale</th><th class="pb-1 px-0.5">Paid</th><th class="pb-1 px-0.5">Ret</th>`).join('')}
             <th class="pb-2 px-1" style="border-left:2px solid #c9a84c">Paid</th><th class="pb-2 px-1">Ret</th><th class="pb-2 px-1">Owing Wed</th>
           </tr>
         </thead>
@@ -295,9 +297,9 @@ function render_cw(){
             <div class="text-slate-600" style="font-size:9px">${r.totUnits} units @ $${cwRate(r.totUnits)}${r.sysUnits!==r.totUnits?` · <span style="color:#fbbf24">system says ${r.sysUnits}</span>`:''}</div>
           </td>
           ${r.cells.map((c,di)=>`
-            <td class="py-1.5 px-1 text-center" style="border-left:1px solid #334155">${inp('u',ri,di,c.units,'0')}</td>
-            <td class="py-1.5 px-1 text-center">${inp('p',ri,di,c.paid,c.sugP.toFixed(0))}</td>
-            <td class="py-1.5 px-1 text-center">${inp('r',ri,di,c.ret,c.sugR.toFixed(0))}</td>`).join('')}
+            <td class="py-1 px-0.5 text-center" style="border-left:1px solid #334155">${inp('u',ri,di,c.units,'0')}</td>
+            <td class="py-1 px-0.5 text-center">${inp('p',ri,di,c.paid,c.sugP.toFixed(0))}</td>
+            <td class="py-1 px-0.5 text-center">${inp('r',ri,di,c.ret,c.sugR.toFixed(0))}</td>`).join('')}
           <td class="py-1.5 px-2 text-right text-sky-300 font-semibold whitespace-nowrap" style="border-left:2px solid #c9a84c" id="tp${ri}">${cwMoney(r.totPaid)}</td>
           <td class="py-1.5 px-2 text-right text-amber-300 whitespace-nowrap" id="tr${ri}">${cwMoney(r.totRet)}</td>
           <td class="py-1.5 px-2 text-right font-bold whitespace-nowrap ${r.owing<-0.01?'text-red-400':(r.owing>0.01?'text-green-400':'text-slate-600')}" id="to${ri}">
@@ -1045,18 +1047,29 @@ async function showGiveaways(){
   $('app').innerHTML=`
     <div class="p-8 max-w-3xl mx-auto">
       <div class="flex items-center justify-between mb-2">
-        <h1 class="text-2xl font-bold">Giveaways</h1>
-        <button class="btn gold" onclick="recordGivModal()">+ Record giveaway</button>
+        <h1 class="text-2xl font-bold">Money owed</h1>
+        <div class="flex gap-2">
+          <button class="btn gold" onclick="recordGivModal('giveaway')">+ Giveaway</button>
+          <button class="btn dark" onclick="recordGivModal('advance')">+ Cash advance</button>
+          <button class="btn dark" onclick="recordGivModal('loan')">+ Loan</button>
+        </div>
       </div>
-      <p class="text-sm text-slate-500 mb-6">Charged at <b>${fmt(rate)}</b> per item (edit the rate in Commission Rates). Balance owed drops when you allocate a repayment in a pay run and that run is finalised. Admin / managers record giveaways.</p>
+      <p class="text-sm text-slate-500 mb-6">Everything a consultant owes the company — giveaways (charged at <b>${fmt(rate)}</b> per item, set in Commission Rates), cash advances against an upcoming pay, and loans. The balance drops when you allocate a repayment in a pay run <b>and that run is finalised</b>. Admin / managers only.</p>
       <div class="card">
         <table class="w-full text-sm">
           <thead><tr class="text-left text-xs uppercase tracking-wide text-slate-500 border-b border-slate-700">
-            <th class="py-2">Consultant</th><th class="py-2 text-right">Taken</th><th class="py-2 text-right">Repaid</th><th class="py-2 text-right">Balance owed</th><th class="py-2 text-right">&nbsp;</th>
+            <th class="py-2">Consultant</th><th class="py-2 text-right">Giveaways</th><th class="py-2 text-right">Advances</th><th class="py-2 text-right">Loans</th><th class="py-2 text-right">Total owed</th><th class="py-2 text-right">Repaid</th><th class="py-2 text-right">Balance</th><th class="py-2 text-right">&nbsp;</th>
           </tr></thead>
           <tbody>
-          ${active.map(c=>{const b=bal[c.id]||{taken:0,repaid:0,balance:0};return `<tr class="border-b border-slate-800">
+          ${active.map(c=>{const b=bal[c.id]||{taken:0,repaid:0,balance:0};
+            const mine=(byCons[c.id]||[]);
+            const byKind=k=>mine.filter(g=>(g.kind||'giveaway')===k).reduce((a,g)=>a+(+g.amount||0),0);
+            const kG=byKind('giveaway')+byKind('opening'), kA=byKind('advance'), kL=byKind('loan');
+            return `<tr class="border-b border-slate-800">
             <td class="py-2.5 font-medium">${c.name}</td>
+            <td class="py-2.5 text-right text-slate-400">${kG?fmt(kG):'<span class="text-slate-700">—</span>'}</td>
+            <td class="py-2.5 text-right ${kA?'text-sky-400':'text-slate-700'}">${kA?fmt(kA):'—'}</td>
+            <td class="py-2.5 text-right ${kL?'text-purple-400':'text-slate-700'}">${kL?fmt(kL):'—'}</td>
             <td class="py-2.5 text-right text-slate-400">${fmt(b.taken)}</td>
             <td class="py-2.5 text-right text-slate-400">${fmt(b.repaid)}</td>
             <td class="py-2.5 text-right font-semibold ${b.balance>0?'text-yellow-400':'text-slate-500'}">${fmt(b.balance)}</td>
@@ -1071,29 +1084,57 @@ async function showGiveaways(){
       </div>
     </div>`;
 
-  window.recordGivModal=()=>{
+  // Money a consultant owes the company. All of it lives in commission_giveaways,
+  // separated by `kind`, and all of it is repaid the same way — a
+  // 'giveaway_repayment' deduction on a pay run, which only counts once that run
+  // is finalised. Kinds:
+  //   giveaway — pillows/extras handed out to close a sale (charged per item)
+  //   advance  — cash drawn against an upcoming pay
+  //   loan     — money borrowed from the company (purpose required)
+  //   opening  — a starting balance carried in
+  window.recordGivModal=(kind)=>{
+    kind=kind||'giveaway';
     const rt=+S().pillow_charge||0;
-    openMod(`<h3 class="font-semibold text-white mb-4">Record giveaway</h3>
+    const isGiv=kind==='giveaway';
+    const titles={giveaway:'Record giveaway',advance:'Record cash advance',loan:'Record a loan'};
+    const blurb={
+      giveaway:'Pillows or extras handed out to close a sale. Charged per item at the rate in Commission Rates.',
+      advance:'Cash drawn against an upcoming pay. It sits as money owed until it\'s repaid on a pay run.',
+      loan:'Money borrowed from the company. Record what it\'s for — they can repay it out of a good week.'
+    };
+    openMod(`<h3 class="font-semibold text-white mb-1">${titles[kind]}</h3>
+      <p class="text-xs text-slate-500 mb-4">${blurb[kind]}</p>
       <label class="text-xs text-slate-400 block mb-1">Consultant</label>
       <select id="gcons" class="inp mb-3">${active.map(c=>`<option value="${c.id}">${c.name}</option>`).join('')}</select>
-      <label class="text-xs text-slate-400 block mb-1">Item</label>
-      <select id="gitem" class="inp mb-3">${GIVEAWAY_ITEMS.map(i=>`<option value="${i}">${i}</option>`).join('')}</select>
-      <label class="text-xs text-slate-400 block mb-1">Quantity</label>
-      <input type="number" id="gqty" value="1" min="1" class="inp mb-3 w-24" oninput="gUpd()">
-      <label class="text-xs text-slate-400 block mb-1">Date taken</label>
+      ${isGiv?`
+        <label class="text-xs text-slate-400 block mb-1">Item</label>
+        <select id="gitem" class="inp mb-3">${GIVEAWAY_ITEMS.map(i=>`<option value="${i}">${i}</option>`).join('')}</select>
+        <label class="text-xs text-slate-400 block mb-1">Quantity</label>
+        <input type="number" id="gqty" value="1" min="1" class="inp mb-3 w-24" oninput="gUpd()">`
+      :`<input type="hidden" id="gitem" value="${kind==='advance'?'Cash advance':'Loan'}">
+        <input type="hidden" id="gqty" value="1">`}
+      <label class="text-xs text-slate-400 block mb-1">${kind==='advance'?'Date advanced':kind==='loan'?'Date borrowed':'Date taken'}</label>
       <input type="date" id="gdate" value="${new Date().toISOString().split('T')[0]}" class="inp mb-3">
-      <label class="text-xs text-slate-400 block mb-1">Amount charged ($)</label>
-      <input type="number" id="gamt" value="${rt}" min="0" step="0.01" class="inp mb-3">
-      <label class="text-xs text-slate-400 block mb-1">Notes (optional)</label>
-      <input type="text" id="gnotes" class="inp mb-4" placeholder="e.g. to close the sale">
+      <label class="text-xs text-slate-400 block mb-1">Amount ($)</label>
+      <input type="number" id="gamt" value="${isGiv?rt:''}" min="0" step="0.01" class="inp mb-3" ${isGiv?'':'placeholder="0.00"'}>
+      <label class="text-xs text-slate-400 block mb-1">${kind==='loan'?'What the loan is for (required)':kind==='advance'?'Which pay it comes off (optional)':'Notes (optional)'}</label>
+      <input type="text" id="gnotes" class="inp mb-4" placeholder="${kind==='loan'?'e.g. car repair — repaying over the next few weeks':kind==='advance'?'e.g. against next Wednesday\'s pay':'e.g. to close the sale'}">
+      <input type="hidden" id="gkind" value="${kind}">
       <div class="flex gap-3"><button class="btn gold flex-1" onclick="saveGiv()">Save</button><button class="btn dark flex-1" onclick="closeMod()">Cancel</button></div>`);
     window.gUpd=()=>{const q=+$('gqty').value||1;$('gamt').value=(q*(+S().pillow_charge||0)).toFixed(2);};
     window.saveGiv=async()=>{
+      const kind=$('gkind').value;
       const q=+$('gqty').value||1, amt=+$('gamt').value;
-      if(amt<0){toast('Amount cannot be negative',false);return;}
-      const{error}=await sb.from('commission_giveaways').insert({consultant_id:$('gcons').value,kind:'giveaway',item:$('gitem').value,quantity:q,unit_charge:+S().pillow_charge||0,amount:amt,taken_date:$('gdate').value,notes:$('gnotes').value.trim()||null});
+      const notes=$('gnotes').value.trim()||null;
+      if(!amt||amt<=0){toast('Enter the amount',false);return;}
+      if(kind==='loan'&&!notes){toast('Record what the loan is for',false);return;}
+      const{error}=await sb.from('commission_giveaways').insert({consultant_id:$('gcons').value,kind,
+        item:$('gitem').value,quantity:kind==='giveaway'?q:1,
+        unit_charge:kind==='giveaway'?(+S().pillow_charge||0):amt,
+        amount:amt,taken_date:$('gdate').value,notes});
       if(error){err(error);return;}
-      closeMod();toast('Giveaway recorded');go('giveaways');
+      const done={giveaway:'Giveaway recorded',advance:'Cash advance recorded',loan:'Loan recorded'};
+      closeMod();toast(done[kind]||'Recorded');go('giveaways');
     };
   };
 
@@ -1120,7 +1161,10 @@ async function showGiveaways(){
     openMod(`<h3 class="font-semibold text-white mb-3">History — ${c?c.name:''}</h3>
       <div class="max-h-80 overflow-auto">
       ${rows.length?rows.map(g=>`<div class="flex items-center justify-between text-sm py-2 border-b border-slate-700/50">
-        <div><div class="text-slate-200">${g.item||g.kind}${g.quantity>1?` ×${g.quantity}`:''}</div><div class="text-xs text-slate-500">${fmtD(g.taken_date)}${g.notes?' — '+g.notes:''}</div></div>
+        <div><div class="text-slate-200">${g.item||g.kind}${g.quantity>1?` ×${g.quantity}`:''}
+              ${(()=>{const k=g.kind||'giveaway';const tag={advance:['Cash advance','#38bdf8'],loan:['Loan','#c084fc'],opening:['Opening balance','#94a3b8']}[k];
+                return tag?`<span style="font-size:10px;font-weight:700;color:${tag[1]};border:1px solid ${tag[1]}55;border-radius:10px;padding:1px 7px;margin-left:6px">${tag[0]}</span>`:'';})()}</div>
+              <div class="text-xs text-slate-500">${fmtD(g.taken_date)}${g.notes?' — '+g.notes:''}</div></div>
         <div class="flex items-center gap-3"><span class="text-yellow-400">${fmt(g.amount)}</span><button class="text-slate-600 hover:text-red-400 text-xs" onclick="delGiv('${g.id}')">✕</button></div>
       </div>`).join(''):'<p class="text-slate-500 text-sm py-3">Nothing recorded yet.</p>'}
       </div>
