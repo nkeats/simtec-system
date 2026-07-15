@@ -64,6 +64,11 @@
 
 <div class="wrap">
   <div id="msg"></div>
+  <div id="conWarn" style="display:none;background:#eef4fb;border:1px solid #cfe0f2;border-left:5px solid #1f5aa8;border-radius:9px;padding:12px 14px;margin-bottom:14px">
+    <div style="font-weight:700;color:#1f5aa8;font-size:14px">This mobile belongs to a consultant</div>
+    <div id="conBody" style="font-size:13px;color:#33506f;margin-top:5px"></div>
+    <div style="font-size:12.5px;color:#4a6b8f;margin-top:6px">Fine if the consultant is buying a mattress themselves. But if this sale is for <b>someone else</b>, put the <b>customer's own</b> number here — otherwise every arrears text and delivery call about this account goes to the consultant, not the customer.</div>
+  </div>
   <div id="dupeWarn" style="display:none;background:#fff4e5;border:1px solid #e0b877;border-left:5px solid #c07a00;border-radius:9px;padding:12px 14px;margin-bottom:14px">
     <div style="font-weight:700;color:#8a5a12;font-size:14px">⚠ This customer already has a live order</div>
     <div id="dupeBody" style="font-size:13px;color:#6b5a2a;margin-top:5px"></div>
@@ -328,7 +333,7 @@ $("mobile").addEventListener("input", ()=>{
    normalised E.164 mobile catches it regardless of how the name was typed.
    It only warns; it never blocks (a customer can legitimately buy twice). */
 let DUPES=[], dupeTimer=null;
-function hideDupe(){ DUPES=[]; const w=$("dupeWarn"); if(w) w.style.display="none"; }
+function hideDupe(){ DUPES=[]; const w=$("dupeWarn"); if(w) w.style.display="none"; const c=$("conWarn"); if(c) c.style.display="none"; }
 function scheduleDupeCheck(e164, flag){
   clearTimeout(dupeTimer);
   if(flag!=="ok"){ hideDupe(); return; }
@@ -341,7 +346,17 @@ async function checkDupe(e164){
     const {data:os}=await sb.from("sim_orders")
       .select("id,order_date,contract_value,consultant_name,order_status,delivery_status")
       .in("customer_id",cs.map(c=>c.id)).eq("order_status","active");
-    if(!os||!os.length){ hideDupe(); return; }
+    // Is this number already on file for someone who IS a consultant? Their own
+    // mobile lives on their own customer record (staff buy mattresses too), so a
+    // name match against the active consultant list is what we have to go on —
+    // consultants have no phone number stored anywhere else.
+    const conHit=cs.filter(c=>CONSULTANT_NAMES.some(n=>normName(n)===normName([c.first_name,c.last_name].filter(Boolean).join(" "))));
+    if(conHit.length){
+      $("conBody").innerHTML="This number is on file for <b>"+conHit.map(c=>esc([c.first_name,c.last_name].filter(Boolean).join(" "))).join(", ")+"</b>, who "+(conHit.length>1?"are consultants":"is a consultant")+".";
+      $("conWarn").style.display="block";
+    } else { const cw=$("conWarn"); if(cw) cw.style.display="none"; }
+
+    if(!os||!os.length){ DUPES=[]; const w=$("dupeWarn"); if(w) w.style.display="none"; return; }
     DUPES=os;
     const nm=cs.map(c=>[c.first_name,c.last_name].filter(Boolean).join(" ")).filter(Boolean);
     $("dupeBody").innerHTML =
@@ -361,14 +376,18 @@ $("payMethod").addEventListener("change", ()=>{
 // ---- consultants ----
 const FALLBACK_CONSULTANTS = ["Yazan Othman","Kenzie Lam Sam","Stacey Numanga","PJ Tonga","Anovale Tovio","Brooke Komene","Kono Harris","Rita Neli","Tame Cooper","Matt"];
 const TEAM = {"Kenzie Lam Sam":"Kenzie Lam Sam","Anovale Tovio":"Kenzie Lam Sam","PJ Tonga":"Kenzie Lam Sam","Rita Neli":"Kenzie Lam Sam","Tame Cooper":"Kenzie Lam Sam","Yazan Othman":"Yazan Othman","Brooke Komene":"Yazan Othman","Kono Harris":"Yazan Othman","Stacey Numanga":"Yazan Othman"};
+let CONSULTANT_NAMES = FALLBACK_CONSULTANTS.slice();
 async function loadConsultants(){
   let names = FALLBACK_CONSULTANTS;
   try{
     const {data} = await sb.from("commission_consultants").select("name");
     if(data && data.length) names = [...new Set(data.map(d=>d.name).filter(Boolean))].sort();
   }catch(e){}
+  CONSULTANT_NAMES = names.slice();
   $("consultants").innerHTML = names.map(n=>`<option value="${n}">`).join("");
 }
+const normName = s => String(s||"").toLowerCase().replace(/[^a-z]/g,"");
+const esc = s => String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 
 // ---- recent list ----
 async function loadRecent(){
