@@ -17,6 +17,7 @@ select.inp{appearance:auto}
 .gold{background:#eab308;color:#0f172a}.gold:hover:not(:disabled){background:#fbbf24}
 .dark{background:#1e293b;color:#94a3b8;border:1px solid #334155}.dark:hover:not(:disabled){color:#fff}
 .card{background:#1e293b;border:1px solid #334155;border-radius:.75rem;padding:1.25rem}
+.lbl{font-size:.7rem;letter-spacing:.06em;text-transform:uppercase;color:#eab308;font-weight:700}
 @media print{@page{size:A4;margin:0}html,body{background:#fff!important;margin:0!important;padding:0!important}#nav,.noprint{display:none!important}.inv-wrap{padding:0!important;margin:0!important;display:block!important}.inv-page{width:210mm!important;min-height:auto!important;box-shadow:none!important;margin:0!important;padding:12mm!important}}
 </style>
 </head>
@@ -55,6 +56,7 @@ const toMon=d=>{const dt=new Date(d+'T12:00:00');const dy=dt.getDay();dt.setDate
 const weekMS=d=>{const dt=new Date(d+'T12:00:00');const dy=dt.getDay();const mon=new Date(dt);mon.setDate(dt.getDate()+(dy===0?-6:1-dy));const sun=new Date(mon);sun.setDate(mon.getDate()+6);const iso=x=>x.toISOString().split('T')[0];return{start:iso(mon),ending:iso(sun)};};
 const $=id=>document.getElementById(id);
 const go=(p,r,c)=>{page=p;runId=r||runId;consId=c||consId;renderNav();renderApp()};
+const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const openMod=html=>{$('mbox').innerHTML=html;$('moverlay').classList.remove('hidden')};
 const closeMod=()=>$('moverlay').classList.add('hidden');
 const toast=(msg,ok=true)=>{const t=$('toast');t.textContent=msg;t.className=`fixed bottom-6 right-6 px-4 py-3 rounded-lg text-sm font-medium noprint ${ok?'bg-green-700 text-green-100':'bg-red-700 text-red-100'}`;t.classList.remove('hidden');setTimeout(()=>t.classList.add('hidden'),3000)};
@@ -119,7 +121,7 @@ function renderNav(){
     <a href="home.html" style="color:#cbd5e1;text-decoration:none;font-size:.8rem;margin-right:4px">‹ Home</a>
     <div class="flex items-center gap-2 mr-4"><div class="w-1.5 h-5 bg-yellow-500 rounded-sm"></div>
     <span class="font-bold text-sm tracking-wide">SIMTEC COMMISSIONS</span></div>
-    ${[['runs','Pay Runs'],['customers','Customer History'],['giveaways','Giveaways'],['setup','Consultants & Products'],['settings','Commission Rates']].map(([p,l])=>
+    ${[['runs','Pay Runs'],['cashweek','Cash Week'],['customers','Customer History'],['giveaways','Giveaways'],['setup','Consultants & Products'],['settings','Commission Rates']].map(([p,l])=>
       `<button onclick="go('${p}')" class="text-sm font-medium pb-0.5 border-b-2 transition-colors ${page===p?'border-yellow-500 text-yellow-400':'border-transparent text-slate-400 hover:text-white'}">${l}</button>`
     ).join('')}`;
 }
@@ -142,6 +144,7 @@ async function renderApp(){
       consultants=c||[];products=p||[];
     }
     if(page==='runs')    await showRuns();
+    else if(page==='cashweek') await showCashWeek();
     else if(page==='customers') await showCustomers();
     else if(page==='giveaways') await showGiveaways();
     else if(page==='run')await showRun();
@@ -154,7 +157,229 @@ async function renderApp(){
   }
 }
 
+
+// ── Cash Week ──────────────────────────────────────────────────────────────
+// The boss sometimes runs a "big cash week": paying consultants DAILY to
+// motivate them, instead of once on the Wednesday.
+//
+// The trap: the per-unit rate depends on the WEEK'S FINAL VOLUME (1-4 = $200,
+// 5-9 = $300, 10+ = $400), so it keeps moving. You cannot correctly allocate
+// retention per-deal on the day, because the rate isn't known yet.
+//
+// So daily payments are treated as ADVANCES, not commission events:
+//   • TRUE ENTITLEMENT — recomputed live from current sales (calc()). If a sale
+//     cancels it simply drops out. No per-sale clawback needed.
+//   • WHAT ACTUALLY HAPPENED — cash handed over and retention held back are
+//     recorded FACTS in commission_cash_advances. They never recalculate.
+// Payday is then arithmetic:
+//   cash owing     = net cash due  − cash advanced
+//   retention adj  = retention due − retention allocated
+// Either going negative is the clawback figure.
+let cwCon=null, cwWeek=null;
+
+function mondayOf(d){ const x=new Date(d); x.setHours(12,0,0,0); const dow=(x.getDay()+6)%7; x.setDate(x.getDate()-dow); return x; }
+const isoD=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+
+async function showCashWeek(){
+  const active=consultants.filter(c=>c.active);
+  if(!cwCon && active.length) cwCon=active[0].id;
+  if(!cwWeek) cwWeek=isoD(mondayOf(new Date()));
+  const weekStart=cwWeek;
+  const weekEnd=isoD(new Date(new Date(cwWeek+'T12:00:00').getTime()+6*86400000));
+
+  const con=consultants.find(c=>c.id===cwCon);
+  const [{data:sl},{data:ret},{data:wk}]=await Promise.all([
+    sb.from('commission_sales').select('*,commission_sale_items(quantity,commission_products(*))')
+      .eq('consultant_id',cwCon).gte('sale_date',weekStart).lte('sale_date',weekEnd),
+    sb.from('commission_retention').select('*').eq('consultant_id',cwCon).maybeSingle(),
+    sb.from('commission_cash_weeks').select('*').eq('consultant_id',cwCon).eq('week_start',weekStart).maybeSingle()
+  ]);
+  const sales=(sl||[]).map(x=>({...x,items:(x.commission_sale_items||[]).map(i=>({...i,product:i.commission_products}))}));
+  const retBal=+ret?.balance||0;
+
+  let advances=[];
+  if(wk){ const {data:ad}=await sb.from('commission_cash_advances').select('*').eq('cash_week_id',wk.id).order('advance_date'); advances=ad||[]; }
+
+  // TRUE entitlement for the week as it stands right now
+  const e=calc(sales,[],[],retBal,con?.pay_basis);
+  const cashDue = e.gs - e.ret;                       // sales commission + cash bonus, less retention
+  const paidCash = advances.reduce((a,x)=>a+(+x.cash_paid||0),0);
+  const paidRet  = advances.reduce((a,x)=>a+(+x.retention_allocated||0),0);
+  const owingCash = cashDue - paidCash;
+  const owingRet  = e.ret - paidRet;
+
+  const wkLabel=`${fmtD(weekStart)} – ${fmtD(weekEnd)}`;
+  const money=n=>(n<0?'-$':'$')+Math.abs(n).toLocaleString('en-NZ',{minimumFractionDigits:2,maximumFractionDigits:2});
+
+  // suggestion for the next entry = bring them up to date
+  const sugCash=Math.max(0,owingCash), sugRet=Math.max(0,owingRet);
+
+  $('app').innerHTML=`
+  <div class="p-8 max-w-4xl mx-auto">
+    <div class="flex items-center justify-between mb-6 flex-wrap gap-3">
+      <div><h1 class="text-2xl font-bold">Cash Week</h1>
+      <p class="text-slate-400 text-sm mt-1">Daily payouts tracked as advances, reconciled on payday</p></div>
+    </div>
+
+    <div class="card mb-5">
+      <div class="grid md:grid-cols-3 gap-3 items-end">
+        <div><label class="lbl block mb-1">Consultant</label>
+          <select class="inp" onchange="cwSetCon(this.value)">
+            ${active.map(c=>`<option value="${c.id}" ${c.id===cwCon?'selected':''}>${esc(c.name)}</option>`).join('')}
+          </select></div>
+        <div><label class="lbl block mb-1">Week starting (Monday)</label>
+          <input type="date" class="inp" value="${weekStart}" onchange="cwSetWeek(this.value)"></div>
+        <div class="flex gap-2">
+          <button class="btn dark flex-1" onclick="cwShift(-7)">‹ Prev</button>
+          <button class="btn dark flex-1" onclick="cwShift(7)">Next ›</button>
+        </div>
+      </div>
+      <div class="text-slate-500 text-xs mt-2">Week ${wkLabel} · paid the following Wednesday</div>
+    </div>
+
+    ${!wk ? `<div class="card text-center py-10">
+        <div class="text-slate-300 mb-1">No cash week open for ${esc(con?.name||'')} — ${wkLabel}</div>
+        <div class="text-slate-500 text-sm mb-4">Open one to start recording daily payouts.</div>
+        <button class="btn gold" onclick="cwOpen()">Open cash week</button>
+      </div>`
+    : `
+    <div class="grid md:grid-cols-3 gap-3 mb-5">
+      <div class="card"><div class="lbl">Entitlement so far</div>
+        <div class="text-2xl font-bold mt-1">${money(e.gs)}</div>
+        <div class="text-slate-500 text-xs mt-1">${e.units} unit${e.units===1?'':'s'} @ $${e.rate}${e.ac?` · incl ${money(e.ac)} cash bonus`:''}</div></div>
+      <div class="card"><div class="lbl">Cash advanced</div>
+        <div class="text-2xl font-bold mt-1 text-sky-300">${money(paidCash)}</div>
+        <div class="text-slate-500 text-xs mt-1">of ${money(cashDue)} due</div></div>
+      <div class="card"><div class="lbl">Retention allocated</div>
+        <div class="text-2xl font-bold mt-1 text-amber-300">${money(paidRet)}</div>
+        <div class="text-slate-500 text-xs mt-1">of ${money(e.ret)} due</div></div>
+    </div>
+
+    <div class="card mb-5" style="border-color:${(Math.abs(owingCash)<0.01&&Math.abs(owingRet)<0.01)?'#1c6b34':'#c9a84c'}">
+      <div class="lbl mb-3">Payday reconciliation — Wednesday</div>
+      <table class="w-full text-sm">
+        <tr class="border-b border-slate-700"><td class="py-2">Net cash due (entitlement less retention)</td><td class="py-2 text-right font-semibold">${money(cashDue)}</td></tr>
+        <tr class="border-b border-slate-700"><td class="py-2 text-slate-400">Less cash already advanced</td><td class="py-2 text-right text-slate-400">${money(-paidCash)}</td></tr>
+        <tr class="border-b border-slate-700"><td class="py-2 font-bold ${owingCash<-0.01?'text-red-400':'text-white'}">${owingCash<-0.01?'OVERPAID — claw back':'Still to pay on Wednesday'}</td>
+            <td class="py-2 text-right font-bold text-lg ${owingCash<-0.01?'text-red-400':'text-green-400'}">${money(Math.abs(owingCash))}</td></tr>
+        <tr class="border-b border-slate-700"><td class="py-2 pt-4">Retention due for the week</td><td class="py-2 pt-4 text-right font-semibold">${money(e.ret)}</td></tr>
+        <tr class="border-b border-slate-700"><td class="py-2 text-slate-400">Less retention already held back</td><td class="py-2 text-right text-slate-400">${money(-paidRet)}</td></tr>
+        <tr><td class="py-2 font-bold ${owingRet<-0.01?'text-red-400':'text-white'}">${owingRet<-0.01?'Retention over-held — release':'Still to add to retention'}</td>
+            <td class="py-2 text-right font-bold text-lg ${owingRet<-0.01?'text-red-400':'text-amber-300'}">${money(Math.abs(owingRet))}</td></tr>
+      </table>
+      <div class="text-slate-500 text-xs mt-3">Entitlement recalculates live. If a sale cancels it drops out of this automatically — no separate clawback needed.</div>
+      ${wk.status==='reconciled'
+        ? `<div class="mt-4 p-3 rounded-lg" style="background:#14361f;border:1px solid #1c6b34">
+             <div class="text-green-400 font-semibold text-sm">✓ Reconciled to the pay run</div>
+             <div class="text-slate-400 text-xs mt-1">${money(paidCash)} was posted to week ending ${fmtD(weekEnd)} as a deduction${wk.reconciled_by?` by ${esc(wk.reconciled_by)}`:''}. The pay run now pays only the balance.</div>
+           </div>`
+        : (paidCash>0
+          ? `<div class="mt-4 p-3 rounded-lg" style="background:#3a2f10;border:1px solid #c9a84c">
+               <div class="text-amber-300 font-semibold text-sm">⚠ Not yet posted to the pay run</div>
+               <div class="text-slate-300 text-xs mt-1 mb-3">The pay run doesn't know about the ${money(paidCash)} already handed over. Post it as a deduction or <b>the consultant will be paid twice</b>.</div>
+               <button class="btn gold" onclick="cwReconcile('${wk.id}','${weekEnd}',${paidCash})">Post ${money(paidCash)} to the pay run</button>
+             </div>`
+          : '')}
+    </div>
+
+    <div class="card mb-5">
+      <div class="lbl mb-3">Record a payout</div>
+      <div class="grid md:grid-cols-5 gap-3 items-end">
+        <div><label class="lbl block mb-1">Date</label><input type="date" id="cwDate" class="inp" value="${isoD(new Date())}"></div>
+        <div><label class="lbl block mb-1">Units sold</label><input type="number" id="cwUnits" class="inp" min="0" step="1" value="0"></div>
+        <div><label class="lbl block mb-1">Cash paid</label><input type="number" id="cwCash" class="inp" step="0.01" value="${sugCash.toFixed(2)}"></div>
+        <div><label class="lbl block mb-1">Retention held</label><input type="number" id="cwRet" class="inp" step="0.01" value="${sugRet.toFixed(2)}"></div>
+        <div><button class="btn gold w-full" onclick="cwAdd('${wk.id}')">Add</button></div>
+      </div>
+      <input id="cwNote" class="inp mt-3" placeholder="Note (optional) — e.g. paid at $300/deal, holding the rest">
+      <div class="text-slate-500 text-xs mt-2">Suggested: <b>${money(sugCash)}</b> cash and <b>${money(sugRet)}</b> retention brings them up to date. Enter what was <b>actually</b> handed over — you'll be warned if it differs.</div>
+    </div>
+
+    <div class="card">
+      <div class="lbl mb-3">Daily payouts this week</div>
+      ${!advances.length?'<div class="text-slate-500 text-sm py-4">Nothing recorded yet.</div>':`
+      <table class="w-full text-sm">
+        <thead><tr class="text-left text-slate-500 border-b border-slate-700">
+          <th class="pb-2">Date</th><th class="pb-2">Units</th><th class="pb-2 text-right">Cash paid</th>
+          <th class="pb-2 text-right">Retention</th><th class="pb-2">Note</th><th></th></tr></thead>
+        <tbody>${advances.map(a=>`<tr class="border-b border-slate-800">
+          <td class="py-2">${fmtD(a.advance_date)}</td>
+          <td class="py-2">${a.units||0}</td>
+          <td class="py-2 text-right">${money(+a.cash_paid||0)}</td>
+          <td class="py-2 text-right text-amber-300">${money(+a.retention_allocated||0)}</td>
+          <td class="py-2 text-slate-400 text-xs">${esc(a.note||'')}</td>
+          <td class="py-2 text-right"><button onclick="cwDel('${a.id}')" class="text-slate-500 hover:text-red-400 text-xs">remove</button></td>
+        </tr>`).join('')}
+        <tr class="font-bold"><td class="py-2">Total</td><td></td>
+          <td class="py-2 text-right">${money(paidCash)}</td>
+          <td class="py-2 text-right text-amber-300">${money(paidRet)}</td><td colspan="2"></td></tr>
+        </tbody></table>`}
+    </div>`}
+  </div>`;
+}
+
+window.cwSetCon=v=>{cwCon=v;renderApp();};
+window.cwSetWeek=v=>{cwWeek=isoD(mondayOf(new Date(v+'T12:00:00')));renderApp();};
+window.cwShift=n=>{cwWeek=isoD(new Date(new Date(cwWeek+'T12:00:00').getTime()+n*86400000));renderApp();};
+
+window.cwOpen=async()=>{
+  const who=(window.SIMTEC_USER&&(window.SIMTEC_USER.full_name||window.SIMTEC_USER.email))||'staff';
+  const {error}=await sb.from('commission_cash_weeks').insert({consultant_id:cwCon,week_start:cwWeek,status:'open',opened_by:who});
+  if(error){alert(error.message);return;}
+  renderApp();
+};
+
+window.cwAdd=async(wkId)=>{
+  const date=$('cwDate').value, units=parseInt($('cwUnits').value,10)||0;
+  const cash=parseFloat($('cwCash').value)||0, ret=parseFloat($('cwRet').value)||0;
+  const note=$('cwNote').value.trim()||null;
+  if(!date){alert('Pick a date');return;}
+  if(cash===0&&ret===0){alert('Enter the cash paid and/or retention held back.');return;}
+  const sugC=parseFloat($('cwCash').defaultValue)||0, sugR=parseFloat($('cwRet').defaultValue)||0;
+  // warn (don't block) when what was actually paid differs from what's owed
+  const dC=cash-sugC, dR=ret-sugR;
+  if(Math.abs(dC)>0.01||Math.abs(dR)>0.01){
+    const f=n=>(n<0?'-$':'$')+Math.abs(n).toFixed(2);
+    if(!confirm(`This differs from what would bring them up to date.\n\n`
+      +`Cash:      paying ${f(cash)} vs ${f(sugC)} owed  (${dC>0?'over':'under'} by ${f(Math.abs(dC))})\n`
+      +`Retention: holding ${f(ret)} vs ${f(sugR)} owed  (${dR>0?'over':'under'} by ${f(Math.abs(dR))})\n\n`
+      +`That's fine — the difference carries to Wednesday's reconciliation.\nRecord it as entered?`)) return;
+  }
+  const who=(window.SIMTEC_USER&&(window.SIMTEC_USER.full_name||window.SIMTEC_USER.email))||'staff';
+  const {error}=await sb.from('commission_cash_advances').insert({cash_week_id:wkId,consultant_id:cwCon,
+    advance_date:date,units,cash_paid:cash,retention_allocated:ret,note,created_by:who});
+  if(error){alert(error.message);return;}
+  renderApp();
+};
+
+// Posts the week's cash advances onto the pay run as a deduction, so Wednesday
+// pays only the BALANCE. calc() does net = gross − retention − deductions, so a
+// $2,700 deduction against $4,800 gross / $1,200 retention leaves $900 to pay.
+// Without this the pay run would pay the full amount again.
+window.cwReconcile=async(wkId,weekEnd,amount)=>{
+  const {data:run}=await sb.from('commission_pay_runs').select('*').eq('week_ending',weekEnd).maybeSingle();
+  if(!run){ alert('There is no pay run for week ending '+fmtD(weekEnd)+' yet.\n\nCreate it on the Pay Runs screen first, then come back and post this.'); return; }
+  if(run.status==='finalised'){ alert('That pay run is already finalised — the deduction can\'t be added now.\n\nThis needs sorting by hand.'); return; }
+  if(!confirm(`Post ${'$'+Number(amount).toFixed(2)} to the pay run for week ending ${fmtD(weekEnd)} as a deduction?\n\nWednesday will then pay only the balance still owed.`)) return;
+  const who=(window.SIMTEC_USER&&(window.SIMTEC_USER.full_name||window.SIMTEC_USER.email))||'staff';
+  const {error:e1}=await sb.from('commission_deductions').insert({pay_run_id:run.id,consultant_id:cwCon,
+    deduction_type:'cash_advance',description:'Cash paid during the week (big cash week)',amount,quantity:1});
+  if(e1){alert(e1.message);return;}
+  const {error:e2}=await sb.from('commission_cash_weeks').update({status:'reconciled',
+    reconciled_at:new Date().toISOString(),reconciled_by:who}).eq('id',wkId);
+  if(e2){alert(e2.message);return;}
+  renderApp();
+};
+
+window.cwDel=async(id)=>{
+  if(!confirm('Remove this payout record?')) return;
+  const {error}=await sb.from('commission_cash_advances').delete().eq('id',id);
+  if(error){alert(error.message);return;}
+  renderApp();
+};
+
 // ── Pay Runs list ──────────────────────────────────────────────────────────
+
 async function showRuns(){
   const{data:runs,error}=await sb.from('commission_pay_runs').select('*').order('week_ending',{ascending:false});
   if(error)throw error;
