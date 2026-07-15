@@ -13,8 +13,10 @@ body{font-family:system-ui,sans-serif}
 .lbl{font-size:.7rem;letter-spacing:.06em;text-transform:uppercase;color:#c9a84c;font-weight:700}
 .k{color:#7c8aa0;font-size:.78rem}
 .btn{padding:.6rem 1.1rem;border-radius:.6rem;font-size:.9rem;font-weight:700;cursor:pointer;border:1px solid #334155;background:#1e293b;color:#cbd5e1}
+.btn.on{background:#c9a84c;color:#1a2438;border-color:#c9a84c}
 .gold{background:#c9a84c;color:#1a2438;border:none}
 .inp{display:block;width:100%;padding:.6rem .8rem;background:#0f172a;border:1px solid #334155;border-radius:.6rem;color:#fff;box-sizing:border-box}
+.pill{display:inline-block;min-width:20px;text-align:center;font-size:11px;font-weight:700;padding:1px 7px;border-radius:999px;background:#14361f;color:#4ade80;margin-left:6px}
 </style>
 </head>
 <body class="bg-slate-950 text-white min-h-screen">
@@ -28,18 +30,14 @@ body{font-family:system-ui,sans-serif}
 <div class="max-w-4xl mx-auto p-6">
 
   <div class="card mb-4">
-    <div class="lbl mb-2">The message every defaulter receives</div>
-    <div class="text-slate-200 text-sm bg-slate-900 rounded-lg p-3" id="msgpreview"></div>
-    <div class="k mt-2">The customer's first name fills in automatically. This wording is locked.</div>
-  </div>
-
-  <div class="card mb-4">
     <div class="lbl mb-2">Latest Ezidebit report <span id="reportdate" class="text-slate-400 normal-case font-normal"></span></div>
     <div id="parsestate" class="k">Loading…</div>
-    <button class="btn mt-3" onclick="loadDishonours()" style="font-size:.8rem">Refresh</button>
-    <div class="k mt-2">Dishonours come from the report you upload on the Home page — this screen just reads them. Cancelled and on-hold customers are left out automatically.</div>
+    <button class="btn mt-3" onclick="loadAll()" style="font-size:.8rem">Refresh</button>
+    <div class="k mt-2">Day 1 comes from the latest report you upload on the Home page. Days 2–5 follow the people who were texted the day before and still haven't been in touch. Anyone whose payment clears drops off automatically.</div>
   </div>
 
+  <div id="tabs" class="flex flex-wrap items-center gap-2 mb-4"></div>
+  <div id="msgcard" class="card mb-4"></div>
   <div id="review"></div>
 
   <div class="card mt-6">
@@ -48,14 +46,27 @@ body{font-family:system-ui,sans-serif}
       <input id="testmob" class="inp" placeholder="Your mobile, e.g. 021 555 0192" style="flex:1">
       <button class="btn gold" onclick="sendTest()">Send test</button>
     </div>
-    <div id="teststate" class="k mt-2"></div>
+    <div id="teststate" class="k mt-2">Sends whichever day's message you're viewing.</div>
   </div>
 
 </div>
 
 <script>
-// Locked message. First name fills in as ${name}. Straight apostrophes on purpose.
-const MESSAGE = name => `Hi ${name}, this is Simtec Therapeutic. You've missed a payment - it's important, so reach out to us right now. We're here to listen and support you, and will work with you to get things back on track. Don't delay - call us on 09 886 9897 and we'll help.`;
+// ── The five messages. Day 1 unchanged. Each day is firmer than the last. ──
+const MESSAGES = {
+  1: n => `Hi ${n}, this is Simtec Therapeutic. You've missed a payment - it's important, so reach out to us right now. We're here to listen and support you, and will work with you to get things back on track. Don't delay - call us on 09 886 9897 and we'll help.`,
+  2: n => `Hi ${n}, you're a AAA client with Simtec Therapeutic. We noticed you missed a payment. Please call 09 886 9897 so we can help you keep your AAA rating.`,
+  3: n => `Hi ${n}, we still haven't heard about your missed payment. We'd much rather help than see you lose your AAA rating. Please call 09 886 9897 today.`,
+  4: n => `Hi ${n}, your Simtec account is still behind and we haven't been able to reach you. The longer this is left, the harder it gets to fix. Please call 09 886 9897 today so we can agree a plan.`,
+  5: n => `Hi ${n}, your Simtec account remains in arrears and we've had no response from you. We need to hear from you today. If we don't, your account will be referred for further action. Call 09 886 9897.`
+};
+const DAY_NOTE = {
+  1:"First contact — warm, supportive, asks them to call.",
+  2:"Reminds them they're a AAA client and what's at stake.",
+  3:"Notes the silence; the AAA rating is now clearly at risk.",
+  4:"Firmer and factual — this is getting harder to fix.",
+  5:"Serious — names the consequence (referred for further action)."
+};
 
 const SUPABASE_URL='https://jvqjoenaungubpoegyvf.supabase.co';
 const SUPABASE_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imp2cWpvZW5hdW5ndWJwb2VneXZmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA1MzQyMjYsImV4cCI6MjA5NjExMDIyNn0.ypVt8578XTdNwBH6TRDn30s1cF_rHTu67qCWYv5XHcQ';
@@ -64,14 +75,18 @@ const $=id=>document.getElementById(id);
 const esc=s=>(s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const norm=s=>(s||'').replace(/[^a-z0-9]/gi,'').toLowerCase();
 function auDate(v){if(!v)return'';const m=String(v).match(/^(\d{4})-(\d{2})-(\d{2})/);return m?m[3]+'/'+m[2]+'/'+m[1]:v;}
+const who=()=> (window.SIMTEC_USER && (window.SIMTEC_USER.full_name||window.SIMTEC_USER.email)) || 'office';
 
-$('msgpreview').textContent=MESSAGE('[first name]');
+let day=1;                 // which day tab is showing
+let custByRef={};          // payer_ref -> customer/order info
+let orderById={};          // order_id  -> customer/order info
+let LISTS={1:[],2:[],3:[],4:[],5:[]};
+let DROPPED_PAID=0;        // how many fell off this load because they paid
 
-// ---- Build payer ref -> ACTIVE customer (skip cancelled / on-hold / paid-in-full) ----
-let custMap={};
+// ── Load active customers + their current paid figure ──
 async function loadCustomers(){
   const {data:orders,error}=await sb.from('sim_orders')
-    .select('id,customer_id,ezidebit_payer_ref,order_status,paid_in_full')
+    .select('id,customer_id,ezidebit_payer_ref,order_status,paid_in_full,amount_paid_to_date')
     .not('ezidebit_payer_ref','is',null).eq('order_status','active');
   if(error){console.error(error);return;}
   const ids=[...new Set((orders||[]).map(o=>o.customer_id).filter(Boolean))];
@@ -80,144 +95,184 @@ async function loadCustomers(){
     const {data:cs}=await sb.from('sim_customers').select('id,first_name,last_name,mobile').in('id',ids.slice(i,i+200));
     (cs||[]).forEach(c=>cust[c.id]=c);
   }
-  custMap={};
+  custByRef={}; orderById={};
   (orders||[]).forEach(o=>{
     if(o.paid_in_full) return;
     const c=cust[o.customer_id]||{};
-    custMap[norm(o.ezidebit_payer_ref)]={
-      name:`${c.first_name||''} ${c.last_name||''}`.trim(),
-      firstName:(c.first_name||'').trim(), mobile:c.mobile||'', order_id:o.id, customer_id:o.customer_id};
+    const rec={
+      name:`${c.first_name||''} ${c.last_name||''}`.trim()||'(no name)',
+      firstName:(c.first_name||'').trim()||'there',
+      mobile:c.mobile||'', order_id:o.id, customer_id:o.customer_id,
+      payer_ref:o.ezidebit_payer_ref, paid:Number(o.amount_paid_to_date||0)
+    };
+    custByRef[norm(o.ezidebit_payer_ref)]=rec;
+    orderById[o.id]=rec;
   });
 }
 
-// ---- Load the LATEST report's dishonours from the database ----
-async function loadDishonours(){
-  $('parsestate').textContent='Loading latest report…';
+// ── Build all five day-lists ──
+async function loadAll(){
+  $('parsestate').textContent='Loading…';
   await loadCustomers();
-  const {data:latest}=await sb.from('sim_dishonours').select('settlement_date').order('settlement_date',{ascending:false}).limit(1);
-  if(!latest||!latest.length){ $('reportdate').textContent=''; $('parsestate').textContent='No dishonours in the system yet — upload a report on the Home page first.'; $('review').innerHTML=''; return; }
-  const sd=latest[0].settlement_date;
-  const {data:dis}=await sb.from('sim_dishonours').select('payer_ref,dishonour_date,amount,failed_reason').eq('settlement_date',sd).order('dishonour_date',{ascending:false});
-  const rows=dis||[];
-  // pull the full failure history for these payers, to count repeats
-  const payers=[...new Set(rows.map(r=>r.payer_ref))];
-  const hist={};
-  for(let i=0;i<payers.length;i+=100){
-    const {data:h}=await sb.from('sim_dishonours').select('payer_ref,dishonour_date').in('payer_ref',payers.slice(i,i+100));
-    (h||[]).forEach(d=>{(hist[d.payer_ref]=hist[d.payer_ref]||[]).push(d.dishonour_date);});
-  }
-  rows.forEach(r=>{
-    const ds=(hist[r.payer_ref]||[]).map(x=>new Date(x)).sort((a,b)=>a-b);
-    r.failCount=ds.length||1;
-    r.failWeeks=ds.length>1?Math.max(1,Math.round((ds[ds.length-1]-ds[0])/6048e5)):0;
+
+  // active sequence rows
+  const {data:seqRows}=await sb.from('sim_arrears_sequence').select('*').eq('status','active');
+  const seq=seqRows||[];
+
+  // auto-drop anyone whose paid figure has risen since they entered the sequence
+  DROPPED_PAID=0;
+  const paidOff=[];
+  seq.forEach(s=>{
+    const o=orderById[s.order_id];
+    if(!o) return;                                   // order gone/cancelled — leave it
+    if(o.paid > Number(s.paid_base||0) + 0.01){ paidOff.push(s.id); }
   });
-  $('reportdate').textContent='— settlement '+auDate(sd);
-  $('parsestate').textContent=`${rows.length} dishonour(s) on the latest report.`;
-  review(matchRows(rows));
+  if(paidOff.length){
+    await sb.from('sim_arrears_sequence')
+      .update({status:'paid',removed_at:new Date().toISOString(),removed_by:'auto (payment received)'})
+      .in('id',paidOff);
+    DROPPED_PAID=paidOff.length;
+  }
+  const live=seq.filter(s=>!paidOff.includes(s.id));
+  const inSequence=new Set(live.map(s=>s.order_id));
+
+  // ── Day 1: dishonours on the latest report, not already in an active sequence ──
+  LISTS={1:[],2:[],3:[],4:[],5:[]};
+  const {data:latest}=await sb.from('sim_dishonours').select('settlement_date').order('settlement_date',{ascending:false}).limit(1);
+  if(latest&&latest.length){
+    const sd=latest[0].settlement_date;
+    const {data:dis}=await sb.from('sim_dishonours').select('payer_ref,dishonour_date,amount,failed_reason').eq('settlement_date',sd);
+    $('reportdate').textContent='— settlement '+auDate(sd);
+    const seen=new Set();
+    (dis||[]).forEach(d=>{
+      const c=custByRef[norm(d.payer_ref)];
+      if(!c || !c.mobile) return;
+      if(inSequence.has(c.order_id)) return;         // already mid-sequence
+      if(seen.has(c.order_id)) return;               // one text per customer
+      seen.add(c.order_id);
+      LISTS[1].push(Object.assign({},c,{seq_id:null}));
+    });
+    $('parsestate').textContent=`${(dis||[]).length} dishonour(s) on the latest report.`;
+  } else {
+    $('reportdate').textContent='';
+    $('parsestate').textContent='No dishonours in the system yet — upload a report on the Home page first.';
+  }
+
+  // ── Days 2–5: whoever got yesterday's text and still hasn't been in touch ──
+  live.forEach(s=>{
+    const o=orderById[s.order_id];
+    if(!o || !o.mobile) return;
+    const next=Number(s.day_sent||0)+1;
+    if(next>=2 && next<=5) LISTS[next].push(Object.assign({},o,{seq_id:s.id, last_sent_at:s.last_sent_at}));
+  });
+
+  render();
 }
 
-function matchRows(rows){
-  return rows.map(r=>{const c=custMap[norm(r.payer_ref)];
-    return {payer_ref:r.payer_ref, reason:r.failed_reason||'Dishonour', amount:r.amount||'',
-            failCount:r.failCount||1, failWeeks:r.failWeeks||0,
-            name:(c&&c.name)||'', firstName:(c&&c.firstName)||'there',
-            mobile:(c&&c.mobile)||'', order_id:(c&&c.order_id)||null, customer_id:(c&&c.customer_id)||null,
-            matched:!!(c&&c.mobile)};});
-}
-const failLabel=r=>{const c=r.failCount||1,w=r.failWeeks||0;const txt=w?`${c}× in ${w} wk`:`${c}×`;
-  const col=c>=3?'#f87171':(c>=2?'#fbbf24':'#7c8aa0');return `<span style="color:${col};font-weight:${c>=2?700:400}">${txt}</span>`;};
+function render(){
+  const tab=(n)=>`<button class="btn ${day===n?'on':''}" onclick="setDay(${n})">Day ${n}${LISTS[n].length?`<span class="pill" ${day===n?'style="background:#1a2438;color:#c9a84c"':''}>${LISTS[n].length}</span>`:''}</button>`;
+  $('tabs').innerHTML=[1,2,3,4,5].map(tab).join('')
+    + (DROPPED_PAID?`<span class="k" style="margin-left:10px">${DROPPED_PAID} dropped off — payment received</span>`:'');
 
-// ---- Review + send ----
-let current=[];
-let SENDABLE=[];   // the matched rows currently shown, indexed to the checkboxes
+  $('msgcard').innerHTML=`<div class="lbl mb-2">Day ${day} message</div>
+    <div class="text-slate-200 text-sm bg-slate-900 rounded-lg p-3">${esc(MESSAGES[day]('[first name]'))}</div>
+    <div class="k mt-2">${esc(DAY_NOTE[day])} The customer's first name fills in automatically.</div>`;
 
-function toggleAll(on){
-  document.querySelectorAll('.sendchk').forEach(cb=>cb.checked=on);
-  updateCount();
-}
-function selectedRows(){
-  const out=[];
-  document.querySelectorAll('.sendchk').forEach(cb=>{ if(cb.checked){ const i=+cb.dataset.i; if(SENDABLE[i]) out.push(SENDABLE[i]); }});
-  return out;
-}
-function updateCount(){
-  const n=document.querySelectorAll('.sendchk:checked').length;
-  const total=document.querySelectorAll('.sendchk').length;
-  const el=$('selCount'); if(el) el.textContent=`${n} of ${total} selected to send`;
-  const sa=$('selAll'); if(sa) sa.checked = (n===total && total>0);
-  const btn=$('sendBtn'); if(btn){ btn.textContent = n? `Send ${n} text${n===1?'':'s'}` : 'Send texts'; btn.disabled = n===0; btn.style.opacity = n===0?.5:1; }
-}
-function review(list){
-  current=list;
-  const ok=list.filter(r=>r.matched).sort((a,b)=>b.failCount-a.failCount), no=list.filter(r=>!r.matched);
-  let html=`<div class="card"><div class="lbl mb-3">Review, then send (${ok.length} ready)</div>`;
-  if(ok.length){
-    html+=`<div class="k mb-2">Repeat failures are highlighted — a single miss is auto-rescheduled by Ezidebit, so focus on the amber/red ones. Everyone's ticked by default — <b>untick anyone you don't want to text this run</b>.</div>`;
+  const list=LISTS[day];
+  let html=`<div class="card"><div class="lbl mb-3">Review, then send — Day ${day} (${list.length} ready)</div>`;
+  if(list.length){
+    html+=`<div class="k mb-2">Everyone's ticked by default. <b>Untick anyone you've spoken to</b> — they'll be marked as spoken to and drop out of the sequence.</div>`;
     html+=`<div class="flex items-center gap-3 mb-2">
       <label class="flex items-center gap-2 cursor-pointer text-sm text-slate-300">
-        <input type="checkbox" id="selAll" checked onchange="toggleAll(this.checked)" style="width:16px;height:16px;accent-color:#c9a84c">
-        Select all
-      </label>
-      <span class="k" id="selCount"></span>
-    </div>`;
+        <input type="checkbox" id="selAll" checked onchange="toggleAll(this.checked)" style="width:16px;height:16px;accent-color:#c9a84c"> Select all
+      </label><span class="k" id="selCount"></span></div>`;
     html+=`<table class="w-full text-sm"><thead><tr class="text-left text-slate-500 border-b border-slate-700">
-      <th class="pb-2 pr-2"></th><th class="pb-2">Customer</th><th class="pb-2">Failures</th><th class="pb-2">Mobile</th><th class="pb-2">Message preview</th></tr></thead><tbody>`;
-    html+=ok.map((r,i)=>`<tr class="border-b border-slate-800" id="trow${i}">
+      <th class="pb-2 pr-2"></th><th class="pb-2">Customer</th><th class="pb-2">Mobile</th>${day>1?'<th class="pb-2">Last texted</th>':''}</tr></thead><tbody>`;
+    html+=list.map((r,i)=>`<tr class="border-b border-slate-800">
       <td class="py-2 pr-2"><input type="checkbox" class="sendchk" data-i="${i}" checked onchange="updateCount()" style="width:16px;height:16px;accent-color:#c9a84c"></td>
       <td class="py-2 pr-3 font-medium">${esc(r.name)}</td>
-      <td class="py-2 pr-3">${failLabel(r)}</td>
       <td class="py-2 pr-3 text-slate-300">${esc(r.mobile)}</td>
-      <td class="py-2 text-slate-400 text-xs">${esc(MESSAGE(r.firstName))}</td></tr>`).join('');
-    html+=`</tbody></table>
-      <button class="btn gold mt-4" id="sendBtn" onclick="sendAll()">Send texts</button>`;
-    SENDABLE=ok;
+      ${day>1?`<td class="py-2 k">${r.last_sent_at?auDate(String(r.last_sent_at).slice(0,10)):'—'}</td>`:''}</tr>`).join('');
+    html+=`</tbody></table><button class="btn gold mt-4" id="sendBtn" onclick="sendDay()">Send texts</button>`;
   }else{
-    html+=`<div class="k">Nothing to send — no active customer on this report has a mobile to text.</div>`;
+    html+=`<div class="k">Nobody on the Day ${day} list right now.</div>`;
   }
   html+=`</div>`;
-  if(no.length){
-    html+=`<div class="card mt-4" style="border-color:#7f1d1d">
-      <div class="lbl mb-2" style="color:#f87171">Couldn't match to an active customer (${no.length}) — follow up manually</div>
-      ${no.map(r=>`<div class="text-sm text-slate-300 py-1">payer ref ${esc(r.payer_ref)}${r.name?' · '+esc(r.name):''}</div>`).join('')}
-      <div class="k mt-2">These have no active customer record with a mobile (new, cancelled, on-hold, or missing payer ref).</div></div>`;
-  }
   $('review').innerHTML=html;
   updateCount();
 }
 
-async function postOne(name,mobile,message){
+window.setDay=n=>{day=n;render();};
+window.toggleAll=on=>{document.querySelectorAll('.sendchk').forEach(cb=>cb.checked=on);updateCount();};
+function selectedIdx(){const out=[];document.querySelectorAll('.sendchk').forEach(cb=>{if(cb.checked)out.push(+cb.dataset.i);});return out;}
+function unselectedIdx(){const out=[];document.querySelectorAll('.sendchk').forEach(cb=>{if(!cb.checked)out.push(+cb.dataset.i);});return out;}
+window.updateCount=function(){
+  const n=document.querySelectorAll('.sendchk:checked').length, t=document.querySelectorAll('.sendchk').length;
+  const el=$('selCount'); if(el) el.textContent=`${n} of ${t} selected to send`;
+  const sa=$('selAll'); if(sa) sa.checked=(n===t&&t>0);
+  const b=$('sendBtn'); if(b){ b.textContent=n?`Send ${n} Day ${day} text${n===1?'':'s'}`:'Send texts'; b.disabled=n===0; b.style.opacity=n===0?.5:1; }
+};
+
+async function postOne(mobile,message){
   const {data,error}=await sb.functions.invoke('hyper-handler',{body:{mobile,message}});
   if(error) throw new Error(error.message||'Send failed');
   if(data&&data.error) throw new Error(data.error);
   return data;
 }
 
-async function sendAll(){
-  const chosen=selectedRows();
-  if(!chosen.length){ alert('No one is ticked — select at least one customer to text.'); return; }
-  const names=chosen.map(r=>r.name||r.mobile).slice(0,8).join(', ')+(chosen.length>8?`, +${chosen.length-8} more`:'');
-  if(!confirm(`Send an arrears text to ${chosen.length} customer${chosen.length===1?'':'s'}?\n\n${names}`)) return;
-  let sent=0,failed=0;
-  for(const r of chosen){
-    const msg=MESSAGE(r.firstName);
-    let status='sent',resp='';
-    try{await postOne(r.name,r.mobile,msg);sent++;}
-    catch(e){status='failed';resp=e.message;failed++;}
-    await sb.from('sim_communications').insert({customer_id:r.customer_id,order_id:r.order_id,channel:'sms',direction:'outbound',comm_type:'arrears_reminder',body:msg,status,provider_response:resp,source:'brain',mobile:r.mobile});
-  }
-  $('review').innerHTML=`<div class="card"><div class="font-semibold text-green-400">Done</div>
-    <div class="text-slate-200 mt-1">Sent ${sent}${failed?`, ${failed} failed`:''}. All logged.</div>
-    <button class="btn mt-3" onclick="loadDishonours()" style="font-size:.8rem">Back to list</button></div>`;
-}
+window.sendDay=async function(){
+  const list=LISTS[day];
+  const send=selectedIdx().map(i=>list[i]).filter(Boolean);
+  const spoke=unselectedIdx().map(i=>list[i]).filter(Boolean);
+  if(!send.length){ alert('No one is ticked.'); return; }
+  const names=send.map(r=>r.name).slice(0,8).join(', ')+(send.length>8?`, +${send.length-8} more`:'');
+  let msg=`Send the Day ${day} text to ${send.length} customer${send.length===1?'':'s'}?\n\n${names}`;
+  if(spoke.length) msg+=`\n\n${spoke.length} unticked will be marked as spoken to and drop out of the sequence.`;
+  if(!confirm(msg)) return;
 
-window.sendTest=async()=>{
-  const m=$('testmob').value.trim();if(!m){$('teststate').textContent='Enter a mobile first.';return;}
-  $('teststate').textContent='Sending test…';
-  try{await postOne('Test',m,MESSAGE('there'));$('teststate').innerHTML='<span style="color:#4ade80">Test sent — check your phone.</span>';}
-  catch(e){$('teststate').innerHTML=`<span style="color:#f87171">${esc(e.message)}</span>`;}
+  const nowIso=new Date().toISOString();
+  let sent=0,failed=0;
+
+  for(const r of send){
+    const body=MESSAGES[day](r.firstName);
+    let status='sent',resp='';
+    try{ await postOne(r.mobile,body); sent++; }
+    catch(e){ status='failed'; resp=e.message; failed++; }
+    // log the send
+    await sb.from('sim_communications').insert({customer_id:r.customer_id,order_id:r.order_id,channel:'sms',
+      direction:'outbound',comm_type:'arrears_reminder',body,status,provider_response:resp,source:'brain',mobile:r.mobile});
+    if(status!=='sent') continue;                     // a failed send doesn't advance them
+    if(day===1){
+      await sb.from('sim_arrears_sequence').insert({order_id:r.order_id,customer_id:r.customer_id,
+        payer_ref:r.payer_ref,day_sent:1,last_sent_at:nowIso,paid_base:r.paid,status:'active'});
+    }else{
+      const patch={day_sent:day,last_sent_at:nowIso};
+      if(day===5){ patch.status='completed'; patch.removed_at=nowIso; patch.removed_by='completed day 5'; }
+      await sb.from('sim_arrears_sequence').update(patch).eq('id',r.seq_id);
+    }
+  }
+
+  // unticked = spoken to -> out of the sequence
+  for(const r of spoke){
+    if(r.seq_id){
+      await sb.from('sim_arrears_sequence').update({status:'spoken',removed_at:nowIso,removed_by:who(),
+        note:'Unticked on the Day '+day+' list — spoken to'}).eq('id',r.seq_id);
+    }
+  }
+
+  $('review').innerHTML=`<div class="card"><div class="font-semibold text-green-400">Day ${day} done</div>
+    <div class="text-slate-200 mt-1">Sent ${sent}${failed?`, ${failed} failed`:''}.${spoke.length?` ${spoke.length} marked as spoken to.`:''} All logged.</div>
+    <button class="btn mt-3" onclick="loadAll()" style="font-size:.8rem">Back to the lists</button></div>`;
 };
 
-loadDishonours();
+window.sendTest=async()=>{
+  const m=$('testmob').value.trim(); if(!m){$('teststate').textContent='Enter a mobile first.';return;}
+  $('teststate').textContent='Sending test…';
+  try{ await postOne(m,MESSAGES[day]('there')); $('teststate').innerHTML=`<span style="color:#4ade80">Day ${day} test sent — check your phone.</span>`; }
+  catch(e){ $('teststate').innerHTML=`<span style="color:#f87171">${esc(e.message)}</span>`; }
+};
+
+loadAll();
 </script>
 </body>
 </html>
