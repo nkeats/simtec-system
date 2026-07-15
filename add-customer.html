@@ -64,6 +64,11 @@
 
 <div class="wrap">
   <div id="msg"></div>
+  <div id="dupeWarn" style="display:none;background:#fff4e5;border:1px solid #e0b877;border-left:5px solid #c07a00;border-radius:9px;padding:12px 14px;margin-bottom:14px">
+    <div style="font-weight:700;color:#8a5a12;font-size:14px">⚠ This customer already has a live order</div>
+    <div id="dupeBody" style="font-size:13px;color:#6b5a2a;margin-top:5px"></div>
+    <div style="font-size:12.5px;color:#8a6d00;margin-top:6px">If this is the same sale being entered again, <b>stop</b> — amend the existing order instead. Entering it twice creates a second Ezidebit debit, a second delivery and a second lot of GST.</div>
+  </div>
 
   <div class="card">
     <h2>Customer</h2>
@@ -309,11 +314,42 @@ function normNZ(raw){
 $("mobile").addEventListener("input", ()=>{
   const {e164,flag} = normNZ($("mobile").value);
   const el = $("mobileHint");
-  if(!$("mobile").value){ el.textContent=""; el.style.color=""; return; }
+  if(!$("mobile").value){ el.textContent=""; el.style.color=""; hideDupe(); return; }
   if(flag==="ok"){ el.textContent="Will be saved as "+e164; el.style.color="#1c6b34"; }
   else if(flag==="landline"){ el.textContent="Looks like a landline ("+e164+") — texts won't reach it"; el.style.color="#8a6d00"; }
   else { el.textContent="Doesn't look like a valid NZ number ("+e164+")"; el.style.color="#a02020"; }
+  scheduleDupeCheck(e164, flag);
 });
+
+/* ── Duplicate-sale warning ───────────────────────────────────────────────
+   This form ALWAYS inserts a new sim_customers row, so a sale entered twice
+   creates a second customer, a second order and a second Ezidebit payer ref —
+   which means the customer can end up being debited twice. Matching on the
+   normalised E.164 mobile catches it regardless of how the name was typed.
+   It only warns; it never blocks (a customer can legitimately buy twice). */
+let DUPES=[], dupeTimer=null;
+function hideDupe(){ DUPES=[]; const w=$("dupeWarn"); if(w) w.style.display="none"; }
+function scheduleDupeCheck(e164, flag){
+  clearTimeout(dupeTimer);
+  if(flag!=="ok"){ hideDupe(); return; }
+  dupeTimer=setTimeout(()=>checkDupe(e164), 450);   // wait until they stop typing
+}
+async function checkDupe(e164){
+  try{
+    const {data:cs}=await sb.from("sim_customers").select("id,first_name,last_name").eq("mobile",e164);
+    if(!cs||!cs.length){ hideDupe(); return; }
+    const {data:os}=await sb.from("sim_orders")
+      .select("id,order_date,contract_value,consultant_name,order_status,delivery_status")
+      .in("customer_id",cs.map(c=>c.id)).eq("order_status","active");
+    if(!os||!os.length){ hideDupe(); return; }
+    DUPES=os;
+    const nm=cs.map(c=>[c.first_name,c.last_name].filter(Boolean).join(" ")).filter(Boolean);
+    $("dupeBody").innerHTML =
+      `<b>${nm.join(" / ")}</b> already has ${os.length} live order${os.length>1?"s":""} on this mobile:<br>`
+      + os.map(o=>`&nbsp;&nbsp;• ${o.order_date} — $${Number(o.contract_value||0).toLocaleString()} — ${o.consultant_name||"?"}${o.delivery_status&&o.delivery_status!=="pending"?" — "+o.delivery_status:""}`).join("<br>");
+    $("dupeWarn").style.display="block";
+  }catch(e){ /* never block the sale on a failed check */ }
+}
 
 // auto-fill frequency from method
 $("payMethod").addEventListener("change", ()=>{
@@ -378,6 +414,11 @@ async function save(){
   if(!orderDate){ return show("Set the sale date.","err"); }
   if(!contract || contract<=0){ return show("Add at least one product — the total is $0.","err"); }
 
+  if(DUPES.length){
+    const lines=DUPES.map(o=>"  \u2022 "+o.order_date+" \u2014 $"+Number(o.contract_value||0).toLocaleString()+" \u2014 "+(o.consultant_name||"?")).join("\n");
+    if(!confirm("This mobile already has "+DUPES.length+" live order"+(DUPES.length>1?"s":"")+":\n\n"+lines
+      +"\n\nIf this is the same sale again, cancel and amend the existing order instead.\n\nSave anyway as a NEW order?")) return;
+  }
   const btn=$("save"); btn.disabled=true; const original=btn.textContent; btn.textContent="Saving…";
   try{
     // 1. customer
@@ -460,6 +501,7 @@ function clearForm(){
   $("consultant").value="";
   $("orderDate").value = new Date().toISOString().slice(0,10);   // reset to today
   const mh=$("mobileHint"); if(mh) mh.textContent="";
+  hideDupe();
   const sp=$("schedPreview"); if(sp) sp.innerHTML="";
   const ah=$("payAmountHint"); if(ah) ah.textContent="Leave blank to use the minimum. Enter a higher figure if the customer chose to pay more.";
   $("payAmount").placeholder="minimum";
