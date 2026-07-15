@@ -251,13 +251,13 @@ async function showCashWeek(){
 function render_cw(){
   const {weekStart,weekEnd,days,rows}=CWDATA;
   const inp=(cls,ri,di,val,ph)=>`<input type="number" step="${cls==='u'?'1':'0.01'}" data-r="${ri}" data-d="${di}" data-k="${cls}"
-      oninput="cwEdit(this)" value="${val||''}" placeholder="${ph}"
+      oninput="cwEdit(this)" onblur="cwFlush()" value="${val||''}" placeholder="${ph}"
       class="cwin" style="width:${cls==='u'?'30':'48'}px">`;
 
   $('app').innerHTML=`
   <div class="p-6 max-w-full mx-auto">
     <div class="mb-4"><h1 class="text-2xl font-bold">Cash Week</h1>
-      <p class="text-slate-400 text-sm mt-1">Each day pays the previous day's sales. Suggested amounts update as you type.</p></div>
+      <p class="text-slate-400 text-sm mt-1">Each day pays the previous day's sales. Suggested amounts update as you type — <b>entries save automatically</b> and stay put all week.</p></div>
 
     <div class="card mb-4">
       <div class="flex items-end gap-3 flex-wrap">
@@ -266,7 +266,8 @@ function render_cw(){
         <button class="btn dark" onclick="cwShift(-7)">‹ Prev</button>
         <button class="btn dark" onclick="cwShift(7)">Next ›</button>
         <div class="text-slate-500 text-xs ml-2">Sales ${fmtD(weekStart)} – ${fmtD(weekEnd)} · balance paid the following Wednesday</div>
-        <div class="ml-auto flex gap-2">
+        <div class="ml-auto flex items-center gap-3">
+          <span id="cwSaveState" class="text-slate-500 text-xs">All changes saved ✓</span>
           <button class="btn dark" onclick="cwFillAll()">Fill all with suggested</button>
           <button class="btn gold" onclick="cwSaveAll()">Save</button>
         </div>
@@ -342,6 +343,7 @@ window.cwEdit=function(el){
   if(tr) tr.textContent=cwMoney(row.totRet);
   if(to){ to.textContent=row.owing<-0.01?'claw '+cwMoney(Math.abs(row.owing)):cwMoney(row.owing);
     to.className='py-1.5 px-2 text-right font-bold whitespace-nowrap '+(row.owing<-0.01?'text-red-400':(row.owing>0.01?'text-green-400':'text-slate-600')); }
+  cwScheduleSave();
 };
 
 window.cwFillAll=()=>{
@@ -349,12 +351,25 @@ window.cwFillAll=()=>{
     row.cells.forEach(c=>{ if(c.units>0||c.paid>0){ c.paid=c.sugP; c.ret=c.sugR; } });
     cwRecalcRow(row); });
   render_cw();
+  cwQueueSave();
 };
 
 window.cwSetWeek=v=>{cwWeek=isoD(mondayOf(new Date(v+'T12:00:00')));renderApp();};
 window.cwShift=n=>{cwWeek=isoD(new Date(new Date(cwWeek+'T12:00:00').getTime()+n*86400000));renderApp();};
 
-window.cwSaveAll=async()=>{
+// \u2500\u2500 persistence: entries autosave so nothing is lost on navigation \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+// Everything typed is written to commission_cash_advances as you go, and
+// showCashWeek() reads it back on load \u2014 so a week's numbers persist until
+// they're reconciled (posted) or you clear them. Saves are serialised through
+// cwSaveChain: a save always finishes (setting each new row's id) before the
+// next one starts, so a cell can never be inserted twice / double-counted.
+let cwSaveChain=Promise.resolve(), cwSaveTimer=null;
+
+function cwSetSaveState(t){ const el=$('cwSaveState'); if(el) el.textContent=t; }
+
+// the actual writer \u2014 upserts every touched cell. Throws on DB error so the
+// chain's handler can surface it; leaves already-saved cells with their id set.
+async function cwPersistCore(){
   const who=(window.SIMTEC_USER&&(window.SIMTEC_USER.full_name||window.SIMTEC_USER.email))||'staff';
   let n=0;
   for(const row of CWDATA.rows){
@@ -364,23 +379,44 @@ window.cwSaveAll=async()=>{
     if(!wkId){
       const {data:nw,error:ew}=await sb.from('commission_cash_weeks')
         .insert({consultant_id:row.con.id,week_start:CWDATA.weekStart,status:'open',opened_by:who}).select().single();
-      if(ew){ alert('Couldn\u2019t open a cash week for '+row.con.name+': '+ew.message); return; }
+      if(ew) throw new Error('Couldn\u2019t open a cash week for '+row.con.name+': '+ew.message);
       wkId=nw.id; row.wk=nw;
     }
     for(const c of touched){
       const payload={cash_week_id:wkId,consultant_id:row.con.id,advance_date:c.iso,
         units:c.units||0,cash_paid:c.paid||0,retention_allocated:c.ret||0,created_by:who};
       if(c.id){ const {error}=await sb.from('commission_cash_advances').update(payload).eq('id',c.id);
-        if(error){alert('Couldn\u2019t save '+row.con.name+': '+error.message);return;} }
+        if(error) throw new Error('Couldn\u2019t save '+row.con.name+': '+error.message); }
       else if(c.units||c.paid||c.ret){
         const {data,error}=await sb.from('commission_cash_advances').insert(payload).select().single();
-        if(error){alert('Couldn\u2019t save '+row.con.name+': '+error.message);return;}
+        if(error) throw new Error('Couldn\u2019t save '+row.con.name+': '+error.message);
         c.id=data.id;
       }
       n++;
     }
   }
-  alert('Saved '+n+' entr'+(n===1?'y':'ies')+'.');
+  return n;
+}
+
+// queue a save behind any in-flight one (never runs two writers concurrently)
+function cwQueueSave(){
+  cwSetSaveState('Saving\u2026');
+  cwSaveChain=cwSaveChain.then(cwPersistCore).then(
+    ()=>{ cwSetSaveState('All changes saved \u2713'); },
+    e=>{ console.error(e); cwSetSaveState('\u26a0 not saved'); alert(e.message); }
+  );
+  return cwSaveChain;
+}
+
+// debounced autosave while typing
+function cwScheduleSave(){ cwSetSaveState('Saving\u2026'); clearTimeout(cwSaveTimer); cwSaveTimer=setTimeout(cwQueueSave,600); }
+// immediate flush when a field loses focus (e.g. before navigating away)
+window.cwFlush=()=>{ clearTimeout(cwSaveTimer); cwQueueSave(); };
+
+// the gold Save button: flush any pending edits, then refresh the view
+window.cwSaveAll=async()=>{
+  clearTimeout(cwSaveTimer);
+  await cwQueueSave();
   renderApp();
 };
 
