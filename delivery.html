@@ -368,6 +368,10 @@ function renderMap(booked){
   const missing  = booked.filter(r=>r.lat==null || r.lng==null);
   const box=document.getElementById('mapbox');
   if(!box) return;
+  if(typeof L==='undefined'){
+    box.innerHTML='<div style="padding:20px;color:#fbbf24;font-size:13px">Map library didn\'t load \u2014 check the internet connection, then refresh.</div>';
+    return;
+  }
   if(!MAP){
     MAP=L.map('mapbox',{scrollWheelZoom:false});
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
@@ -379,7 +383,7 @@ function renderMap(booked){
   withPins.forEach(r=>{
     const label=`${esc(r.name)}${r.deliveryTime?' \u00b7 '+esc(winTxt(r.deliveryTime)):''}`;
     const m=L.marker([r.lat,r.lng]).addTo(MAPLAYER);
-    m.bindTooltip(label,{permanent:true,direction:'top',className:'pintag',offset:[0,-8]});
+    m.bindTooltip(label,{permanent:false,direction:'top',className:'pintag',offset:[0,-8]});
     m.bindPopup(`<b>${esc(r.name)}</b><br>${esc(fmtD(r.deliveryDate))}${r.deliveryTime?'<br>'+esc(winTxt(r.deliveryTime)):''}<br>${esc(r.address)}<br>${esc(r.product)}`);
   });
   if(withPins.length){
@@ -454,6 +458,7 @@ function renderBookedHead(booked){
       <div class="text-xs text-slate-500 mt-2">Opens the dockets for every delivery booked on that day — two copies each (customer &amp; office) — ready to print and hand to the driver.</div>
     </div>`;
   updateDocketCount();
+  renderMap(booked);
 }
 window.updateDocketCount=function(){
   const d=document.getElementById('docketDate'); if(!d) return;
