@@ -186,6 +186,7 @@ function closeAnyModal(id){
     case "payModal":     if(typeof closePay==="function") closePay(); break;
     case "reassignModal":if(typeof closeReassign==="function") closeReassign(); break;
     case "editCustModal":if(typeof closeEditCust==="function") closeEditCust(); break;
+    case "gateModal":if(typeof closeGate==="function") closeGate(); break;
     default: document.getElementById(id).style.display="none";
   }
 }
@@ -304,6 +305,7 @@ async function run(quiet){
     window.__ORDER_ID__=(orders&&orders[0])?orders[0].id:null;
 
     renderAll(c, orders||[], paysByRef, comms);
+    fillGateProgress();          // fills progress against any agreed delivery deal
   }catch(e){
     if(!quiet) content.innerHTML='<div id="err">'+esc(e.message||e)+'</div>';
   }
@@ -448,6 +450,7 @@ function orderSection(o, items, pays, open){
     ${o.delivery_authorised
       ? kv("Delivery clearance",`<span style="color:var(--green);font-weight:700">✓ Authorised${o.delivery_authorised_by?" by "+esc(o.delivery_authorised_by):""}</span>`)
       : (isAdmin()?`<div style="margin-top:10px"><button onclick="authoriseDelivery('${o.id}')" style="background:#1c6b34;color:#fff;border:none;border-radius:8px;padding:9px 15px;font-size:13.5px;font-weight:600;cursor:pointer">✓ Authorise delivery (override)</button></div>`:"")}
+    ${gateBlock(o)}
   </div>`;
 
   const skip = n => /delivery fee|protector|pillow/i.test(n||"");
@@ -526,6 +529,100 @@ async function setFurtherAction(oid, val){
   if(error){ alert("Couldn't update: "+error.message); return; }
   run();
 }
+/* ============ AGREED DELIVERY GATE ============
+   Sometimes a customer rings wanting their mattress early — often they didn't
+   fully grasp the terms they signed. If their payment history is good we can
+   agree: "we'll deliver once N more payments have cleared."
+   The deal only ever makes delivery EASIER. If it isn't met, or a dishonour
+   breaks it, clearance simply falls back to the normal 10% + clean-run rule.
+   Only payments AFTER the day it was agreed count. */
+function gateBlock(o){
+  const need=Number(o.delivery_gate_payments||0), setAt=o.delivery_gate_set_at;
+  const canEdit=isMgr();
+  if(!need || !setAt){
+    return canEdit
+      ? `<div style="margin-top:10px"><button onclick="openGate('${o.id}')" style="background:#fff;color:var(--navy);border:1px solid #cbd4df;border-radius:8px;padding:8px 14px;font-size:13px;font-weight:600;cursor:pointer">⚑ Agree early delivery…</button></div>`
+      : "";
+  }
+  const since=String(setAt).slice(0,10);
+  return `<div style="margin-top:10px;background:#eef4fb;border:1px solid #cfe0f2;border-radius:9px;padding:11px 13px">
+    <div style="font-weight:700;color:#1f5aa8;font-size:13px">⚑ Early delivery agreed</div>
+    <div style="font-size:13px;margin-top:3px">Deliver once <b>${need}</b> payment${need===1?"":"s"} have cleared since <b>${auDate(since)}</b>.</div>
+    <div id="gp_${o.id}" data-gate-order="${o.id}" data-gate-since="${since}" data-gate-need="${need}"
+         data-gate-ref="${esc(o.ezidebit_payer_ref||"")}" style="font-size:12.5px;color:var(--sub);margin-top:4px">Checking progress…</div>
+    ${o.delivery_gate_note?`<div style="font-size:12.5px;color:var(--sub);margin-top:4px">“${esc(o.delivery_gate_note)}”</div>`:""}
+    ${o.delivery_gate_set_by?`<div style="font-size:11.5px;color:var(--sub);margin-top:3px">Agreed by ${esc(o.delivery_gate_set_by)}</div>`:""}
+    ${canEdit?`<div style="margin-top:8px;display:flex;gap:6px">
+      <button onclick="openGate('${o.id}')" style="background:#fff;color:var(--navy);border:1px solid #cbd4df;border-radius:7px;padding:5px 11px;font-size:12px;font-weight:600;cursor:pointer">Amend</button>
+      <button onclick="removeGate('${o.id}')" style="background:#fff;color:var(--red);border:1px solid #e0b4b0;border-radius:7px;padding:5px 11px;font-size:12px;font-weight:600;cursor:pointer">Remove</button>
+    </div>`:""}
+  </div>`;
+}
+
+// Fills in progress against each live deal. Only runs when a deal exists.
+async function fillGateProgress(){
+  const els=document.querySelectorAll("[data-gate-order]");
+  for(const el of els){
+    const since=el.dataset.gateSince, need=+el.dataset.gateNeed, ref=el.dataset.gateRef;
+    if(!ref){ el.textContent="No payer reference on this order — progress can't be tracked."; continue; }
+    try{
+      const {data:p}=await sb.from("sim_payments").select("payment_date,result").eq("payer_ref",ref);
+      const {data:d}=await sb.from("sim_dishonours").select("payment_date,dishonour_date").eq("payer_ref",ref);
+      const clean=(p||[]).filter(x=>!(x.result&&String(x.result).toLowerCase()==="refund")
+                      && String(x.payment_date||"").slice(0,10)>since).length;
+      const miss=(d||[]).filter(x=>String(x.payment_date||x.dishonour_date||"").slice(0,10)>since).length;
+      if(miss>0){
+        el.innerHTML=`<span style="color:var(--red);font-weight:700">Deal broken — ${miss} missed payment${miss===1?"":"s"} since then. Back to the normal rule.</span>`;
+      }else if(clean>=need){
+        el.innerHTML=`<span style="color:var(--green);font-weight:700">✓ Met — ${clean} of ${need} cleared. Ready to deliver.</span>`;
+      }else{
+        el.innerHTML=`<b>${clean} of ${need}</b> cleared so far — ${need-clean} to go.`;
+      }
+    }catch(e){ el.textContent="Couldn't check progress."; }
+  }
+}
+
+window.openGate=function(oid){
+  const o=ORDERS[oid]; if(!o) return;
+  document.getElementById("gateOid").value=oid;
+  document.getElementById("gateNum").value=o.delivery_gate_payments||"";
+  document.getElementById("gateNote").value=o.delivery_gate_note||"";
+  document.getElementById("gateErr").style.display="none";
+  document.getElementById("gateModal").style.display="flex";
+};
+window.closeGate=function(){ document.getElementById("gateModal").style.display="none"; };
+
+window.saveGate=async function(){
+  const oid=document.getElementById("gateOid").value;
+  const n=parseInt(document.getElementById("gateNum").value,10);
+  const note=document.getElementById("gateNote").value.trim()||null;
+  const err=document.getElementById("gateErr");
+  if(isNaN(n)||n<1){ err.style.display=""; err.textContent="Enter how many payments must clear (1 or more)."; return; }
+  const who=(window.SIMTEC_USER&&(window.SIMTEC_USER.full_name||window.SIMTEC_USER.email))||"staff";
+  try{
+    const {error}=await sb.from("sim_orders").update({
+      delivery_gate_payments:n,
+      delivery_gate_set_at:new Date().toISOString(),
+      delivery_gate_set_by:who,
+      delivery_gate_note:note
+    }).eq("id",oid);
+    if(error) throw error;
+    closeGate(); run(true);
+  }catch(e){ err.style.display=""; err.textContent="Couldn't save: "+(e.message||e); }
+};
+
+window.removeGate=async function(oid){
+  if(!confirm("Remove the agreed early-delivery deal?\n\nThis customer goes back to the normal rule (10% paid plus a clean payment run).")) return;
+  try{
+    const {error}=await sb.from("sim_orders").update({
+      delivery_gate_payments:null, delivery_gate_set_at:null,
+      delivery_gate_set_by:null, delivery_gate_note:null
+    }).eq("id",oid);
+    if(error) throw error;
+    run(true);
+  }catch(e){ alert("Couldn't remove: "+(e.message||e)); }
+};
+
 async function authoriseDelivery(oid){
   if(!isAdmin()){ alert("Admins only."); return; }
   if(!confirm("Authorise this customer for delivery, overriding the payment-history check? This is recorded against your name.")) return;
@@ -1741,6 +1838,28 @@ async function rebuildPaid(o){
 }
 </script>
 
+
+<div id="gateModal" class="modalbg">
+  <div class="modal" style="max-width:440px">
+    <h3 style="margin:0 0 4px">Agree early delivery</h3>
+    <p class="muted" style="font-size:12.5px;margin:0 0 14px">
+      For a customer with a good record who wants their mattress sooner. Set how many
+      payments must clear <b>from today</b> before they're cleared to deliver.
+      If any payment dishonours the deal is off and the normal rule applies again.
+      This can only bring delivery forward — it never holds anyone back.
+    </p>
+    <div id="gateErr" style="display:none;background:#fdecec;border:1px solid #e0b4b0;color:#b4342e;border-radius:9px;padding:11px 13px;font-size:13.5px;margin-bottom:12px"></div>
+    <input type="hidden" id="gateOid">
+    <label class="muted" style="font-size:12px">Payments that must clear from today</label>
+    <input id="gateNum" class="mi" type="number" min="1" step="1" placeholder="e.g. 5">
+    <label class="muted" style="font-size:12px;margin-top:10px;display:block">What was agreed (optional)</label>
+    <input id="gateNote" class="mi" placeholder="e.g. Rang 15/7 — didn't realise the wait. Good payer.">
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:18px">
+      <button onclick="closeGate()" style="background:none;border:1px solid #cbd4df;border-radius:8px;padding:9px 15px;cursor:pointer">Cancel</button>
+      <button onclick="saveGate()" style="background:#1f5aa8;color:#fff;border:none;border-radius:8px;padding:9px 18px;font-weight:700;cursor:pointer">Save agreement</button>
+    </div>
+  </div>
+</div>
 
 <!-- ============ EDIT CUSTOMER DETAILS ============ -->
 <div id="editCustModal" class="modalbg">

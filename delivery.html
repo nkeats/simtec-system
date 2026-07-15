@@ -124,6 +124,29 @@ function cleanRun(pays, dishonours){
 // Slower frequencies need fewer payments (each represents more elapsed time),
 // so the "have they stuck with it" signal stays strong without an absurd wait.
 const CLEAN_RUN_BY_FREQ = { weekly:5, fortnightly:4, monthly:3 };
+
+// ── Agreed delivery gate ───────────────────────────────────────────────────
+// Sometimes a customer rings wanting their mattress early. If their payment
+// history is good the office can agree: "we'll deliver once N more payments
+// have cleared." That deal is recorded on the order. It only ever makes
+// delivery EASIER — if the deal isn't met (or is broken by a dishonour) we
+// simply fall back to the normal 10% + clean-run rule.
+// Only payments AFTER the day the deal was struck count, so a long past
+// history can't satisfy it instantly. Any dishonour after that day kills it.
+function gateProgress(order, pays, dishonours){
+  const need = Number(order.delivery_gate_payments||0);
+  const setAt = order.delivery_gate_set_at;
+  if(!need || !setAt) return null;
+  const since = String(setAt).slice(0,10);
+  const clean = (pays||[]).filter(p =>
+      !(p.result && String(p.result).toLowerCase()==='refund') &&
+      String(p.payment_date||'').slice(0,10) > since).length;
+  const miss = (dishonours||[]).filter(d =>
+      String(d.payment_date || d.dishonour_date || '').slice(0,10) > since).length;
+  return { need, clean, miss, since,
+           broken: miss>0,
+           met: (miss===0 && clean>=need) };
+}
 function cleanRunRequired(freq){
   return CLEAN_RUN_BY_FREQ[(freq||'weekly').toLowerCase()] || 5;
 }
@@ -143,6 +166,11 @@ function cleared(order,payAcct,pays,dishonours){
   // Immediate clearance: paid in full, cash, OR total paid has reached 50%
   // (half the contract in hand is proof enough — bypasses the streak rule).
   if(payAcct.paid_in_full || isCash || paidPct>=50) return true;
+  // An agreed gate can clear them early — but never blocks anyone who would
+  // otherwise qualify, so a broken deal just falls through to the normal rule.
+  const gate = gateProgress(order, pays, dishonours);
+  if(gate && gate.met) return true;
+
   const freq=payAcct.payment_frequency||order.payment_frequency||'weekly';
   const runNeeded=cleanRunRequired(freq);
   const rule=ruleFor(contract>0 ? (+payAcct.deposit_amount||0)/contract : 0);
@@ -277,6 +305,8 @@ async function load(quiet){
       deliveryStatus:o.delivery_status||'pending',
       // scorecard
       contract, paid, pct, instal, misses, payCount, rating, needPct, nearReady, cleanStreak, runNeeded,
+      gate: gateProgress(o, pays, dishonours),
+      gateNote: o.delivery_gate_note||'', gateBy: o.delivery_gate_set_by||'',
       freq:(payAcct.payment_frequency||o.payment_frequency||'weekly'),
       nextDate:(o.next_payment_date||payAcct.next_payment_date||null),
       pays:(ref?paysByRef[ref]:[])||[], dishonours:(ref?disByRef[ref]:[])||[]
@@ -510,6 +540,19 @@ function scorecard(r){
   else if(!streakMet) rec=`10% is met, but only ${r.cleanStreak} of ${need} recent payments are clean — not yet safe.`;
   else rec=`Payment run is clean (${r.cleanStreak}), but under 10% paid — not yet.`;
   const recColour = ((thresholdMet&&streakMet)||fiftyMet)?'#4ade80':'#fbbf24';
+  // an agreed early-delivery deal overrides the recommendation text
+  let gateLine='';
+  if(r.gate){
+    const g=r.gate;
+    if(g.met){
+      rec=`Agreed deal met \u2014 ${g.clean} of ${g.need} clean payments since ${shortD(g.since)}. Cleared to deliver.`;
+    } else if(g.broken){
+      gateLine=`<div class="text-xs mt-1" style="color:#f87171">\u26a0 Agreed deal broken \u2014 ${g.miss} missed payment${g.miss===1?'':'s'} since ${shortD(g.since)}. Back to the normal rule.</div>`;
+    } else {
+      gateLine=`<div class="text-xs mt-1" style="color:#7dd3fc">\u2691 Agreed: deliver after ${g.need} clean payments \u2014 ${g.clean} of ${g.need} so far${r.gateBy?' \u00b7 set by '+esc(r.gateBy):''}</div>`;
+    }
+    if(r.gateNote && !g.broken) gateLine+=`<div class="text-xs mt-1 text-slate-500">\u201c${esc(r.gateNote)}\u201d</div>`;
+  }
   // combine payments (result) + dishonours into one date-sorted history
   const hist=[
     ...r.pays.map(p=>({d:p.payment_date, amt:+p.amount||0, kind:(p.result&&p.result.toLowerCase()==='refund')?'refund':'paid'})),
@@ -532,6 +575,7 @@ function scorecard(r){
       ${r.misses?`<span class="k">·</span><span class="text-sm" style="color:#f87171">${r.misses} missed total</span>`:''}
     </div>
     <div class="text-xs" style="color:${recColour}">${rec}</div>
+    ${gateLine}
     <button class="btn noprint" style="margin-top:8px;font-size:11px;padding:3px 9px" onclick="event.stopPropagation();var e=document.getElementById('${histId}');e.style.display=e.style.display==='none'?'block':'none'">Payment history ▾</button>
     <div id="${histId}" style="display:none;margin-top:8px;max-height:180px;overflow-y:auto">${histRows}</div>
   </div>`;

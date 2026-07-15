@@ -74,25 +74,50 @@ function ruleFor(depositPct){
   for(const x of RULES){ if(depositPct*100 >= x.min_deposit_pct) r=x; }
   return r;
 }
-function cleared(o,payAcct,counts){
+function cleanRun(pays,dishonours){
+  const ev=[
+    ...(pays||[]).filter(p=>!(p.result&&String(p.result).toLowerCase()==='refund')).map(p=>({d:p.payment_date,ok:true})),
+    ...(dishonours||[]).map(x=>({d:x.payment_date||x.dishonour_date,ok:false}))
+  ].sort((a,b)=>String(b.d||'').localeCompare(String(a.d||'')));
+  let run=0; for(const e of ev){ if(e.ok) run++; else break; } return run;
+}
+const CLEAN_RUN_BY_FREQ={weekly:5,fortnightly:4,monthly:3};
+const cleanRunRequired=f=>CLEAN_RUN_BY_FREQ[(f||'weekly').toLowerCase()]||5;
+
+// An agreed early-delivery deal, set by the office on the customer's page.
+// Only payments after the day it was agreed count; any dishonour since kills it.
+function gateMet(order,pays,dishonours){
+  const need=Number(order.delivery_gate_payments||0), setAt=order.delivery_gate_set_at;
+  if(!need||!setAt) return false;
+  const since=String(setAt).slice(0,10);
+  const clean=(pays||[]).filter(p=>!(p.result&&String(p.result).toLowerCase()==='refund')
+      && String(p.payment_date||'').slice(0,10)>since).length;
+  const miss=(dishonours||[]).filter(d=>String(d.payment_date||d.dishonour_date||'').slice(0,10)>since).length;
+  return miss===0 && clean>=need;
+}
+
+// Kept in step with delivery.html — a stop must never be dropped from the run
+// sheet by a rule that is stricter than the one the office booked it under.
+function cleared(o,payAcct,pays,dishonours){
   if(o.order_status==='cancelled')return false;
   if(o.delivery_authorised===true) return true;                     // admin override
   const c=o.cooling_off_expires; const coolOk=c?new Date(c+'T12:00:00')<=today:true;
   if(!coolOk) return false;
   if(o.affordability_passed===false) return false;
   const contract=+payAcct.contract_value||0;
-  const paid=+payAcct.amount_paid_to_date||0;
-  const isCash=(payAcct.payment_method||'').toLowerCase()==='cash';
-  const depositPct = contract>0 ? (+payAcct.deposit_amount||0)/contract : 0;
-  if(payAcct.paid_in_full || isCash || depositPct>=0.5) return true;
   if(contract<=0) return false;
-  const rule=ruleFor(depositPct);
+  const paid=+payAcct.amount_paid_to_date||0;
+  const paidPct=paid/contract*100;
+  const isCash=(payAcct.payment_method||'').toLowerCase()==='cash';
+  if(payAcct.paid_in_full || isCash || paidPct>=50) return true;    // total paid, not deposit
+  if(gateMet(o,pays,dishonours)) return true;                       // agreed deal
+  const rule=ruleFor(contract>0?(+payAcct.deposit_amount||0)/contract:0);
   const need=(rule && rule.required_pct!=null) ? rule.required_pct : 10;
-  const ref=payAcct.ezidebit_payer_ref;
-  const misses = ref && counts[ref] ? counts[ref].dishonour_count : 0;
-  if(misses > (rule?rule.miss_allowed:1)) return false;
-  return (paid/contract*100) >= need;
+  const runNeeded=cleanRunRequired(payAcct.payment_frequency||o.payment_frequency||'weekly');
+  if(cleanRun(pays,dishonours) < runNeeded) return false;
+  return paidPct >= need;
 }
+
 
 async function load(){
   $('state').style.display='';$('state').textContent='Loading run sheet\u2026';
@@ -111,6 +136,14 @@ async function load(){
   const refs=[...new Set((orders||[]).map(o=>{const pa=o.paid_via_order_id?(payerMap[o.paid_via_order_id]||o):o; return pa.ezidebit_payer_ref;}).filter(Boolean))];
   let counts={};
   if(refs.length){ const {data:cd}=await sb.rpc('sim_delivery_counts',{refs}); (cd||[]).forEach(r=>counts[r.payer_ref]={paid_count:r.paid_count,dishonour_count:r.dishonour_count}); }
+  // the clearance rule needs the ORDER of payments, not just totals
+  let paysByRef={}, disByRef={};
+  if(refs.length){
+    const {data:pm}=await sb.from('sim_payments').select('payer_ref,payment_date,result').in('payer_ref',refs);
+    (pm||[]).forEach(p=>{(paysByRef[p.payer_ref]=paysByRef[p.payer_ref]||[]).push(p);});
+    const {data:dh}=await sb.from('sim_dishonours').select('payer_ref,payment_date,dishonour_date').in('payer_ref',refs);
+    (dh||[]).forEach(d=>{(disByRef[d.payer_ref]=disByRef[d.payer_ref]||[]).push(d);});
+  }
   const run=[];
   for(const o of (orders||[])){
     const cust=o.sim_customers||{};
@@ -123,7 +156,8 @@ async function load(){
     };
     if(o.delivery_status==='delivered')continue;          // already done today — not on the run
     const payAcct = o.paid_via_order_id ? (payerMap[o.paid_via_order_id]||o) : o;   // judge payments on payer
-    if(!cleared(o,payAcct,counts))continue;               // held back for the office — not shown to the driver
+    const pref=payAcct.ezidebit_payer_ref;
+    if(!cleared(o,payAcct,(pref?paysByRef[pref]:[])||[],(pref?disByRef[pref]:[])||[]))continue;   // held back for the office
     run.push(stop);
   }
   run.sort((x,y)=>suburb(x.address).localeCompare(suburb(y.address))||x.address.localeCompare(y.address));
