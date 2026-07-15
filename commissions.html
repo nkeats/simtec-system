@@ -18,6 +18,9 @@ select.inp{appearance:auto}
 .dark{background:#1e293b;color:#94a3b8;border:1px solid #334155}.dark:hover:not(:disabled){color:#fff}
 .card{background:#1e293b;border:1px solid #334155;border-radius:.75rem;padding:1.25rem}
 .lbl{font-size:.7rem;letter-spacing:.06em;text-transform:uppercase;color:#eab308;font-weight:700}
+.cwin{padding:.25rem .3rem;background:#0f172a;border:1px solid #334155;border-radius:.3rem;color:#fff;font-size:11px;text-align:right}
+.cwin:focus{outline:none;border-color:#eab308}
+.cwin::placeholder{color:#475569}
 @media print{@page{size:A4;margin:0}html,body{background:#fff!important;margin:0!important;padding:0!important}#nav,.noprint{display:none!important}.inv-wrap{padding:0!important;margin:0!important;display:block!important}.inv-page{width:210mm!important;min-height:auto!important;box-shadow:none!important;margin:0!important;padding:12mm!important}}
 </style>
 </head>
@@ -159,241 +162,238 @@ async function renderApp(){
 
 
 // ── Cash Week ──────────────────────────────────────────────────────────────
-// The boss sometimes runs a "big cash week": paying consultants DAILY to
-// motivate them, instead of once on the Wednesday.
+// The boss runs a "big cash week": paying consultants DAILY to motivate them.
+// Cash goes out the day AFTER the sale, so the grid runs Tue→Mon (Tuesday pays
+// Monday's sales … Monday pays the weekend's). Wednesday then settles the balance.
 //
-// The trap: the per-unit rate depends on the WEEK'S FINAL VOLUME (1-4 = $200,
-// 5-9 = $300, 10+ = $400), so it keeps moving. You cannot correctly allocate
-// retention per-deal on the day, because the rate isn't known yet.
+// The trap: the per-unit rate depends on the WEEK'S FINAL VOLUME (1-4=$200,
+// 5-9=$300, 10+=$400), so it keeps moving. You can't correctly allocate
+// retention per-deal on the day — the rate isn't known yet.
 //
-// So daily payments are treated as ADVANCES, not commission events:
-//   • TRUE ENTITLEMENT — recomputed live from current sales (calc()). If a sale
-//     cancels it simply drops out. No per-sale clawback needed.
-//   • WHAT ACTUALLY HAPPENED — cash handed over and retention held back are
-//     recorded FACTS in commission_cash_advances. They never recalculate.
-// Payday is arithmetic:  owing = entitlement − advanced.
-// The advances are then posted to the pay run as a deduction, so Wednesday pays
-// only the balance — WITHOUT that, the pay run would pay the whole lot again.
-let cwWeek=null, cwDay=null;
+// So each day's suggested payout = (entitlement on the units so far this week)
+// − (cash already handed out earlier in the week). That produces the retrospective
+// uplift automatically when someone crosses a bracket.
+//
+// Daily payments are ADVANCES, not commission events. At payday they're posted to
+// the pay run as a deduction, so Wednesday pays only the balance. WITHOUT that
+// posting the pay run would pay the whole lot again.
+let cwWeek=null, CWDATA=null;
 
 function mondayOf(d){ const x=new Date(d); x.setHours(12,0,0,0); const dow=(x.getDay()+6)%7; x.setDate(x.getDate()-dow); return x; }
 const isoD=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const cwMoney=n=>(n<0?'-$':'$')+Math.abs(+n||0).toLocaleString('en-NZ',{minimumFractionDigits:2,maximumFractionDigits:2});
+const cwRate=u=>{const s=S(); return u<=s.tier1_max?s.tier1_amount:u<=s.tier2_max?s.tier2_amount:s.tier3_amount;};
+
+// Recompute one consultant's row: cumulative units drive the rate, and each day's
+// suggestion is what's owed to date less what's already gone out.
+function cwRecalcRow(row){
+  const s=S();
+  let cumU=0,cumP=0,cumR=0;
+  row.cells.forEach(c=>{
+    cumU+=(+c.units||0);
+    const gross=cumU*cwRate(cumU);
+    const retDue=row.retainer?0:gross*s.retention_rate;
+    const cashDue=gross-retDue;
+    c.cumU=cumU; c.rate=cwRate(cumU);
+    c.sugP=Math.max(0,cashDue-cumP);
+    c.sugR=Math.max(0,retDue-cumR);
+    cumP+=(+c.paid||0); cumR+=(+c.ret||0);
+  });
+  row.totUnits=cumU; row.totPaid=cumP; row.totRet=cumR;
+  const gross=cumU*cwRate(cumU);
+  row.gridEnt=gross;
+  row.gridRet=row.retainer?0:gross*s.retention_rate;
+  row.gridCash=gross-row.gridRet;
+  row.owing=row.gridCash-cumP;
+  return row;
+}
 
 async function showCashWeek(){
   if(!cwWeek) cwWeek=isoD(mondayOf(new Date()));
-  if(!cwDay)  cwDay=isoD(new Date());
-  const weekStart=cwWeek;
+  const weekStart=cwWeek;                                   // Monday — sales week Mon–Sun
   const weekEnd=isoD(new Date(new Date(cwWeek+'T12:00:00').getTime()+6*86400000));
+  // payout days: Tue (pays Mon's sales) … Mon (pays Sunday's)
+  const days=[]; for(let i=1;i<=7;i++){
+    const d=new Date(new Date(cwWeek+'T12:00:00').getTime()+i*86400000);
+    const sd=new Date(d.getTime()-86400000);
+    days.push({iso:isoD(d), lbl:d.toLocaleDateString('en-NZ',{weekday:'short'}), dm:`${d.getDate()}/${d.getMonth()+1}`,
+               sales:sd.toLocaleDateString('en-NZ',{weekday:'short'})});
+  }
   const active=consultants.filter(c=>c.active);
   const ids=active.map(c=>c.id);
 
-  // one bulk load for the whole team
-  const [{data:sl},{data:ret},{data:wks}]=await Promise.all([
-    sb.from('commission_sales').select('*,commission_sale_items(quantity,commission_products(*))')
-      .in('consultant_id',ids).gte('sale_date',weekStart).lte('sale_date',weekEnd),
-    sb.from('commission_retention').select('*'),
-    sb.from('commission_cash_weeks').select('*').eq('week_start',weekStart).in('consultant_id',ids)
+  const [{data:wks},{data:sl}]=await Promise.all([
+    sb.from('commission_cash_weeks').select('*').eq('week_start',weekStart).in('consultant_id',ids),
+    sb.from('commission_sales').select('consultant_id,status,commission_sale_items(quantity,commission_products(commission_type))')
+      .in('consultant_id',ids).gte('sale_date',weekStart).lte('sale_date',weekEnd)
   ]);
   const weeks={}; (wks||[]).forEach(w=>weeks[w.consultant_id]=w);
-  let advances=[];
-  const wkIds=(wks||[]).map(w=>w.id);
-  if(wkIds.length){ const {data:ad}=await sb.from('commission_cash_advances').select('*').in('cash_week_id',wkIds); advances=ad||[]; }
+  let adv=[]; const wkIds=(wks||[]).map(w=>w.id);
+  if(wkIds.length){ const {data:a}=await sb.from('commission_cash_advances').select('*').in('cash_week_id',wkIds); adv=a||[]; }
 
-  const retMap={}; (ret||[]).forEach(r=>retMap[r.consultant_id]=+r.balance||0);
-  const salesBy={}; (sl||[]).forEach(x=>{
-    (salesBy[x.consultant_id]=salesBy[x.consultant_id]||[]).push({...x,items:(x.commission_sale_items||[]).map(i=>({...i,product:i.commission_products}))});
-  });
+  // what the SYSTEM thinks was sold this week (for the cross-check)
+  const sysU={}; (sl||[]).forEach(x=>{ if(x.status==='cancelled')return;
+    (x.commission_sale_items||[]).forEach(i=>{ if(i.commission_products?.commission_type!=='zero') sysU[x.consultant_id]=(sysU[x.consultant_id]||0)+i.quantity; }); });
 
-  // build a row per consultant
-  const rows=active.map(c=>{
-    const sales=salesBy[c.id]||[];
-    const e=calc(sales,[],[],retMap[c.id]||0,c.pay_basis);
-    const adv=advances.filter(a=>a.consultant_id===c.id);
-    const paidCash=adv.reduce((a,x)=>a+(+x.cash_paid||0),0);
-    const paidRet =adv.reduce((a,x)=>a+(+x.retention_allocated||0),0);
-    const cashDue=e.gs-e.ret;
-    const today=adv.filter(a=>a.advance_date===cwDay);
-    return {c, e, cashDue, paidCash, paidRet,
-            owingCash:cashDue-paidCash, owingRet:e.ret-paidRet,
-            wk:weeks[c.id]||null, todayCount:today.length,
-            todayCash:today.reduce((a,x)=>a+(+x.cash_paid||0),0),
-            todayRet:today.reduce((a,x)=>a+(+x.retention_allocated||0),0)};
-  });
+  CWDATA={weekStart, weekEnd, days, rows:active.map(c=>{
+    const cells=days.map(d=>{
+      const a=adv.find(x=>x.consultant_id===c.id && x.advance_date===d.iso);
+      return {iso:d.iso, id:a?a.id:null, units:a?(+a.units||0):0, paid:a?(+a.cash_paid||0):0, ret:a?(+a.retention_allocated||0):0};
+    });
+    return cwRecalcRow({con:c, retainer:c.pay_basis==='retainer', cells, wk:weeks[c.id]||null, sysUnits:sysU[c.id]||0});
+  })};
 
-  const anyAdv=rows.some(r=>r.paidCash>0||r.paidRet>0);
-  const totCash=rows.reduce((a,r)=>a+r.paidCash,0), totRet=rows.reduce((a,r)=>a+r.paidRet,0);
-  const totOwing=rows.reduce((a,r)=>a+r.owingCash,0);
-
-  $('app').innerHTML=`
-  <div class="p-8 max-w-6xl mx-auto">
-    <div class="mb-6"><h1 class="text-2xl font-bold">Cash Week</h1>
-      <p class="text-slate-400 text-sm mt-1">Daily payouts across the team, tracked as advances and reconciled on payday</p></div>
-
-    <div class="card mb-5">
-      <div class="grid md:grid-cols-3 gap-3 items-end">
-        <div><label class="lbl block mb-1">Week starting (Monday)</label>
-          <input type="date" class="inp" value="${weekStart}" onchange="cwSetWeek(this.value)"></div>
-        <div class="flex gap-2"><button class="btn dark flex-1" onclick="cwShift(-7)">‹ Prev week</button>
-          <button class="btn dark flex-1" onclick="cwShift(7)">Next week ›</button></div>
-        <div class="text-slate-500 text-xs">${fmtD(weekStart)} – ${fmtD(weekEnd)}<br>paid the following Wednesday</div>
-      </div>
-    </div>
-
-    <!-- ENTRY GRID -->
-    <div class="card mb-5" style="border-color:#c9a84c">
-      <div class="flex items-center justify-between flex-wrap gap-3 mb-3">
-        <div class="lbl">Record a day's payouts — the whole team</div>
-        <div class="flex items-center gap-2">
-          <label class="text-slate-400 text-xs">Date</label>
-          <input type="date" id="cwDay" class="inp" style="width:auto" value="${cwDay}" onchange="cwSetDay(this.value)">
-        </div>
-      </div>
-      <div class="text-slate-500 text-xs mb-3">Suggested figures bring each consultant up to date. Type what was <b>actually</b> handed over — leave a row blank to skip it. Anything different from the suggestion just carries to Wednesday.</div>
-      <div style="overflow-x:auto">
-      <table class="w-full text-sm">
-        <thead><tr class="text-left text-slate-500 border-b border-slate-700">
-          <th class="pb-2">Consultant</th><th class="pb-2 text-center">Units so far</th>
-          <th class="pb-2 text-right">Suggested cash</th><th class="pb-2 text-right">Cash paid</th>
-          <th class="pb-2 text-right">Suggested ret.</th><th class="pb-2 text-right">Retention held</th>
-          <th class="pb-2 text-center">Today</th></tr></thead>
-        <tbody>
-        ${rows.map((r,i)=>{
-          const sc=Math.max(0,r.owingCash), sr=Math.max(0,r.owingRet);
-          return `<tr class="border-b border-slate-800">
-            <td class="py-2 font-medium">${esc(r.c.name)}</td>
-            <td class="py-2 text-center">${r.e.units} <span class="text-slate-500 text-xs">@$${r.e.rate}</span></td>
-            <td class="py-2 text-right text-slate-500">${cwMoney(sc)}</td>
-            <td class="py-2 text-right"><input type="number" step="0.01" class="inp cwc" data-i="${i}" style="width:110px;text-align:right" placeholder="${sc.toFixed(2)}"></td>
-            <td class="py-2 text-right text-slate-500">${cwMoney(sr)}</td>
-            <td class="py-2 text-right"><input type="number" step="0.01" class="inp cwr" data-i="${i}" style="width:110px;text-align:right" placeholder="${sr.toFixed(2)}"></td>
-            <td class="py-2 text-center text-xs ${r.todayCount?'text-green-400':'text-slate-600'}">${r.todayCount?cwMoney(r.todayCash):'—'}</td>
-          </tr>`;}).join('')}
-        </tbody>
-      </table></div>
-      <div class="flex items-center gap-3 mt-4 flex-wrap">
-        <button class="btn gold" onclick="cwFillSuggested()">Fill all with suggested</button>
-        <button class="btn gold" onclick="cwSaveDay()">Save this day's payouts</button>
-        <input id="cwNote" class="inp" style="flex:1;min-width:200px" placeholder="Note for this day (optional) — e.g. paid at $300/deal, holding the rest">
-      </div>
-    </div>
-
-    <!-- WEEK SUMMARY -->
-    <div class="card">
-      <div class="lbl mb-3">Week summary &amp; payday reconciliation</div>
-      <div style="overflow-x:auto">
-      <table class="w-full text-sm">
-        <thead><tr class="text-left text-slate-500 border-b border-slate-700">
-          <th class="pb-2">Consultant</th><th class="pb-2 text-center">Units</th>
-          <th class="pb-2 text-right">Entitlement</th><th class="pb-2 text-right">Cash advanced</th>
-          <th class="pb-2 text-right">Retention held</th><th class="pb-2 text-right">Owing Wednesday</th>
-          <th class="pb-2"></th></tr></thead>
-        <tbody>
-        ${rows.map(r=>{
-          const over=r.owingCash<-0.01;
-          return `<tr class="border-b border-slate-800">
-            <td class="py-2 font-medium">${esc(r.c.name)}</td>
-            <td class="py-2 text-center">${r.e.units}</td>
-            <td class="py-2 text-right">${cwMoney(r.e.gs)} <span class="text-slate-500 text-xs">less ${cwMoney(r.e.ret)} ret.</span></td>
-            <td class="py-2 text-right text-sky-300">${cwMoney(r.paidCash)}</td>
-            <td class="py-2 text-right text-amber-300">${cwMoney(r.paidRet)}</td>
-            <td class="py-2 text-right font-bold ${over?'text-red-400':(r.owingCash>0.01?'text-green-400':'text-slate-500')}">
-              ${over?'claw back '+cwMoney(Math.abs(r.owingCash)):cwMoney(r.owingCash)}</td>
-            <td class="py-2 text-right">${
-              !r.wk ? '<span class="text-slate-600 text-xs">—</span>'
-              : r.wk.status==='reconciled'
-                ? '<span class="text-green-400 text-xs">✓ posted</span>'
-                : (r.paidCash>0
-                    ? `<button class="btn gold text-xs py-1 px-2" onclick="cwReconcile('${r.wk.id}','${r.c.id}','${weekEnd}',${r.paidCash})">Post to pay run</button>`
-                    : '<span class="text-slate-600 text-xs">nothing to post</span>')}</td>
-          </tr>`;}).join('')}
-        <tr class="font-bold"><td class="py-2">Totals</td><td></td><td></td>
-          <td class="py-2 text-right text-sky-300">${cwMoney(totCash)}</td>
-          <td class="py-2 text-right text-amber-300">${cwMoney(totRet)}</td>
-          <td class="py-2 text-right">${cwMoney(totOwing)}</td><td></td></tr>
-        </tbody>
-      </table></div>
-      ${anyAdv?`<div class="mt-4 p-3 rounded-lg" style="background:#3a2f10;border:1px solid #c9a84c">
-        <div class="text-amber-300 font-semibold text-sm">Before Wednesday</div>
-        <div class="text-slate-300 text-xs mt-1">Each consultant's advances must be posted to the pay run, or <b>they'll be paid twice</b>. Create the pay run for week ending ${fmtD(weekEnd)} first, then post each row above.</div>
-      </div>`:''}
-      <div class="text-slate-500 text-xs mt-3">Entitlement recalculates live — a cancelled sale drops out on its own, so no separate clawback is needed before payday.</div>
-    </div>
-  </div>`;
-
-  window.__CWROWS__=rows;
+  render_cw();
 }
 
-window.cwSetWeek=v=>{cwWeek=isoD(mondayOf(new Date(v+'T12:00:00')));renderApp();};
-window.cwSetDay =v=>{cwDay=v;renderApp();};
-window.cwShift=n=>{cwWeek=isoD(new Date(new Date(cwWeek+'T12:00:00').getTime()+n*86400000));renderApp();};
+function render_cw(){
+  const {weekStart,weekEnd,days,rows}=CWDATA;
+  const inp=(cls,ri,di,val,ph)=>`<input type="number" step="${cls==='u'?'1':'0.01'}" data-r="${ri}" data-d="${di}" data-k="${cls}"
+      oninput="cwEdit(this)" value="${val||''}" placeholder="${ph}"
+      class="cwin" style="width:${cls==='u'?'44':'62'}px">`;
 
-window.cwFillSuggested=()=>{
-  document.querySelectorAll('.cwc').forEach(el=>{ el.value=el.placeholder; });
-  document.querySelectorAll('.cwr').forEach(el=>{ el.value=el.placeholder; });
+  $('app').innerHTML=`
+  <div class="p-6 max-w-full mx-auto">
+    <div class="mb-4"><h1 class="text-2xl font-bold">Cash Week</h1>
+      <p class="text-slate-400 text-sm mt-1">Each day pays the previous day's sales. Suggested amounts update as you type.</p></div>
+
+    <div class="card mb-4">
+      <div class="flex items-end gap-3 flex-wrap">
+        <div><label class="lbl block mb-1">Sales week starting (Monday)</label>
+          <input type="date" class="inp" style="width:auto" value="${weekStart}" onchange="cwSetWeek(this.value)"></div>
+        <button class="btn dark" onclick="cwShift(-7)">‹ Prev</button>
+        <button class="btn dark" onclick="cwShift(7)">Next ›</button>
+        <div class="text-slate-500 text-xs ml-2">Sales ${fmtD(weekStart)} – ${fmtD(weekEnd)} · balance paid the following Wednesday</div>
+        <div class="ml-auto flex gap-2">
+          <button class="btn dark" onclick="cwFillAll()">Fill all with suggested</button>
+          <button class="btn gold" onclick="cwSaveAll()">Save</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" style="overflow-x:auto">
+      <table class="text-xs" style="border-collapse:separate;border-spacing:0">
+        <thead>
+          <tr class="text-slate-500">
+            <th class="text-left pb-1 pr-3" style="position:sticky;left:0;background:#1e293b;z-index:2">Consultant</th>
+            ${days.map(d=>`<th colspan="3" class="text-center pb-1 px-2" style="border-left:1px solid #334155">
+                <div class="text-slate-300 font-semibold">${d.lbl} ${d.dm}</div>
+                <div class="text-slate-600" style="font-size:10px">pays ${d.sales}'s sales</div></th>`).join('')}
+            <th colspan="3" class="text-center pb-1 px-2" style="border-left:2px solid #c9a84c">
+              <div class="text-yellow-500 font-semibold">Week</div></th>
+          </tr>
+          <tr class="text-slate-600" style="font-size:10px">
+            <th style="position:sticky;left:0;background:#1e293b;z-index:2"></th>
+            ${days.map(()=>`<th class="pb-2 px-1" style="border-left:1px solid #334155">Sales</th><th class="pb-2 px-1">Paid</th><th class="pb-2 px-1">Ret</th>`).join('')}
+            <th class="pb-2 px-1" style="border-left:2px solid #c9a84c">Paid</th><th class="pb-2 px-1">Ret</th><th class="pb-2 px-1">Owing Wed</th>
+          </tr>
+        </thead>
+        <tbody>
+        ${rows.map((r,ri)=>`<tr style="border-top:1px solid #334155">
+          <td class="py-1.5 pr-3 font-medium text-slate-200 whitespace-nowrap" style="position:sticky;left:0;background:#1e293b;z-index:2">
+            ${esc(r.con.name)}${r.retainer?'<span class="text-slate-600" style="font-size:9px"> retainer</span>':''}
+            <div class="text-slate-600" style="font-size:9px">${r.totUnits} units @ $${cwRate(r.totUnits)}${r.sysUnits!==r.totUnits?` · <span style="color:#fbbf24">system says ${r.sysUnits}</span>`:''}</div>
+          </td>
+          ${r.cells.map((c,di)=>`
+            <td class="py-1.5 px-1 text-center" style="border-left:1px solid #334155">${inp('u',ri,di,c.units,'0')}</td>
+            <td class="py-1.5 px-1 text-center">${inp('p',ri,di,c.paid,c.sugP.toFixed(0))}</td>
+            <td class="py-1.5 px-1 text-center">${inp('r',ri,di,c.ret,c.sugR.toFixed(0))}</td>`).join('')}
+          <td class="py-1.5 px-2 text-right text-sky-300 font-semibold whitespace-nowrap" style="border-left:2px solid #c9a84c" id="tp${ri}">${cwMoney(r.totPaid)}</td>
+          <td class="py-1.5 px-2 text-right text-amber-300 whitespace-nowrap" id="tr${ri}">${cwMoney(r.totRet)}</td>
+          <td class="py-1.5 px-2 text-right font-bold whitespace-nowrap ${r.owing<-0.01?'text-red-400':(r.owing>0.01?'text-green-400':'text-slate-600')}" id="to${ri}">
+            ${r.owing<-0.01?'claw '+cwMoney(Math.abs(r.owing)):cwMoney(r.owing)}</td>
+        </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="card mt-4">
+      <div class="lbl mb-3">Post to the pay run</div>
+      <div class="text-slate-400 text-xs mb-3">Each consultant's cash must be posted to the week's pay run as a deduction, or <b>they'll be paid twice</b>. Create the pay run for week ending ${fmtD(weekEnd)} first.</div>
+      <div class="flex flex-wrap gap-2">
+        ${rows.filter(r=>r.totPaid>0).map(r=>
+          r.wk&&r.wk.status==='reconciled'
+            ? `<span class="text-xs px-3 py-1.5 rounded" style="background:#14361f;color:#4ade80">✓ ${esc(r.con.name)} posted</span>`
+            : `<button class="btn gold text-xs py-1.5 px-3" onclick="cwPost('${r.con.id}','${weekEnd}',${r.totPaid})">Post ${esc(r.con.name)} — ${cwMoney(r.totPaid)}</button>`
+        ).join('') || '<span class="text-slate-600 text-xs">Nothing to post yet.</span>'}
+      </div>
+    </div>
+  </div>`;
+}
+
+// live edit → recompute that row's suggestions and totals
+window.cwEdit=function(el){
+  const ri=+el.dataset.r, di=+el.dataset.d, k=el.dataset.k;
+  const row=CWDATA.rows[ri], cell=row.cells[di];
+  const v=el.value===''?0:parseFloat(el.value)||0;
+  if(k==='u') cell.units=v; else if(k==='p') cell.paid=v; else cell.ret=v;
+  cwRecalcRow(row);
+  // refresh this row's placeholders (the suggestions) without losing focus
+  row.cells.forEach((c,d)=>{
+    const p=document.querySelector(`input[data-r="${ri}"][data-d="${d}"][data-k="p"]`);
+    const r=document.querySelector(`input[data-r="${ri}"][data-d="${d}"][data-k="r"]`);
+    if(p&&p!==el) p.placeholder=c.sugP.toFixed(0);
+    if(r&&r!==el) r.placeholder=c.sugR.toFixed(0);
+  });
+  const tp=$('tp'+ri), tr=$('tr'+ri), to=$('to'+ri);
+  if(tp) tp.textContent=cwMoney(row.totPaid);
+  if(tr) tr.textContent=cwMoney(row.totRet);
+  if(to){ to.textContent=row.owing<-0.01?'claw '+cwMoney(Math.abs(row.owing)):cwMoney(row.owing);
+    to.className='py-1.5 px-2 text-right font-bold whitespace-nowrap '+(row.owing<-0.01?'text-red-400':(row.owing>0.01?'text-green-400':'text-slate-600')); }
 };
 
-window.cwSaveDay=async()=>{
-  const rows=window.__CWROWS__||[];
-  const date=$('cwDay').value;
-  if(!date){ alert('Pick a date for these payouts.'); return; }
-  const note=$('cwNote').value.trim()||null;
+window.cwFillAll=()=>{
+  CWDATA.rows.forEach(row=>{ cwRecalcRow(row);
+    row.cells.forEach(c=>{ if(c.units>0||c.paid>0){ c.paid=c.sugP; c.ret=c.sugR; } });
+    cwRecalcRow(row); });
+  render_cw();
+};
+
+window.cwSetWeek=v=>{cwWeek=isoD(mondayOf(new Date(v+'T12:00:00')));renderApp();};
+window.cwShift=n=>{cwWeek=isoD(new Date(new Date(cwWeek+'T12:00:00').getTime()+n*86400000));renderApp();};
+
+window.cwSaveAll=async()=>{
   const who=(window.SIMTEC_USER&&(window.SIMTEC_USER.full_name||window.SIMTEC_USER.email))||'staff';
-
-  // gather the rows that were actually filled in
-  const entries=[];
-  document.querySelectorAll('.cwc').forEach(el=>{
-    const i=+el.dataset.i;
-    const cash=el.value===''?null:parseFloat(el.value);
-    const rEl=document.querySelector(`.cwr[data-i="${i}"]`);
-    const ret=(!rEl||rEl.value==='')?null:parseFloat(rEl.value);
-    if(cash===null&&ret===null) return;                 // blank row = skip
-    entries.push({row:rows[i], cash:cash||0, ret:ret||0,
-                  sugC:parseFloat(el.placeholder)||0, sugR:parseFloat(rEl?.placeholder)||0});
-  });
-  if(!entries.length){ alert('Nothing entered. Fill in at least one consultant, or use "Fill all with suggested".'); return; }
-
-  // warn once, listing only the rows that differ from what's owed
-  const diff=entries.filter(e=>Math.abs(e.cash-e.sugC)>0.01||Math.abs(e.ret-e.sugR)>0.01);
-  let msg=`Record ${entries.length} payout${entries.length===1?'':'s'} for ${fmtD(date)}?\n\n`
-        + entries.map(e=>`  ${e.row.c.name}: ${cwMoney(e.cash)} cash, ${cwMoney(e.ret)} retention`).join('\n');
-  if(diff.length){
-    msg+=`\n\n${diff.length} differ${diff.length===1?'s':''} from what would bring them up to date:\n`
-       + diff.map(e=>`  ${e.row.c.name}: cash ${cwMoney(e.cash)} vs ${cwMoney(e.sugC)} owed`).join('\n')
-       + `\n\nThat's fine — the difference carries to Wednesday.`;
-  }
-  if(!confirm(msg)) return;
-
-  for(const e of entries){
-    let wkId=e.row.wk?.id;
-    if(!wkId){   // open a cash week for this consultant on the fly
+  let n=0;
+  for(const row of CWDATA.rows){
+    const touched=row.cells.filter(c=>c.units||c.paid||c.ret||c.id);
+    if(!touched.length) continue;
+    let wkId=row.wk?.id;
+    if(!wkId){
       const {data:nw,error:ew}=await sb.from('commission_cash_weeks')
-        .insert({consultant_id:e.row.c.id,week_start:cwWeek,status:'open',opened_by:who}).select().single();
-      if(ew){ alert('Couldn\u2019t open a cash week for '+e.row.c.name+': '+ew.message); return; }
-      wkId=nw.id;
+        .insert({consultant_id:row.con.id,week_start:CWDATA.weekStart,status:'open',opened_by:who}).select().single();
+      if(ew){ alert('Couldn\u2019t open a cash week for '+row.con.name+': '+ew.message); return; }
+      wkId=nw.id; row.wk=nw;
     }
-    const {error}=await sb.from('commission_cash_advances').insert({cash_week_id:wkId,consultant_id:e.row.c.id,
-      advance_date:date,units:e.row.e.units,cash_paid:e.cash,retention_allocated:e.ret,note,created_by:who});
-    if(error){ alert('Couldn\u2019t save '+e.row.c.name+': '+error.message); return; }
+    for(const c of touched){
+      const payload={cash_week_id:wkId,consultant_id:row.con.id,advance_date:c.iso,
+        units:c.units||0,cash_paid:c.paid||0,retention_allocated:c.ret||0,created_by:who};
+      if(c.id){ const {error}=await sb.from('commission_cash_advances').update(payload).eq('id',c.id);
+        if(error){alert('Couldn\u2019t save '+row.con.name+': '+error.message);return;} }
+      else if(c.units||c.paid||c.ret){
+        const {data,error}=await sb.from('commission_cash_advances').insert(payload).select().single();
+        if(error){alert('Couldn\u2019t save '+row.con.name+': '+error.message);return;}
+        c.id=data.id;
+      }
+      n++;
+    }
   }
+  alert('Saved '+n+' entr'+(n===1?'y':'ies')+'.');
   renderApp();
 };
 
-// Posts a consultant's advances onto the pay run as a deduction, so Wednesday
-// pays only the BALANCE. calc() does net = gross − retention − deductions.
-// Without this the pay run would pay the full amount again.
-window.cwReconcile=async(wkId,conId,weekEnd,amount)=>{
+window.cwPost=async(conId,weekEnd,amount)=>{
   const {data:run}=await sb.from('commission_pay_runs').select('*').eq('week_ending',weekEnd).maybeSingle();
-  if(!run){ alert('There is no pay run for week ending '+fmtD(weekEnd)+' yet.\n\nCreate it on the Pay Runs screen first, then come back and post this.'); return; }
-  if(run.status==='finalised'){ alert('That pay run is already finalised — the deduction can\u2019t be added now.\n\nThis one needs sorting by hand.'); return; }
+  if(!run){ alert('There is no pay run for week ending '+fmtD(weekEnd)+' yet.\n\nCreate it on the Pay Runs screen first.'); return; }
+  if(run.status==='finalised'){ alert('That pay run is already finalised — the deduction can\u2019t be added now.'); return; }
   if(!confirm('Post '+cwMoney(amount)+' to the pay run for week ending '+fmtD(weekEnd)+' as a deduction?\n\nWednesday will then pay only the balance still owed.')) return;
   const who=(window.SIMTEC_USER&&(window.SIMTEC_USER.full_name||window.SIMTEC_USER.email))||'staff';
+  const row=CWDATA.rows.find(r=>r.con.id===conId);
   const {error:e1}=await sb.from('commission_deductions').insert({pay_run_id:run.id,consultant_id:conId,
     deduction_type:'cash_advance',description:'Cash paid during the week (big cash week)',amount,quantity:1});
   if(e1){alert(e1.message);return;}
-  const {error:e2}=await sb.from('commission_cash_weeks').update({status:'reconciled',
-    reconciled_at:new Date().toISOString(),reconciled_by:who}).eq('id',wkId);
-  if(e2){alert(e2.message);return;}
+  if(row?.wk?.id){ await sb.from('commission_cash_weeks').update({status:'reconciled',
+    reconciled_at:new Date().toISOString(),reconciled_by:who}).eq('id',row.wk.id); }
   renderApp();
 };
 
