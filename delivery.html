@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>Simtec — Delivery</title>
 <script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://unpkg.com/@supabase/supabase-js@2.38.4/dist/umd/supabase.js"></script>
 <script src="live.js?v=1" defer></script>
 <script src="auth.js?v=3" data-roles="admin,manager,office"></script>
@@ -24,6 +26,9 @@ body{font-family:system-ui,sans-serif}
 .ov{position:fixed;inset:0;background:rgba(2,6,23,.7);display:none;align-items:center;justify-content:center;z-index:50;padding:1rem}
 .ov.show{display:flex}
 .modal{background:#1e293b;border:1px solid #334155;border-radius:.9rem;padding:1.5rem;max-width:24rem;width:100%}
+.pintag{background:#1a2438;color:#e2e8f0;border:1px solid #c9a84c;border-radius:6px;font-size:11px;font-weight:600;padding:2px 6px;white-space:nowrap;box-shadow:0 2px 6px rgba(0,0,0,.4)}
+.pintag::before{border-top-color:#c9a84c!important}
+.leaflet-container{background:#0f172a}
 @media print{.noprint{display:none!important}body{background:#fff;color:#000}.card{border-color:#ccc}}
 </style>
 </head>
@@ -47,8 +52,15 @@ body{font-family:system-ui,sans-serif}
   <p id="ovwho" class="text-slate-500 text-xs mb-4"></p>
   <label class="k block mb-1">Delivery date</label>
   <input type="date" id="bkdate" class="inp mb-3">
-  <label class="k block mb-1">Time (optional)</label>
-  <input type="time" id="bktime" class="inp mb-4">
+  <label class="k block mb-1">Delivery window</label>
+  <select id="bktime" class="inp mb-4">
+    <option value="">— no window set —</option>
+    <option value="08:00">8:00 AM – 10:00 AM</option>
+    <option value="10:00">10:00 AM – 12:00 PM</option>
+    <option value="12:00">12:00 PM – 2:00 PM</option>
+    <option value="14:00">2:00 PM – 4:00 PM</option>
+    <option value="16:00">4:00 PM – 6:00 PM</option>
+  </select>
   <div class="flex gap-3">
     <button class="btn gold flex-1" onclick="saveBooking()">Confirm booking</button>
     <button class="btn flex-1" onclick="closeOv()">Cancel</button>
@@ -68,7 +80,22 @@ const todayStr=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}
 const fmtD=d=>d?new Date(d+'T12:00:00').toLocaleDateString('en-NZ',{weekday:'short',day:'2-digit',month:'short'}):'—';
 const fmt=n=>'$'+(+n||0).toLocaleString('en-NZ',{minimumFractionDigits:2,maximumFractionDigits:2});
 const shortD=d=>d?new Date(d+'T12:00:00').toLocaleDateString('en-NZ',{day:'2-digit',month:'short',year:'2-digit'}):'—';
-const esc=s=>(s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+// Delivery windows are 2 hours. delivery_time stores the START of the window.
+const WINDOWS=[['08:00','8:00 AM \u2013 10:00 AM'],['10:00','10:00 AM \u2013 12:00 PM'],
+               ['12:00','12:00 PM \u2013 2:00 PM'],['14:00','2:00 PM \u2013 4:00 PM'],
+               ['16:00','4:00 PM \u2013 6:00 PM']];
+function winTxt(t){
+  if(!t) return '';
+  const hhmm=String(t).slice(0,5);
+  const found=WINDOWS.find(w=>w[0]===hhmm);
+  if(found) return found[1];
+  // any other stored time: show it as start -> start+2h
+  const [h,m]=hhmm.split(':').map(Number);
+  if(isNaN(h)) return String(t);
+  const f=n=>{const ap=n>=12?'PM':'AM';const hr=n%12===0?12:n%12;return hr+':'+String(m||0).padStart(2,'0')+' '+ap;};
+  return f(h)+' \u2013 '+f((h+2)%24);
+}const esc=s=>(s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const titleCase=s=>(s||'').replace(/_/g,' ').replace(/\b\w/g,m=>m.toUpperCase());
 const suburb=a=>{const p=(a||'').split(',');return (p[1]||p[0]||'').trim();};
 
@@ -246,6 +273,7 @@ async function load(quiet){
       overdue: !!o.delivery_date && o.delivery_status!=='delivered' && o.delivery_date < todayStr,
       booked:!!o.delivery_date && o.delivery_status!=='delivered' && o.delivery_date >= todayStr,
       deliveryDate:o.delivery_date, deliveryTime:o.delivery_time||'',
+      lat:(o.delivery_lat!=null?Number(o.delivery_lat):null), lng:(o.delivery_lng!=null?Number(o.delivery_lng):null),
       deliveryStatus:o.delivery_status||'pending',
       // scorecard
       contract, paid, pct, instal, misses, payCount, rating, needPct, nearReady, cleanStreak, runNeeded,
@@ -276,7 +304,7 @@ function render(){
     const rows_=todaysDeliveries
       .sort((a,b)=>(a.deliveryTime||'').localeCompare(b.deliveryTime||'')||suburb(a.address).localeCompare(suburb(b.address)))
       .map(r=>`<div class="flex flex-wrap items-center justify-between gap-2" style="padding:5px 0;border-bottom:1px solid #2a2410">
-        <div><span class="font-semibold text-white">${esc(r.name)}</span>${r.deliveryTime?`<span class="k"> · ${esc(r.deliveryTime)}</span>`:''}<span class="k"> · ${esc(r.product)}</span></div>
+        <div><span class="font-semibold text-white">${esc(r.name)}</span>${r.deliveryTime?`<span class="k"> · ${esc(winTxt(r.deliveryTime))}</span>`:''}<span class="k"> · ${esc(r.product)}</span></div>
         <div>${r.address?`<a class="maplink" href="${mapLink(r.address)}" target="_blank">${esc(suburb(r.address))} ↗</a>`:'<span class="k">no address</span>'}</div>
       </div>`).join('');
     todayBanner=`<div class="card mb-4" style="border-color:#c9a84c;background:#211d0f">
@@ -332,10 +360,90 @@ function renderNearSummary(list){
   </div>`;
 }
 
+
+// ── Map of booked deliveries (Leaflet + OpenStreetMap, no API key) ─────────
+let MAP=null, MAPLAYER=null;
+function renderMap(booked){
+  const withPins = booked.filter(r=>r.lat!=null && r.lng!=null);
+  const missing  = booked.filter(r=>r.lat==null || r.lng==null);
+  const box=document.getElementById('mapbox');
+  if(!box) return;
+  if(!MAP){
+    MAP=L.map('mapbox',{scrollWheelZoom:false});
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+      {maxZoom:19, attribution:'\u00a9 OpenStreetMap'}).addTo(MAP);
+    MAP.setView([-36.8485,174.7633], 10);   // Auckland default
+  }
+  if(MAPLAYER){ MAP.removeLayer(MAPLAYER); }
+  MAPLAYER=L.layerGroup().addTo(MAP);
+  withPins.forEach(r=>{
+    const label=`${esc(r.name)}${r.deliveryTime?' \u00b7 '+esc(winTxt(r.deliveryTime)):''}`;
+    const m=L.marker([r.lat,r.lng]).addTo(MAPLAYER);
+    m.bindTooltip(label,{permanent:true,direction:'top',className:'pintag',offset:[0,-8]});
+    m.bindPopup(`<b>${esc(r.name)}</b><br>${esc(fmtD(r.deliveryDate))}${r.deliveryTime?'<br>'+esc(winTxt(r.deliveryTime)):''}<br>${esc(r.address)}<br>${esc(r.product)}`);
+  });
+  if(withPins.length){
+    const b=L.latLngBounds(withPins.map(r=>[r.lat,r.lng]));
+    MAP.fitBounds(b,{padding:[36,36],maxZoom:14});
+  }
+  const note=document.getElementById('mapnote');
+  if(note){
+    note.innerHTML = withPins.length
+      ? `${withPins.length} booked deliver${withPins.length===1?'y':'ies'} pinned.` +
+        (missing.length?` <span style="color:#fbbf24">${missing.length} couldn't be located \u2014 <button class="btn noprint" style="font-size:11px;padding:2px 8px" onclick="locateMissing()">Locate them</button></span>`:'')
+      : (missing.length?`<span style="color:#fbbf24">None of the ${missing.length} booked deliveries have been located yet \u2014 <button class="btn noprint" style="font-size:11px;padding:2px 8px" onclick="locateMissing()">Locate them</button></span>`:'Nothing booked to show.');
+  }
+  setTimeout(()=>{ if(MAP) MAP.invalidateSize(); },80);
+}
+
+// Backfill coordinates for any booked delivery that has never been geocoded.
+// Nominatim asks for max 1 lookup/sec, so we go one at a time.
+window.locateMissing=async function(){
+  const todo=rows.filter(r=>r.booked && !r.delivered && r.address && (r.lat==null||r.lng==null));
+  if(!todo.length) return;
+  const note=document.getElementById('mapnote');
+  for(let i=0;i<todo.length;i++){
+    const r=todo[i];
+    if(note) note.textContent=`Locating ${i+1} of ${todo.length}\u2026 (${r.name})`;
+    const g=await geocode(r.address);
+    if(g){ await sb.from('sim_orders').update({delivery_lat:g.lat,delivery_lng:g.lng}).eq('id',r.id); }
+    await new Promise(res=>setTimeout(res,1100));   // be polite to the free service
+  }
+  await load();
+};
+
+// ── Run sheet: print any of the next 5 days ───────────────────────────────
+function runSheetPicker(booked){
+  const days=[];
+  for(let i=0;i<5;i++){
+    const d=new Date(today.getTime()+i*DAY);
+    const ds=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    const n=booked.filter(r=>r.deliveryDate===ds).length;
+    days.push({ds,d,n,label:i===0?'Today':d.toLocaleDateString('en-NZ',{weekday:'short',day:'2-digit',month:'short'})});
+  }
+  return `<div class="card mb-4" style="border-color:#c9a84c">
+    <div class="lbl mb-2">Driver run sheet \u2014 print any of the next 5 days</div>
+    <div class="flex flex-wrap gap-2">
+      ${days.map(x=>`<button class="btn ${x.n?'gold':''}" ${x.n?'':'disabled style="opacity:.45"'}
+          onclick="window.open('driver.html?date=${x.ds}','_blank')">
+          ${x.label}${x.n?`<span class="pill" style="background:#1a2438;color:#c9a84c">${x.n}</span>`:' \u2014'}
+        </button>`).join('')}
+    </div>
+    <div class="text-xs text-slate-500 mt-2">Opens that day's run sheet in a new tab \u2014 stops in suburb order with the load list, ready to print for the driver.</div>
+  </div>`;
+}
+
 function renderBookedHead(booked){
   const dates=[...new Set(booked.map(r=>r.deliveryDate).filter(Boolean))].sort();
   const def=dates.includes(todayStr)?todayStr:(dates[0]||todayStr);
-  $('runhead').innerHTML=`<div class="card mb-4" style="border-color:#c9a84c">
+  $('runhead').innerHTML=
+    runSheetPicker(booked)
+    + `<div class="card mb-4">
+        <div class="lbl mb-2">Where they are</div>
+        <div id="mapbox" style="height:330px;border-radius:.6rem;overflow:hidden"></div>
+        <div class="k mt-2" id="mapnote"></div>
+      </div>`
+    + `<div class="card mb-4" style="border-color:#c9a84c">
       <div class="lbl mb-2">Print dockets for a delivery day</div>
       <div class="flex items-center gap-3 flex-wrap">
         <input type="date" id="docketDate" value="${def}" onchange="updateDocketCount()"
@@ -440,7 +548,7 @@ function renderDiary(booked){
     const list=booked.filter(r=>r.deliveryDate===ds)
       .sort((a,b)=>(a.deliveryTime||'~').localeCompare(b.deliveryTime||'~')||suburb(a.address).localeCompare(suburb(b.address)));
     const stops=list.map(r=>`<div style="padding:6px 8px;background:#0f1830;border:1px solid #26324a;border-radius:7px;margin-bottom:6px">
-        <div class="text-sm font-semibold" style="color:${r.deliveryTime?'#e2e8f0':'#64748b'}">${r.deliveryTime?esc(r.deliveryTime):'no time set'}</div>
+        <div class="text-sm font-semibold" style="color:${r.deliveryTime?'#e2e8f0':'#64748b'}">${r.deliveryTime?esc(winTxt(r.deliveryTime)):'no window set'}</div>
         <div class="text-xs text-slate-400">${esc(suburb(r.address))||'—'}</div>
       </div>`).join('') || `<div class="text-xs text-slate-600 py-2 text-center">—</div>`;
     html+=`<div class="card" style="padding:.7rem .6rem;${isToday?'border-color:#c9a84c;background:#1a1f12':''}">
@@ -527,7 +635,7 @@ function renderList(view,mode){
         <div class="k mt-1">next instalment ${fmt(r.instal)}</div></div>`;
     }
     else if(mode==='booked'){
-      right=`<div class="text-right"><div class="text-sm font-semibold text-slate-200">${fmtD(r.deliveryDate)}</div>${r.deliveryTime?`<div class="k">${esc(r.deliveryTime)}</div>`:''}
+      right=`<div class="text-right"><div class="text-sm font-semibold text-slate-200">${fmtD(r.deliveryDate)}</div>${r.deliveryTime?`<div class="k">${esc(winTxt(r.deliveryTime))}</div>`:''}
         <button class="btn noprint mt-2" onclick="event.stopPropagation();openBook('${r.id}','${esc(r.name).replace(/'/g,"\\'")}')">Reschedule</button>
         <button class="btn noprint mt-2" onclick="event.stopPropagation();window.open('docket.html?id='+'${r.id}','_blank')">🖨 Docket</button>
         <button class="btn gold noprint mt-2" onclick="event.stopPropagation();markDelivered('${r.id}')">Mark delivered</button></div>`;
@@ -554,13 +662,42 @@ window.setFilter=f=>{filter=f;render();};
 
 let bookId=null;
 window.openBook=(id,name)=>{bookId=id;$('ovwho').textContent=name;
-  const t=new Date(now.getTime()+DAY);$('bkdate').value=`${t.getFullYear()}-${String(t.getMonth()+1).padStart(2,'0')}-${String(t.getDate()).padStart(2,'0')}`;
-  $('bktime').value='';$('ov').classList.add('show');};
+  const r=rows.find(x=>x.id===id);
+  // rescheduling? default to the date/window already booked, else tomorrow
+  if(r&&r.deliveryDate){ $('bkdate').value=r.deliveryDate; }
+  else { const t=new Date(now.getTime()+DAY);$('bkdate').value=`${t.getFullYear()}-${String(t.getMonth()+1).padStart(2,'0')}-${String(t.getDate()).padStart(2,'0')}`; }
+  $('bktime').value = (r&&r.deliveryTime)?String(r.deliveryTime).slice(0,5):'';
+  $('ov').classList.add('show');};
 window.closeOv=()=>{$('ov').classList.remove('show');bookId=null;};
+
+// ── Geocoding (OpenStreetMap / Nominatim — free, no API key) ────────────────
+// We look an address up ONCE and store the coordinates on the order, so the map
+// just plots stored points. Nominatim asks for no more than 1 lookup a second.
+async function geocode(address){
+  if(!address) return null;
+  const q=encodeURIComponent(address+', New Zealand');
+  try{
+    const res=await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=nz&q=${q}`);
+    if(!res.ok) return null;
+    const j=await res.json();
+    if(j&&j.length) return {lat:parseFloat(j[0].lat), lng:parseFloat(j[0].lon)};
+  }catch(e){ /* offline or blocked — not fatal, the booking still saves */ }
+  return null;
+}
+
 window.saveBooking=async()=>{
   const d=$('bkdate').value;if(!d){alert('Pick a delivery date');return;}
   const t=$('bktime').value||null;
-  const {error}=await sb.from('sim_orders').update({delivery_date:d,delivery_time:t,delivery_status:'scheduled'}).eq('id',bookId);
+  const patch={delivery_date:d,delivery_time:t,delivery_status:'scheduled'};
+  // geocode the address once, so it can be pinned on the map
+  const r=rows.find(x=>x.id===bookId);
+  if(r && r.address && (r.lat==null || r.lng==null)){
+    const btn=document.querySelector('#ov .gold'); if(btn){btn.disabled=true;btn.textContent='Locating\u2026';}
+    const g=await geocode(r.address);
+    if(g){ patch.delivery_lat=g.lat; patch.delivery_lng=g.lng; }
+    if(btn){btn.disabled=false;btn.textContent='Confirm booking';}
+  }
+  const {error}=await sb.from('sim_orders').update(patch).eq('id',bookId);
   if(error){alert(error.message);return;}
   closeOv();await load();
 };

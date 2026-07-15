@@ -24,14 +24,15 @@ body{font-family:system-ui,sans-serif}
 <nav class="bg-slate-900 border-b border-slate-800 px-5 py-3 flex items-center gap-3 noprint">
   <a href="home.html" style="color:#cbd5e1;text-decoration:none;font-size:.85rem;margin-right:8px">‹ Home</a><span class="font-bold tracking-wide text-lg">SIMTEC</span>
   <span class="text-slate-400 text-sm">Run sheet</span>
-  <button class="act ghost ml-auto" style="min-height:2.4rem;font-size:.85rem" onclick="load()">↻ Refresh</button>
+  <button class="act ghost ml-auto noprint" style="min-height:2.4rem;font-size:.85rem" onclick="window.print()">🖨 Print</button>
+  <button class="act ghost noprint" style="min-height:2.4rem;font-size:.85rem" onclick="load()">↻ Refresh</button>
 </nav>
 
 <div class="max-w-2xl mx-auto p-4">
   <div id="head"></div>
   <div id="list"></div>
   <div id="done"></div>
-  <div id="state" class="text-center text-slate-500 py-20">Loading today's run…</div>
+  <div id="state" class="text-center text-slate-500 py-20">Loading run sheet…</div>
 </div>
 
 <script>
@@ -44,9 +45,26 @@ const DAY=86400000;
 const today=new Date();today.setHours(12,0,0,0);
 const now=new Date();
 const todayStr=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
+// The office can print a run sheet for any day via ?date=YYYY-MM-DD.
+// With no parameter this is the driver's screen and always shows today.
+const qsDate=(new URLSearchParams(location.search).get('date')||'').trim();
+const RUN_DATE=/^\d{4}-\d{2}-\d{2}$/.test(qsDate)?qsDate:todayStr;
+const IS_TODAY=(RUN_DATE===todayStr);
 const esc=s=>(s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const suburb=a=>{const p=(a||'').split(',');return (p[1]||p[0]||'').trim();};
 const digits=s=>(s||'').replace(/[^0-9+]/g,'');
+// Delivery windows are 2 hours; delivery_time holds the START of the window.
+const WINDOWS=[['08:00','8:00 AM \u2013 10:00 AM'],['10:00','10:00 AM \u2013 12:00 PM'],
+               ['12:00','12:00 PM \u2013 2:00 PM'],['14:00','2:00 PM \u2013 4:00 PM'],
+               ['16:00','4:00 PM \u2013 6:00 PM']];
+function winTxt(t){
+  if(!t) return '';
+  const hhmm=String(t).slice(0,5);
+  const f=WINDOWS.find(w=>w[0]===hhmm); if(f) return f[1];
+  const [h,m]=hhmm.split(':').map(Number); if(isNaN(h)) return String(t);
+  const fmt=n=>{const ap=n>=12?'PM':'AM';const hr=n%12===0?12:n%12;return hr+':'+String(m||0).padStart(2,'0')+' '+ap;};
+  return fmt(h)+' \u2013 '+fmt((h+2)%24);
+}
 
 // Payment check used ONLY to hold back a stop that is no longer cleared.
 // Nothing financial is ever shown on this screen.
@@ -77,11 +95,11 @@ function cleared(o,payAcct,counts){
 }
 
 async function load(){
-  $('state').style.display='';$('state').textContent='Loading today\u2019s run…';
+  $('state').style.display='';$('state').textContent='Loading run sheet\u2026';
   const {data:rules}=await sb.from('delivery_rules').select('*').order('min_deposit_pct'); RULES=rules||[];
   const {data:orders,error}=await sb.from('sim_orders')
     .select('*, sim_customers(first_name,last_name,mobile,address), sim_order_items(product_name,quantity)')
-    .lte('delivery_date',todayStr);
+    .eq('delivery_date',RUN_DATE);
   if(error){$('state').innerHTML=`<span class="text-red-400">${esc(error.message)}</span>`;return;}
   // for paid-via deliveries, clearance is judged on the PAYER's account
   const pvIds=[...new Set((orders||[]).map(o=>o.paid_via_order_id).filter(Boolean))];
@@ -93,7 +111,7 @@ async function load(){
   const refs=[...new Set((orders||[]).map(o=>{const pa=o.paid_via_order_id?(payerMap[o.paid_via_order_id]||o):o; return pa.ezidebit_payer_ref;}).filter(Boolean))];
   let counts={};
   if(refs.length){ const {data:cd}=await sb.rpc('sim_delivery_counts',{refs}); (cd||[]).forEach(r=>counts[r.payer_ref]={paid_count:r.paid_count,dishonour_count:r.dishonour_count}); }
-  const run=[],doneList=[];
+  const run=[];
   for(const o of (orders||[])){
     const cust=o.sim_customers||{};
     const items=(o.sim_order_items||[]).map(i=>({name:i.product_name,qty:+i.quantity||1}));
@@ -103,18 +121,18 @@ async function load(){
       items, product:items.map(i=>(i.qty>1?i.qty+'× ':'')+i.name).join(', ')||'—',
       time:o.delivery_time||''
     };
-    if(o.delivery_status==='delivered'){doneList.push(stop);continue;}
+    if(o.delivery_status==='delivered')continue;          // already done today — not on the run
     const payAcct = o.paid_via_order_id ? (payerMap[o.paid_via_order_id]||o) : o;   // judge payments on payer
     if(!cleared(o,payAcct,counts))continue;               // held back for the office — not shown to the driver
     run.push(stop);
   }
   run.sort((x,y)=>suburb(x.address).localeCompare(suburb(y.address))||x.address.localeCompare(y.address));
-  render(run,doneList);
+  render(run);
 }
 
-function render(run,doneList){
+function render(run){
   $('state').style.display='none';
-  const dstr=new Date(todayStr+'T12:00:00').toLocaleDateString('en-NZ',{weekday:'long',day:'numeric',month:'long'});
+  const dstr=new Date(RUN_DATE+'T12:00:00').toLocaleDateString('en-NZ',{weekday:'long',day:'numeric',month:'long'})+(IS_TODAY?'':' \u2014 upcoming run');
   const load={};run.forEach(r=>r.items.forEach(i=>load[i.name]=(load[i.name]||0)+i.qty));
   const loadStr=Object.entries(load).map(([n,q])=>`${q}× ${esc(n)}`).join(' · ');
   const stops=run.map(r=>r.address).filter(Boolean);
@@ -129,14 +147,14 @@ function render(run,doneList){
       ${route?`<a class="act gold noprint mt-4" style="width:100%" href="${route}" target="_blank">🧭 Start route in Maps</a>`:''}
     </div>`;
 
-  if(!run.length){$('list').innerHTML=`<div class="text-center text-slate-500 py-14">No deliveries left for today.</div>`;}
+  if(!run.length){$('list').innerHTML=`<div class="text-center text-slate-500 py-14">Nothing booked for this day.</div>`;}
   else $('list').innerHTML=run.map((r,i)=>`<div class="card mb-3">
       <div class="flex items-start gap-3">
         <div class="num">${i+1}</div>
         <div class="flex-1 min-w-0">
           <div class="text-lg font-bold text-white">${esc(r.name)}</div>
           <div class="text-lg text-slate-100 mt-1 leading-snug">${esc(r.address)||'<span class="text-slate-500">No address on file</span>'}</div>
-          ${r.time?`<div class="lbl mt-2">Time · ${esc(r.time)}</div>`:''}
+          ${r.time?`<div class="lbl mt-2">Window · ${esc(winTxt(r.time))}</div>`:''}
           <div class="lbl mt-2">Deliver</div>
           <div class="text-slate-200">${esc(r.product)}</div>
         </div>
@@ -145,15 +163,9 @@ function render(run,doneList){
         ${r.address?`<a class="act ghost" href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(r.address)}" target="_blank">📍 Maps</a>`:''}
         ${r.phone?`<a class="act ghost" href="tel:${digits(r.phone)}">📞 Call</a>`:''}
         <button class="act ghost" onclick="window.open('docket.html?id='+'${r.id}','_blank')">🖨 Docket</button>
-        <button class="act gold" style="margin-left:auto" onclick="markDelivered('${r.id}','${esc(r.name).replace(/'/g,"\\'")}')">✓ Delivered</button>
+        ${IS_TODAY?`<button class="act gold" style="margin-left:auto" onclick="markDelivered('${r.id}','${esc(r.name).replace(/'/g,"\\'")}')">✓ Delivered</button>`:''}
       </div>
     </div>`).join('');
-
-  $('done').innerHTML = doneList.length
-    ? `<div class="mt-6"><div class="lbl mb-2">Delivered today · ${doneList.length}</div>`
-      + doneList.map(r=>`<div class="card done mb-2 py-3"><span class="font-semibold">${esc(r.name)}</span> <span class="text-slate-400 text-sm">— ${esc(r.address)}</span></div>`).join('')
-      + `</div>`
-    : '';
 }
 
 window.markDelivered=async(id,name)=>{
