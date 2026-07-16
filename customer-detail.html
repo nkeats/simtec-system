@@ -170,6 +170,50 @@ function position(o){
           estimated:!haveTerms, dueCount};
 }
 
+// Add k payment intervals to a date (calendar months for monthly; exact days otherwise).
+function addInterval(d, freqKey, k){
+  const x=new Date(d.getTime());
+  if(freqKey==="monthly") x.setMonth(x.getMonth()+k);
+  else x.setDate(x.getDate()+k*(freqKey==="fortnightly"?14:7));
+  return x;
+}
+function fmtDMY(d){ return String(d.getDate()).padStart(2,"0")+"/"+String(d.getMonth()+1).padStart(2,"0")+"/"+d.getFullYear(); }
+
+// Projected FINAL payment — the date the last instalment clears the balance, so
+// they make no more payments. A forecast: it assumes they keep paying the
+// recorded instalment each period from their next due date. Flags .est when the
+// instalment or next-payment date isn't recorded (so the number is a guess).
+function payoffInfo(o, p){
+  if(!p || p.balance==null) return null;                 // no contract value
+  if(p.balance<=0.01) return {done:true};                // already paid off
+  if(o.payment_method==="pay_in_full" || o.payment_method==="cash") return {lump:true};
+
+  const freqKey = PERIODS[o.payment_frequency] ? o.payment_frequency : "weekly";
+  const per = PERIODS[freqKey];
+  const haveTerms = o.instalment_amount!=null && Number(o.instalment_amount)>0;
+  const perAmt = haveTerms ? Number(o.instalment_amount) : p.contract/per.total;
+  if(!(perAmt>0)) return null;
+
+  const today=new Date(); today.setHours(0,0,0,0);
+  let next=null, est=!haveTerms;
+  if(o.next_payment_date){
+    next=new Date(String(o.next_payment_date).slice(0,10)+"T00:00:00");
+  } else {
+    const startStr=o.schedule_start_date||o.loan_start_date||o.first_payment_date||null;
+    if(!startStr) return {noSched:true};
+    const start=new Date(String(startStr).slice(0,10)+"T00:00:00");
+    const dueCount=Math.max(0, Math.floor((today-start)/86400000/per.per)+1);
+    next=addInterval(start, freqKey, dueCount);
+    est=true;
+  }
+  // if the recorded "next" is in the past (behind), project from the next future date
+  let guard=0; while(next<today && guard++<2000){ next=addInterval(next, freqKey, 1); if(!o.next_payment_date) est=true; }
+
+  const N=Math.ceil((p.balance-0.01)/perAmt);            // instalments still to pay
+  if(N<=0) return {done:true};
+  return {date:addInterval(next, freqKey, N-1), remaining:N, est};
+}
+
 // ---------- search ----------
 let tmr=null;
 document.addEventListener("input",e=>{ if(e.target.id==="q"){ clearTimeout(tmr); tmr=setTimeout(doSearch,220);} });
@@ -468,13 +512,19 @@ function orderSection(o, items, pays, open){
     <table><thead><tr><th>Product</th><th class="num">Qty</th><th class="num">Unit price</th><th class="num">Delivery</th></tr></thead><tbody>${prodRows}</tbody></table></div>`;
 
   const totalPaid = pays.reduce((s,x)=>s+Number(x.amount||0),0);
-  const lastPayDate = pays.length ? pays.reduce((m,x)=> (String(x.payment_date||"")>m ? String(x.payment_date||"") : m), "") : "";
+  const po = payoffInfo(o, p);
+  let payoffTxt = "";
+  if(po){
+    if(po.done)        payoffTxt = `<span style="font-weight:400;font-size:12.5px;color:var(--green)">Paid in full ✓</span>`;
+    else if(po.date)   payoffTxt = `<span style="font-weight:400;font-size:12.5px;color:var(--sub)">Final payment${po.est?" (est.)":""}: <b style="color:var(--navy)">${fmtDMY(po.date)}</b></span>`;
+    else if(po.noSched)payoffTxt = `<span style="font-weight:400;font-size:12.5px;color:var(--amber)">Final payment: no schedule set</span>`;
+  }
   const payRows = pays.length ? pays.slice(0,40).map(x=>`<tr><td>${auDate(x.payment_date)}</td><td class="num">${fmt(x.amount)}</td></tr>`).join("")
     : `<tr><td colspan="2" class="muted">No payments recorded yet.</td></tr>`;
   const history=`<div class="card full">
     <h2 style="display:flex;align-items:center;flex-wrap:wrap;gap:12px">
       <span>Payment history${pays.length?` — ${pays.length} payments, ${fmt(totalPaid)}`:""}</span>
-      ${lastPayDate?`<span style="font-weight:400;font-size:12.5px;color:var(--sub)">Last payment: ${auDate(lastPayDate)}</span>`:""}
+      ${payoffTxt}
       <button onclick="printStatement('${o.id}')" style="margin-left:auto;background:#122347;color:#fff;border:none;border-radius:7px;padding:5px 12px;font-size:12px;font-weight:600;cursor:pointer">🖨 Print statement</button>
     </h2>
     <table><thead><tr><th>Date</th><th class="num">Amount</th></tr></thead><tbody>${payRows}</tbody></table></div>`;
