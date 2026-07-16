@@ -142,7 +142,7 @@ async function loadFor(name){
   const oids=(orders||[]).map(o=>o.id);
   const byOrder={};
   if(oids.length){
-    const { data:items } = await sb.from("sim_order_items").select("order_id,product_name,quantity,line_no").in("order_id",oids);
+    const { data:items } = await sb.from("sim_order_items").select("order_id,product_name,quantity,line_no,cancelled").in("order_id",oids);
     (items||[]).forEach(it=>{ (byOrder[it.order_id]=byOrder[it.order_id]||[]).push(it); });
   }
   (orders||[]).forEach(o=>{ o._items=byOrder[o.id]||[]; });
@@ -158,15 +158,42 @@ function eligible(s){
   if(!s.cancelled_date) return true;
   return s.cancelled_date > cancelCutoff(s.sale_date);
 }
-function weeklySeries(sales){
-  const seen={};
-  sales.forEach(s=>{ if(!s.sale_date) return; const w=weekStart(s.sale_date); const key=(s.customer_name||"").toLowerCase().trim()||s.id; (seen[w]=seen[w]||new Set()).add(key); });
-  const weeks=Object.keys(seen); if(!weeks.length) return [];
+// A "sale" for the weekly numbers = a MATTRESS UNIT. A customer who buys two
+// mattresses counts as two. A zero-commission mattress (e.g. a Mk I King Single)
+// STILL counts toward the weekly volume — no commission is paid on it, but the
+// unit still pushes the week toward the next pay-run tier. Bases, protectors,
+// pillows and delivery lines are not mattresses and don't count.
+function isMattress(name){
+  const n=(name||"").toLowerCase().trim();
+  if(!n) return false;
+  return !/bed base|\bbase\b|protector|pillow|delivery/.test(n);
+}
+function orderMattressUnits(o){
+  return (o._items||[]).reduce((s,it)=> s + ((!it.cancelled && isMattress(it.product_name)) ? (Number(it.quantity)||0) : 0), 0);
+}
+// Weekly series of mattress units. Each eligible sale contributes its order's
+// mattress units (each order counted once). An older imported sale with no linked
+// order/items falls back to 1 so historical weeks aren't understated.
+function weeklySeries(elig, unitsByOrder){
+  const perWeek={};
+  elig.forEach(s=>{
+    if(!s.sale_date) return;
+    const w=weekStart(s.sale_date);
+    const b=perWeek[w]=perWeek[w]||{seen:new Set(), count:0};
+    if(s.sim_order_id && unitsByOrder[s.sim_order_id]!=null){
+      if(b.seen.has(s.sim_order_id)) return;         // same order twice → count once
+      b.seen.add(s.sim_order_id);
+      b.count += unitsByOrder[s.sim_order_id];
+    } else {
+      b.count += 1;                                   // imported sale, no items on file
+    }
+  });
+  const weeks=Object.keys(perWeek); if(!weeks.length) return [];
   const first=weeks.sort()[0];
   const p=first.split("-").map(Number); let d=new Date(Date.UTC(p[0],p[1]-1,p[2]));
   const pe=THIS_WEEK.split("-").map(Number); const end=new Date(Date.UTC(pe[0],pe[1]-1,pe[2]));
   const series=[];
-  while(d<=end){ const k=ymd(d); series.push({week:k, count:(seen[k]?seen[k].size:0)}); d.setUTCDate(d.getUTCDate()+7); }
+  while(d<=end){ const k=ymd(d); series.push({week:k, count:(perWeek[k]?perWeek[k].count:0)}); d.setUTCDate(d.getUTCDate()+7); }
   return series;
 }
 function bestSingle(s){ return s.reduce((m,x)=>Math.max(m,x.count),0); }
@@ -199,8 +226,10 @@ function prog(a,s){
 
 function render(name, sales, orders, baseline){
   const elig = sales.filter(eligible);
-  const series = weeklySeries(elig);
-  const thisWeek = elig.filter(s=>s.sale_date && weekStart(s.sale_date)===THIS_WEEK).length;
+  const unitsByOrder={};
+  orders.forEach(o=>{ unitsByOrder[o.id]=orderMattressUnits(o); });
+  const series = weeklySeries(elig, unitsByOrder);
+  const thisWeek = (series.find(x=>x.week===THIS_WEEK)||{count:0}).count;
   const last4 = series.slice(-4).reduce((a,x)=>a+x.count,0);
 
   // Strict ladder climb (one rung at a time, each requiring the one below)
