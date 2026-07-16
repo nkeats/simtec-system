@@ -53,7 +53,7 @@ body{font-family:system-ui,sans-serif}
   <label class="k block mb-1">Delivery date</label>
   <input type="date" id="bkdate" class="inp mb-3">
   <label class="k block mb-1">Delivery window</label>
-  <select id="bktime" class="inp mb-4">
+  <select id="bktime" class="inp mb-3">
     <option value="">— no window set —</option>
     <option value="08:00">8:00 AM – 10:00 AM</option>
     <option value="10:00">10:00 AM – 12:00 PM</option>
@@ -61,6 +61,8 @@ body{font-family:system-ui,sans-serif}
     <option value="14:00">2:00 PM – 4:00 PM</option>
     <option value="16:00">4:00 PM – 6:00 PM</option>
   </select>
+  <label class="k block mb-1">Delivery note <span style="text-transform:none;letter-spacing:normal;color:#64748b">(optional — prints on the docket)</span></label>
+  <textarea id="bknote" class="inp mb-4" rows="2" placeholder="e.g. call on arrival, gate code, leave at side door"></textarea>
   <div class="flex gap-3">
     <button class="btn gold flex-1" onclick="saveBooking()">Confirm booking</button>
     <button class="btn flex-1" onclick="closeOv()">Cancel</button>
@@ -294,6 +296,7 @@ async function load(quiet){
       id:o.id, custId:cust.id||o.customer_id,
       name:`${cust.first_name||''} ${cust.last_name||''}`.trim()||'(no name)',
       phone:cust.mobile||'', address:o.delivery_address||cust.address||'',
+      note:o.delivery_note||'',
       items, product:items.map(i=>(i.qty>1?i.qty+'× ':'')+i.name).join(', ')||'—',
       cleared:isCleared,
       authorised:o.delivery_authorised===true,
@@ -732,6 +735,7 @@ window.openBook=(id,name)=>{bookId=id;$('ovwho').textContent=name;
   if(r&&r.deliveryDate){ $('bkdate').value=r.deliveryDate; }
   else { const t=new Date(now.getTime()+DAY);$('bkdate').value=`${t.getFullYear()}-${String(t.getMonth()+1).padStart(2,'0')}-${String(t.getDate()).padStart(2,'0')}`; }
   $('bktime').value = (r&&r.deliveryTime)?String(r.deliveryTime).slice(0,5):'';
+  $('bknote').value = (r&&r.note)?r.note:'';
   $('ov').classList.add('show');};
 window.closeOv=()=>{$('ov').classList.remove('show');bookId=null;};
 
@@ -753,7 +757,7 @@ async function geocode(address){
 window.saveBooking=async()=>{
   const d=$('bkdate').value;if(!d){alert('Pick a delivery date');return;}
   const t=$('bktime').value||null;
-  const patch={delivery_date:d,delivery_time:t,delivery_status:'scheduled'};
+  const patch={delivery_date:d,delivery_time:t,delivery_status:'scheduled',delivery_note:($('bknote').value.trim()||null)};
   // geocode the address once, so it can be pinned on the map
   const r=rows.find(x=>x.id===bookId);
   if(r && r.address && (r.lat==null || r.lng==null)){
