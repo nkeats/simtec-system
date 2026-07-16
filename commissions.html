@@ -67,12 +67,25 @@ const closeMod=()=>$('moverlay').classList.add('hidden');
 const toast=(msg,ok=true)=>{const t=$('toast');t.textContent=msg;t.className=`fixed bottom-6 right-6 px-4 py-3 rounded-lg text-sm font-medium noprint ${ok?'bg-green-700 text-green-100':'bg-red-700 text-red-100'}`;t.classList.remove('hidden');setTimeout(()=>t.classList.add('hidden'),3000)};
 const err=e=>{console.error(e);toast(e?.message||'An error occurred',false)};
 
+// A mattress is any product that isn't a base, protector, pillow or delivery
+// line. Used so a ZERO-commission mattress (e.g. a Mk I King Single) still counts
+// toward the weekly volume that sets the tier — even though it pays no commission
+// itself. Matches the same rule on my-sales.html so the two pages agree.
+function isMattress(name){
+  const n=(name||'').toLowerCase().trim();
+  if(!n) return false;
+  return !/bed base|\bbase\b|protector|pillow|delivery/.test(n);
+}
+
 // ── Commission calc ────────────────────────────────────────────────────────
 function calc(sales,bonuses,deds,retBal,payBasis){
   const s=S();
   let units=0;
+  // Tier volume counts mattress units, INCLUDING zero-commission mattresses.
+  // Commission itself is still only paid on 'fixed'/'tier' products below, so a
+  // zero-commission mattress lifts the tier but earns nothing on its own line.
   for(const sale of sales){if(sale.status==='cancelled')continue;for(const it of(sale.items||[]))
-    if(it.product?.commission_type!=='zero')units+=it.quantity;}
+    if(it.product?.commission_type!=='zero' || isMattress(it.product?.name))units+=it.quantity;}
   const rate=units<=s.tier1_max?s.tier1_amount:units<=s.tier2_max?s.tier2_amount:s.tier3_amount;
   let sc=0,ac=0;
   for(const sale of sales){
@@ -226,7 +239,7 @@ async function showCashWeek(){
 
   const [{data:wks},{data:sl}]=await Promise.all([
     sb.from('commission_cash_weeks').select('*').eq('week_start',weekStart).in('consultant_id',ids),
-    sb.from('commission_sales').select('consultant_id,status,commission_sale_items(quantity,commission_products(commission_type))')
+    sb.from('commission_sales').select('consultant_id,status,commission_sale_items(quantity,commission_products(commission_type,name))')
       .in('consultant_id',ids).gte('sale_date',weekStart).lte('sale_date',weekEnd)
   ]);
   const weeks={}; (wks||[]).forEach(w=>weeks[w.consultant_id]=w);
@@ -235,7 +248,7 @@ async function showCashWeek(){
 
   // what the SYSTEM thinks was sold this week (for the cross-check)
   const sysU={}; (sl||[]).forEach(x=>{ if(x.status==='cancelled')return;
-    (x.commission_sale_items||[]).forEach(i=>{ if(i.commission_products?.commission_type!=='zero') sysU[x.consultant_id]=(sysU[x.consultant_id]||0)+i.quantity; }); });
+    (x.commission_sale_items||[]).forEach(i=>{ const p=i.commission_products; if(p && (p.commission_type!=='zero' || isMattress(p.name))) sysU[x.consultant_id]=(sysU[x.consultant_id]||0)+i.quantity; }); });
 
   CWDATA={weekStart, weekEnd, days, rows:active.map(c=>{
     const cells=days.map(d=>{
