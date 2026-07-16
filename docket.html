@@ -36,6 +36,12 @@
   .notebox{border:1px solid var(--line);border-radius:8px;padding:12px 15px 6px;margin-top:4px}
   .noteln{border-bottom:1px solid #d7dee8;height:27px}
   .noteln:last-child{border-bottom:none}
+  .noteedit{width:100%;border:1px solid #cbd4df;border-radius:8px;padding:9px 11px;font:inherit;color:var(--ink);resize:vertical;min-height:62px}
+  .noteedit:focus{outline:none;border-color:var(--navy);box-shadow:0 0 0 3px rgba(18,35,71,.12)}
+  .notectl{display:flex;align-items:center;gap:10px;margin-top:7px}
+  .notestate{font-size:12px;color:#6b7889}
+  .noteprint{display:none}
+  .noteprinttext{font-size:14px;line-height:1.55;white-space:pre-wrap;margin-bottom:2px}
   .consent{border:1px solid var(--line);border-radius:8px;padding:12px 15px;margin-top:8px}
   .consent p{margin:0 0 9px;font-size:13.5px;line-height:1.5}
   .ticks{display:flex;gap:26px;margin:8px 0}
@@ -48,6 +54,7 @@
   .foot{margin-top:18px;font-size:10.5px;color:#8a97a6;border-top:1px solid var(--line);padding-top:9px}
   @media print{
     body{background:#fff} .no-print{display:none!important}
+    .noteprint{display:block!important}
     .copy{margin:0;border:none;max-width:100%;padding:6px 12px;page-break-after:always}
     .copy:last-child{page-break-after:auto}
     .top .brand,.box,.copytag{-webkit-print-color-adjust:exact;print-color-adjust:exact}
@@ -101,8 +108,13 @@ function docket(d, label, cls){
     <table><thead><tr><th>Product</th><th class="num">Qty</th></tr></thead><tbody>${itemRows}</tbody></table>
 
     <h3>Notes</h3>
-    <div class="notebox">${d.note?`<div style="font-size:14px;line-height:1.55;white-space:pre-wrap">${esc(d.note)}</div>`:""}
-      <div class="noteln"></div><div class="noteln"></div><div class="noteln"></div>
+    <div class="notebox">
+      ${d.id?`<textarea class="noteedit no-print" data-oid="${d.id}" rows="3" placeholder="Type a delivery note for the driver…" oninput="noteInput(this)" onblur="noteSave(this)">${esc(d.note||"")}</textarea>
+      <div class="notectl no-print"><span class="notestate" data-oid="${d.id}">${d.note?"Saved ✓":""}</span></div>`:""}
+      <div class="noteprint">
+        <div class="noteprinttext" data-oid="${d.id||""}">${esc(d.note||"")}</div>
+        <div class="noteln"></div><div class="noteln"></div><div class="noteln"></div>
+      </div>
     </div>
 
     <h3>Delivery confirmation</h3>
@@ -144,12 +156,32 @@ async function dataForOrder(o){
   let c={}; if(o.customer_id){ const {data}=await sb.from("sim_customers").select("*").eq("id",o.customer_id).single(); c=data||{}; }
   const {data:items}=await sb.from("sim_order_items").select("product_name,quantity,line_no").eq("order_id",o.id).order("line_no");
   return {
+    id:o.id,
+    note:o.delivery_note||"",
     name:[c.first_name,c.last_name].filter(Boolean).join(" "),
     phone:c.mobile||"",
     address:o.delivery_address||c.address||"",
     deldate:auDate(o.delivery_date),
     items:(items||[]).map(i=>({name:i.product_name||"",qty:+i.quantity||1}))
   };
+}
+
+// ---- editable delivery note (office types here; prints on the docket) --------
+// Each order renders twice (customer + office copy). Typing updates both copies'
+// printed text live so a print always matches what's on screen; blur saves it to
+// sim_orders.delivery_note. Requires the delivery_note column (see deploy note).
+function noteInput(el){
+  const oid=el.dataset.oid, v=el.value;
+  document.querySelectorAll('.noteprinttext[data-oid="'+oid+'"]').forEach(x=>{ x.textContent=v; });
+  document.querySelectorAll('.noteedit[data-oid="'+oid+'"]').forEach(t=>{ if(t!==el) t.value=v; });
+  document.querySelectorAll('.notestate[data-oid="'+oid+'"]').forEach(s=>{ s.textContent='Unsaved…'; s.style.color='#a9791f'; });
+}
+async function noteSave(el){
+  const oid=el.dataset.oid, v=el.value.trim();
+  const states=document.querySelectorAll('.notestate[data-oid="'+oid+'"]');
+  states.forEach(s=>{ s.textContent='Saving…'; s.style.color='#6b7889'; });
+  const { error } = await sb.from('sim_orders').update({delivery_note: v||null}).eq('id', oid);
+  states.forEach(s=>{ s.textContent = error ? ('⚠ '+error.message) : 'Saved ✓'; s.style.color = error ? '#b4342e' : '#1c6b34'; });
 }
 
 async function run(){

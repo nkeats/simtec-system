@@ -46,6 +46,10 @@
   .appt .time{font-weight:800;color:var(--navy);font-size:15px;font-variant-numeric:tabular-nums}
   .appt .who{font-weight:700;font-size:14.5px;margin-top:1px}
   .appt .meta{color:var(--sub);font-size:12.5px;margin-top:2px;line-height:1.5}
+  .appt .loc{font-size:14px;font-weight:600;margin-top:4px;line-height:1.4}
+  .appt .loc a{color:var(--navy);text-decoration:none}
+  .appt .loc a:active{opacity:.55}
+  .appt .meta a{color:inherit;text-decoration:none}
   .badge{font-size:10.5px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;padding:3px 9px;border-radius:20px;white-space:nowrap}
   .b-booked{background:var(--bluebg);color:var(--blue)}
   .b-cancelled{background:#eef1f4;color:#7a8494}
@@ -337,7 +341,16 @@ function apptCard(a){
       outcome=`<div class="outcome">Reason: <b>${esc(REASONS[a.not_sold_reason]||'—')}</b>${a.not_sold_note?` — ${esc(a.not_sold_note)}`:''}</div>`; }
   } else { badge=`<span class="badge b-booked">Booked</span>`; }
 
-  const meta=[a.prospect_phone?esc(a.prospect_phone):'', a.suburb?esc(a.suburb):''].filter(Boolean).join(' · ');
+  // Full address at a glance for consultants working off their phones: street +
+  // suburb on its own prominent line, tappable straight into Maps. Phone taps to call.
+  const fullAddr = [a.address, a.suburb].filter(Boolean).join(', ');
+  const locLine = fullAddr
+    ? `<div class="loc"><a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(fullAddr)}" target="_blank" rel="noopener">📍 ${esc(fullAddr)}</a></div>`
+    : '';
+  const telHref = (a.prospect_phone||'').replace(/[^\d+]/g,'');
+  const phoneLine = a.prospect_phone
+    ? `<div class="meta">📞 <a href="tel:${esc(telHref)}">${esc(a.prospect_phone)}</a></div>`
+    : '';
   const rs = a.reschedule_count>0 ? `<div class="rs">⟳ Rescheduled ${a.reschedule_count}×</div>` : '';
   const canAct = a.status==='booked';
   const acts = canAct
@@ -349,7 +362,8 @@ function apptCard(a){
       <div>
         <div class="time">${a.appt_time?prettyTime(a.appt_time):'—'}</div>
         <div class="who">${esc(a.prospect_name||'(no name)')}</div>
-        ${meta?`<div class="meta">${meta}</div>`:''}
+        ${locLine}
+        ${phoneLine}
         ${a.note?`<div class="meta">📝 ${esc(a.note)}</div>`:''}
         ${rs}${outcome}
       </div>
