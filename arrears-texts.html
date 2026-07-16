@@ -238,10 +238,18 @@ window.sendDay=async function(){
     let status='sent',resp='';
     try{ await postOne(r.mobile,body); sent++; }
     catch(e){ status='failed'; resp=e.message; failed++; }
-    // log the send
+    // log the send (technical log: keeps status + provider response)
     await sb.from('sim_communications').insert({customer_id:r.customer_id,order_id:r.order_id,channel:'sms',
       direction:'outbound',comm_type:'arrears_reminder',body,status,provider_response:resp,source:'brain',mobile:r.mobile});
     if(status!=='sent') continue;                     // a failed send doesn't advance them
+    // also record it in the customer's contact log, so the exact text we sent
+    // shows up in the Communications section on their customer page.
+    await sb.from('sim_contacts').insert({
+      customer_id:r.customer_id, order_id:r.order_id,
+      channel:'text', direction:'outbound', contacted_at:nowIso,
+      staff_name:who(), subject:`Arrears reminder — Day ${day}`, body,
+      auto_source:true, auto_ref:`Arrears day ${day}`
+    });
     if(day===1){
       await sb.from('sim_arrears_sequence').insert({order_id:r.order_id,customer_id:r.customer_id,
         payer_ref:r.payer_ref,day_sent:1,last_sent_at:nowIso,paid_base:r.paid,status:'active'});
