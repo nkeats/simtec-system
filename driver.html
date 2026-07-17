@@ -77,7 +77,7 @@ function ruleFor(depositPct){
 function cleanRun(pays,dishonours){
   const ev=[
     ...(pays||[]).filter(p=>!(p.result&&String(p.result).toLowerCase()==='refund')).map(p=>({d:p.payment_date,ok:true})),
-    ...(dishonours||[]).map(x=>({d:x.payment_date||x.dishonour_date,ok:false}))
+    ...(dishonours||[]).map(x=>({d:x.payment_date||x.dishonour_date||x.settlement_date,ok:false}))
   ].sort((a,b)=>String(b.d||'').localeCompare(String(a.d||'')));
   let run=0; for(const e of ev){ if(e.ok) run++; else break; } return run;
 }
@@ -92,7 +92,7 @@ function gateMet(order,pays,dishonours){
   const since=String(setAt).slice(0,10);
   const clean=(pays||[]).filter(p=>!(p.result&&String(p.result).toLowerCase()==='refund')
       && String(p.payment_date||'').slice(0,10)>since).length;
-  const miss=(dishonours||[]).filter(d=>String(d.payment_date||d.dishonour_date||'').slice(0,10)>since).length;
+  const miss=(dishonours||[]).filter(d=>String(d.payment_date||d.dishonour_date||d.settlement_date||'').slice(0,10)>since).length;
   return miss===0 && clean>=need;
 }
 
@@ -141,7 +141,7 @@ async function load(){
   if(refs.length){
     const {data:pm}=await sb.from('sim_payments').select('payer_ref,payment_date,result').in('payer_ref',refs);
     (pm||[]).forEach(p=>{(paysByRef[p.payer_ref]=paysByRef[p.payer_ref]||[]).push(p);});
-    const {data:dh}=await sb.from('sim_dishonours').select('payer_ref,payment_date,dishonour_date').in('payer_ref',refs);
+    const {data:dh}=await sb.from('sim_dishonours').select('*').in('payer_ref',refs);
     (dh||[]).forEach(d=>{(disByRef[d.payer_ref]=disByRef[d.payer_ref]||[]).push(d);});
   }
   const run=[];

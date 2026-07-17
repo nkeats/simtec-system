@@ -116,7 +116,7 @@ function cleanRun(pays, dishonours){
   const events=[
     ...(pays||[]).filter(p=>!(p.result&&p.result.toLowerCase()==='refund'))
                  .map(p=>({d:p.payment_date, ok:true})),
-    ...(dishonours||[]).map(x=>({d:x.payment_date, ok:false}))
+    ...(dishonours||[]).map(x=>({d:x.dishonour_date||x.settlement_date||x.payment_date, ok:false}))
   ].sort((a,b)=>(b.d||'').localeCompare(a.d||''));   // newest first
   let run=0;
   for(const e of events){ if(e.ok) run++; else break; }   // stop at the first (most recent) miss
@@ -144,7 +144,7 @@ function gateProgress(order, pays, dishonours){
       !(p.result && String(p.result).toLowerCase()==='refund') &&
       String(p.payment_date||'').slice(0,10) > since).length;
   const miss = (dishonours||[]).filter(d =>
-      String(d.payment_date || d.dishonour_date || '').slice(0,10) > since).length;
+      String(d.payment_date || d.dishonour_date || d.settlement_date || '').slice(0,10) > since).length;
   return { need, clean, miss, since,
            broken: miss>0,
            met: (miss===0 && clean>=need) };
@@ -228,6 +228,21 @@ function weekStart(d){
   return x;
 }
 
+// Fetch EVERY row for these payer_refs, paging past Supabase's 1000-row cap so no
+// customer's payment history is ever truncated. orderCol keeps paging stable.
+async function fetchAllByRef(table, cols, refs, orderCol){
+  const PAGE=1000; let out=[];
+  for(let from=0; ; from+=PAGE){
+    let q=sb.from(table).select(cols).in('payer_ref',refs).range(from, from+PAGE-1);
+    if(orderCol) q=q.order(orderCol,{ascending:true}).order('payer_ref',{ascending:true});
+    const {data,error}=await q;
+    if(error){ console.warn('fetchAllByRef '+table+':', error.message); break; }
+    out=out.concat(data||[]);
+    if(!data || data.length<PAGE) break;
+  }
+  return out;
+}
+
 async function load(quiet){
   const {data:rules}=await sb.from('delivery_rules').select('*').order('min_deposit_pct');
   RULES=rules||[];
@@ -246,13 +261,20 @@ async function load(quiet){
   const refs=[...new Set((orders||[]).map(o=>{const pa=o.paid_via_order_id?(payerMap[o.paid_via_order_id]||o):o; return pa.ezidebit_payer_ref;}).filter(Boolean))];
   let counts={};
   if(refs.length){ const {data:cd}=await sb.rpc('sim_delivery_counts',{refs}); (cd||[]).forEach(r=>counts[r.payer_ref]={paid_count:r.paid_count,dishonour_count:r.dishonour_count}); }
-  // actual payment + dishonour rows per payer ref (for the scorecard + inline history)
+  // actual payment + dishonour rows per payer ref (for the clean-run rule + scorecard).
+  // IMPORTANT: Supabase caps one query at 1000 rows. With every active customer's
+  // payer_ref in this query, the payments table blows past 1000 and only the most
+  // recent 1000 come back — silently DROPPING older payments, which undercounts the
+  // clean run and wrongly un-clears delivered-ready customers (and shifts daily as
+  // new payments land). So we page through the full set instead of one capped query.
   let paysByRef={}, disByRef={};
   if(refs.length){
-    const {data:pmts}=await sb.from('sim_payments').select('payer_ref,payment_date,amount,result').in('payer_ref',refs).order('payment_date',{ascending:false});
-    (pmts||[]).forEach(p=>{ (paysByRef[p.payer_ref]=paysByRef[p.payer_ref]||[]).push(p); });
-    const {data:dis}=await sb.from('sim_dishonours').select('payer_ref,payment_date,amount').in('payer_ref',refs).order('payment_date',{ascending:false});
-    (dis||[]).forEach(d=>{ (disByRef[d.payer_ref]=disByRef[d.payer_ref]||[]).push(d); });
+    const pmts=await fetchAllByRef('sim_payments','payer_ref,payment_date,amount,result',refs,'payment_date');
+    pmts.forEach(p=>{ (paysByRef[p.payer_ref]=paysByRef[p.payer_ref]||[]).push(p); });
+    // dishonours: select * (the table has no payment_date column — selecting it 400'd
+    // and made this silently ignore every dishonour). Small table, one page is plenty.
+    const dis=await fetchAllByRef('sim_dishonours','*',refs,null);
+    dis.forEach(d=>{ (disByRef[d.payer_ref]=disByRef[d.payer_ref]||[]).push(d); });
   }
   rows=[];
   for(const o of (orders||[])){
