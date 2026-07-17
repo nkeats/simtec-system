@@ -283,6 +283,7 @@ function render_cw(){
           <span id="cwSaveState" class="text-slate-500 text-xs">All changes saved ✓</span>
           <button class="btn dark" onclick="cwFillAll()">Fill all with suggested</button>
           <button class="btn gold" onclick="cwSaveAll()">Save</button>
+          <button class="btn" style="border-color:#7f1d1d;color:#fca5a5;background:transparent" title="Erase every figure entered for this week" onclick="cwClearWeek()">Clear week</button>
         </div>
       </div>
     </div>
@@ -430,6 +431,26 @@ window.cwFlush=()=>{ clearTimeout(cwSaveTimer); cwQueueSave(); };
 window.cwSaveAll=async()=>{
   clearTimeout(cwSaveTimer);
   await cwQueueSave();
+  renderApp();
+};
+
+// Wipe every figure entered for the week on screen, so a messed-up week can be
+// started over. Deletes the week's commission_cash_advances (the recorded cash),
+// then the commission_cash_weeks rows, so it re-opens empty on the next save.
+// Does NOT touch anything already posted to a pay run — that's a separate record.
+window.cwClearWeek=async()=>{
+  clearTimeout(cwSaveTimer);
+  const wkIds=((CWDATA&&CWDATA.rows)||[]).map(r=>r.wk&&r.wk.id).filter(Boolean);
+  if(!wkIds.length){ alert('Nothing has been saved for this week yet, so there is nothing to clear.'); return; }
+  const reconciled=(CWDATA.rows||[]).some(r=>r.wk&&r.wk.status==='reconciled');
+  let msg='Clear ALL cash-week figures for '+fmtD(CWDATA.weekStart)+' – '+fmtD(CWDATA.weekEnd)+'?\n\n'
+    +'This erases every day’s Sales / Paid / Ret you’ve entered for this week and cannot be undone.';
+  if(reconciled) msg+='\n\n⚠ One or more consultants were already POSTED to a pay run. Clearing here does NOT reverse those pay-run deductions — remove them on the Pay Runs screen if you need to.';
+  if(!confirm(msg)) return;
+  const {error:e1}=await sb.from('commission_cash_advances').delete().in('cash_week_id',wkIds);
+  if(e1){ alert('Couldn’t clear the entries: '+e1.message); return; }
+  const {error:e2}=await sb.from('commission_cash_weeks').delete().in('id',wkIds);
+  if(e2){ alert('The entries were cleared, but the week couldn’t be reset: '+e2.message); }
   renderApp();
 };
 
