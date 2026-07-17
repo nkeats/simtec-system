@@ -75,6 +75,9 @@ const $=id=>document.getElementById(id);
 const esc=s=>(s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const norm=s=>(s||'').replace(/[^a-z0-9]/gi,'').toLowerCase();
 function auDate(v){if(!v)return'';const m=String(v).match(/^(\d{4})-(\d{2})-(\d{2})/);return m?m[3]+'/'+m[2]+'/'+m[1]:v;}
+// Local (NZ) calendar date, YYYY-MM-DD. No arg = today. Used so the next day's
+// text only becomes due on the following calendar day, never the same day.
+function dayStr(v){const d=v?new Date(v):new Date();return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;}
 const who=()=> (window.SIMTEC_USER && (window.SIMTEC_USER.full_name||window.SIMTEC_USER.email)) || 'office';
 
 let day=1;                 // which day tab is showing
@@ -159,10 +162,16 @@ async function loadAll(){
   }
 
   // ── Days 2–5: whoever got yesterday's text and still hasn't been in touch ──
+  // Only surface someone once a NEW calendar day has started since their last
+  // text — otherwise Day 1 recipients appear on Day 2 the same day and risk a
+  // second text within minutes. They keep showing until sent, so a skipped day
+  // is fine; they just wait on that day's list until it's actioned.
+  const todayStr=dayStr();
   live.forEach(s=>{
     const o=orderById[s.order_id];
     if(!o || !o.mobile) return;
     const next=Number(s.day_sent||0)+1;
+    if(!s.last_sent_at || dayStr(s.last_sent_at) >= todayStr) return;   // already texted today → wait for tomorrow
     if(next>=2 && next<=5) LISTS[next].push(Object.assign({},o,{seq_id:s.id, last_sent_at:s.last_sent_at}));
   });
 
