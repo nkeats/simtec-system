@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Simtec AU — Ezidebit Arrears</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="auth.js?v=3" data-roles="admin,manager,office"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<style>
+  :root{
+    --navy:#111f3d; --navy2:#1a2c53; --gold:#c6a15b; --gold2:#d9be86;
+    --ink:#1a2334; --sub:#64728a; --line:#e4e8ef; --bg:#f4f6f9; --card:#fff;
+    --red:#c0332e; --redbg:#fdeceb; --green:#1c6b34; --greenbg:#e9f5ed;
+    --amber:#8a5a12; --amberbg:#fff5e0; --blue:#1f5aa8;
+  }
+  *{box-sizing:border-box}
+  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:var(--ink);background:var(--bg);margin:0;-webkit-font-smoothing:antialiased}
+  .topbar{background:linear-gradient(180deg,var(--navy),var(--navy2));color:#fff;padding:16px 26px;border-bottom:3px solid var(--gold);display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap}
+  .topbar .t{font-size:18px;font-weight:800}
+  .topbar .t small{display:block;color:var(--gold2);font-size:9px;letter-spacing:.26em;font-weight:600;margin-top:3px}
+  .topbar .flag{font-size:12px;color:#cfd7e6;border:1px solid rgba(255,255,255,.25);padding:6px 12px;border-radius:20px}
+  .wrap{max-width:1200px;margin:0 auto;padding:24px 20px 70px}
+
+  .drop{border:2px dashed #c3cddd;border-radius:16px;background:#fff;padding:38px 24px;text-align:center;transition:.15s;cursor:pointer}
+  .drop.drag{border-color:var(--gold);background:#fffdf6}
+  .drop h2{margin:6px 0 4px;color:var(--navy);font-size:20px}
+  .drop p{color:var(--sub);font-size:13.5px;margin:4px 0}
+  .drop .ic{font-size:40px}
+  .drop .btn{display:inline-block;margin-top:12px;background:var(--navy);color:#fff;border:none;border-radius:10px;padding:12px 22px;font-size:15px;font-weight:700;cursor:pointer}
+  .priv{font-size:12px;color:#8b97a8;margin-top:14px}
+  .err{background:var(--redbg);border:1px solid #e7c3bf;color:var(--red);border-radius:10px;padding:12px 14px;margin-top:14px;font-size:13.5px;font-weight:600;display:none}
+  .loading{display:none;text-align:center;color:var(--sub);padding:26px;font-size:14px}
+
+  .meta{display:none;background:#fff;border:1px solid var(--line);border-radius:14px;padding:14px 18px;margin:18px 0;font-size:13px;color:var(--sub);flex-wrap:wrap;gap:6px 24px}
+  .meta b{color:var(--ink)}
+
+  .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:20px}
+  @media(max-width:900px){.kpis{grid-template-columns:repeat(2,1fr)}}
+  .kpi{background:#fff;border:1px solid var(--line);border-radius:14px;padding:16px 18px;box-shadow:0 2px 8px rgba(17,31,61,.05);position:relative;overflow:hidden}
+  .kpi::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--gold)}
+  .kpi.red::before{background:var(--red)} .kpi.amber::before{background:var(--amber)} .kpi.green::before{background:var(--green)} .kpi.blue::before{background:var(--blue)}
+  .kpi .n{font-size:26px;font-weight:800;color:var(--navy);letter-spacing:-.5px;line-height:1}
+  .kpi.red .n{color:var(--red)} .kpi.green .n{color:var(--green)}
+  .kpi .l{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--sub);font-weight:700;margin-top:9px}
+  .kpi .s{font-size:11.5px;color:var(--sub);margin-top:3px;min-height:14px}
+
+  .row2{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:22px}
+  @media(max-width:900px){.row2{grid-template-columns:1fr}}
+  .panel{background:#fff;border:1px solid var(--line);border-radius:14px;padding:16px 18px;box-shadow:0 1px 3px rgba(17,31,61,.04)}
+  .panel h3{margin:0 0 12px;font-size:11.5px;text-transform:uppercase;letter-spacing:.1em;color:var(--sub);font-weight:700}
+  .bar{display:flex;align-items:center;gap:10px;margin-bottom:9px;font-size:13px}
+  .bar .lab{width:160px;flex:none;color:var(--ink)}
+  .bar .track{flex:1;background:#eef1f6;border-radius:7px;height:16px;overflow:hidden}
+  .bar .fill{height:100%;border-radius:7px}
+  .bar .v{width:70px;text-align:right;flex:none;font-weight:700;font-variant-numeric:tabular-nums}
+
+  .toolbar{display:none;justify-content:space-between;align-items:center;gap:12px;margin-bottom:10px;flex-wrap:wrap}
+  .toolbar .l{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  .toolbar input{border:1px solid var(--line);border-radius:10px;padding:10px 12px;font-size:14px;width:240px;max-width:60vw}
+  .toolbar .btn2{border:1px solid var(--line);background:#fff;border-radius:10px;padding:10px 14px;font-size:13.5px;font-weight:700;cursor:pointer;color:var(--navy)}
+  .toolbar .btn2.on{background:var(--navy);color:#fff;border-color:var(--navy)}
+  .tablewrap{display:none;background:#fff;border:1px solid var(--line);border-radius:14px;overflow:auto;box-shadow:0 1px 3px rgba(17,31,61,.04)}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th,td{padding:10px 13px;text-align:left;border-bottom:1px solid var(--line);white-space:nowrap}
+  th{background:#fbfcfe;color:var(--sub);font-size:10.5px;text-transform:uppercase;letter-spacing:.04em;font-weight:700;cursor:pointer;user-select:none;position:sticky;top:0}
+  th.num,td.num{text-align:right;font-variant-numeric:tabular-nums}
+  tbody tr.main{cursor:pointer}
+  tbody tr.main:hover{background:#fbf7f4}
+  .sev{display:inline-block;font-size:11px;font-weight:800;padding:2px 9px;border-radius:20px}
+  .sev.red{background:var(--redbg);color:var(--red)} .sev.amber{background:var(--amberbg);color:var(--amber)} .sev.green{background:var(--greenbg);color:var(--green)}
+  .pos{color:var(--green)} .neg{color:var(--red);font-weight:700}
+  .detail td{background:#fafbfd;white-space:normal}
+  .chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+  .chip{font-size:11.5px;background:#fff;border:1px solid var(--line);border-radius:20px;padding:3px 9px;color:var(--sub)}
+  .chip.f{border-color:#e7c3bf;color:var(--red)} .chip.p{border-color:#bcdcc6;color:var(--green)}
+  .empty{padding:40px;text-align:center;color:var(--sub)}
+  .foot{color:#8b97a8;font-size:12px;margin-top:22px;text-align:center}
+</style>
+</head>
+<body>
+  <div class="topbar">
+    <div class="t">Simtec AU — Ezidebit Arrears<small>THERAPEUTIC · AUSTRALIA</small></div>
+    <div class="flag">🇦🇺 Follow-up list · worst first</div>
+  </div>
+  <div class="wrap">
+
+    <div class="drop" id="drop">
+      <div class="ic">📄</div>
+      <h2>Upload the Ezidebit report</h2>
+      <p>Drag the <b>Processed Payments Report</b> PDF here, or click to choose it.</p>
+      <button class="btn" id="pick">Choose PDF</button>
+      <input type="file" id="file" accept="application/pdf" style="display:none">
+      <div class="priv">🔒 The file is read here in your browser — nothing is uploaded or stored anywhere.</div>
+      <div class="err" id="err"></div>
+    </div>
+    <div class="loading" id="loading">Reading the report…</div>
+
+    <div class="meta" id="meta" style="display:none"></div>
+
+    <div id="dash" style="display:none">
+      <div class="kpis" id="kpis"></div>
+      <div class="row2">
+        <div class="panel"><h3>Customers by number of missed debits (this report)</h3><div id="sevBars"></div></div>
+        <div class="panel"><h3>Why the debits failed</h3><div id="reasonBars"></div></div>
+      </div>
+
+      <div class="toolbar" id="toolbar">
+        <div class="l">
+          <input type="text" id="search" placeholder="Search name or payer ID…">
+          <button class="btn2 on" id="fltFail" title="Only customers with a missed debit">Needs follow-up only</button>
+          <button class="btn2" id="ghlBtn" title="Add phone &amp; email from GHL">☎ Match GHL contacts</button>
+        </div>
+        <button class="btn2" id="csv">⬇ Export follow-up list (CSV)</button>
+      </div>
+      <div class="tablewrap" id="tablewrap">
+        <table>
+          <thead><tr id="thead"></tr></thead>
+          <tbody id="tbody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="foot" id="foot"></div>
+  </div>
+
+<script>
+pdfjsLib.GlobalWorkerOptions.workerSrc="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+const $=id=>document.getElementById(id);
+const drop=$('drop'), fileInput=$('file');
+$('pick').onclick=e=>{e.stopPropagation();fileInput.click();};
+drop.onclick=()=>fileInput.click();
+fileInput.onchange=e=>{ if(e.target.files[0]) handleFile(e.target.files[0]); };
+['dragenter','dragover'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.add('drag');}));
+['dragleave','drop'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.remove('drag');}));
+drop.addEventListener('drop',e=>{ const f=e.dataTransfer.files[0]; if(f) handleFile(f); });
+
+let ROWS=[], META={}, HASPAID=false, FAILONLY=true, SORT={k:'failN',dir:-1};
+function showErr(m){ const e=$('err'); e.textContent=m; e.style.display='block'; drop.style.display='block'; }
+function money(n){ return (n<0?'-$':'$')+Math.abs(n).toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]));}
+function isoKey(d){ if(!d) return ''; const[a,b,c]=d.split('/'); return c+b+a; }
+
+async function handleFile(file){
+  $('err').style.display='none';
+  if(file.type!=='application/pdf' && !/\.pdf$/i.test(file.name)){ showErr('Please choose a PDF file (the Ezidebit Processed Payments Report).'); return; }
+  drop.style.display='none'; $('loading').style.display='block'; $('loading').textContent='Reading the report…';
+  try{
+    const buf=await file.arrayBuffer();
+    const pdf=await pdfjsLib.getDocument({data:buf}).promise;
+    // Reconstruct rows from item positions (x,y) — robust to failed rows with no
+    // settlement date and to wrapped name/reason columns. One record starts on a
+    // line beginning with a transaction date and runs until the next such line.
+    const records=[]; let metaText='';
+    for(let p=1;p<=pdf.numPages;p++){
+      const page=await pdf.getPage(p);
+      const tc=await page.getTextContent();
+      const lines={};
+      tc.items.forEach(it=>{ if(!it.str.trim()) return; const y=Math.round(it.transform[5]); (lines[y]=lines[y]||[]).push({x:it.transform[4],s:it.str}); });
+      const ys=Object.keys(lines).map(Number).sort((a,b)=>b-a); // top → bottom (pdf y is bottom-up)
+      const pageLines=ys.map(y=>lines[y].sort((a,b)=>a.x-b.x).map(o=>o.s).join(' ').replace(/\s+/g,' ').trim());
+      if(p===1) metaText=pageLines.join('\n');
+      let cur=null;
+      for(const line of pageLines){
+        if(/^\d{2}\/\d{2}\/\d{4}/.test(line)){ if(cur!==null) records.push(cur); cur=line; }
+        else if(cur!==null) cur+=' '+line;
+      }
+      if(cur!==null) records.push(cur);
+      if(p%40===0){ $('loading').textContent='Reading the report… page '+p+' of '+pdf.numPages; await new Promise(r=>setTimeout(r)); }
+    }
+    parseRecords(records, metaText);
+  }catch(err){
+    console.error(err); $('loading').style.display='none';
+    showErr('Could not read that PDF. Make sure it is the Ezidebit "Processed Payments Report" export. ('+(err.message||err)+')');
+  }
+}
+
+function cleanName(raw){
+  let n=raw.split(/\s+[A-Z][A-Z'’\-]{3,}/)[0];        // cut at ALL-CAPS contract-ref run (surname in caps)
+  n=n.replace(/\s+/g,' ').trim();
+  // drop a trailing contract-ref-ish token containing a digit (e.g. 001391, IOANE5493600)
+  n=n.replace(/\s+\S*\d\S*$/,'').trim();
+  return n.replace(/^,|,$/g,'').trim();
+}
+function reasonOf(s){
+  if(/Sufficient/i.test(s)) return 'Not Sufficient Funds';
+  if(/Refer To/i.test(s)) return 'Refer to Customer';
+  if(/Do Not Honour/i.test(s)) return 'Do Not Honour';
+  if(/Invalid|not found|closed|Debit not/i.test(s)) return 'Account problem';
+  return 'Other';
+}
+
+function parseRecords(records, metaText){
+  META={};
+  const mp=metaText.match(/period\s+(\d{2}\/\d{2}\/\d{4})\s+to\s+(\d{2}\/\d{2}\/\d{4})/i); if(mp) META.period=mp[1]+' – '+mp[2];
+  const mc=metaText.match(/Client ID\s+([\d-]+)/i); if(mc) META.clientId=mc[1];
+  const me=metaText.match(/(Simtec[^\n]*Pty Ltd)/i); META.entity=me?me[1].replace(/\s+/g,' ').trim():'Simtec Therapeutic Pty Ltd';
+  const val=s=>parseFloat(s.replace(/[$,\s]/g,''));
+  const by={}; HASPAID=false;
+  for(const j of records){
+    const pm=j.match(/\d{3}-\d{3}-\d{3}/); if(!pm) continue;             // skip page footers/headers (no payer id)
+    const payer=pm[0];
+    const res=j.match(/\b(Paid|Failed|Refund)\b/); if(!res) continue;
+    const amts=(j.match(/-?\$\s?[\d,]+\.\d{2}/g)||[]).map(val); if(!amts.length) continue;
+    const trans=(j.match(/\d{2}\/\d{2}\/\d{4}/)||[])[0];                  // first date = transaction date
+    const payamt=amts[0]||0, cleared=amts.length>=3?amts[2]:(res[1]==='Failed'?-Math.abs(amts[amts.length-1]||0):amts[0]);
+    const afterPayer=j.slice(j.indexOf(payer)+payer.length);
+    const nameRaw=afterPayer.slice(0, afterPayer.search(/\b(Paid|Failed|Refund)\b/));
+    const name=cleanName(nameRaw)||'';
+    const b=by[payer]||(by[payer]={payer,name:'',failN:0,failAmt:0,paidN:0,paidAmt:0,events:[],reasons:{},dates:{fail:[],paid:[]}});
+    if(name && name.length>b.name.length) b.name=name;
+    if(res[1]==='Paid'){
+      HASPAID=true; b.paidN++; b.paidAmt+=Math.max(0,cleared||payamt); b.dates.paid.push(trans);
+      b.events.push({date:trans,type:'paid',amt:payamt});
+    } else if(res[1]==='Failed'){
+      const reason=reasonOf(j); b.failN++; b.failAmt+=payamt; b.dates.fail.push(trans);
+      b.reasons[reason]=(b.reasons[reason]||0)+1;
+      b.events.push({date:trans,type:'fail',amt:payamt,reason});
+    } // Refund ignored
+  }
+  ROWS=Object.values(by).map(b=>{
+    const lf=b.dates.fail.slice().sort((x,y)=>isoKey(y).localeCompare(isoKey(x)))[0]||'';
+    const lp=b.dates.paid.slice().sort((x,y)=>isoKey(y).localeCompare(isoKey(x)))[0]||'';
+    return {...b, name:b.name||'(name unclear)', lastFail:lf, lastPaid:lp,
+      band: b.failN>=6?'Chronic':(b.failN>=3?'Moderate':(b.failN>=1?'Occasional':'OK')) };
+  });
+  render();
+}
+
+function render(){
+  $('loading').style.display='none';
+  if(!ROWS.length){ showErr('No payment records found. Is this the Ezidebit "Processed Payments Report"?'); return; }
+  const failing=ROWS.filter(r=>r.failN>0);
+  const events=ROWS.reduce((s,r)=>s+r.failN,0);
+  const failed$=ROWS.reduce((s,r)=>s+r.failAmt,0);
+  const paid$=ROWS.reduce((s,r)=>s+r.paidAmt,0);
+  const chronic=failing.filter(r=>r.band==='Chronic');
+
+  $('meta').style.display='flex';
+  $('meta').innerHTML=[['Entity',META.entity],['Client ID',META.clientId||'—'],['Period',META.period||'—'],
+    ['Customers in report',ROWS.length],['With a missed debit',failing.length]].map(([k,v])=>`<span>${k}: <b>${esc(String(v))}</b></span>`).join('');
+
+  const kpis = HASPAID
+    ? [['red',failing.length,'Need follow-up','customers with a missed debit'],
+       ['red',events,'Missed debits','total dishonour events'],
+       ['red',money(failed$),'Failed to collect','value of missed debits'],
+       ['green',money(paid$),'Collected','cleared in this period']]
+    : [['red',failing.length,'Need follow-up','customers dishonouring'],
+       ['red',events,'Missed debits','total dishonour events'],
+       ['red',money(failed$),'Failed to collect','value of missed debits'],
+       ['amber',chronic.length,'Chronic (6+ misses)',money(chronic.reduce((s,r)=>s+r.failAmt,0))]];
+  $('kpis').innerHTML=kpis.map(([c,n,l,s])=>`<div class="kpi ${c}"><div class="n">${n}</div><div class="l">${l}</div><div class="s">${s}</div></div>`).join('');
+
+  const bands=[['Chronic (6+ misses)',failing.filter(r=>r.band==='Chronic').length,'var(--red)'],
+    ['Moderate (3–5)',failing.filter(r=>r.band==='Moderate').length,'var(--amber)'],
+    ['Occasional (1–2)',failing.filter(r=>r.band==='Occasional').length,'var(--green)']];
+  const maxB=Math.max(...bands.map(b=>b[1]),1);
+  $('sevBars').innerHTML=bands.map(([lab,n,col])=>`<div class="bar"><div class="lab">${lab}</div><div class="track"><div class="fill" style="width:${Math.max(2,n/maxB*100)}%;background:${col}"></div></div><div class="v">${n}</div></div>`).join('');
+
+  const rc={}; ROWS.forEach(r=>Object.entries(r.reasons).forEach(([k,v])=>rc[k]=(rc[k]||0)+v));
+  const rE=Object.entries(rc).sort((a,b)=>b[1]-a[1]); const maxR=Math.max(...rE.map(e=>e[1]),1);
+  $('reasonBars').innerHTML=rE.length?rE.map(([k,v])=>`<div class="bar"><div class="lab">${k}</div><div class="track"><div class="fill" style="width:${Math.max(2,v/maxR*100)}%;background:var(--navy)"></div></div><div class="v">${v}</div></div>`).join(''):'<div class="empty" style="padding:14px">No failures in this report.</div>';
+
+  // table head (Paid columns only when the report has paid rows)
+  let cols = HASPAID
+    ? [['rank','#'],['name','Customer'],['payer','Payer ID'],['failN','Misses'],['failAmt','$ Failed'],['paidN','Paid'],['paidAmt','$ Paid'],['lastPaid','Last paid'],['lastFail','Last miss'],['band','Severity']]
+    : [['rank','#'],['name','Customer'],['payer','Payer ID'],['failN','Misses'],['failAmt','$ Failed'],['lastFail','Last miss'],['band','Severity']];
+  if(ENRICHED) cols=cols.concat([['phone','Phone'],['email','Email']]);
+  $('thead').innerHTML=cols.map(([k,l])=>`<th class="${['failN','failAmt','paidN','paidAmt'].includes(k)?'num':''}" data-k="${k}">${l}</th>`).join('');
+  $('thead').querySelectorAll('th[data-k]').forEach(th=>th.onclick=()=>{
+    const k=th.dataset.k;
+    SORT = SORT.k===k ? {k,dir:-SORT.dir} : {k,dir:(['name','payer','lastFail','lastPaid'].includes(k))?1:-1};
+    renderTable();
+  });
+
+  $('toolbar').style.display='flex'; $('tablewrap').style.display='block'; $('dash').style.display='block'; drop.style.display='none';
+  $('foot').textContent='Simtec AU · Ezidebit follow-up · '+(META.period||'')+' · '+ROWS.length+' customers · '+events+' missed debits';
+  renderTable();
+}
+
+function renderTable(){
+  const q=($('search').value||'').toLowerCase().trim();
+  let rows=ROWS.filter(r=>(!FAILONLY||r.failN>0) && (!q || r.name.toLowerCase().includes(q) || r.payer.includes(q)));
+  const {k,dir}=SORT;
+  rows.sort((a,b)=>{
+    let av=a[k],bv=b[k];
+    if(k==='lastFail'||k==='lastPaid'){ av=isoKey(av); bv=isoKey(bv); }
+    if(typeof av==='string'&&typeof bv==='string') return dir*av.localeCompare(bv);
+    return dir*((av>bv?1:av<bv?-1:0));
+  });
+  const sevClass=b=>b==='Chronic'?'red':b==='Moderate'?'amber':'green';
+  $('tbody').innerHTML=rows.map((r,i)=>{
+    const ev=r.events.slice().sort((a,b)=>isoKey(a.date).localeCompare(isoKey(b.date)))
+      .map(e=>`<span class="chip ${e.type==='fail'?'f':'p'}">${e.date} · ${e.type==='fail'?'✗':'✓'} ${money(e.amt)}${e.reason?(' · '+e.reason):''}</span>`).join('');
+    let cells = HASPAID
+      ? [i+1, esc(r.name), r.payer, r.failN, money(r.failAmt), r.paidN||'—', r.paidAmt?money(r.paidAmt):'—', r.lastPaid||'—', r.lastFail||'—', `<span class="sev ${sevClass(r.band)}">${r.band==='OK'?'—':r.band}</span>`]
+      : [i+1, esc(r.name), r.payer, r.failN, money(r.failAmt), r.lastFail||'—', `<span class="sev ${sevClass(r.band)}">${r.band}</span>`];
+    if(ENRICHED) cells=cells.concat([r.phone?esc(r.phone):'<span style="color:#c0332e">—</span>', r.email?esc(r.email):'—']);
+    const numIdx = HASPAID ? [0,3,4,5,6] : [0,3,4];
+    const tds=cells.map((c,ci)=>`<td class="${numIdx.includes(ci)?'num':''}${ci===4?' neg':''}${(HASPAID&&ci===6&&r.paidAmt)?' pos':''}">${c}</td>`).join('');
+    return `<tr class="main" onclick="auToggle(this)">${tds}</tr>
+      <tr class="detail" style="display:none"><td colspan="${cells.length}"><b>Payment history in this report:</b><div class="chips">${ev}</div></td></tr>`;
+  }).join('') || `<tr><td colspan="10" class="empty">No matches.</td></tr>`;
+}
+function auToggle(tr){ const d=tr.nextElementSibling; if(d&&d.classList.contains('detail')) d.style.display=d.style.display==='none'?'table-row':'none'; }
+window.auToggle=auToggle;
+
+$('search').addEventListener('input',renderTable);
+$('fltFail').onclick=()=>{ FAILONLY=!FAILONLY; $('fltFail').classList.toggle('on',FAILONLY); $('fltFail').textContent=FAILONLY?'Needs follow-up only':'Show all customers'; renderTable(); };
+$('csv').onclick=()=>{
+  const rows=ROWS.filter(r=>r.failN>0).sort((a,b)=>b.failN-a.failN||b.failAmt-a.failAmt);
+  let hdr=HASPAID?['Rank','Customer','Payer ID','Misses','$ Failed','Paid count','$ Paid','Last paid','Last miss','Severity']
+                 :['Rank','Customer','Payer ID','Misses','$ Failed','Last miss','Severity'];
+  if(ENRICHED) hdr=hdr.concat(['Phone','Email']);
+  const q=s=>'"'+String(s==null?'':s).replace(/"/g,'""')+'"';
+  const line=(r,i)=>{
+    let a=HASPAID?[i+1,q(r.name),r.payer,r.failN,r.failAmt.toFixed(2),r.paidN,r.paidAmt.toFixed(2),r.lastPaid,r.lastFail,r.band]
+                 :[i+1,q(r.name),r.payer,r.failN,r.failAmt.toFixed(2),r.lastFail,r.band];
+    if(ENRICHED) a=a.concat([q(r.phone||''),q(r.email||'')]);
+    return a;
+  };
+  const csv=[hdr.join(',')].concat(rows.map((r,i)=>line(r,i).join(','))).join('\n');
+  const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'})); a.download='AU_followup_worst_first.csv'; a.click();
+};
+
+// ---------- GHL contact matching (via the ghl-au-contacts edge function) ----------
+const SUPA_URL="https://jvqjoenaungubpoegyvf.supabase.co";
+const SUPA_KEY="sb_publishable_J4MYTdJJyEaWe-GadpwdYA_upPT2rKw";
+const GHL_FN=SUPA_URL+"/functions/v1/ghl-au-contacts";
+let CONTACTS=null, ENRICHED=false;
+const digits=s=>String(s||'').replace(/\D/g,'');
+const nk=s=>String(s||'').toLowerCase().replace(/[^a-z]/g,'');
+const eziNameKey=name=>{ const p=String(name||'').split(','); return nk((p[0]||'')+(p.slice(1).join(' ')||'')); };
+
+async function fetchGHL(){
+  const sb=window.SIMTEC_SB;
+  if(!sb) throw new Error('Not logged in — refresh and sign in first.');
+  const s=await sb.auth.getSession(); const token=s&&s.data&&s.data.session?s.data.session.access_token:'';
+  const r=await fetch(GHL_FN,{headers:{Authorization:'Bearer '+token, apikey:SUPA_KEY}});
+  let d={}; try{ d=await r.json(); }catch(e){}
+  if(!r.ok || d.error) throw new Error((d.error||('HTTP '+r.status))+(d.detail?(' — '+JSON.stringify(d.detail).slice(0,200)):''));
+  return d;
+}
+$('ghlBtn').onclick=async ()=>{
+  const btn=$('ghlBtn'); if(ENRICHED){ return; }
+  btn.disabled=true; btn.textContent='Fetching GHL…';
+  try{
+    const d=await fetchGHL(); CONTACTS=d.contacts||[];
+    const byPayer={}, byName={};
+    CONTACTS.forEach(c=>{
+      const key=nk((c.lastName||'')+(c.firstName||''))||nk(c.name);
+      if(key && !byName[key]) byName[key]=c;
+      Object.values(c.fields||{}).forEach(v=>{ const dg=digits(v); if(dg.length===9 && !byPayer[dg]) byPayer[dg]=c; });
+    });
+    let matched=0;
+    ROWS.forEach(r=>{
+      const c=byPayer[digits(r.payer)] || byName[eziNameKey(r.name)] || null;
+      r.phone=c?c.phone:''; r.email=c?c.email:''; r.ghl=!!c; if(c) matched++;
+    });
+    ENRICHED=true;
+    btn.textContent='✓ GHL matched '+matched+'/'+ROWS.filter(r=>r.failN>0).length; btn.classList.add('on'); btn.disabled=true;
+    render();
+  }catch(e){
+    btn.disabled=false; btn.textContent='☎ Match GHL contacts';
+    alert("Couldn't fetch GHL contacts.\n\n"+(e.message||e)+"\n\nCheck the ghl-au-contacts function is deployed and the GHL_AU_TOKEN / GHL_AU_LOCATION_ID secrets are set. For a quick look at the AU fields, open "+GHL_FN+"?debug=fields while logged in.");
+  }
+};
+</script>
+</body>
+</html>
