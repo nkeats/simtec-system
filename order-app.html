@@ -1,0 +1,724 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Simtec — Sales Order (iPad)</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<!-- On deploy, also include your auth gate for consultants, e.g.:
+     <script src="auth.js?v=3" data-roles="admin,manager,office,consultant"></script> -->
+
+<style>
+  :root{
+    --navy:#1c2a5e; --navy-d:#141f47; --blue:#2c6fbf; --blue-soft:#eaf1fb;
+    --ink:#1f2733; --muted:#6b7685; --line:#dde3ec; --bg:#eef1f6;
+    --ok:#0f7d5b; --ok-soft:#e7f6ef; --warn:#b4690e; --danger:#c0392b;
+    --radius:12px;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    font-size:16px;line-height:1.45;}
+  .app{max-width:900px;margin:0 auto;min-height:100vh;background:#fff;display:flex;flex-direction:column;}
+  header{background:var(--navy);color:#fff;padding:14px 20px;position:sticky;top:0;z-index:20;}
+  .hrow{display:flex;align-items:center;justify-content:space-between;}
+  .logo{font-weight:800;letter-spacing:.5px;font-size:19px;}
+  .logo small{display:block;font-weight:500;font-size:11px;letter-spacing:2px;opacity:.8;}
+  .demo-tag{font-size:11px;background:#ffffff22;border:1px solid #ffffff44;padding:3px 8px;border-radius:20px;}
+  .steps{display:flex;gap:6px;margin-top:12px;overflow-x:auto;padding-bottom:2px;}
+  .steps .st{flex:0 0 auto;font-size:11px;color:#ffffffb0;display:flex;align-items:center;gap:6px;
+    padding:5px 10px;border-radius:20px;white-space:nowrap;border:1px solid transparent;}
+  .steps .st .n{width:18px;height:18px;border-radius:50%;background:#ffffff2e;display:grid;place-items:center;font-weight:700;font-size:11px;}
+  .steps .st.active{background:#ffffff1f;border-color:#ffffff40;color:#fff;}
+  .steps .st.done .n{background:var(--ok);}
+  .steps .st.active .n{background:var(--blue);}
+  main{flex:1;padding:22px 20px 120px;}
+  section.step{display:none;animation:fade .2s ease;}
+  section.step.on{display:block;}
+  @keyframes fade{from{opacity:0;transform:translateY(4px);}to{opacity:1;transform:none;}}
+  h2.title{font-size:20px;margin:0 0 4px;color:var(--navy);}
+  .sub{color:var(--muted);font-size:13px;margin:0 0 18px;}
+  .card{border:1px solid var(--line);border-radius:var(--radius);padding:16px;margin-bottom:16px;background:#fff;}
+  .card h3{margin:0 0 12px;font-size:13px;text-transform:uppercase;letter-spacing:.6px;color:var(--navy);}
+  label.f{display:block;margin-bottom:14px;}
+  label.f .lab{display:block;font-size:12px;font-weight:600;color:var(--ink);margin-bottom:5px;}
+  label.f .lab .req{color:var(--danger);}
+  input[type=text],input[type=email],input[type=tel],input[type=number],select,textarea{
+    width:100%;padding:12px 12px;border:1px solid var(--line);border-radius:10px;font-size:16px;
+    font-family:inherit;background:#fff;color:var(--ink);}
+  input:focus,select:focus,textarea:focus{outline:none;border-color:var(--blue);box-shadow:0 0 0 3px var(--blue-soft);}
+  textarea{min-height:80px;resize:vertical;}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:0 14px;}
+  .grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:0 14px;}
+  @media(max-width:640px){.grid2,.grid3{grid-template-columns:1fr;}}
+  .choices{display:grid;gap:10px;}
+  .choices.two{grid-template-columns:1fr 1fr;}
+  .choices.three{grid-template-columns:1fr 1fr 1fr;}
+  @media(max-width:640px){.choices.two,.choices.three{grid-template-columns:1fr;}}
+  .choice{border:2px solid var(--line);border-radius:12px;padding:14px;cursor:pointer;transition:.15s;background:#fff;}
+  .choice:active{transform:scale(.99);}
+  .choice.sel{border-color:var(--blue);background:var(--blue-soft);}
+  .choice .ct{font-weight:700;font-size:15px;}
+  .choice .cd{font-size:12px;color:var(--muted);margin-top:3px;}
+  .pill-toggle{display:inline-flex;border:1px solid var(--line);border-radius:24px;overflow:hidden;}
+  .pill-toggle button{border:none;background:#fff;padding:9px 18px;font-size:14px;font-weight:600;color:var(--muted);cursor:pointer;}
+  .pill-toggle button.on{background:var(--navy);color:#fff;}
+  table.prod{width:100%;border-collapse:collapse;}
+  table.prod th{font-size:11px;text-transform:uppercase;color:var(--muted);text-align:left;padding:6px 8px;}
+  table.prod td{padding:6px 8px;border-top:1px solid var(--line);vertical-align:middle;}
+  table.prod td.num,table.prod th.num{text-align:right;}
+  table.prod select{padding:11px 8px;}
+  table.prod input{padding:11px 8px;text-align:right;}
+  .rmv{background:none;border:none;color:var(--danger);font-size:22px;cursor:pointer;line-height:1;}
+  .add-line{margin-top:10px;background:var(--blue-soft);color:var(--navy);border:1px dashed var(--blue);
+    padding:12px;border-radius:10px;width:100%;font-weight:600;cursor:pointer;font-size:15px;}
+  .delivery-row{display:flex;align-items:center;gap:12px;margin-top:14px;padding:12px;border:1px solid var(--line);border-radius:10px;background:#fafbfd;}
+  .delivery-row input[type=checkbox]{width:24px;height:24px;accent-color:var(--blue);}
+  .delivery-row .dtxt b{font-size:14px;}
+  .delivery-row .dtxt div{font-size:12px;color:var(--muted);}
+  .totals{margin-top:12px;border-top:2px solid var(--ink);padding-top:10px;}
+  .totals .row{display:flex;justify-content:space-between;padding:3px 0;font-size:14px;}
+  .totals .grand{font-size:19px;font-weight:800;color:var(--navy);}
+  .verify-row{display:flex;gap:10px;align-items:flex-end;}
+  .verify-row .grow{flex:1;}
+  .btn-sm{padding:12px 16px;border-radius:10px;border:none;background:var(--navy);color:#fff;font-weight:600;font-size:14px;cursor:pointer;white-space:nowrap;}
+  .btn-sm.ghost{background:#fff;border:1px solid var(--navy);color:var(--navy);}
+  .badge{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:700;padding:5px 10px;border-radius:20px;}
+  .badge.ok{background:var(--ok-soft);color:var(--ok);}
+  .badge.wait{background:#fef4e6;color:var(--warn);}
+  .ack{display:flex;gap:12px;padding:12px 0;border-bottom:1px solid var(--line);}
+  .ack:last-child{border-bottom:none;}
+  .ack input[type=checkbox]{width:24px;height:24px;flex:0 0 auto;margin-top:2px;accent-color:var(--blue);}
+  .ack .txt{font-size:13px;}
+  .ack .txt b{display:block;margin-bottom:2px;color:var(--ink);font-size:14px;}
+  .tnc-box{border:1px solid var(--line);border-radius:10px;height:220px;overflow-y:auto;padding:14px;
+    font-size:12px;color:#3a4453;background:#fafbfd;margin-bottom:12px;}
+  .tnc-box h4{margin:0 0 6px;color:var(--navy);}
+  .id-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
+  @media(max-width:640px){.id-grid{grid-template-columns:1fr;}}
+  .id-tile{border:2px dashed var(--line);border-radius:12px;padding:18px;text-align:center;cursor:pointer;background:#fafbfd;}
+  .id-tile.filled{border-style:solid;border-color:var(--ok);background:var(--ok-soft);padding:0;overflow:hidden;}
+  .id-tile img{width:100%;display:block;border-radius:10px;}
+  .id-tile .cam{font-size:30px;}
+  .id-tile .cap{font-size:13px;font-weight:600;color:var(--navy);margin-top:6px;}
+  .id-tile input{display:none;}
+  .sigwrap{border:1px solid var(--line);border-radius:12px;overflow:hidden;background:#fff;}
+  .sigwrap .sighead{display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:#f6f8fb;font-size:12px;color:var(--muted);}
+  canvas.sig{width:100%;height:180px;display:block;touch-action:none;background:#fff;}
+  .clr{background:none;border:none;color:var(--blue);font-weight:600;cursor:pointer;font-size:13px;}
+  .rev-sec{margin-bottom:14px;}
+  .rev-sec .rh{font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:4px;}
+  .rev-line{display:flex;justify-content:space-between;font-size:14px;padding:2px 0;}
+  footer{position:fixed;bottom:0;left:0;right:0;background:#fff;border-top:1px solid var(--line);
+    padding:12px 20px;z-index:20;}
+  footer .inner{max-width:900px;margin:0 auto;width:100%;display:flex;gap:12px;}
+  .btn{flex:1;padding:15px;border-radius:12px;border:none;font-size:16px;font-weight:700;cursor:pointer;}
+  .btn.next{background:var(--navy);color:#fff;}
+  .btn.back{background:#fff;border:1px solid var(--line);color:var(--ink);flex:0 0 110px;}
+  .btn.submit{background:var(--ok);color:#fff;}
+  .note{background:#fff8e8;border:1px solid #f0dca8;color:#7a5b12;font-size:12px;padding:10px 12px;border-radius:10px;margin-bottom:16px;}
+  .stub{font-size:11px;color:var(--warn);font-weight:600;}
+  .hidden{display:none!important;}
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <div class="hrow">
+      <div class="logo">SIMTEC<small>THERAPEUTIC</small></div>
+      <div class="demo-tag">Prototype</div>
+    </div>
+    <div class="steps" id="steps"></div>
+  </header>
+
+  <main>
+    <div class="note">Clickable prototype. Products &amp; prices come from your live <b>config</b> catalogue (seeded here). Server actions — <b>emailing the code, storing IDs, saving to Simtec, Ezidebit, confirmation email</b> — are simulated.</div>
+
+    <!-- 0 START -->
+    <section class="step on" data-step="0">
+      <h2 class="title">Start order</h2>
+      <p class="sub">Consultant and visit details.</p>
+      <div class="card">
+        <div class="grid2">
+          <label class="f"><span class="lab">Sleep Consultant <span class="req">*</span></span>
+            <select id="consultant"><option value="">Select consultant…</option>
+              <option>Anovale Tovio</option><option>Brooke Komene</option><option>Kenzie Lam Sam</option><option>Matt</option><option>PJ Tonga</option><option>Rita Neli</option><option>Robert Esau</option><option>Stacey Numanga</option><option>Tame Cooper</option><option>Yazan Othman</option>
+            </select>
+          </label>
+          <label class="f"><span class="lab">Date of Visit <span class="req">*</span></span><input type="date" id="visitDate"></label>
+        </div>
+        <span class="lab" style="font-size:12px;font-weight:600;display:block;margin-bottom:8px;">Sale Type <span class="req">*</span></span>
+        <div class="choices two" id="saleType">
+          <div class="choice" data-val="unsolicited"><div class="ct">Unsolicited</div><div class="cd">We approached the customer without invitation.</div></div>
+          <div class="choice" data-val="solicited"><div class="ct">Solicited</div><div class="cd">Customer invited the visit (e.g. existing-customer referral).</div></div>
+        </div>
+        <div id="referrerBox" class="hidden" style="margin-top:14px;">
+          <div class="grid2">
+            <label class="f"><span class="lab">Referred By — Full Name</span><input type="text" id="refName"></label>
+            <label class="f"><span class="lab">Referred By — Mobile</span><input type="tel" id="refMobile"></label>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 1 PRODUCTS -->
+    <section class="step" data-step="1">
+      <h2 class="title">Products ordered</h2>
+      <p class="sub">Choose products from the catalogue — prices fill in automatically.</p>
+      <div class="card">
+        <table class="prod">
+          <thead><tr><th>Product</th><th class="num" style="width:120px;">Unit price</th><th class="num" style="width:80px;">Qty</th><th class="num" style="width:100px;">Total</th><th style="width:34px;"></th></tr></thead>
+          <tbody id="prodBody"></tbody>
+        </table>
+        <button class="add-line" onclick="addProduct()">+ Add product</button>
+        <div class="delivery-row">
+          <input type="checkbox" id="wantDelivery" checked onchange="renderProducts()">
+          <div class="dtxt"><b>Delivery required</b><div>Adds the $170 delivery fee. Untick if the customer is not having delivery.</div></div>
+        </div>
+        <div class="totals">
+          <div class="row" id="deliveryLine"><span>Delivery fee</span><span>$170.00</span></div>
+          <div class="row grand"><span>Total cost</span><span id="grandTotal">$0.00</span></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 2 DETAILS -->
+    <section class="step" data-step="2">
+      <h2 class="title">Customer details</h2>
+      <p class="sub">Applicant details, contact, delivery address and income.</p>
+      <div class="card">
+        <h3>Applicant 1</h3>
+        <div class="grid3">
+          <label class="f"><span class="lab">First Name <span class="req">*</span></span><input type="text" id="a1first"></label>
+          <label class="f"><span class="lab">Last Name / Surname <span class="req">*</span></span><input type="text" id="a1last"></label>
+          <label class="f"><span class="lab">ID Document</span>
+            <div style="display:flex;gap:8px;">
+              <select id="a1idtype" style="flex:0 0 46%;"><option>Driver's Licence</option><option>Passport</option></select>
+              <input type="text" id="a1dl" placeholder="Number" style="flex:1;">
+            </div>
+          </label>
+        </div>
+      </div>
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+          <h3 style="margin:0;">Applicant 2 <span style="text-transform:none;font-weight:400;color:var(--muted);">(joint purchase)</span></h3>
+          <div class="pill-toggle" id="a2toggle"><button data-v="no" class="on">No</button><button data-v="yes">Yes</button></div>
+        </div>
+        <div id="a2box" class="hidden">
+          <div class="grid3">
+            <label class="f"><span class="lab">First Name</span><input type="text" id="a2first"></label>
+            <label class="f"><span class="lab">Last Name / Surname</span><input type="text" id="a2last"></label>
+            <label class="f"><span class="lab">ID Document</span>
+              <div style="display:flex;gap:8px;">
+                <select id="a2idtype" style="flex:0 0 46%;"><option>Driver's Licence</option><option>Passport</option></select>
+                <input type="text" id="a2dl" placeholder="Number" style="flex:1;">
+              </div>
+            </label>
+          </div>
+          <p class="sub" style="margin:0;">Both applicants share the mobile, email and address below.</p>
+        </div>
+      </div>
+      <div class="card">
+        <h3>Contact &amp; delivery</h3>
+        <div class="grid2">
+          <label class="f"><span class="lab">Mobile Phone <span class="req">*</span></span><input type="tel" id="mobile"></label>
+          <div>
+            <label class="f" style="margin-bottom:6px;"><span class="lab">Email Address <span class="req">*</span></span>
+              <div class="verify-row">
+                <div class="grow"><input type="email" id="email"></div>
+                <button class="btn-sm" id="sendCodeBtn" onclick="sendCode()">Send code</button>
+              </div>
+            </label>
+            <div id="verifyRow" class="hidden verify-row" style="margin-bottom:14px;">
+              <div class="grow"><input type="text" id="codeInput" placeholder="Enter 6-digit code" maxlength="6" inputmode="numeric"></div>
+              <button class="btn-sm ghost" onclick="checkCode()">Verify</button>
+            </div>
+            <div id="verifyState"></div>
+          </div>
+        </div>
+        <label class="f"><span class="lab">Street Address (Delivery Address) <span class="req">*</span></span><input type="text" id="street"></label>
+        <div class="grid3">
+          <label class="f"><span class="lab">Suburb</span><input type="text" id="suburb"></label>
+          <label class="f"><span class="lab">City</span><input type="text" id="city"></label>
+          <label class="f"><span class="lab">Postcode</span><input type="text" id="postcode"></label>
+        </div>
+      </div>
+      <div class="card">
+        <h3 id="emp1Head">Employment &amp; income — Applicant 1</h3>
+        <div class="grid3">
+          <label class="f"><span class="lab">Employer / Business</span><input type="text" id="employer1"></label>
+          <label class="f"><span class="lab">Occupation / Job Title</span><input type="text" id="occupation1"></label>
+          <label class="f"><span class="lab">Annual Gross Income</span><input type="text" id="income1" placeholder="$"></label>
+        </div>
+        <div class="grid2">
+          <label class="f"><span class="lab">Employment Type</span>
+            <select id="empType1"><option value="">Select…</option><option>Full-time</option><option>Part-time</option><option>Self-employed</option><option>Pension / Benefit</option><option>Other</option></select>
+          </label>
+          <label class="f"><span class="lab">Homeowner?</span>
+            <select id="homeowner1"><option value="">Select…</option><option>Yes</option><option>No</option></select>
+          </label>
+        </div>
+        <label class="f"><span class="lab">Other Income (source and amount, if any)</span><input type="text" id="otherIncome1"></label>
+      </div>
+      <div class="card hidden" id="emp2card">
+        <h3>Employment &amp; income — Applicant 2</h3>
+        <div class="grid3">
+          <label class="f"><span class="lab">Employer / Business</span><input type="text" id="employer2"></label>
+          <label class="f"><span class="lab">Occupation / Job Title</span><input type="text" id="occupation2"></label>
+          <label class="f"><span class="lab">Annual Gross Income</span><input type="text" id="income2" placeholder="$"></label>
+        </div>
+        <div class="grid2">
+          <label class="f"><span class="lab">Employment Type</span>
+            <select id="empType2"><option value="">Select…</option><option>Full-time</option><option>Part-time</option><option>Self-employed</option><option>Pension / Benefit</option><option>Other</option></select>
+          </label>
+          <label class="f"><span class="lab">Homeowner?</span>
+            <select id="homeowner2"><option value="">Select…</option><option>Yes</option><option>No</option></select>
+          </label>
+        </div>
+        <label class="f"><span class="lab">Other Income (source and amount, if any)</span><input type="text" id="otherIncome2"></label>
+      </div>
+    </section>
+
+    <!-- 3 REFEREES -->
+    <section class="step" data-step="3">
+      <h2 class="title">Referees</h2>
+      <p class="sub">Two referees not living with the customer.</p>
+      <div class="card"><h3>Referee 1</h3>
+        <div class="grid2">
+          <label class="f"><span class="lab">Name</span><input type="text" id="r1name"></label>
+          <label class="f"><span class="lab">Phone</span><input type="tel" id="r1phone"></label>
+          <label class="f"><span class="lab">Relationship</span><input type="text" id="r1rel"></label>
+          <label class="f"><span class="lab">Email</span><input type="email" id="r1email"></label>
+        </div>
+      </div>
+      <div class="card"><h3>Referee 2</h3>
+        <div class="grid2">
+          <label class="f"><span class="lab">Name</span><input type="text" id="r2name"></label>
+          <label class="f"><span class="lab">Phone</span><input type="tel" id="r2phone"></label>
+          <label class="f"><span class="lab">Relationship</span><input type="text" id="r2rel"></label>
+          <label class="f"><span class="lab">Email</span><input type="email" id="r2email"></label>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4 TERMS -->
+    <section class="step" data-step="4">
+      <h2 class="title">Terms &amp; acknowledgements</h2>
+      <p class="sub">The customer reads the terms and confirms each acknowledgement.</p>
+      <div class="card">
+        <h3>Terms &amp; Conditions</h3>
+        <div class="tnc-box" id="tncBox" onscroll="tncScrolled(this)">
+          <h4>Simtec Therapeutic — Terms &amp; Conditions</h4>
+          <p><em>[ Full T&amp;Cs load here — scroll to the end to enable the tick. Placeholder text in the prototype. ]</em></p>
+          <p>1. Agreement. These terms govern your purchase from Simtec Therapeutic Limited…</p>
+          <p>2. Payment. You agree to the payment option and repayment schedule recorded on this order…</p>
+          <p>3. Delivery. A minimum 10% deposit and an acceptable payment history are required before delivery…</p>
+          <p>4. Cooling off. You may cancel within 5 working days of signing at no cost under the Fair Trading Act…</p>
+          <p>5. Privacy. Personal information is collected only to assess affordability and manage your account…</p>
+          <p>…</p>
+          <p>10. Joint &amp; several liability. On a joint purchase, each applicant is liable for the full amount owing.</p>
+          <p style="color:var(--ok);font-weight:600;">— End of terms —</p>
+        </div>
+        <label class="ack"><input type="checkbox" id="tncAgree" disabled>
+          <span class="txt"><b>I have read and agree to the Terms &amp; Conditions.</b>Scroll to the end of the terms above to enable this.</span></label>
+      </div>
+      <div class="card">
+        <h3>Acknowledgements — customer confirms each</h3>
+        <label class="ack"><input type="checkbox" class="ackbox">
+          <span class="txt"><b>Minimum 10% deposit before delivery</b>Delivery is scheduled only after a minimum 10% deposit of the total purchase price is paid.</span></label>
+        <label class="ack"><input type="checkbox" class="ackbox">
+          <span class="txt"><b>Acceptable payment history before delivery</b>Delivery occurs once an acceptable repayment history is established. Simtec may cancel prior to delivery if the payment history is unacceptable.</span></label>
+        <label class="ack"><input type="checkbox" class="ackbox">
+          <span class="txt"><b>Collection &amp; use of personal information (Privacy Act 2020)</b>Details are collected only to assess affordability and manage the account, stored securely, and not sold or disclosed except as needed to manage payments.</span></label>
+        <label class="ack"><input type="checkbox" class="ackbox">
+          <span class="txt"><b>5-day cooling-off period explained</b>The consultant confirms the cooling-off period has been explained to the customer.</span></label>
+      </div>
+    </section>
+
+    <!-- 5 ID -->
+    <section class="step" data-step="5">
+      <h2 class="title">Identity documents</h2>
+      <p class="sub">Photograph each applicant's ID with the iPad camera. <span class="stub">Stored securely — stub in prototype.</span></p>
+      <div class="card">
+        <div class="id-grid" id="idGrid">
+          <label class="id-tile" id="idTileA1">
+            <input type="file" accept="image/*" capture="environment" onchange="idCaptured(this,'A1')">
+            <div class="cam">📷</div><div class="cap">Applicant 1 — ID photo</div>
+          </label>
+          <label class="id-tile hidden" id="idTileA2">
+            <input type="file" accept="image/*" capture="environment" onchange="idCaptured(this,'A2')">
+            <div class="cam">📷</div><div class="cap">Applicant 2 — ID photo</div>
+          </label>
+        </div>
+        <p class="sub" style="margin:12px 0 0;">Tip: capture each applicant's driver's licence or passport. Tap a photo to retake.</p>
+      </div>
+    </section>
+
+    <!-- 6 PAYMENT -->
+    <section class="step" data-step="6">
+      <h2 class="title">Payment method</h2>
+      <p class="sub">How is the customer paying?</p>
+      <div class="card">
+        <div class="choices three" id="payOption">
+          <div class="choice" data-val="full"><div class="ct">Paid in full</div><div class="cd">Direct deposit; proof shown to consultant.</div></div>
+          <div class="choice" data-val="deposit50"><div class="ct">50% deposit</div><div class="cd">Direct deposit; proof shown to consultant.</div></div>
+          <div class="choice" data-val="ezidebit"><div class="ct">Ezidebit</div><div class="cd">Direct debit set up after signing.</div></div>
+        </div>
+        <p class="sub" style="margin:14px 0 0;">Bank account for direct deposits: Simtec Therapeutic Limited · BNZ 02-0200-0352393-000</p>
+      </div>
+    </section>
+
+    <!-- 7 SIGN -->
+    <section class="step" data-step="7">
+      <h2 class="title">Review &amp; sign</h2>
+      <p class="sub">Confirm the summary, then the applicant(s) sign.</p>
+      <div class="card" id="reviewCard"></div>
+      <div class="card">
+        <h3 id="sigA1Label">Applicant 1 signature</h3>
+        <div class="sigwrap">
+          <div class="sighead"><span>Sign in the box</span><button class="clr" onclick="clearSig('sigA1')">Clear</button></div>
+          <canvas class="sig" id="sigA1"></canvas>
+        </div>
+        <label class="f" style="margin-top:12px;"><span class="lab">Print Name</span><input type="text" id="sigA1name"></label>
+      </div>
+      <div class="card hidden" id="sigA2card">
+        <h3>Applicant 2 signature</h3>
+        <div class="sigwrap">
+          <div class="sighead"><span>Sign in the box</span><button class="clr" onclick="clearSig('sigA2')">Clear</button></div>
+          <canvas class="sig" id="sigA2"></canvas>
+        </div>
+        <label class="f" style="margin-top:12px;"><span class="lab">Print Name</span><input type="text" id="sigA2name"></label>
+      </div>
+    </section>
+
+    <!-- 8 EZIDEBIT -->
+    <section class="step" data-step="8">
+      <h2 class="title">Ezidebit direct debit</h2>
+      <p class="sub">The customer completes their payment details and signs the direct-debit authority.</p>
+      <div class="card">
+        <div style="text-align:center;padding:20px;border:2px dashed var(--line);border-radius:12px;background:#fafbfd;">
+          <div style="font-size:34px;">🔒</div>
+          <p style="font-weight:700;margin:8px 0 4px;">Ezidebit hosted form</p>
+          <p class="sub" style="margin:0 auto;max-width:440px;">Bank details and the direct-debit request are captured directly by Ezidebit — nothing sensitive touches Simtec. <span class="stub">Embedded here in the live app — placeholder in prototype.</span></p>
+        </div>
+      </div>
+      <div class="card">
+        <h3>Direct-debit authority signature</h3>
+        <div class="sigwrap">
+          <div class="sighead"><span>Sign to authorise the direct debit</span><button class="clr" onclick="clearSig('sigEzi')">Clear</button></div>
+          <canvas class="sig" id="sigEzi"></canvas>
+        </div>
+      </div>
+    </section>
+
+    <!-- 9 DONE -->
+    <section class="step" data-step="9">
+      <div style="text-align:center;padding:40px 10px;">
+        <div style="font-size:56px;">✅</div>
+        <h2 class="title" style="margin-top:10px;">Order complete</h2>
+        <p class="sub" id="doneMsg">The order has been recorded and the confirmation email sent.</p>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="inner">
+      <button class="btn back" id="backBtn" onclick="go(-1)">Back</button>
+      <button class="btn next" id="nextBtn" onclick="go(1)">Next</button>
+    </div>
+  </footer>
+</div>
+
+<script>
+// ----- live catalogue (seeded from your config table; the app reads it live) -----
+const CATALOG = [
+  {name:"Mk I King Single",retail:860},{name:"Mk I Queen",retail:1590},{name:"Mk I Super King",retail:1890},
+  {name:"Mk II King Single",retail:3990},{name:"Mk II Queen",retail:3950},{name:"Mk II Super King",retail:4250},
+  {name:"Mk III King Single",retail:3990},{name:"Mk III Queen",retail:4740},{name:"Mk III Super King",retail:4950},{name:"Mk III California King",retail:5290},
+  {name:"King Single Bed Base",retail:650},{name:"Queen Bed Base",retail:750},{name:"Super King Bed Base",retail:850},{name:"California King Bed Base",retail:950},
+  {name:"King Single Protector",retail:130},{name:"Queen Protector",retail:130},{name:"Super King Protector",retail:130},{name:"California King Protector",retail:130},
+  {name:"Pillow",retail:160}
+];
+const DELIVERY_FEE = 170;
+const GUARANTEE_PRODUCTS = ["Mk III Queen","Mk III Super King"]; // 30-day comfort guarantee attaches for these
+
+// ----- Simtec backend (matches add-customer.html) -----
+const SUPABASE_URL="https://jvqjoenaungubpoegyvf.supabase.co";
+const SUPABASE_KEY="sb_publishable_J4MYTdJJyEaWe-GadpwdYA_upPT2rKw";
+const sb = window.supabase ? supabase.createClient(SUPABASE_URL,SUPABASE_KEY) : null;
+const TEAM={"Kenzie Lam Sam":"Kenzie Lam Sam","Anovale Tovio":"Kenzie Lam Sam","PJ Tonga":"Kenzie Lam Sam","Rita Neli":"Kenzie Lam Sam","Tame Cooper":"Kenzie Lam Sam","Yazan Othman":"Yazan Othman","Brooke Komene":"Yazan Othman","Kono Harris":"Yazan Othman","Stacey Numanga":"Yazan Othman"};
+// New-app payment options -> your payment_method values. Ezidebit becomes weekly_dd/fortnightly_dd
+// once the Ezidebit callback tells us the frequency; null until then.
+const PAY_METHOD={full:"pay_in_full",deposit50:"deposit_50",ezidebit:null};
+function normNZ(raw){
+  if(!raw) return {e164:"",flag:"missing"};
+  const digits=String(raw).replace(/\D/g,""); if(!digits) return {e164:"",flag:"missing"};
+  let nsn;
+  if(String(raw).trim().startsWith("+64")||digits.startsWith("64")) nsn=digits.slice(2);
+  else if(digits.startsWith("0")) nsn=digits.slice(1); else nsn=digits;
+  return {e164:"+64"+nsn, flag:(nsn[0]==="2"&&nsn.length>=8&&nsn.length<=10)?"ok":"check"};
+}
+function numOrNull(v){ v=String(v==null?"":v).replace(/[^0-9.]/g,""); return v?Number(v):null; }
+
+const S = { step:0, saleType:'', pay:'', a2:false, products:[], emailVerified:false, sentCode:null, tncRead:false };
+const STEP_LABELS = ['Start','Products','Details','Referees','Terms','ID','Payment','Sign','Ezidebit','Done'];
+
+function visibleSteps(){
+  let arr=[0,1,2,3,4,5,6,7];
+  if(S.pay==='ezidebit') arr.push(8);
+  arr.push(9);
+  return arr;
+}
+function renderSteps(){
+  const cont=document.getElementById('steps'); cont.innerHTML='';
+  const vis=visibleSteps().filter(i=>i!==9);
+  const curIdx=vis.indexOf(S.step);
+  vis.forEach((ds,idx)=>{
+    const div=document.createElement('div');
+    div.className='st'+(ds===S.step?' active':'')+(curIdx>-1&&idx<curIdx?' done':'');
+    div.innerHTML='<span class="n">'+(idx+1)+'</span>'+STEP_LABELS[ds];
+    cont.appendChild(div);
+  });
+}
+function showStep(ds){
+  document.querySelectorAll('section.step').forEach(s=>s.classList.toggle('on', +s.dataset.step===ds));
+  S.step=ds;
+  const back=document.getElementById('backBtn'), next=document.getElementById('nextBtn');
+  back.style.visibility=(ds===visibleSteps()[0])?'hidden':'visible';
+  next.classList.remove('hidden'); back.classList.remove('hidden');
+  if(ds===7){ next.textContent=(S.pay==='ezidebit')?'Submit & set up Ezidebit':'Submit order'; next.className='btn submit'; }
+  else if(ds===8){ next.textContent='Finish'; next.className='btn submit'; }
+  else if(ds===9){ next.classList.add('hidden'); back.classList.add('hidden'); }
+  else { next.textContent='Next'; next.className='btn next'; }
+  if(ds===7) buildReview();
+  renderSteps(); window.scrollTo(0,0);
+  document.querySelectorAll('section.step.on canvas.sig').forEach(sizeCanvas);
+}
+function go(dir){
+  const vis=visibleSteps(); const cur=vis.indexOf(S.step);
+  if(dir>0 && !validateStep(S.step)) return;
+  if(dir>0 && S.step===7) submitOrder();
+  const nx=cur+dir; if(nx<0||nx>=vis.length) return;
+  showStep(vis[nx]);
+}
+function validateStep(ds){
+  if(ds===0){ if(!val('consultant')||!val('visitDate')||!S.saleType){alert('Enter consultant, date and sale type.');return false;} }
+  if(ds===1){ if(!S.products.some(p=>p.name)){alert('Add at least one product.');return false;} }
+  if(ds===2){ if(!val('a1first')||!val('a1last')||!val('mobile')||!val('email')||!val('street')){alert('Fill the required customer fields.');return false;}
+    if(!S.emailVerified && !confirm('Email not verified. Continue anyway?')) return false; }
+  if(ds===4){ if(!document.getElementById('tncAgree').checked){alert('Customer must read and agree to the Terms & Conditions.');return false;}
+    if(![...document.querySelectorAll('.ackbox')].every(a=>a.checked)){alert('All acknowledgements must be confirmed.');return false;} }
+  if(ds===6){ if(!S.pay){alert('Select a payment method.');return false;} }
+  if(ds===7){ if(isBlank('sigA1')){alert('Applicant 1 must sign.');return false;} if(S.a2&&isBlank('sigA2')){alert('Applicant 2 must sign.');return false;} }
+  return true;
+}
+const val=id=>document.getElementById(id).value.trim();
+
+function bindChoices(wrapId, cb){
+  document.querySelectorAll('#'+wrapId+' .choice').forEach(c=>c.onclick=()=>{
+    document.querySelectorAll('#'+wrapId+' .choice').forEach(x=>x.classList.remove('sel'));
+    c.classList.add('sel'); cb(c.dataset.val);
+  });
+}
+bindChoices('saleType', v=>{ S.saleType=v; document.getElementById('referrerBox').classList.toggle('hidden', v!=='solicited'); });
+bindChoices('payOption', v=>{ S.pay=v; renderSteps(); });
+
+document.querySelectorAll('#a2toggle button').forEach(b=>b.onclick=()=>{
+  document.querySelectorAll('#a2toggle button').forEach(x=>x.classList.remove('on')); b.classList.add('on');
+  S.a2=b.dataset.v==='yes';
+  document.getElementById('a2box').classList.toggle('hidden',!S.a2);
+  document.getElementById('emp2card').classList.toggle('hidden',!S.a2);
+  document.getElementById('idTileA2').classList.toggle('hidden',!S.a2);
+  document.getElementById('sigA2card').classList.toggle('hidden',!S.a2);
+  document.getElementById('emp1Head').textContent='Employment & income — Applicant '+(S.a2?'1':'1');
+});
+
+// ----- products -----
+function catalogOptions(sel){
+  let o='<option value="">Select product…</option>';
+  CATALOG.forEach((p,i)=>{ o+='<option value="'+i+'"'+(sel===i?' selected':'')+'>'+esc(p.name)+' — $'+p.retail.toFixed(2)+'</option>'; });
+  return o;
+}
+function addProduct(){ S.products.push({idx:'',name:'',price:0,qty:1}); renderProducts(); }
+function renderProducts(){
+  const b=document.getElementById('prodBody'); b.innerHTML='';
+  S.products.forEach((p,i)=>{
+    const tr=document.createElement('tr');
+    tr.innerHTML='<td><select onchange="pickProduct('+i+',this.value)">'+catalogOptions(p.idx===''?null:p.idx)+'</select></td>'+
+      '<td class="num">'+(p.name?('$'+p.price.toFixed(2)):'—')+'</td>'+
+      '<td class="num"><input type="number" min="1" value="'+p.qty+'" oninput="upQty('+i+',this.value)"></td>'+
+      '<td class="num">$'+((p.price*p.qty)||0).toFixed(2)+'</td>'+
+      '<td><button class="rmv" onclick="rmP('+i+')">×</button></td>';
+    b.appendChild(tr);
+  });
+  const wantDel=document.getElementById('wantDelivery').checked;
+  document.getElementById('deliveryLine').style.display=wantDel?'flex':'none';
+  const sub=S.products.reduce((s,p)=>s+(p.price*p.qty||0),0)+(wantDel?DELIVERY_FEE:0);
+  document.getElementById('grandTotal').textContent='$'+sub.toFixed(2);
+}
+function pickProduct(i,v){ if(v===''){S.products[i]={idx:'',name:'',price:0,qty:S.products[i].qty};} else {const c=CATALOG[+v];S.products[i].idx=+v;S.products[i].name=c.name;S.products[i].price=c.retail;} renderProducts(); }
+function upQty(i,v){ S.products[i].qty=Math.max(1,parseInt(v||1)); renderProducts(); }
+function rmP(i){ S.products.splice(i,1); if(S.products.length===0) addProduct(); else renderProducts(); }
+
+// ----- email verify (STUB) -----
+function sendCode(){
+  const em=val('email'); if(!em){alert('Enter an email first.');return;}
+  S.sentCode=String(Math.floor(100000+Math.random()*900000));
+  document.getElementById('verifyRow').classList.remove('hidden');
+  document.getElementById('verifyState').innerHTML='<span class="badge wait">● Code sent to '+esc(em)+'</span> <span class="stub">(prototype shows it: '+S.sentCode+')</span>';
+}
+function checkCode(){
+  if(val('codeInput')===S.sentCode){ S.emailVerified=true;
+    document.getElementById('verifyState').innerHTML='<span class="badge ok">✓ Email verified</span>';
+    document.getElementById('verifyRow').classList.add('hidden');
+  } else { document.getElementById('verifyState').innerHTML='<span class="badge wait">✕ Code doesn\'t match — try again</span>'; }
+}
+
+// ----- T&Cs gate -----
+function tncScrolled(el){ if(el.scrollTop+el.clientHeight>=el.scrollHeight-8){ S.tncRead=true; document.getElementById('tncAgree').disabled=false; } }
+
+// ----- ID capture (STUB) -----
+function idCaptured(input,who){
+  const f=input.files[0]; if(!f) return;
+  const url=URL.createObjectURL(f);
+  const tile=document.getElementById('idTile'+who);
+  tile.classList.add('filled');
+  const cam=tile.querySelector('.cam'); if(cam) cam.remove();
+  let img=tile.querySelector('img'); if(!img){img=document.createElement('img');tile.appendChild(img);} img.src=url;
+  const cap=tile.querySelector('.cap'); if(cap) cap.textContent=who+' ID ✓ (tap to retake)';
+}
+
+// ----- signature pads -----
+const pads={};
+function sizeCanvas(c){ const r=c.getBoundingClientRect(); if(c.width!==Math.round(r.width)){ c.width=r.width; c.height=r.height; const x=c.getContext('2d'); x.lineWidth=2.2; x.lineCap='round'; x.strokeStyle='#12203f'; } pads[c.id]=pads[c.id]||{drawn:false}; }
+function initSig(c){
+  let drawing=false,last=null; const ctx=c.getContext('2d');
+  const pos=e=>{const r=c.getBoundingClientRect();const t=e.touches?e.touches[0]:e;return{x:t.clientX-r.left,y:t.clientY-r.top};};
+  const start=e=>{drawing=true;last=pos(e);e.preventDefault();};
+  const move=e=>{if(!drawing)return;const p=pos(e);ctx.beginPath();ctx.moveTo(last.x,last.y);ctx.lineTo(p.x,p.y);ctx.stroke();last=p;pads[c.id].drawn=true;e.preventDefault();};
+  const end=()=>{drawing=false;};
+  c.addEventListener('mousedown',start);c.addEventListener('mousemove',move);window.addEventListener('mouseup',end);
+  c.addEventListener('touchstart',start,{passive:false});c.addEventListener('touchmove',move,{passive:false});c.addEventListener('touchend',end);
+}
+function clearSig(id){const c=document.getElementById(id);c.getContext('2d').clearRect(0,0,c.width,c.height);pads[id]&&(pads[id].drawn=false);}
+function isBlank(id){return !(pads[id]&&pads[id].drawn);}
+
+// ----- review -----
+function money(n){return '$'+(n||0).toFixed(2);}
+function buildReview(){
+  const wantDel=document.getElementById('wantDelivery').checked;
+  const sub=S.products.reduce((s,p)=>s+(p.price*p.qty||0),0);
+  const total=sub+(wantDel?DELIVERY_FEE:0);
+  const name=(val('a1first')+' '+val('a1last')).trim()+(S.a2?(' & '+val('a2first')+' '+val('a2last')):'');
+  const payLabel={full:'Paid in full',deposit50:'50% deposit',ezidebit:'Ezidebit direct debit'}[S.pay]||'—';
+  const hasGuar=S.products.some(p=>GUARANTEE_PRODUCTS.includes(p.name));
+  let prods=S.products.filter(p=>p.name).map(p=>'<div class="rev-line"><span>'+esc(p.name)+' × '+p.qty+'</span><span>'+money(p.price*p.qty)+'</span></div>').join('');
+  document.getElementById('reviewCard').innerHTML=
+    '<div class="rev-sec"><div class="rh">Customer</div><div class="rev-line"><span>'+esc(name)+'</span><span>'+(S.emailVerified?'<span class="badge ok">✓ email</span>':'<span class="badge wait">email unverified</span>')+'</span></div><div class="sub">'+esc(val('email'))+' · '+esc(val('mobile'))+'</div></div>'+
+    '<div class="rev-sec"><div class="rh">Products</div>'+prods+(wantDel?'<div class="rev-line"><span>Delivery fee</span><span>$170.00</span></div>':'<div class="rev-line" style="color:var(--muted)"><span>No delivery</span><span>—</span></div>')+'<div class="rev-line" style="font-weight:800;border-top:1px solid var(--line);margin-top:4px;padding-top:6px;"><span>Total</span><span>'+money(total)+'</span></div></div>'+
+    '<div class="rev-sec"><div class="rh">Payment</div><div class="rev-line"><span>'+payLabel+'</span><span></span></div></div>'+
+    '<div class="rev-sec"><div class="rh">Confirmation email will attach</div><div class="sub">Order PDF · Terms &amp; Conditions · 15-year warranty'+(hasGuar?' · 30-day comfort guarantee':'')+'</div></div>';
+}
+
+// ----- submit: writes sim_customers + sim_orders + sim_order_items (exactly like add-customer.html) -----
+async function submitOrder(){
+  const done=document.getElementById('doneMsg');
+  if(!sb){ done.textContent='(Preview) Order would be saved and the confirmation email sent.'; return; }
+  done.textContent='Saving…';
+  try{
+    const {e164}=normNZ(val('mobile'));
+    const address=[val('street'),val('suburb'),val('city'),val('postcode')].filter(Boolean).join(', ');
+    // 1) customer
+    const {data:cust,error:e1}=await sb.from('sim_customers')
+      .insert({first_name:val('a1first'),last_name:val('a1last'),mobile:e164,email:val('email')||null,address:address||null})
+      .select('id').single();
+    if(e1) throw new Error('customer: '+e1.message);
+    // 2) order  (schedule + payer ref filled from the Ezidebit callback, not calculated)
+    const wantDel=document.getElementById('wantDelivery').checked;
+    const total=S.products.reduce((s,p)=>s+(p.price*p.qty||0),0)+(wantDel?DELIVERY_FEE:0);
+    const order={
+      customer_id:cust.id, order_date:val('visitDate')||null,
+      consultant_name:val('consultant'), team_leader_name:TEAM[val('consultant')]||null,
+      sale_type:S.saleType||null,
+      referrer_name:(S.saleType==='solicited'?(val('refName')||null):null),
+      joint_purchase:S.a2,
+      second_customer_name:(S.a2?((val('a2first')+' '+val('a2last')).trim()||null):null),
+      payment_method:PAY_METHOD[S.pay],
+      contract_value:total, amount_paid_to_date:0,
+      deposit_amount:(S.pay==='deposit50'?Math.round(total*50)/100:0),
+      ezidebit_payer_ref:null,
+      delivery_status:'pending', order_status:'active',
+      paid_in_full:(S.pay==='full'),
+      employment_status:val('empType1')||null, employer_name:val('employer1')||null,
+      income_amount:numOrNull(val('income1')), income_frequency:'annual'
+    };
+    const {data:ord,error:e2}=await sb.from('sim_orders').insert(order).select('id').single();
+    if(e2) throw new Error('order: '+e2.message);
+    S.orderId=ord.id;
+    // 3) product lines (incl. Delivery fee line — commission feed matches on product_name)
+    const items=[]; let ln=0;
+    S.products.filter(p=>p.name).forEach(p=>items.push({order_id:ord.id,line_no:++ln,product_name:p.name,quantity:p.qty,unit_price:p.price}));
+    if(wantDel) items.push({order_id:ord.id,line_no:++ln,product_name:'Delivery fee',quantity:1,unit_price:DELIVERY_FEE});
+    if(items.length){ const {error:e3}=await sb.from('sim_order_items').insert(items); if(e3) throw new Error('items: '+e3.message); }
+    // 4) new-app extras + ID/signature files (needs sim_order_applications + order-documents bucket)
+    saveExtras(ord.id).catch(e=>console.warn('extras/files pending setup:',e.message||e));
+    // 5) confirmation email via GHL — wired separately
+    done.textContent = S.pay==='ezidebit'
+      ? 'Order saved. Complete the Ezidebit direct debit next.'
+      : 'Order saved. Confirmation email queued (PDF, T&Cs, warranty).';
+  }catch(err){ done.textContent='Save failed — '+(err.message||err); }
+}
+
+// New-app-only data (2nd applicant income, referees, consent, ID photos, signatures).
+// Requires: table sim_order_applications + private storage bucket 'order-documents' (see SQL).
+async function saveExtras(orderId){
+  if(!sb) return;
+  const uploads={};
+  const put=async(key,file,sub)=>{ if(!file) return; const path=orderId+'/'+sub; const {error}=await sb.storage.from('order-documents').upload(path,file,{upsert:true}); if(!error) uploads[key]=path; };
+  const fileOf=id=>{ const el=document.querySelector('#idTile'+id+' input'); return el&&el.files&&el.files[0]; };
+  await put('id_a1', fileOf('A1'), 'id-applicant1');
+  if(S.a2) await put('id_a2', fileOf('A2'), 'id-applicant2');
+  const sigBlob=id=>new Promise(res=>{const c=document.getElementById(id); if(!c||isBlank(id))return res(null); c.toBlob(res,'image/png');});
+  const sa1=await sigBlob('sigA1'); await put('sig_a1',sa1,'signature1.png');
+  if(S.a2){ const sa2=await sigBlob('sigA2'); await put('sig_a2',sa2,'signature2.png'); }
+  const row={
+    order_id:orderId,
+    a1_id_type:document.getElementById('a1idtype').value, a1_id_number:val('a1dl')||null,
+    a2_id_type:(S.a2?document.getElementById('a2idtype').value:null), a2_id_number:(S.a2?(val('a2dl')||null):null),
+    a2_employer:val('employer2')||null, a2_occupation:val('occupation2')||null, a2_income_amount:numOrNull(val('income2')),
+    a2_employment_status:val('empType2')||null,
+    referee1_name:val('r1name')||null, referee1_phone:val('r1phone')||null, referee1_relationship:val('r1rel')||null, referee1_email:val('r1email')||null,
+    referee2_name:val('r2name')||null, referee2_phone:val('r2phone')||null, referee2_relationship:val('r2rel')||null, referee2_email:val('r2email')||null,
+    tnc_agreed:document.getElementById('tncAgree').checked,
+    acknowledgements_confirmed:[...document.querySelectorAll('.ackbox')].every(a=>a.checked),
+    email_verified:S.emailVerified,
+    id_doc_a1_path:uploads.id_a1||null, id_doc_a2_path:uploads.id_a2||null,
+    signature_a1_path:uploads.sig_a1||null, signature_a2_path:uploads.sig_a2||null
+  };
+  await sb.from('sim_order_applications').insert(row);
+}
+
+// After the Ezidebit hosted form, its callback returns payer ref + schedule — we STORE, never calculate.
+// freq: 'W'->weekly, 'F'->fortnightly, etc. Called with the callback payload in the live app.
+async function applyEzidebitCallback(cb){
+  if(!sb||!S.orderId) return;
+  const freqMap={W:'weekly',F:'fortnightly',N:'monthly'};
+  const freq=freqMap[cb.freq]||null;
+  const method=freq==='fortnightly'?'fortnightly_dd':(freq==='weekly'?'weekly_dd':'weekly_dd');
+  await sb.from('sim_orders').update({
+    ezidebit_payer_ref:(cb.customerRef||'').replace(/\D/g,'')||null,
+    payment_method:method, payment_frequency:freq,
+    instalment_amount:numOrNull(cb.ramount), term_periods:numOrNull(cb.numpayments),
+    first_payment_date:cb.rdate||null, schedule_start_date:cb.rdate||null, next_payment_date:cb.rdate||null
+  }).eq('id',S.orderId);
+}
+
+// ----- init -----
+document.querySelectorAll('canvas.sig').forEach(c=>{sizeCanvas(c);initSig(c);});
+window.addEventListener('resize',()=>document.querySelectorAll('section.step.on canvas.sig').forEach(sizeCanvas));
+function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]));}
+(function(){const d=new Date();const p=n=>String(n).padStart(2,'0');document.getElementById('visitDate').value=d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate());})();
+addProduct(); showStep(0);
+</script>
+</body>
+</html>
