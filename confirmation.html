@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Simtec — Order Confirmation Calls</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="auth.js?v=3" data-roles="admin,manager,office"></script>
+<style>
+  :root{
+    --navy:#111f3d; --navy2:#1a2c53; --gold:#c6a15b; --gold2:#d9be86;
+    --ink:#1a2334; --sub:#64728a; --line:#e4e8ef; --bg:#f4f6f9; --card:#fff;
+    --red:#c0332e; --redbg:#fdeceb; --green:#1c6b34; --greenbg:#e9f5ed;
+    --amber:#8a5a12; --amberbg:#fff5e0; --blue:#1f5aa8;
+  }
+  *{box-sizing:border-box}
+  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:var(--ink);background:var(--bg);margin:0;-webkit-font-smoothing:antialiased}
+  .topbar{background:linear-gradient(180deg,var(--navy),var(--navy2));color:#fff;padding:16px 24px;border-bottom:3px solid var(--gold);display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;position:sticky;top:0;z-index:10}
+  .topbar .t{font-size:18px;font-weight:700}
+  .topbar .t small{display:block;color:var(--gold2);font-size:9px;letter-spacing:.26em;font-weight:600;margin-top:3px}
+  .topbar a.home{color:#cfd7e6;text-decoration:none;font-size:13px;font-weight:600;border:1px solid rgba(255,255,255,.25);padding:7px 13px;border-radius:8px}
+  .topbar a.home:hover{background:rgba(255,255,255,.08);color:#fff}
+  .wrap{max-width:1080px;margin:0 auto;padding:22px 20px 60px}
+  .tabs{display:flex;gap:8px;margin-bottom:22px;flex-wrap:wrap}
+  .tab{border:1px solid var(--line);background:#fff;color:var(--sub);border-radius:22px;padding:9px 16px;font-size:13.5px;font-weight:600;cursor:pointer}
+  .tab.on{background:var(--navy);color:#fff;border-color:var(--navy)}
+  .tab .pill{display:inline-block;margin-left:7px;background:#eef1f7;color:var(--navy);border-radius:20px;padding:1px 8px;font-size:12px;font-weight:700}
+  .tab.on .pill{background:var(--gold);color:var(--navy)}
+  .state{color:var(--sub);font-size:14px;padding:24px 4px}
+  .empty{color:var(--green);font-size:15px;padding:30px 6px;text-align:center}
+
+  .ocard{background:var(--card);border:1px solid var(--line);border-radius:16px;box-shadow:0 2px 10px rgba(17,31,61,.06);margin-bottom:20px;overflow:hidden}
+  .ohead{display:flex;justify-content:space-between;align-items:flex-start;gap:14px;padding:16px 20px;border-bottom:1px solid var(--line);background:#fbfcfe}
+  .ohead .who{font-size:17px;font-weight:800;color:var(--navy)}
+  .ohead .meta{font-size:12.5px;color:var(--sub);margin-top:3px}
+  .ohead .val{font-size:19px;font-weight:800;color:var(--navy);text-align:right;white-space:nowrap}
+  .ohead .val small{display:block;font-size:11px;color:var(--sub);font-weight:600}
+  .obody{padding:18px 20px}
+
+  .flag{display:flex;gap:10px;align-items:flex-start;background:var(--amberbg);border:1px solid #f0dca8;color:#7a5b12;border-radius:11px;padding:12px 14px;margin-bottom:16px;font-size:13.5px}
+  .flag b{display:block;margin-bottom:2px}
+  .flag .ic{font-size:18px;line-height:1}
+
+  .kv{display:grid;grid-template-columns:repeat(2,1fr);gap:10px 26px;margin-bottom:8px}
+  @media(max-width:640px){.kv{grid-template-columns:1fr}}
+  .kv .row{display:flex;justify-content:space-between;gap:12px;border-bottom:1px dashed var(--line);padding:5px 0;font-size:13.5px}
+  .kv .row .l{color:var(--sub)}
+  .kv .row .v{font-weight:600;text-align:right}
+  .kv .row .v.good{color:var(--green)} .kv .row .v.bad{color:var(--red)}
+  .prods{margin:6px 0 14px;font-size:13.5px}
+  .prods .p{display:flex;justify-content:space-between;border-bottom:1px dashed var(--line);padding:4px 0}
+
+  .clh{font-size:11px;text-transform:uppercase;letter-spacing:.09em;color:var(--sub);font-weight:700;margin:16px 0 8px}
+  .checks{display:grid;grid-template-columns:1fr 1fr;gap:8px 18px;margin-bottom:8px}
+  @media(max-width:640px){.checks{grid-template-columns:1fr}}
+  label.chk{display:flex;gap:11px;align-items:center;border:1px solid var(--line);border-radius:11px;padding:11px 13px;cursor:pointer;font-size:14px;font-weight:600;background:#fff}
+  label.chk:hover{border-color:#cdb98f}
+  label.chk input{width:22px;height:22px;flex:none;accent-color:var(--green);cursor:pointer}
+  label.chk.done{background:var(--greenbg);border-color:#bcdcc6;color:var(--green)}
+
+  .actions{display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin-top:16px}
+  .bigtick{flex:1;min-width:220px;display:flex;align-items:center;justify-content:center;gap:10px;background:var(--green);color:#fff;border:none;border-radius:13px;padding:16px;font-size:16px;font-weight:800;cursor:pointer}
+  .bigtick:disabled{background:#c3d4c8;cursor:not-allowed}
+  .bigtick .bx{font-size:20px}
+  .btn2{border:1px solid var(--line);background:#fff;color:var(--ink);border-radius:11px;padding:14px 16px;font-size:14px;font-weight:700;cursor:pointer}
+  .btn2.warn{border-color:#e7c3bf;color:var(--red);background:#fff}
+  .btn2.warn:hover{background:var(--redbg)}
+  .btn2.gold{background:var(--gold);border-color:var(--gold);color:var(--navy)}
+  .rvnote{width:100%;border:1px solid var(--line);border-radius:10px;padding:11px;font:inherit;font-size:14px;resize:vertical;min-height:56px;margin-top:12px}
+  .stateline{font-size:12.5px;color:var(--sub);margin-top:10px}
+  .badge{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:700;padding:3px 9px;border-radius:20px}
+  .badge.g{background:var(--greenbg);color:var(--green)} .badge.n{background:#eef1f7;color:var(--sub)}
+  .review-banner{background:var(--redbg);border:1px solid #e7c3bf;color:var(--red);border-radius:11px;padding:11px 14px;margin-bottom:14px;font-size:13.5px;font-weight:600}
+</style>
+</head>
+<body>
+  <div class="topbar">
+    <div class="t">Order Confirmation Calls<small>SIMTEC THERAPEUTIC</small></div>
+    <a class="home" href="home.html">← Back to home</a>
+  </div>
+  <div class="wrap">
+    <div class="tabs" id="tabs"></div>
+    <div id="list"><div class="state">Loading orders…</div></div>
+  </div>
+
+<script>
+const sb = supabase.createClient("https://jvqjoenaungubpoegyvf.supabase.co","sb_publishable_J4MYTdJJyEaWe-GadpwdYA_upPT2rKw");
+const CHECKS=[
+  ['confirmed_address','Address'],
+  ['confirmed_income','Income'],
+  ['confirmed_affordability','Affordability'],
+  ['confirmed_understanding','Understanding of commitment'],
+  ['confirmed_happy_consultant','Happy with consultant']
+];
+const PAYLBL={weekly_dd:'Weekly direct debit',fortnightly_dd:'Fortnightly direct debit',deposit_50:'50% deposit',pay_in_full:'Paid in full',cash:'Cash'};
+let TAB='pending';
+let ORDERS=[], CONF={};
+
+function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]));}
+function money(n){return n==null?'—':'$'+Number(n).toLocaleString('en-NZ',{minimumFractionDigits:2,maximumFractionDigits:2});}
+function me(){return (window.SIMTEC_USER&&(window.SIMTEC_USER.full_name||window.SIMTEC_USER.email))||'office';}
+function nowISO(){return new Date().toISOString();}
+function payLabel(o){return o.payment_method?(PAYLBL[o.payment_method]||o.payment_method):'Ezidebit (pending set-up)';}
+function afford(o){return o.affordability_passed===true?['✓ Passed','good']:o.affordability_passed===false?['✗ Not passed','bad']:['— not checked','']; }
+function fmtDate(d){ if(!d) return '—'; try{return new Date(String(d).length<=10?d+'T12:00:00':d).toLocaleDateString('en-NZ',{day:'2-digit',month:'short',year:'numeric'});}catch(e){return d;} }
+
+async function loadAll(){
+  document.getElementById('list').innerHTML='<div class="state">Loading orders…</div>';
+  try{
+    const {data:pend,error:e1}=await sb.from('sim_orders')
+      .select('*, sim_customers(*), sim_order_items(product_name,quantity,unit_price,line_no)')
+      .in('confirmation_status',['pending','review'])
+      .order('order_date',{ascending:false});
+    if(e1) throw e1;
+    const {data:acc}=await sb.from('sim_orders')
+      .select('*, sim_customers(*), sim_order_items(product_name,quantity,unit_price,line_no)')
+      .eq('confirmation_status','accepted')
+      .order('order_date',{ascending:false}).limit(25);
+    ORDERS=[...(pend||[]),...(acc||[])];
+    const ids=ORDERS.map(o=>o.id);
+    CONF={};
+    for(let i=0;i<ids.length;i+=200){
+      const {data:cs}=await sb.from('sim_order_confirmations').select('*').in('order_id',ids.slice(i,i+200));
+      (cs||[]).forEach(c=>CONF[c.order_id]=c);
+    }
+    render();
+  }catch(err){
+    document.getElementById('list').innerHTML='<div class="state">Couldn\'t load: '+esc(err.message||err)+'</div>';
+  }
+}
+
+function counts(){
+  const c={pending:0,review:0,accepted:0};
+  ORDERS.forEach(o=>{ if(c[o.confirmation_status]!=null) c[o.confirmation_status]++; });
+  return c;
+}
+function renderTabs(){
+  const c=counts();
+  const defs=[['pending','To confirm'],['review','Management review'],['accepted','Recently accepted']];
+  document.getElementById('tabs').innerHTML=defs.map(([id,lbl])=>
+    '<button class="tab'+(TAB===id?' on':'')+'" onclick="setTab(\''+id+'\')">'+lbl+
+    (c[id]?'<span class="pill">'+c[id]+'</span>':'')+'</button>').join('');
+}
+window.setTab=function(t){ TAB=t; render(); };
+
+function itemsOf(o){ return (o.sim_order_items||[]).slice().sort((a,b)=>(a.line_no||0)-(b.line_no||0)); }
+function custOf(o){ return o.sim_customers||{}; }
+function fullName(o){ const c=custOf(o); return [c.first_name,c.last_name].filter(Boolean).join(' ')||'(no name)'; }
+
+function summaryHTML(o){
+  const c=custOf(o); const [aTxt,aCls]=afford(o);
+  const addr=o.delivery_address||c.address||'—';
+  const income=o.income_amount!=null?(money(o.income_amount)+(o.income_frequency?(' / '+o.income_frequency):'')):'—';
+  const prods=itemsOf(o).map(i=>'<div class="p"><span>'+esc(i.product_name)+' × '+(i.quantity||1)+'</span><span>'+money((i.unit_price||0)*(i.quantity||1))+'</span></div>').join('')||'<div class="p"><span>No line items</span><span></span></div>';
+  return ''
+    +(o.consultant_account_note?('<div class="flag"><span class="ic">⚑</span><span><b>Account set-up note (from the consultant)</b>'+esc(o.consultant_account_note)+'</span></div>'):'')
+    +'<div class="kv">'
+    +'<div class="row"><span class="l">Mobile</span><span class="v">'+esc(c.mobile||'—')+'</span></div>'
+    +'<div class="row"><span class="l">Email</span><span class="v">'+esc(c.email||'—')+'</span></div>'
+    +'<div class="row"><span class="l">Consultant</span><span class="v">'+esc(o.consultant_name||'—')+'</span></div>'
+    +'<div class="row"><span class="l">Payment</span><span class="v">'+esc(payLabel(o))+'</span></div>'
+    +'<div class="row"><span class="l">Deposit</span><span class="v">'+money(o.deposit_amount)+'</span></div>'
+    +'<div class="row"><span class="l">Income</span><span class="v">'+esc(income)+'</span></div>'
+    +'<div class="row"><span class="l">Affordability</span><span class="v '+aCls+'">'+aTxt+'</span></div>'
+    +'<div class="row"><span class="l">Cooling-off ends</span><span class="v">'+fmtDate(o.cooling_off_expires)+'</span></div>'
+    +'</div>'
+    +'<div class="row" style="display:flex;justify-content:space-between;border-bottom:1px dashed var(--line);padding:5px 0;font-size:13.5px"><span class="l" style="color:var(--sub)">Delivery address</span><span class="v" style="font-weight:600;text-align:right;max-width:60%">'+esc(addr)+'</span></div>'
+    +'<div class="clh">Products</div><div class="prods">'+prods
+    +'<div class="p" style="font-weight:800;border-top:1px solid var(--line)"><span>Total</span><span>'+money(o.contract_value)+'</span></div></div>';
+}
+
+function pendingCard(o){
+  const id=o.id;
+  const checks=CHECKS.map(([f,lbl])=>
+    '<label class="chk" id="lab_'+f+'_'+id+'"><input type="checkbox" class="conf-chk" data-order="'+id+'" data-field="'+f+'" onchange="onCheck(\''+id+'\',this)">'+esc(lbl)+'</label>').join('');
+  return '<div class="ocard" id="card_'+id+'">'
+    +'<div class="ohead"><div><div class="who">'+esc(fullName(o))+'</div>'
+      +'<div class="meta">'+(o.order_no?('Order '+esc(o.order_no)+' · '):'')+fmtDate(o.order_date)+' · '+esc(o.consultant_name||'')+'</div></div>'
+      +'<div class="val">'+money(o.contract_value)+'<small>contract value</small></div></div>'
+    +'<div class="obody">'+summaryHTML(o)
+    +'<div class="clh">Confirmation call — tick each item as you confirm it</div>'
+    +'<div class="checks">'+checks+'</div>'
+    +'<div class="actions">'
+      +'<button class="bigtick" id="acc_'+id+'" disabled onclick="accept(\''+id+'\')"><span class="bx">✓</span> Accept order</button>'
+      +'<button class="btn2 warn" onclick="toReview(\''+id+'\')">Not accepted — send to review</button>'
+    +'</div>'
+    +'<textarea class="rvnote" id="note_'+id+'" placeholder="Optional note (reason to send to management review, or anything the reviewer should know)…"></textarea>'
+    +'<div class="stateline" id="st_'+id+'">Tick all five to enable Accept. If anything can\'t be confirmed, send it to management review instead.</div>'
+    +'</div></div>';
+}
+
+function reviewCard(o){
+  const id=o.id; const conf=CONF[id]||{};
+  const ticked=CHECKS.map(([f,lbl])=>'<span class="badge '+(conf[f]?'g':'n')+'">'+(conf[f]?'✓':'○')+' '+esc(lbl)+'</span>').join(' ');
+  return '<div class="ocard" id="card_'+id+'">'
+    +'<div class="ohead"><div><div class="who">'+esc(fullName(o))+'</div>'
+      +'<div class="meta">'+(o.order_no?('Order '+esc(o.order_no)+' · '):'')+fmtDate(o.order_date)+' · '+esc(o.consultant_name||'')+'</div></div>'
+      +'<div class="val">'+money(o.contract_value)+'<small>contract value</small></div></div>'
+    +'<div class="obody">'
+    +'<div class="review-banner">Sent to management review'+(conf.called_by?(' by '+esc(conf.called_by)):'')+'. Decide: accept or cancel.</div>'
+    +summaryHTML(o)
+    +'<div class="clh">Confirmation checklist</div><div style="margin-bottom:6px">'+ticked+'</div>'
+    +(conf.review_note?('<div class="stateline"><b>Note:</b> '+esc(conf.review_note)+'</div>'):'')
+    +'<textarea class="rvnote" id="note_'+id+'" placeholder="Management decision note (optional)…">'+esc(conf.review_note||'')+'</textarea>'
+    +'<div class="actions">'
+      +'<button class="bigtick" onclick="reviewAccept(\''+id+'\')"><span class="bx">✓</span> Accept order</button>'
+      +'<button class="btn2 warn" onclick="reviewCancel(\''+id+'\')">Cancel order</button>'
+    +'</div>'
+    +'<div class="stateline" id="st_'+id+'"></div>'
+    +'</div></div>';
+}
+
+function acceptedCard(o){
+  const id=o.id; const conf=CONF[id]||{};
+  return '<div class="ocard"><div class="ohead">'
+    +'<div><div class="who">'+esc(fullName(o))+' <span class="badge g">✓ Accepted</span></div>'
+    +'<div class="meta">'+(o.order_no?('Order '+esc(o.order_no)+' · '):'')+fmtDate(o.order_date)+' · '+esc(o.consultant_name||'')
+      +(conf.called_by?(' · confirmed by '+esc(conf.called_by)):'')+'</div></div>'
+    +'<div class="val">'+money(o.contract_value)+'<small>contract value</small></div></div></div>';
+}
+
+function render(){
+  renderTabs();
+  const list=ORDERS.filter(o=>o.confirmation_status===TAB);
+  const el=document.getElementById('list');
+  if(!list.length){
+    const msg=TAB==='pending'?'All caught up — no orders waiting for a confirmation call.'
+      :TAB==='review'?'Nothing in management review.'
+      :'No recently accepted orders.';
+    el.innerHTML='<div class="empty">'+msg+'</div>'; return;
+  }
+  const fn=TAB==='pending'?pendingCard:TAB==='review'?reviewCard:acceptedCard;
+  el.innerHTML=list.map(fn).join('');
+}
+
+window.onCheck=function(id){
+  const card=document.getElementById('card_'+id);
+  card.querySelectorAll('.conf-chk').forEach(c=>{ c.closest('label').classList.toggle('done',c.checked); });
+  const all=[...card.querySelectorAll('.conf-chk')].every(c=>c.checked);
+  const btn=document.getElementById('acc_'+id); if(btn) btn.disabled=!all;
+};
+function gather(id){
+  const card=document.getElementById('card_'+id); const o={};
+  card.querySelectorAll('.conf-chk').forEach(c=>{ o[c.dataset.field]=c.checked; });
+  return o;
+}
+
+async function upsertConf(row){
+  return sb.from('sim_order_confirmations').upsert(row,{onConflict:'order_id'});
+}
+function setState(id,txt,color){ const s=document.getElementById('st_'+id); if(s){ s.textContent=txt; s.style.color=color||''; } }
+
+window.accept=async function(id){
+  const checks=gather(id);
+  if(!CHECKS.every(([f])=>checks[f])){ setState(id,'Tick all five items before accepting.','#b4342e'); return; }
+  setState(id,'Saving…');
+  const row={order_id:id,...checks,accepted:true,status:'accepted',called_by:me(),called_at:nowISO(),updated_at:nowISO()};
+  const {error}=await upsertConf(row);
+  if(error){ setState(id,'Couldn\'t save: '+error.message,'#b4342e'); return; }
+  const {error:e2}=await sb.from('sim_orders').update({confirmation_status:'accepted'}).eq('id',id);
+  if(e2){ setState(id,'Saved checklist, but status update failed: '+e2.message,'#b4342e'); return; }
+  loadAll();
+};
+
+window.toReview=async function(id){
+  const checks=gather(id);
+  const note=(document.getElementById('note_'+id)||{}).value||null;
+  setState(id,'Sending to review…');
+  const row={order_id:id,...checks,accepted:false,status:'review',called_by:me(),called_at:nowISO(),review_note:note,updated_at:nowISO()};
+  const {error}=await upsertConf(row);
+  if(error){ setState(id,'Couldn\'t save: '+error.message,'#b4342e'); return; }
+  const {error:e2}=await sb.from('sim_orders').update({confirmation_status:'review'}).eq('id',id);
+  if(e2){ setState(id,'Saved, but status update failed: '+e2.message,'#b4342e'); return; }
+  loadAll();
+};
+
+window.reviewAccept=async function(id){
+  setState(id,'Accepting…');
+  const note=(document.getElementById('note_'+id)||{}).value||null;
+  const row={order_id:id,accepted:true,status:'accepted',review_decision:'accepted',review_note:note,reviewed_by:me(),reviewed_at:nowISO(),updated_at:nowISO()};
+  const {error}=await upsertConf(row);
+  if(error){ setState(id,'Couldn\'t save: '+error.message,'#b4342e'); return; }
+  const {error:e2}=await sb.from('sim_orders').update({confirmation_status:'accepted'}).eq('id',id);
+  if(e2){ setState(id,'Saved, but status update failed: '+e2.message,'#b4342e'); return; }
+  loadAll();
+};
+
+window.reviewCancel=async function(id){
+  if(!confirm('Cancel this order?\n\nThis sets the order to CANCELLED (which triggers the usual cancellation sync and any commission clawback). This can\'t be undone from here.')) return;
+  setState(id,'Cancelling…');
+  const note=(document.getElementById('note_'+id)||{}).value||null;
+  const row={order_id:id,accepted:false,status:'cancelled',review_decision:'cancelled',review_note:note,reviewed_by:me(),reviewed_at:nowISO(),updated_at:nowISO()};
+  const {error}=await upsertConf(row);
+  if(error){ setState(id,'Couldn\'t save: '+error.message,'#b4342e'); return; }
+  const {error:e2}=await sb.from('sim_orders').update({
+    confirmation_status:'cancelled',
+    order_status:'cancelled',
+    cancellation_date:new Date().toISOString().slice(0,10),
+    cancellation_reason:'Confirmation call — not accepted (management cancelled)'
+  }).eq('id',id);
+  if(e2){ setState(id,'Saved decision, but order update failed: '+e2.message,'#b4342e'); return; }
+  loadAll();
+};
+
+// Wait for auth.js to establish the session/client, then load.
+(function boot(){
+  let n=0; const t=setInterval(()=>{ n++;
+    if(window.SIMTEC_USER || n>80){ clearInterval(t); loadAll(); }
+  },50);
+})();
+</script>
+</body>
+</html>

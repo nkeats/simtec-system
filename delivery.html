@@ -319,6 +319,7 @@ async function load(quiet){
       name:`${cust.first_name||''} ${cust.last_name||''}`.trim()||'(no name)',
       phone:cust.mobile||'', address:o.delivery_address||cust.address||'',
       note:o.delivery_note||'',
+      consultantNote:o.consultant_delivery_note||'',
       items, product:items.map(i=>(i.qty>1?i.qty+'× ':'')+i.name).join(', ')||'—',
       cleared:isCleared,
       authorised:o.delivery_authorised===true,
@@ -739,6 +740,7 @@ function renderList(view,mode){
           <div class="text-base text-slate-100 mt-1">${esc(r.address)||'<span class="text-slate-500">No delivery address on file</span>'}</div>
           <div class="mt-1">${maps}</div>
           <div class="text-xs text-slate-400 mt-2">${esc(r.phone)}${r.phone&&r.product?' · ':''}${esc(r.product)}</div>
+          ${r.consultantNote?`<div class="mt-2" style="background:#211d0f;border:1px solid #c9a84c;border-radius:8px;padding:8px 10px;color:#e6c260;font-size:12.5px">📝 <b>Consultant delivery note:</b> ${esc(r.consultantNote)}</div>`:''}
           ${warn}
           ${(mode==='ready'||mode==='near')?scorecard(r):''}
         </div>

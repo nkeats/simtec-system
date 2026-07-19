@@ -108,6 +108,7 @@ function docket(d, label, cls){
     <table><thead><tr><th>Product</th><th class="num">Qty</th></tr></thead><tbody>${itemRows}</tbody></table>
 
     <h3>Notes</h3>
+    ${d.consultantNote?`<div style="border:1px solid #c9a84c;background:#fff8e8;border-radius:8px;padding:8px 11px;margin-bottom:8px;font-size:14px">📝 <b>Consultant note:</b> ${esc(d.consultantNote)}</div>`:""}
     <div class="notebox">
       ${d.id?`<textarea class="noteedit no-print" data-oid="${d.id}" rows="3" placeholder="Type a delivery note for the driver…" oninput="noteInput(this)" onblur="noteSave(this)">${esc(d.note||"")}</textarea>
       <div class="notectl no-print"><span class="notestate" data-oid="${d.id}">${d.note?"Saved ✓":""}</span></div>`:""}
@@ -158,6 +159,7 @@ async function dataForOrder(o){
   return {
     id:o.id,
     note:o.delivery_note||"",
+    consultantNote:o.consultant_delivery_note||"",
     name:[c.first_name,c.last_name].filter(Boolean).join(" "),
     phone:c.mobile||"",
     address:o.delivery_address||c.address||"",

@@ -132,12 +132,13 @@
   </header>
 
   <main>
-    <div class="note">Clickable prototype. Products &amp; prices come from your live <b>config</b> catalogue (seeded here). Server actions — <b>emailing the code, storing IDs, saving to Simtec, Ezidebit, confirmation email</b> — are simulated.</div>
+    <div class="note">Products &amp; prices come from your live catalogue. <b>No internet?</b> Tap <b>Park</b> at any time — the order is saved on this iPad and uploads automatically when you're back online. (Email code, ID storage, Ezidebit &amp; confirmation email are still being wired.)</div>
 
     <!-- 0 START -->
     <section class="step on" data-step="0">
       <h2 class="title">Start order</h2>
       <p class="sub">Consultant and visit details.</p>
+      <div id="parkedPanel" class="hidden"></div>
       <div class="card">
         <div class="grid2">
           <label class="f"><span class="lab">Sleep Consultant <span class="req">*</span></span>
@@ -277,6 +278,16 @@
         </div>
         <label class="f"><span class="lab">Other Income (source and amount, if any)</span><input type="text" id="otherIncome2"></label>
       </div>
+      <div class="card">
+        <h3>Notes / handover</h3>
+        <p class="sub" style="margin-top:-6px">Anything the office or delivery team should know. Tick where each note applies.</p>
+        <label class="ack" style="border-bottom:none;padding-bottom:4px"><input type="checkbox" id="noteAccountChk">
+          <span class="txt"><b>Account set-up note — flagged to the office now</b>Best pay cycle, Ezidebit / direct-debit timing, income dates — anything affecting account set-up.</span></label>
+        <textarea id="noteAccount" placeholder="Account set-up note…" oninput="if(this.value.trim())document.getElementById('noteAccountChk').checked=true"></textarea>
+        <label class="ack" style="border-bottom:none;margin-top:14px;padding-bottom:4px"><input type="checkbox" id="noteDeliveryChk">
+          <span class="txt"><b>Delivery note — flagged when the order is ready for delivery</b>Access, stairs, gate code, parking, best delivery times.</span></label>
+        <textarea id="noteDelivery" placeholder="Delivery note…" oninput="if(this.value.trim())document.getElementById('noteDeliveryChk').checked=true"></textarea>
+      </div>
     </section>
 
     <!-- 3 REFEREES -->
@@ -414,15 +425,17 @@
     <!-- 9 DONE -->
     <section class="step" data-step="9">
       <div style="text-align:center;padding:40px 10px;">
-        <div style="font-size:56px;">✅</div>
-        <h2 class="title" style="margin-top:10px;">Order complete</h2>
+        <div style="font-size:56px;" id="doneIcon">✅</div>
+        <h2 class="title" style="margin-top:10px;" id="doneTitle">Order complete</h2>
         <p class="sub" id="doneMsg">The order has been recorded and the confirmation email sent.</p>
+        <button class="btn next" style="max-width:260px;margin:22px auto 0;display:block;" onclick="newOrder()">Start new order</button>
       </div>
     </section>
   </main>
 
   <footer>
     <div class="inner">
+      <button class="btn" id="parkBtn" onclick="parkNow()" style="flex:0 0 auto;background:#fff8e8;border:1px solid #f0dca8;color:#7a5b12;">🅿 Park</button>
       <button class="btn back" id="backBtn" onclick="go(-1)">Back</button>
       <button class="btn next" id="nextBtn" onclick="go(1)">Next</button>
     </div>
@@ -445,7 +458,7 @@ const GUARANTEE_PRODUCTS = ["Mk III Queen","Mk III Super King"]; // 30-day comfo
 // ----- Simtec backend (matches add-customer.html) -----
 const SUPABASE_URL="https://jvqjoenaungubpoegyvf.supabase.co";
 const SUPABASE_KEY="sb_publishable_J4MYTdJJyEaWe-GadpwdYA_upPT2rKw";
-const sb = window.supabase ? supabase.createClient(SUPABASE_URL,SUPABASE_KEY) : null;
+let sb = window.supabase ? supabase.createClient(SUPABASE_URL,SUPABASE_KEY) : null;
 const TEAM={"Kenzie Lam Sam":"Kenzie Lam Sam","Anovale Tovio":"Kenzie Lam Sam","PJ Tonga":"Kenzie Lam Sam","Rita Neli":"Kenzie Lam Sam","Tame Cooper":"Kenzie Lam Sam","Yazan Othman":"Yazan Othman","Brooke Komene":"Yazan Othman","Kono Harris":"Yazan Othman","Stacey Numanga":"Yazan Othman"};
 // New-app payment options -> your payment_method values. Ezidebit becomes weekly_dd/fortnightly_dd
 // once the Ezidebit callback tells us the frequency; null until then.
@@ -490,14 +503,21 @@ function showStep(ds){
   else if(ds===8){ next.textContent='Finish'; next.className='btn submit'; }
   else if(ds===9){ next.classList.add('hidden'); back.classList.add('hidden'); }
   else { next.textContent='Next'; next.className='btn next'; }
+  const park=document.getElementById('parkBtn'); if(park) park.style.display=(ds===9)?'none':'';
+  if(ds===0) renderParked();
   if(ds===7) buildReview();
   renderSteps(); window.scrollTo(0,0);
   document.querySelectorAll('section.step.on canvas.sig').forEach(sizeCanvas);
 }
-function go(dir){
+async function go(dir){
   const vis=visibleSteps(); const cur=vis.indexOf(S.step);
   if(dir>0 && !validateStep(S.step)) return;
-  if(dir>0 && S.step===7) submitOrder();
+  if(dir>0 && S.step===7){
+    const res=await submitOrder();
+    if(res==='error') return;              // stay on review; error shown
+    if(res==='parked'){ showStep(9); return; }  // skip Ezidebit when offline
+    // res==='saved' → fall through (Ezidebit next if selected, else Done)
+  }
   const nx=cur+dir; if(nx<0||nx>=vis.length) return;
   showStep(vis[nx]);
 }
@@ -620,82 +640,248 @@ function buildReview(){
     '<div class="rev-sec"><div class="rh">Confirmation email will attach</div><div class="sub">Order PDF · Terms &amp; Conditions · 15-year warranty'+(hasGuar?' · 30-day comfort guarantee':'')+'</div></div>';
 }
 
-// ----- submit: writes sim_customers + sim_orders + sim_order_items (exactly like add-customer.html) -----
-async function submitOrder(){
-  const done=document.getElementById('doneMsg');
-  if(!sb){ done.textContent='(Preview) Order would be saved and the confirmation email sent.'; return; }
-  done.textContent='Saving…';
-  try{
-    const {e164}=normNZ(val('mobile'));
-    const address=[val('street'),val('suburb'),val('city'),val('postcode')].filter(Boolean).join(', ');
-    // 1) customer
-    const {data:cust,error:e1}=await sb.from('sim_customers')
-      .insert({first_name:val('a1first'),last_name:val('a1last'),mobile:e164,email:val('email')||null,address:address||null})
-      .select('id').single();
-    if(e1) throw new Error('customer: '+e1.message);
-    // 2) order  (schedule + payer ref filled from the Ezidebit callback, not calculated)
-    const wantDel=document.getElementById('wantDelivery').checked;
-    const total=S.products.reduce((s,p)=>s+(p.price*p.qty||0),0)+(wantDel?DELIVERY_FEE:0);
-    const order={
-      customer_id:cust.id, order_date:val('visitDate')||null,
-      consultant_name:val('consultant'), team_leader_name:TEAM[val('consultant')]||null,
-      sale_type:S.saleType||null,
-      referrer_name:(S.saleType==='solicited'?(val('refName')||null):null),
-      joint_purchase:S.a2,
-      second_customer_name:(S.a2?((val('a2first')+' '+val('a2last')).trim()||null):null),
-      payment_method:PAY_METHOD[S.pay],
-      contract_value:total, amount_paid_to_date:0,
-      deposit_amount:(S.pay==='deposit50'?Math.round(total*50)/100:0),
-      ezidebit_payer_ref:null,
-      delivery_status:'pending', order_status:'active',
-      paid_in_full:(S.pay==='full'),
-      employment_status:val('empType1')||null, employer_name:val('employer1')||null,
-      income_amount:numOrNull(val('income1')), income_frequency:'annual'
-    };
-    const {data:ord,error:e2}=await sb.from('sim_orders').insert(order).select('id').single();
-    if(e2) throw new Error('order: '+e2.message);
-    S.orderId=ord.id;
-    // 3) product lines (incl. Delivery fee line — commission feed matches on product_name)
-    const items=[]; let ln=0;
-    S.products.filter(p=>p.name).forEach(p=>items.push({order_id:ord.id,line_no:++ln,product_name:p.name,quantity:p.qty,unit_price:p.price}));
-    if(wantDel) items.push({order_id:ord.id,line_no:++ln,product_name:'Delivery fee',quantity:1,unit_price:DELIVERY_FEE});
-    if(items.length){ const {error:e3}=await sb.from('sim_order_items').insert(items); if(e3) throw new Error('items: '+e3.message); }
-    // 4) new-app extras + ID/signature files (needs sim_order_applications + order-documents bucket)
-    saveExtras(ord.id).catch(e=>console.warn('extras/files pending setup:',e.message||e));
-    // 5) confirmation email via GHL — wired separately
-    done.textContent = S.pay==='ezidebit'
-      ? 'Order saved. Complete the Ezidebit direct debit next.'
-      : 'Order saved. Confirmation email queued (PDF, T&Cs, warranty).';
-  }catch(err){ done.textContent='Save failed — '+(err.message||err); }
+// ============================================================================
+//  SUBMIT / PARK / OFFLINE SYNC
+//  The live-save logic is identical to add-customer.html (commission-critical):
+//  sim_customers -> sim_orders -> sim_order_items. It runs from a PAYLOAD object
+//  so the very same code path saves a live order OR replays a parked (offline)
+//  one. Do not change the insert shapes or product_name values — commission
+//  attribution keys on consultant_name + product_name.
+// ============================================================================
+
+function fileOf(id){ const el=document.querySelector('#idTile'+id+' input'); return el&&el.files&&el.files[0]; }
+function fileToDataURL(file){ return new Promise(res=>{ if(!file) return res(null); const r=new FileReader(); r.onload=()=>res(r.result); r.onerror=()=>res(null); r.readAsDataURL(file); }); }
+function canvasDataURL(id){ const c=document.getElementById(id); if(!c||isBlank(id)) return null; try{ return c.toDataURL('image/png'); }catch(e){ return null; } }
+function dataURLtoBlob(durl){ const parts=String(durl).split(','); const mime=(parts[0].match(/:(.*?);/)||[])[1]||'application/octet-stream'; const bin=atob(parts[1]); const u=new Uint8Array(bin.length); for(let i=0;i<bin.length;i++) u[i]=bin.charCodeAt(i); return new Blob([u],{type:mime}); }
+
+// Snapshot every identified field in <main> so a parked order can be fully rebuilt.
+function snapshotFields(){
+  const o={};
+  document.querySelectorAll('main input, main select, main textarea').forEach(el=>{
+    if(!el.id) return;
+    o[el.id]=(el.type==='checkbox')?el.checked:el.value;
+  });
+  return o;
 }
 
-// New-app-only data (2nd applicant income, referees, consent, ID photos, signatures).
-// Requires: table sim_order_applications + private storage bucket 'order-documents' (see SQL).
-async function saveExtras(orderId){
+// Gather the whole order (incl. ID photos + signatures as data URLs) into one object.
+async function collectOrder(){
+  const fields=snapshotFields();
+  const flags={ saleType:S.saleType, pay:S.pay, a2:S.a2, emailVerified:S.emailVerified,
+    acksAll:[...document.querySelectorAll('.ackbox')].every(a=>a.checked) };
+  const products=S.products.filter(p=>p.name).map(p=>({name:p.name,price:p.price,qty:p.qty}));
+  const wantDel=document.getElementById('wantDelivery').checked;
+  const files={ idA1:await fileToDataURL(fileOf('A1')), idA2:(S.a2?await fileToDataURL(fileOf('A2')):null),
+    sigA1:canvasDataURL('sigA1'), sigA2:(S.a2?canvasDataURL('sigA2'):null), sigEzi:canvasDataURL('sigEzi') };
+  const customerName=((fields.a1first||'')+' '+(fields.a1last||'')).trim()||'(no name)';
+  return { v:1, savedAt:Date.now(), customerName, fields, flags, products, wantDel, files };
+}
+
+// Live save from a payload (used for both immediate submit and parked replay).
+async function savePayload(P){
+  if(!sb) throw new Error('offline: no database connection');
+  const f=P.fields||{}, fl=P.flags||{};
+  const {e164}=normNZ(f.mobile);
+  const address=[f.street,f.suburb,f.city,f.postcode].filter(Boolean).join(', ');
+  // 1) customer
+  const {data:cust,error:e1}=await sb.from('sim_customers')
+    .insert({first_name:f.a1first,last_name:f.a1last,mobile:e164,email:f.email||null,address:address||null})
+    .select('id').single();
+  if(e1) throw new Error('customer: '+e1.message);
+  // 2) order
+  const total=P.products.reduce((s,p)=>s+(p.price*p.qty||0),0)+(P.wantDel?DELIVERY_FEE:0);
+  const order={
+    customer_id:cust.id, order_date:f.visitDate||null,
+    consultant_name:f.consultant, team_leader_name:TEAM[f.consultant]||null,
+    sale_type:fl.saleType||null,
+    referrer_name:(fl.saleType==='solicited'?(f.refName||null):null),
+    joint_purchase:!!fl.a2,
+    second_customer_name:(fl.a2?((f.a2first+' '+f.a2last).trim()||null):null),
+    payment_method:PAY_METHOD[fl.pay],
+    contract_value:total, amount_paid_to_date:0,
+    deposit_amount:(fl.pay==='deposit50'?Math.round(total*50)/100:0),
+    ezidebit_payer_ref:null,
+    delivery_status:'pending', order_status:'active',
+    paid_in_full:(fl.pay==='full'),
+    employment_status:f.empType1||null, employer_name:f.employer1||null,
+    income_amount:numOrNull(f.income1), income_frequency:'annual',
+    // --- NEW: consultant notes + confirmation-call flag ---
+    consultant_account_note:(f.noteAccountChk?(String(f.noteAccount||'').trim()||null):null),
+    consultant_delivery_note:(f.noteDeliveryChk?(String(f.noteDelivery||'').trim()||null):null),
+    confirmation_status:'pending'
+  };
+  const {data:ord,error:e2}=await sb.from('sim_orders').insert(order).select('id').single();
+  if(e2) throw new Error('order: '+e2.message);
+  // 3) product lines (incl. Delivery fee — commission feed matches on product_name)
+  const items=[]; let ln=0;
+  P.products.forEach(p=>items.push({order_id:ord.id,line_no:++ln,product_name:p.name,quantity:p.qty,unit_price:p.price}));
+  if(P.wantDel) items.push({order_id:ord.id,line_no:++ln,product_name:'Delivery fee',quantity:1,unit_price:DELIVERY_FEE});
+  if(items.length){ const {error:e3}=await sb.from('sim_order_items').insert(items); if(e3) throw new Error('items: '+e3.message); }
+  // 4) extras + ID/signature files (best-effort; needs sim_order_applications + order-documents bucket)
+  await saveExtrasPayload(ord.id,P).catch(e=>console.warn('extras/files pending setup:',e.message||e));
+  return ord.id;
+}
+
+async function saveExtrasPayload(orderId,P){
   if(!sb) return;
+  const f=P.fields||{}, fl=P.flags||{}, files=P.files||{};
   const uploads={};
-  const put=async(key,file,sub)=>{ if(!file) return; const path=orderId+'/'+sub; const {error}=await sb.storage.from('order-documents').upload(path,file,{upsert:true}); if(!error) uploads[key]=path; };
-  const fileOf=id=>{ const el=document.querySelector('#idTile'+id+' input'); return el&&el.files&&el.files[0]; };
-  await put('id_a1', fileOf('A1'), 'id-applicant1');
-  if(S.a2) await put('id_a2', fileOf('A2'), 'id-applicant2');
-  const sigBlob=id=>new Promise(res=>{const c=document.getElementById(id); if(!c||isBlank(id))return res(null); c.toBlob(res,'image/png');});
-  const sa1=await sigBlob('sigA1'); await put('sig_a1',sa1,'signature1.png');
-  if(S.a2){ const sa2=await sigBlob('sigA2'); await put('sig_a2',sa2,'signature2.png'); }
+  const put=async(key,durl,sub)=>{ if(!durl) return; const blob=dataURLtoBlob(durl); const path=orderId+'/'+sub; const {error}=await sb.storage.from('order-documents').upload(path,blob,{upsert:true,contentType:blob.type}); if(!error) uploads[key]=path; };
+  await put('id_a1', files.idA1, 'id-applicant1');
+  if(fl.a2) await put('id_a2', files.idA2, 'id-applicant2');
+  await put('sig_a1', files.sigA1, 'signature1.png');
+  if(fl.a2) await put('sig_a2', files.sigA2, 'signature2.png');
   const row={
     order_id:orderId,
-    a1_id_type:document.getElementById('a1idtype').value, a1_id_number:val('a1dl')||null,
-    a2_id_type:(S.a2?document.getElementById('a2idtype').value:null), a2_id_number:(S.a2?(val('a2dl')||null):null),
-    a2_employer:val('employer2')||null, a2_occupation:val('occupation2')||null, a2_income_amount:numOrNull(val('income2')),
-    a2_employment_status:val('empType2')||null,
-    referee1_name:val('r1name')||null, referee1_phone:val('r1phone')||null, referee1_relationship:val('r1rel')||null, referee1_email:val('r1email')||null,
-    referee2_name:val('r2name')||null, referee2_phone:val('r2phone')||null, referee2_relationship:val('r2rel')||null, referee2_email:val('r2email')||null,
-    tnc_agreed:document.getElementById('tncAgree').checked,
-    acknowledgements_confirmed:[...document.querySelectorAll('.ackbox')].every(a=>a.checked),
-    email_verified:S.emailVerified,
+    a1_id_type:f.a1idtype||null, a1_id_number:f.a1dl||null,
+    a2_id_type:(fl.a2?(f.a2idtype||null):null), a2_id_number:(fl.a2?(f.a2dl||null):null),
+    a2_employer:f.employer2||null, a2_occupation:f.occupation2||null, a2_income_amount:numOrNull(f.income2),
+    a2_employment_status:f.empType2||null,
+    referee1_name:f.r1name||null, referee1_phone:f.r1phone||null, referee1_relationship:f.r1rel||null, referee1_email:f.r1email||null,
+    referee2_name:f.r2name||null, referee2_phone:f.r2phone||null, referee2_relationship:f.r2rel||null, referee2_email:f.r2email||null,
+    tnc_agreed:!!f.tncAgree,
+    acknowledgements_confirmed:!!fl.acksAll,
+    email_verified:!!fl.emailVerified,
     id_doc_a1_path:uploads.id_a1||null, id_doc_a2_path:uploads.id_a2||null,
     signature_a1_path:uploads.sig_a1||null, signature_a2_path:uploads.sig_a2||null
   };
   await sb.from('sim_order_applications').insert(row);
+}
+
+// Returns 'saved' | 'parked' | 'error'
+async function submitOrder(){
+  const done=document.getElementById('doneMsg');
+  // No connection at all → park automatically (the whole reason Park exists).
+  if(!navigator.onLine || !sb){
+    await parkCurrent(); setDoneParked(); return 'parked';
+  }
+  done.textContent='Saving…';
+  try{
+    const P=await collectOrder();
+    const id=await savePayload(P);
+    S.orderId=id;
+    setDoneSaved();
+    done.textContent = S.pay==='ezidebit'
+      ? 'Order saved. Complete the Ezidebit direct debit next.'
+      : 'Order saved. The office will make the confirmation call. Confirmation email queued (PDF, T&Cs, warranty).';
+    return 'saved';
+  }catch(err){
+    const msg=(err&&err.message)||String(err);
+    // Treat network-type failures as "no coverage" → park instead of losing the order.
+    if(!navigator.onLine || /fetch|network|failed to fetch|offline|timeout/i.test(msg)){
+      await parkCurrent(); setDoneParked(); return 'parked';
+    }
+    done.textContent='Save failed — '+msg+'. Tap Park to keep the order safe on this iPad.';
+    return 'error';
+  }
+}
+
+function setDoneSaved(){ const i=document.getElementById('doneIcon'),t=document.getElementById('doneTitle'); if(i)i.textContent='✅'; if(t)t.textContent='Order complete'; }
+function setDoneParked(){
+  const i=document.getElementById('doneIcon'),t=document.getElementById('doneTitle'),m=document.getElementById('doneMsg');
+  if(i)i.textContent='🅿';
+  if(t)t.textContent='Order parked on this iPad';
+  if(m)m.textContent=navigator.onLine
+    ? 'Saved on this device — uploading now…'
+    : 'No internet right now. The order is safe on this iPad and will upload automatically the moment you\'re back online.';
+  trySync();
+}
+
+// ---------- Parked-order queue (localStorage) ----------
+const PARK_KEY='simtec_parked_orders';
+function loadParked(){ try{ return JSON.parse(localStorage.getItem(PARK_KEY)||'[]'); }catch(e){ return []; } }
+function writeParked(list){ try{ localStorage.setItem(PARK_KEY,JSON.stringify(list)); return true; }catch(e){ alert('Could not save offline — this iPad\'s storage may be full.'); return false; } }
+async function parkCurrent(){
+  const P=await collectOrder();
+  P.id='pk_'+P.savedAt+'_'+Math.floor(Math.random()*1e6);
+  const list=loadParked(); list.push(P); writeParked(list); renderParked();
+  return P;
+}
+async function parkNow(){
+  if(!S.products.some(p=>p.name) && !val('a1first')){ alert('Start the order first, then tap Park to save it for later.'); return; }
+  await parkCurrent();
+  setDoneParked(); showStep(9);
+}
+
+function renderParked(){
+  const wrap=document.getElementById('parkedPanel'); if(!wrap) return;
+  const list=loadParked();
+  if(!list.length){ wrap.classList.add('hidden'); wrap.innerHTML=''; return; }
+  wrap.classList.remove('hidden');
+  const rowsHtml=list.slice().reverse().map(P=>{
+    const when=new Date(P.savedAt).toLocaleString('en-NZ',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'});
+    return '<div class="delivery-row" style="justify-content:space-between;background:#fff">'
+      +'<div class="dtxt"><b>'+esc(P.customerName||'(no name)')+'</b><div>Parked '+esc(when)+'</div></div>'
+      +'<div style="display:flex;gap:8px">'
+      +'<button class="btn-sm" onclick="uploadOne(\''+P.id+'\')">Upload</button>'
+      +'<button class="btn-sm ghost" onclick="deleteParked(\''+P.id+'\')">Delete</button>'
+      +'</div></div>';
+  }).join('');
+  wrap.innerHTML='<div class="card" style="border-color:#f0dca8;background:#fff8e8">'
+    +'<h3 style="color:#7a5b12;margin-bottom:6px">Parked orders on this iPad ('+list.length+')</h3>'
+    +'<p class="sub" style="margin:0 0 12px">Saved offline. They upload automatically when you have internet.'
+      +(navigator.onLine?'':' <b>You\'re offline right now.</b>')+'</p>'
+    +rowsHtml
+    +(syncing?'<p class="sub" style="margin:10px 0 0">Uploading…</p>'
+       :'<button class="add-line" onclick="trySync()" style="margin-top:12px">Upload all now</button>')
+    +'</div>';
+}
+window.deleteParked=function(id){
+  if(!confirm('Delete this parked order? This can\'t be undone.')) return;
+  writeParked(loadParked().filter(P=>P.id!==id)); renderParked();
+};
+window.uploadOne=async function(id){
+  if(!navigator.onLine){ alert('Still offline — connect to the internet, then try again.'); return; }
+  if(!sb && window.supabase) sb=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
+  const list=loadParked(); const P=list.find(x=>x.id===id); if(!P) return;
+  try{ await savePayload(P); writeParked(loadParked().filter(x=>x.id!==id)); renderParked(); alert('Uploaded: '+(P.customerName||'order')); }
+  catch(e){ alert('Upload failed — '+(e.message||e)+'. It\'s still parked; try again when you have a stronger connection.'); }
+};
+
+let syncing=false;
+async function trySync(){
+  if(syncing || !navigator.onLine) return;
+  if(!sb && window.supabase) sb=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
+  if(!sb) return;
+  const list=loadParked(); if(!list.length) return;
+  syncing=true; renderParked();
+  const remaining=[]; let uploaded=0;
+  for(const P of list){
+    try{ await savePayload(P); uploaded++; }
+    catch(e){ console.warn('sync failed',P.id,e.message||e); remaining.push(P); }
+  }
+  writeParked(remaining); syncing=false; renderParked();
+  if(uploaded){ const m=document.getElementById('doneMsg'); if(m && S.step===9) m.textContent=uploaded+' parked order'+(uploaded>1?'s':'')+' uploaded successfully.'; }
+}
+window.addEventListener('online',trySync);
+
+// Start a fresh order (reload when online for a clean slate; reset in place when offline).
+function newOrder(){
+  if(navigator.onLine){ location.reload(); return; }
+  resetForm();
+}
+function resetForm(){
+  document.querySelectorAll('main input, main textarea').forEach(el=>{ if(el.type==='checkbox') el.checked=false; else if(el.type!=='file') el.value=''; });
+  document.querySelectorAll('main select').forEach(s=>s.selectedIndex=0);
+  document.querySelectorAll('.choice.sel').forEach(c=>c.classList.remove('sel'));
+  ['sigA1','sigA2','sigEzi'].forEach(clearSig);
+  document.querySelectorAll('#idTile A1,#idTileA1,#idTileA2').forEach(()=>{});
+  ['A1','A2'].forEach(w=>{ const t=document.getElementById('idTile'+w); if(t){ t.classList.remove('filled'); const img=t.querySelector('img'); if(img)img.remove(); if(!t.querySelector('.cam')){ const c=document.createElement('div'); c.className='cam'; c.textContent='📷'; t.insertBefore(c,t.querySelector('.cap')); } const cap=t.querySelector('.cap'); if(cap)cap.textContent=(w==='A1'?'Applicant 1':'Applicant 2')+' — ID photo'; const inp=t.querySelector('input'); if(inp)inp.value=''; } });
+  Object.assign(S,{step:0,saleType:'',pay:'',a2:false,products:[],emailVerified:false,sentCode:null,tncRead:false,orderId:null});
+  document.querySelectorAll('#a2toggle button').forEach(x=>x.classList.toggle('on',x.dataset.v==='no'));
+  document.getElementById('a2box').classList.add('hidden');
+  document.getElementById('emp2card').classList.add('hidden');
+  document.getElementById('idTileA2').classList.add('hidden');
+  document.getElementById('sigA2card').classList.add('hidden');
+  document.getElementById('referrerBox').classList.add('hidden');
+  document.getElementById('verifyRow').classList.add('hidden');
+  document.getElementById('verifyState').innerHTML='';
+  document.getElementById('tncAgree').disabled=true;
+  const d=new Date(),p=n=>String(n).padStart(2,'0');
+  const vd=document.getElementById('visitDate'); if(vd) vd.value=d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate());
+  document.getElementById('wantDelivery').checked=true;
+  setDoneSaved();
+  addProduct(); showStep(0);
 }
 
 // After the Ezidebit hosted form, its callback returns payer ref + schedule — we STORE, never calculate.
@@ -719,6 +905,7 @@ window.addEventListener('resize',()=>document.querySelectorAll('section.step.on 
 function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]));}
 (function(){const d=new Date();const p=n=>String(n).padStart(2,'0');document.getElementById('visitDate').value=d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate());})();
 addProduct(); showStep(0);
+renderParked(); trySync();
 </script>
 </body>
 </html>
