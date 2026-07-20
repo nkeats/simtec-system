@@ -329,8 +329,12 @@ const SUPA_KEY="sb_publishable_J4MYTdJJyEaWe-GadpwdYA_upPT2rKw";
 const GHL_FN=SUPA_URL+"/functions/v1/ghl-au-contacts";
 let CONTACTS=null, ENRICHED=false;
 const digits=s=>String(s||'').replace(/\D/g,'');
-const nk=s=>String(s||'').toLowerCase().replace(/[^a-z]/g,'');
-const eziNameKey=name=>{ const p=String(name||'').split(','); return nk((p[0]||'')+(p.slice(1).join(' ')||'')); };
+const norm=s=>String(s||'').normalize('NFD').replace(/\p{M}/gu,'').toLowerCase().replace(/[^a-z ]/g,' ').replace(/\s+/g,' ').trim();
+const nk=s=>norm(s).replace(/ /g,'');
+const tokKey=s=>norm(s).split(' ').filter(Boolean).sort().join(' ');
+const firstTok=s=>{ const t=norm(s).split(' ').filter(Boolean); return t[0]||''; };
+const eziParts=name=>{ const p=String(name||'').split(',').map(x=>x.trim()).filter(Boolean); if(p.length>=2) return {full:p[1]+' '+p[0], last:norm(p[0]), first:firstTok(p[1]), single:false}; return {full:p[0]||'', last:norm(p[0]||name), first:'', single:true}; };
+const eziNameKey=name=>{ const e=eziParts(name); return nk(e.last+e.first); };
 
 async function fetchGHL(){
   const sb=window.SIMTEC_SB;
@@ -346,17 +350,28 @@ $('ghlBtn').onclick=async ()=>{
   btn.disabled=true; btn.textContent='Fetching GHL…';
   try{
     const d=await fetchGHL(); CONTACTS=d.contacts||[];
-    const byPayer={}, byName={};
-    CONTACTS.forEach(c=>{
-      const key=nk((c.lastName||'')+(c.firstName||''))||nk(c.name);
-      if(key && !byName[key]) byName[key]=c;
-      Object.values(c.fields||{}).forEach(v=>{ const dg=digits(v); if(dg.length===9 && !byPayer[dg]) byPayer[dg]=c; });
-    });
-    let matched=0;
-    ROWS.forEach(r=>{
-      const c=byPayer[digits(r.payer)] || byName[eziNameKey(r.name)] || null;
-      r.phone=c?c.phone:''; r.email=c?c.email:''; r.ghl=!!c; if(c) matched++;
-    });
+    const byPayer={}, byName={}, byTok={}, byLast={};
+CONTACTS.forEach(c=>{
+const full=(c.name||((c.firstName||'')+' '+(c.lastName||''))).trim();
+const key=nk((c.lastName||'')+(c.firstName||''))||nk(full);
+if(key && !byName[key]) byName[key]=c;
+const tk=tokKey(full); if(tk){ (byTok[tk]=byTok[tk]||[]).push(c); }
+const ln=norm(c.lastName||full.split(' ').slice(-1)[0]||''); if(ln){ (byLast[ln]=byLast[ln]||[]).push(c); }
+Object.values(c.fields||{}).forEach(v=>{ const dg=digits(v); if(dg.length===9 && !byPayer[dg]) byPayer[dg]=c; });
+});
+const firstOfC=c=>firstTok(c.firstName||(c.name||'').split(' ')[0]||'');
+function matchRow(r){
+const p=byPayer[digits(r.payer)]; if(p) return p;
+const e=eziParts(r.name);
+const bn=byName[nk(e.last+e.first)]; if(bn) return bn;
+const tk=tokKey(e.full||e.last); if(byTok[tk] && byTok[tk].length===1) return byTok[tk][0];
+const ln=byLast[e.last];
+if(ln){ if(ln.length===1) return ln[0];
+if(e.first){ const f=ln.filter(c=>{ const fn=firstOfC(c); return fn && (fn===e.first || fn[0]===e.first[0]); }); if(f.length===1) return f[0]; } }
+return null;
+}
+let matched=0;
+ROWS.forEach(r=>{ const c=matchRow(r); r.phone=c?c.phone:''; r.email=c?c.email:''; r.ghl=!!c; if(c) matched++; });
     ENRICHED=true;
     btn.textContent='✓ GHL matched '+matched+'/'+ROWS.filter(r=>r.failN>0).length; btn.classList.add('on'); btn.disabled=true;
     render();
