@@ -795,7 +795,7 @@ window.saveBooking=async()=>{
   closeOv();await load();
 };
 window.markDelivered=async(id)=>{
-  const {error}=await sb.from('sim_orders').update({delivery_status:'delivered'}).eq('id',id);
+  const {error}=await sb.from('sim_orders').update({delivery_status:'delivered',delivered_at:new Date().toISOString()}).eq('id',id);
   if(error){alert(error.message);return;}
   await load();
 };

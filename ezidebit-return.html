@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ezidebit — completing…</title>
+<style>
+  html,body{margin:0;height:100%;background:#fafbfd;color:#1f2733;
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;}
+  .wrap{height:100%;display:grid;place-items:center;text-align:center;padding:24px;}
+  .ok{font-size:40px}
+  h1{font-size:18px;color:#1c2a5e;margin:12px 0 4px}
+  p{font-size:13px;color:#6b7685;margin:0;max-width:360px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div>
+    <div class="ok">✅</div>
+    <h1>Direct debit received</h1>
+    <p id="msg">Returning to the order…</p>
+  </div>
+</div>
+<script>
+/* Ezidebit redirects the eDDR iframe here (cMethod=GET) with the result in the
+   query string. We hand those params up to the order app (same origin) and, if
+   this ever opens as a full page instead of an iframe, we degrade gracefully. */
+(function(){
+  var params={};
+  try{ new URLSearchParams(location.search).forEach(function(v,k){ params[k]=v; }); }catch(e){}
+  var payload={ __simtec:'ezidebit-return', params:params };
+  try{
+    if(window.parent && window.parent!==window){
+      window.parent.postMessage(payload, location.origin);
+      document.getElementById('msg').textContent='Saved. Returning to the order…';
+    } else {
+      // Opened as a standalone page (not embedded) — stash for the opener/app.
+      try{ localStorage.setItem('simtec_ezidebit_return', JSON.stringify(payload)); }catch(e){}
+      document.getElementById('msg').textContent='Direct debit complete. You can return to the order app.';
+    }
+  }catch(e){
+    document.getElementById('msg').textContent='Direct debit complete.';
+  }
+})();
+</script>
+</body>
+</html>

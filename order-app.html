@@ -405,16 +405,51 @@
     <!-- 8 EZIDEBIT -->
     <section class="step" data-step="8">
       <h2 class="title">Ezidebit direct debit</h2>
-      <p class="sub">The customer completes their payment details and signs the direct-debit authority.</p>
+      <p class="sub">Set the schedule, then the customer completes their payment details and signs the direct-debit authority.</p>
+
+      <!-- schedule builder -->
       <div class="card">
-        <div style="text-align:center;padding:20px;border:2px dashed var(--line);border-radius:12px;background:#fafbfd;">
-          <div style="font-size:34px;">🔒</div>
-          <p style="font-weight:700;margin:8px 0 4px;">Ezidebit hosted form</p>
-          <p class="sub" style="margin:0 auto;max-width:440px;">Bank details and the direct-debit request are captured directly by Ezidebit — nothing sensitive touches Simtec. <span class="stub">Embedded here in the live app — placeholder in prototype.</span></p>
+        <h3>Payment schedule</h3>
+        <p class="sub" style="margin-top:-4px">A one-off payment plus an ongoing plan — same as the paper form. No money is taken during the 5-working-day cooling-off period, so the one-off defaults to a week out and the plan starts after it.</p>
+        <div class="grid2">
+          <label class="f"><span class="lab">One-off payment amount</span><input type="number" id="eziOneoffAmount" inputmode="decimal" placeholder="$" oninput="computeEziBalance()"></label>
+          <label class="f"><span class="lab">One-off payment date</span><input type="date" id="eziOneoffDate"></label>
+        </div>
+        <div class="grid3">
+          <label class="f"><span class="lab">Plan amount (each payment)</span><input type="number" id="eziPlanAmount" inputmode="decimal" placeholder="$"></label>
+          <label class="f"><span class="lab">Frequency</span>
+            <select id="eziPlanFreq"><option value="weekly">Weekly</option><option value="fortnightly">Fortnightly</option><option value="monthly">Monthly</option></select>
+          </label>
+          <label class="f"><span class="lab">Plan start date</span><input type="date" id="eziPlanStart"></label>
+        </div>
+        <div class="grid2">
+          <label class="f"><span class="lab">Number of payments <span style="font-weight:400;color:var(--muted)">(optional)</span></span><input type="number" id="eziPlanCount" inputmode="numeric" placeholder="Blank = until balance paid"></label>
+          <div class="f"><span class="lab">Balance after one-off</span><div id="eziBalanceHint" class="sub" style="padding-top:8px">—</div></div>
         </div>
       </div>
+
+      <!-- hosted eDDR form -->
+      <div class="card" id="eziFormCard">
+        <div id="eziLaunch" style="text-align:center;padding:20px;border:2px dashed var(--line);border-radius:12px;background:#fafbfd;">
+          <div style="font-size:34px;">🔒</div>
+          <p style="font-weight:700;margin:8px 0 4px;">Ezidebit secure direct-debit form</p>
+          <p class="sub" style="margin:0 auto 14px;max-width:460px;">Bank/card details and the direct-debit authority are captured directly by Ezidebit — nothing sensitive touches Simtec.</p>
+          <button class="btn-sm" type="button" onclick="launchEzidebit()">Open secure Ezidebit form</button>
+          <div id="eziMsg" class="sub" style="margin-top:10px;color:var(--danger)"></div>
+        </div>
+        <div id="eziFrameWrap" class="hidden" style="border:1px solid var(--line);border-radius:12px;overflow:hidden;">
+          <iframe id="eziFrame" title="Ezidebit direct debit" style="width:100%;height:660px;border:0;display:block"></iframe>
+        </div>
+        <div id="eziDone" class="hidden" style="text-align:center;padding:20px;border:2px solid var(--ok);border-radius:12px;background:var(--ok-soft);">
+          <div style="font-size:34px;">✅</div>
+          <p style="font-weight:700;margin:8px 0 4px;color:var(--ok)">Direct debit set up</p>
+          <p class="sub" id="eziDoneMsg" style="margin:0 auto;max-width:460px;color:#2f6b53"></p>
+        </div>
+      </div>
+
       <div class="card">
         <h3>Direct-debit authority signature</h3>
+        <p class="sub" style="margin-top:-4px">A signed copy for Simtec's file — the binding authority is captured inside the Ezidebit form above.</p>
         <div class="sigwrap">
           <div class="sighead"><span>Sign to authorise the direct debit</span><button class="clr" onclick="clearSig('sigEzi')">Clear</button></div>
           <canvas class="sig" id="sigEzi"></canvas>
@@ -459,6 +494,16 @@ const GUARANTEE_PRODUCTS = ["Mk III Queen","Mk III Super King"]; // 30-day comfo
 const SUPABASE_URL="https://jvqjoenaungubpoegyvf.supabase.co";
 const SUPABASE_KEY="sb_publishable_J4MYTdJJyEaWe-GadpwdYA_upPT2rKw";
 let sb = window.supabase ? supabase.createClient(SUPABASE_URL,SUPABASE_KEY) : null;
+
+// ----- Ezidebit (SANDBOX) -----------------------------------------------------
+// Public key ONLY. The Digital Key must NEVER live in the app — it stays a
+// server-side secret used only for reconciliation later. The eDDR hosted form
+// captures the customer's bank/card details directly (nothing sensitive touches
+// Simtec), sets up a once-off payment + a recurring plan, and redirects back.
+const EZI_EDDR_BASE  = "https://demo.ezidebit.com.au/webddr/Request.aspx";  // sandbox — live is https://secure.ezidebit.com.au/webddr/Request.aspx
+const EZI_PUBLIC_KEY = "3097BB91-C589-44E4-8500-719B70EC3F27";             // sandbox public key
+// eDDR frequency codes: 1=Weekly 2=Fortnightly 4=Monthly 8=4-weekly 16=Qtrly 32=Half-yr 64=Yearly
+const EZI_FREQ = { weekly:1, fortnightly:2, monthly:4 };
 const TEAM={"Kenzie Lam Sam":"Kenzie Lam Sam","Anovale Tovio":"Kenzie Lam Sam","PJ Tonga":"Kenzie Lam Sam","Rita Neli":"Kenzie Lam Sam","Tame Cooper":"Kenzie Lam Sam","Yazan Othman":"Yazan Othman","Brooke Komene":"Yazan Othman","Kono Harris":"Yazan Othman","Stacey Numanga":"Yazan Othman"};
 // New-app payment options -> your payment_method values. Ezidebit becomes weekly_dd/fortnightly_dd
 // once the Ezidebit callback tells us the frequency; null until then.
@@ -506,6 +551,7 @@ function showStep(ds){
   const park=document.getElementById('parkBtn'); if(park) park.style.display=(ds===9)?'none':'';
   if(ds===0) renderParked();
   if(ds===7) buildReview();
+  if(ds===8) setEziDefaults();
   renderSteps(); window.scrollTo(0,0);
   document.querySelectorAll('section.step.on canvas.sig').forEach(sizeCanvas);
 }
@@ -884,19 +930,110 @@ function resetForm(){
   addProduct(); showStep(0);
 }
 
-// After the Ezidebit hosted form, its callback returns payer ref + schedule — we STORE, never calculate.
-// freq: 'W'->weekly, 'F'->fortnightly, etc. Called with the callback payload in the live app.
+// ============================================================================
+//  EZIDEBIT — hosted eDDR direct-debit setup (front-end only, non-PCI / SAQ A)
+//  The customer's bank/card details go straight to Ezidebit; the eDDR sets up a
+//  once-off payment + a recurring plan and redirects the iframe to
+//  ezidebit-return.html, which postMessages the result back here. We STORE the
+//  returned schedule on the order — never calculate or touch payment details.
+// ============================================================================
+
+// --- little date helpers ---
+function isoAddDays(iso,n){ const d=iso?new Date(iso+'T00:00:00'):new Date(); d.setDate(d.getDate()+n); const p=x=>String(x).padStart(2,'0'); return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate()); }
+function isoToDMY(iso){ if(!iso) return ''; const m=/^(\d{4})-(\d{2})-(\d{2})/.exec(iso); return m?(m[3]+'/'+m[2]+'/'+m[1]):iso; }
+function eziDateToIso(s){ if(!s) return null; s=String(s).trim();
+  let m=/^(\d{4})-(\d{2})-(\d{2})/.exec(s); if(m) return m[1]+'-'+m[2]+'-'+m[3];
+  m=/^(\d{1,2})\/(\d{1,2})\/(\d{4})/.exec(s); if(m) return m[3]+'-'+String(m[2]).padStart(2,'0')+'-'+String(m[1]).padStart(2,'0');
+  return null;
+}
+function eziTotal(){ return S.products.reduce((s,p)=>s+(p.price*p.qty||0),0)+(document.getElementById('wantDelivery').checked?DELIVERY_FEE:0); }
+function computeEziBalance(){
+  const hint=document.getElementById('eziBalanceHint'); if(!hint) return;
+  const bal=Math.max(0, eziTotal()-(numOrNull(val('eziOneoffAmount'))||0));
+  hint.textContent=money(bal)+' of '+money(eziTotal());
+}
+// Sensible defaults on entering the step (only fills empty fields).
+function setEziDefaults(){
+  const visit=val('visitDate')||null;
+  const oneoff=document.getElementById('eziOneoffDate');
+  const start =document.getElementById('eziPlanStart');
+  if(oneoff && !oneoff.value) oneoff.value=isoAddDays(visit,7);          // ~1 week out (after 5-day cooling-off)
+  if(start  && !start.value)  start.value =isoAddDays(oneoff.value||visit,7);
+  computeEziBalance();
+}
+
+// Build the sandbox eDDR URL with the schedule + customer pre-fill.
+function buildEddrUrl(){
+  const {e164}=normNZ(val('mobile'));
+  const q=new URLSearchParams();
+  q.set('a', EZI_PUBLIC_KEY);
+  q.set('uRef', S.orderId);                 // unique per order → reconciliation key
+  q.set('uRefLabel','Simtec Order');
+  q.set('businessOrPerson','1');
+  q.set('fName', val('a1first')); q.set('lName', val('a1last'));
+  if(val('email'))  q.set('email', val('email'));
+  if(e164)          q.set('mobile', e164.replace(/^\+/,''));
+  if(val('street')) q.set('addr', val('street'));
+  if(val('suburb')) q.set('suburb', val('suburb'));
+  if(val('postcode')) q.set('pCode', val('postcode'));
+  // once-off
+  const oAmt=numOrNull(val('eziOneoffAmount')), oDate=val('eziOneoffDate');
+  if(oAmt!=null){ q.set('oAmount', oAmt.toFixed(2)); if(oDate) q.set('oDate', isoToDMY(oDate)); }
+  // recurring
+  const rAmt=numOrNull(val('eziPlanAmount')), rDate=val('eziPlanStart');
+  if(rAmt!=null){
+    q.set('rAmount', rAmt.toFixed(2)); if(rDate) q.set('rDate', isoToDMY(rDate));
+    q.set('freq', String(EZI_FREQ[val('eziPlanFreq')]||1));
+    const cnt=numOrNull(val('eziPlanCount'));
+    if(cnt){ q.set('dur','4'); q.set('tPay', String(cnt)); } else { q.set('dur','1'); }  // 4=Total payments, 1=Ongoing
+  }
+  q.set('callback', new URL('ezidebit-return.html', location.href).href);
+  q.set('cMethod','GET');
+  return EZI_EDDR_BASE + '?' + q.toString();
+}
+
+function launchEzidebit(){
+  const msg=document.getElementById('eziMsg'); msg.textContent='';
+  if(!S.orderId){ msg.textContent='Save the order first (go back and submit) before setting up the direct debit.'; return; }
+  const rAmt=numOrNull(val('eziPlanAmount')), oAmt=numOrNull(val('eziOneoffAmount'));
+  if(rAmt==null && oAmt==null){ msg.textContent='Enter at least a one-off amount or a plan amount.'; return; }
+  if(rAmt!=null && !val('eziPlanStart')){ msg.textContent='Enter a plan start date.'; return; }
+  if(oAmt!=null && !val('eziOneoffDate')){ msg.textContent='Enter the one-off payment date.'; return; }
+  document.getElementById('eziFrame').src=buildEddrUrl();
+  document.getElementById('eziLaunch').classList.add('hidden');
+  document.getElementById('eziFrameWrap').classList.remove('hidden');
+}
+
+// The return page (same-origin) postMessages the eDDR callback params here.
+window.addEventListener('message', function(ev){
+  if(ev.origin!==location.origin) return;                    // only trust our own return page
+  const d=ev.data; if(!d || d.__simtec!=='ezidebit-return') return;
+  applyEzidebitCallback(d.params||{}).then(()=>{
+    document.getElementById('eziFrameWrap').classList.add('hidden');
+    const done=document.getElementById('eziDone'); done.classList.remove('hidden');
+    const p=d.params||{};
+    document.getElementById('eziDoneMsg').textContent=
+      'Ezidebit customer '+(p.cref||p.uref||'')+' — schedule stored on the order.';
+  }).catch(e=>{ document.getElementById('eziMsg').textContent='Saved with Ezidebit, but storing on the order failed: '+(e.message||e); });
+});
+
+// STORE the returned payer ref + schedule on the order (never calculate).
+// eDDR callback fields: uref, cref (EzidebitCustomerID), ramount, rdate, freq(code),
+// oamount, odate, numpayments, totalamount, method.
 async function applyEzidebitCallback(cb){
   if(!sb||!S.orderId) return;
-  const freqMap={W:'weekly',F:'fortnightly',N:'monthly'};
-  const freq=freqMap[cb.freq]||null;
-  const method=freq==='fortnightly'?'fortnightly_dd':(freq==='weekly'?'weekly_dd':'weekly_dd');
-  await sb.from('sim_orders').update({
-    ezidebit_payer_ref:(cb.customerRef||'').replace(/\D/g,'')||null,
-    payment_method:method, payment_frequency:freq,
+  const freqMap={1:'weekly',2:'fortnightly',4:'monthly',8:'four_weekly',16:'quarterly',32:'half_yearly',64:'yearly'};
+  const freq=freqMap[Number(cb.freq)]||null;
+  const methodMap={weekly:'weekly_dd',fortnightly:'fortnightly_dd',monthly:'monthly_dd'};
+  const rIso=eziDateToIso(cb.rdate);
+  const upd={
+    ezidebit_payer_ref:(cb.cref||cb.uref||'')||null,
+    payment_method:(methodMap[freq]||'weekly_dd'), payment_frequency:freq,
     instalment_amount:numOrNull(cb.ramount), term_periods:numOrNull(cb.numpayments),
-    first_payment_date:cb.rdate||null, schedule_start_date:cb.rdate||null, next_payment_date:cb.rdate||null
-  }).eq('id',S.orderId);
+    first_payment_date:rIso, schedule_start_date:rIso, next_payment_date:rIso
+  };
+  const oAmt=numOrNull(cb.oamount); if(oAmt!=null) upd.deposit_amount=oAmt;
+  await sb.from('sim_orders').update(upd).eq('id',S.orderId);
 }
 
 // ----- init -----

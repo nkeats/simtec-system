@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Simtec — Stock</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/@supabase/supabase-js@2.38.4/dist/umd/supabase.js"></script>
+<script src="live.js?v=1" defer></script>
+<script src="auth.js?v=3" data-roles="admin,manager,office"></script>
+<style>
+body{font-family:system-ui,sans-serif}
+.card{background:#1e293b;border:1px solid #334155;border-radius:.75rem;padding:1.1rem 1.25rem}
+.lbl{font-size:.7rem;letter-spacing:.06em;text-transform:uppercase;color:#c9a84c;font-weight:700}
+.k{color:#7c8aa0;font-size:.75rem}
+.btn{padding:.4rem .85rem;border-radius:.5rem;font-size:.8rem;font-weight:600;cursor:pointer;border:1px solid #334155;background:#1e293b;color:#94a3b8}
+.btn:hover{border-color:#c9a84c;color:#e2e8f0}
+.btn.on{background:#c9a84c;color:#1a2438;border-color:#c9a84c}
+.gold{background:#c9a84c;color:#1a2438;border:none}
+.inp{display:block;width:100%;padding:.55rem .8rem;background:#0f172a;border:1px solid #334155;border-radius:.6rem;color:#fff;font-size:.95rem;box-sizing:border-box}
+.ov{position:fixed;inset:0;background:rgba(2,6,23,.7);display:none;align-items:center;justify-content:center;z-index:50;padding:1rem}
+.ov.show{display:flex}
+.modal{background:#1e293b;border:1px solid #334155;border-radius:.9rem;padding:1.5rem;max-width:24rem;width:100%}
+table{width:100%;border-collapse:collapse}
+th{font-size:.66rem;letter-spacing:.05em;text-transform:uppercase;color:#7c8aa0;font-weight:700;text-align:left;padding:8px 10px;border-bottom:1px solid #334155}
+td{padding:9px 10px;border-bottom:1px solid #24324a;font-size:.9rem;vertical-align:middle}
+td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+tr:last-child td{border-bottom:none}
+.onhand{font-size:1.15rem;font-weight:800;font-variant-numeric:tabular-nums}
+.pillc{display:inline-block;font-size:11px;font-weight:700;padding:2px 9px;border-radius:999px;background:#0f1830;border:1px solid #26324a;color:#93a4bd}
+@media(max-width:640px){td .brk{display:none}}
+</style>
+</head>
+<body class="bg-slate-950 text-white min-h-screen">
+
+<nav class="bg-slate-900 border-b border-slate-800 px-6 py-3 flex items-center gap-3">
+  <a href="home.html" style="color:#cbd5e1;text-decoration:none;font-size:.85rem;margin-right:8px">‹ Home</a>
+  <span class="font-bold tracking-wide text-lg">SIMTEC</span>
+  <span class="text-slate-400 text-sm">Stock</span>
+</nav>
+
+<div class="max-w-5xl mx-auto p-6">
+  <div id="summary" class="mb-5"></div>
+  <div id="asofnote" class="k mb-4"></div>
+  <div id="body"></div>
+  <div id="state" class="text-center text-slate-500 py-20">Loading stock…</div>
+  <div id="movlog" class="mt-8"></div>
+</div>
+
+<!-- stock movement modal -->
+<div class="ov" id="ov"><div class="modal">
+  <h3 class="font-semibold text-white mb-1" id="ovtitle">Stock movement</h3>
+  <p id="ovwho" class="text-slate-500 text-xs mb-4"></p>
+  <div class="flex gap-2 mb-4">
+    <button class="btn flex-1 on" id="tabReceived" onclick="setMoveType('received')">Stock received</button>
+    <button class="btn flex-1" id="tabAdjust" onclick="setMoveType('adjustment')">Adjustment</button>
+  </div>
+  <label class="k block mb-1" id="qtyLabel">Quantity received</label>
+  <input type="number" id="mvqty" class="inp mb-1" inputmode="numeric" placeholder="e.g. 20">
+  <p class="k mb-3" id="qtyHint">How many units arrived.</p>
+  <label class="k block mb-1">Note <span style="text-transform:none;letter-spacing:normal;color:#64748b">(optional)</span></label>
+  <textarea id="mvnote" class="inp mb-4" rows="2" placeholder="e.g. factory batch, stocktake correction, 2 damaged"></textarea>
+  <div class="flex gap-3">
+    <button class="btn gold flex-1" onclick="saveMove()">Save</button>
+    <button class="btn flex-1" onclick="closeOv()">Cancel</button>
+  </div>
+  <div id="mverr" class="text-xs mt-3" style="color:#f87171"></div>
+</div></div>
+
+<script>
+const SUPABASE_URL='https://jvqjoenaungubpoegyvf.supabase.co';
+const SUPABASE_KEY='sb_publishable_J4MYTdJJyEaWe-GadpwdYA_upPT2rKw';
+const sb=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
+const $=id=>document.getElementById(id);
+const esc=s=>(s==null?'':String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const NUM=n=>(+n||0).toLocaleString('en-NZ');
+const CAT_LABEL={mattress:'Mattresses',base:'Bed bases',protector:'Mattress protectors',pillow:'Pillows'};
+const CAT_ORDER=['mattress','base','protector','pillow'];
+const IGNORE_PRODUCTS=new Set(['Delivery fee']);   // never a stock item
+
+let ITEMS=[], MOVES=[], DELIVERED={}, COMMITTED={}, UNMATCHED={}, AS_OF=null;
+
+// Page past Supabase's 1000-row cap so no delivered order is ever missed.
+async function fetchAllOrders(build){
+  const PAGE=1000; let out=[];
+  for(let from=0;;from+=PAGE){
+    const {data,error}=await build(sb.from('sim_orders')).range(from,from+PAGE-1);
+    if(error){ console.warn('stock orders:',error.message); break; }
+    out=out.concat(data||[]);
+    if(!data||data.length<PAGE) break;
+  }
+  return out;
+}
+
+function addItems(map,rows,unmatchedInto){
+  rows.forEach(o=>{
+    (o.sim_order_items||[]).forEach(it=>{
+      const name=it.product_name; if(!name||IGNORE_PRODUCTS.has(name)) return;
+      const q=+it.quantity||0;
+      map[name]=(map[name]||0)+q;
+      if(unmatchedInto && !ITEM_NAMES.has(name)) unmatchedInto[name]=(unmatchedInto[name]||0)+q;
+    });
+  });
+}
+
+let ITEM_NAMES=new Set();
+
+async function load(){
+  // 1) tracked items + opening figures
+  const {data:items,error:e1}=await sb.from('sim_stock_items').select('*').eq('active',true).order('sort');
+  if(e1){
+    $('state').innerHTML=`<div class="text-amber-300 max-w-lg mx-auto">Stock tables aren't set up yet.<br><span class="k">Run <b>stock-setup.sql</b> in the Supabase SQL editor, then refresh this page.</span><br><span class="k mt-2 inline-block">(${esc(e1.message)})</span></div>`;
+    return;
+  }
+  ITEMS=items||[];
+  ITEM_NAMES=new Set(ITEMS.map(i=>i.product_name));
+  AS_OF=ITEMS.reduce((m,i)=>!m||i.as_of<m?i.as_of:m, null);   // earliest opening date
+  const asOfIso=(AS_OF||'2000-01-01')+'T00:00:00';
+
+  // 2) movements ledger
+  const {data:moves}=await sb.from('sim_stock_movements').select('*').order('created_at',{ascending:false});
+  MOVES=moves||[];
+
+  // 3) delivered items since as_of (by delivered_at), and committed (booked, not delivered)
+  const delivered=await fetchAllOrders(q=>q
+    .select('id,delivered_at,order_status,sim_order_items(product_name,quantity)')
+    .eq('delivery_status','delivered').gte('delivered_at',asOfIso).neq('order_status','cancelled'));
+  const committed=await fetchAllOrders(q=>q
+    .select('id,delivery_status,delivery_date,order_status,sim_order_items(product_name,quantity)')
+    .eq('order_status','active').neq('delivery_status','delivered').not('delivery_date','is',null));
+
+  DELIVERED={}; COMMITTED={}; UNMATCHED={};
+  addItems(DELIVERED,delivered,UNMATCHED);
+  addItems(COMMITTED,committed,null);
+
+  render();
+}
+
+function movementSum(name){ return MOVES.filter(m=>m.product_name===name).reduce((s,m)=>s+(+m.qty||0),0); }
+function onHand(it){ return (+it.opening_qty||0)+movementSum(it.product_name)-(DELIVERED[it.product_name]||0); }
+
+function render(){
+  $('state').classList.add('hidden');
+
+  // summary totals per category
+  const totals={}; CAT_ORDER.forEach(c=>totals[c]=0);
+  ITEMS.forEach(it=>{ totals[it.category]=(totals[it.category]||0)+onHand(it); });
+  const grand=Object.values(totals).reduce((a,b)=>a+b,0);
+  const stat=(l,v,extra='')=>`<div class="card" style="padding:1rem"><div class="lbl">${l}</div><div class="text-2xl font-bold mt-1">${NUM(v)}</div>${extra?`<div class="k mt-1">${extra}</div>`:''}</div>`;
+  $('summary').innerHTML='<div class="grid grid-cols-2 md:grid-cols-4 gap-3">'
+    + stat('Mattresses on hand', totals.mattress)
+    + stat('Bed bases on hand', totals.base)
+    + stat('Protectors on hand', totals.protector)
+    + stat('Total units', grand)
+    + '</div>';
+
+  const asOfTxt = AS_OF ? new Date(AS_OF+'T12:00:00').toLocaleDateString('en-NZ',{day:'2-digit',month:'long',year:'numeric'}) : '—';
+  $('asofnote').innerHTML=`On hand = opening count (as of <b>${asOfTxt}</b>) + stock received &amp; adjustments − items on delivered orders since then. <span style="color:#7dd3fc">Committed</span> = booked but not yet delivered (still on the floor).`;
+
+  // tables by category
+  let html='';
+  CAT_ORDER.forEach(cat=>{
+    const rows=ITEMS.filter(i=>i.category===cat);
+    if(!rows.length) return;
+    html+=`<div class="card mb-4" style="padding:0;overflow:hidden">
+      <div class="lbl" style="padding:12px 14px 6px">${CAT_LABEL[cat]||cat}</div>
+      <table><thead><tr>
+        <th>Product</th>
+        <th class="num brk">Opening</th>
+        <th class="num brk">+ Recv/adj</th>
+        <th class="num brk">− Delivered</th>
+        <th class="num">On hand</th>
+        <th class="num">Committed</th>
+        <th></th>
+      </tr></thead><tbody>`;
+    rows.forEach(it=>{
+      const mv=movementSum(it.product_name), dl=DELIVERED[it.product_name]||0, cm=COMMITTED[it.product_name]||0;
+      const oh=onHand(it);
+      const ohColor = oh<=0?'#f87171':(oh<=5?'#fbbf24':'#e2e8f0');
+      html+=`<tr>
+        <td class="text-slate-100">${esc(it.product_name)}</td>
+        <td class="num brk text-slate-400">${NUM(it.opening_qty)}</td>
+        <td class="num brk" style="color:${mv>0?'#4ade80':(mv<0?'#f87171':'#64748b')}">${mv>0?'+':''}${NUM(mv)}</td>
+        <td class="num brk text-slate-400">${dl?('−'+NUM(dl)):'—'}</td>
+        <td class="num onhand" style="color:${ohColor}">${NUM(oh)}</td>
+        <td class="num">${cm?`<span class="pillc" style="color:#7dd3fc;border-color:#24425a">${NUM(cm)}</span>`:'<span class="k">—</span>'}</td>
+        <td class="num" style="white-space:nowrap">
+          <button class="btn" onclick="openMove('${esc(it.product_name).replace(/'/g,"\\'")}','received')">+ Receive</button>
+          <button class="btn" onclick="openMove('${esc(it.product_name).replace(/'/g,"\\'")}','adjustment')">Adjust</button>
+        </td>
+      </tr>`;
+    });
+    html+='</tbody></table></div>';
+  });
+
+  // any delivered product that isn't a tracked SKU (name mismatch or untracked item like pillows)
+  const un=Object.keys(UNMATCHED).filter(n=>!ITEM_NAMES.has(n));
+  if(un.length){
+    html+=`<div class="card mb-4" style="border-color:#8a5a12">
+      <div class="lbl" style="color:#e6c260">Delivered but not tracked as stock</div>
+      <p class="k mt-1">These appeared on delivered orders since ${esc(AS_OF)} but don't match a tracked SKU (a name difference, or an untracked item like pillows). They are <b>not</b> deducted from any stock line.</p>
+      <div class="mt-2 text-sm text-slate-300">${un.sort().map(n=>`${esc(n)} <span class="k">×${NUM(UNMATCHED[n])}</span>`).join(' &nbsp;·&nbsp; ')}</div>
+    </div>`;
+  }
+  $('body').innerHTML=html;
+
+  // recent movements
+  const recent=MOVES.slice(0,30);
+  $('movlog').innerHTML = recent.length ? `<div class="card">
+    <div class="lbl mb-2">Recent stock movements</div>
+    <table><thead><tr><th>When</th><th>Product</th><th>Type</th><th class="num">Qty</th><th>By</th><th>Note</th></tr></thead><tbody>`
+    + recent.map(m=>`<tr>
+        <td class="k" style="white-space:nowrap">${new Date(m.created_at).toLocaleDateString('en-NZ',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'})}</td>
+        <td class="text-slate-200">${esc(m.product_name)}</td>
+        <td>${m.reason==='received'?'<span style="color:#4ade80">Received</span>':'<span style="color:#fbbf24">Adjustment</span>'}</td>
+        <td class="num" style="color:${(+m.qty||0)>=0?'#4ade80':'#f87171'}">${(+m.qty||0)>0?'+':''}${NUM(m.qty)}</td>
+        <td class="k">${esc(m.created_by||'')}</td>
+        <td class="k">${esc(m.note||'')}</td>
+      </tr>`).join('')
+    + '</tbody></table></div>' : '';
+}
+
+// ── movement modal ──────────────────────────────────────────────────────────
+let mvProduct=null, mvType='received';
+window.openMove=(product,type)=>{
+  mvProduct=product; setMoveType(type||'received');
+  $('ovwho').textContent=product;
+  $('mvqty').value=''; $('mvnote').value=''; $('mverr').textContent='';
+  $('ov').classList.add('show'); setTimeout(()=>$('mvqty').focus(),50);
+};
+window.closeOv=()=>{$('ov').classList.remove('show');mvProduct=null;};
+window.setMoveType=(t)=>{
+  mvType=t;
+  $('tabReceived').classList.toggle('on',t==='received');
+  $('tabAdjust').classList.toggle('on',t==='adjustment');
+  $('ovtitle').textContent = t==='received'?'Stock received':'Stock adjustment';
+  $('qtyLabel').textContent = t==='received'?'Quantity received':'Adjustment (+ up / − down)';
+  $('qtyHint').textContent = t==='received'
+    ? 'How many units arrived. Adds to stock on hand.'
+    : 'Use a negative number to reduce (damage, write-off, count down) or positive to add.';
+};
+window.saveMove=async()=>{
+  const raw=$('mvqty').value.trim();
+  let qty=parseInt(raw,10);
+  if(isNaN(qty)||qty===0){ $('mverr').textContent='Enter a non-zero quantity.'; return; }
+  if(mvType==='received' && qty<0){ $('mverr').textContent='Received quantity must be positive (use Adjustment to reduce).'; return; }
+  const by=(window.SIMTEC_USER&&(window.SIMTEC_USER.full_name||window.SIMTEC_USER.email))||null;
+  const btn=document.querySelector('#ov .gold'); if(btn){btn.disabled=true;btn.textContent='Saving…';}
+  const {error}=await sb.from('sim_stock_movements').insert({
+    product_name:mvProduct, qty, reason:mvType, note:($('mvnote').value.trim()||null), created_by:by
+  });
+  if(btn){btn.disabled=false;btn.textContent='Save';}
+  if(error){ $('mverr').textContent=error.message; return; }
+  closeOv(); await load();
+};
+
+// live.js: refresh on data change / focus / once a minute
+window.SIMTEC_RELOAD=function(){ load(); };
+load();
+</script>
+</body>
+</html>
