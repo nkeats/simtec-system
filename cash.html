@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Simtec — Cash handed out</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/@supabase/supabase-js@2.38.4/dist/umd/supabase.js"></script>
+<script src="auth.js?v=3" data-roles="admin,manager,office"></script>
+<style>
+body{font-family:system-ui,sans-serif}
+.card{background:#1e293b;border:1px solid #334155;border-radius:.75rem;padding:1.1rem 1.25rem}
+.lbl{font-size:.7rem;letter-spacing:.06em;text-transform:uppercase;color:#c9a84c;font-weight:700}
+.k{color:#7c8aa0;font-size:.75rem}
+.faint{color:#5b6b82;font-size:.72rem}
+.btn{padding:.4rem .85rem;border-radius:.5rem;font-size:.8rem;font-weight:600;cursor:pointer;border:1px solid #334155;background:#1e293b;color:#94a3b8}
+.btn:hover{border-color:#c9a84c;color:#e2e8f0}
+.gold{background:#c9a84c;color:#1a2438;border:none}
+.inp{display:block;width:100%;padding:.55rem .8rem;background:#0f172a;border:1px solid #334155;border-radius:.6rem;color:#fff;font-size:.95rem;box-sizing:border-box}
+.ov{position:fixed;inset:0;background:rgba(2,6,23,.7);display:none;align-items:center;justify-content:center;z-index:50;padding:1rem}
+.ov.show{display:flex}
+.modal{background:#1e293b;border:1px solid #334155;border-radius:.9rem;padding:1.5rem;max-width:26rem;width:100%}
+table{width:100%;border-collapse:collapse}
+th{font-size:.66rem;letter-spacing:.05em;text-transform:uppercase;color:#7c8aa0;font-weight:700;text-align:left;padding:8px 10px;border-bottom:1px solid #334155}
+td{padding:10px 10px;border-bottom:1px solid #24324a;font-size:.9rem;vertical-align:middle}
+td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+tr:last-child td{border-bottom:none}
+/* the sales day this cash is FOR — the important thing */
+.forday{font-size:1rem;font-weight:800;color:#e8eefc;line-height:1.15}
+.forday-sub{font-size:.7rem;color:#8aa0c0;font-weight:600}
+.daygroup td{background:#182238;border-top:1px solid #2b3a55;border-bottom:1px solid #2b3a55}
+.daytot{font-variant-numeric:tabular-nums;font-weight:800;color:#c9a84c}
+/* big date field in the form */
+.forpick{background:#0f172a;border:2px solid #c9a84c;border-radius:.7rem;padding:.8rem .9rem}
+.forpick input{background:transparent;border:none;color:#fff;font-size:1.35rem;font-weight:800;width:100%;outline:none;font-variant-numeric:tabular-nums}
+.forbig{font-size:1.05rem;font-weight:800;color:#c9a84c;margin-top:.35rem}
+</style>
+</head>
+<body class="bg-slate-950 text-white min-h-screen">
+
+<nav class="bg-slate-900 border-b border-slate-800 px-6 py-3 flex items-center gap-3">
+  <a href="home.html" style="color:#cbd5e1;text-decoration:none;font-size:.85rem;margin-right:8px">‹ Home</a>
+  <span class="font-bold tracking-wide text-lg">SIMTEC</span>
+  <span class="text-slate-400 text-sm">Cash handed out</span>
+</nav>
+
+<div class="max-w-4xl mx-auto p-6">
+  <div class="flex items-center justify-between mb-5 gap-3 flex-wrap">
+    <div>
+      <div class="lbl">Cash ledger</div>
+      <div class="text-slate-400 text-sm">A simple record of cash handed out — the day shown is the day the sales belong to.</div>
+    </div>
+    <div class="flex items-center gap-3">
+      <div class="card" style="padding:.6rem 1rem">
+        <div class="k">Total recorded</div>
+        <div id="grandtot" class="text-xl font-extrabold" style="color:#c9a84c">$0</div>
+      </div>
+      <button class="btn gold" onclick="openAdd()">+ Record cash</button>
+    </div>
+  </div>
+
+  <div id="body" class="card" style="padding:0;overflow:hidden"></div>
+  <div id="state" class="text-center text-slate-500 py-16">Loading…</div>
+</div>
+
+<!-- add / edit cash entry -->
+<div class="ov" id="ov"><div class="modal">
+  <h3 class="font-semibold text-white mb-1">Record cash handed out</h3>
+  <p class="faint mb-4" id="editnote"></p>
+
+  <!-- THE important field: which day's sales this cash is for -->
+  <label class="lbl block mb-1">Which day's sales is this cash for?</label>
+  <div class="forpick">
+    <input type="date" id="fordate" oninput="renderForBig()">
+    <div class="forbig" id="forbig">—</div>
+  </div>
+  <p class="faint mt-1 mb-4">This is the day the cash / sales belong to — not necessarily today.</p>
+
+  <div class="grid grid-cols-2 gap-3 mb-4">
+    <div>
+      <label class="k block mb-1">Amount ($)</label>
+      <input type="number" id="amount" class="inp" inputmode="decimal" placeholder="e.g. 250">
+    </div>
+    <div>
+      <label class="k block mb-1">Handed to</label>
+      <input type="text" id="who" class="inp" list="conslist" placeholder="name">
+      <datalist id="conslist"></datalist>
+    </div>
+  </div>
+
+  <label class="k block mb-1">Note <span style="text-transform:none;letter-spacing:normal;color:#64748b">(optional)</span></label>
+  <textarea id="note" class="inp mb-4" rows="2" placeholder="e.g. cash commission, float, advance"></textarea>
+
+  <div class="flex gap-3">
+    <button class="btn gold flex-1" onclick="save()">Save</button>
+    <button class="btn flex-1" onclick="closeOv()">Cancel</button>
+  </div>
+  <!-- de-emphasised: the day/person doing the entry -->
+  <p class="faint mt-3" id="recmeta"></p>
+  <div id="err" class="text-xs mt-2" style="color:#f87171"></div>
+</div></div>
+
+<script>
+const SUPABASE_URL='https://jvqjoenaungubpoegyvf.supabase.co';
+const SUPABASE_KEY='sb_publishable_J4MYTdJJyEaWe-GadpwdYA_upPT2rKw';
+const sb=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
+const $=id=>document.getElementById(id);
+const esc=s=>(s==null?'':String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const MONEY=n=>'$'+(+n||0).toLocaleString('en-NZ',{minimumFractionDigits:0,maximumFractionDigits:2});
+const todayISO=()=>{const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');};
+
+// friendly date: "Mon 21 Jul 2026"
+function friendly(iso){
+  if(!iso) return '—';
+  const [y,m,d]=iso.split('-').map(Number);
+  const dt=new Date(Date.UTC(y,m-1,d));
+  return dt.toLocaleDateString('en-NZ',{weekday:'short',day:'numeric',month:'short',year:'numeric',timeZone:'UTC'});
+}
+function friendlyShort(iso){
+  if(!iso) return '';
+  const [y,m,d]=iso.split('-').map(Number);
+  const dt=new Date(Date.UTC(y,m-1,d));
+  return dt.toLocaleDateString('en-NZ',{day:'numeric',month:'short',timeZone:'UTC'});
+}
+
+let ROWS=[], EDIT_ID=null;
+
+function renderForBig(){ $('forbig').textContent=friendly($('fordate').value); }
+
+async function load(){
+  const {data,error}=await sb.from('sim_cash_ledger').select('*').order('for_date',{ascending:false}).order('created_at',{ascending:false});
+  if(error){
+    $('state').innerHTML='<div class="text-amber-300 max-w-lg mx-auto">Cash ledger table isn\'t set up yet.<br><span class="k">Create <b>sim_cash_ledger</b> in Supabase, then refresh.</span><br><span class="k mt-2 inline-block">('+esc(error.message)+')</span></div>';
+    return;
+  }
+  ROWS=data||[];
+  render();
+  // consultant suggestions
+  const {data:cons}=await sb.from('commission_consultants').select('name').eq('active',true).order('name');
+  $('conslist').innerHTML=(cons||[]).map(c=>'<option value="'+esc(c.name)+'">').join('');
+}
+
+function render(){
+  $('state').style.display='none';
+  const grand=ROWS.reduce((s,r)=>s+(+r.amount||0),0);
+  $('grandtot').textContent=MONEY(grand);
+
+  if(!ROWS.length){
+    $('body').innerHTML='<div class="text-center text-slate-500 py-14">No cash recorded yet. Click <b class="text-slate-300">+ Record cash</b> to add the first entry.</div>';
+    return;
+  }
+
+  // group by the day the sales are FOR
+  const byDay={};
+  ROWS.forEach(r=>{ (byDay[r.for_date]=byDay[r.for_date]||[]).push(r); });
+  const days=Object.keys(byDay).sort().reverse();
+
+  let html='<table><thead><tr>'
+    +'<th>Handed to</th><th class="num">Amount</th><th>Note</th><th style="text-align:right">Entry</th><th></th>'
+    +'</tr></thead><tbody>';
+  days.forEach(day=>{
+    const rows=byDay[day];
+    const dtot=rows.reduce((s,r)=>s+(+r.amount||0),0);
+    // prominent day header row
+    html+='<tr class="daygroup"><td colspan="2">'
+      +'<div class="forday">'+esc(friendly(day))+'</div>'
+      +'<div class="forday-sub">sales day this cash is for</div></td>'
+      +'<td colspan="2" class="num"><span class="daytot">'+MONEY(dtot)+'</span> <span class="faint">for the day</span></td><td></td></tr>';
+    rows.forEach(r=>{
+      const entered=r.created_at?new Date(r.created_at).toLocaleDateString('en-NZ',{day:'numeric',month:'short'}):'';
+      html+='<tr>'
+        +'<td>'+(r.consultant_name?esc(r.consultant_name):'<span class="faint">—</span>')+'</td>'
+        +'<td class="num" style="font-weight:700">'+MONEY(r.amount)+'</td>'
+        +'<td class="k" style="font-size:.82rem;color:#9fb0c9">'+esc(r.note||'')+'</td>'
+        +'<td style="text-align:right"><span class="faint">entered '+esc(entered)+(r.entered_by?' · '+esc(r.entered_by):'')+'</span></td>'
+        +'<td style="text-align:right;white-space:nowrap">'
+          +'<button class="btn" style="padding:.2rem .5rem" onclick="openEdit(\''+r.id+'\')">Edit</button> '
+          +'<button class="btn" style="padding:.2rem .5rem" onclick="del(\''+r.id+'\')">✕</button></td>'
+        +'</tr>';
+    });
+  });
+  html+='</tbody></table>';
+  $('body').innerHTML=html;
+}
+
+function whoami(){ return (window.SIMTEC_USER&&(window.SIMTEC_USER.full_name||window.SIMTEC_USER.email))||null; }
+
+function openAdd(){
+  EDIT_ID=null;
+  $('editnote').textContent='';
+  $('fordate').value=todayISO();
+  renderForBig();
+  $('amount').value=''; $('who').value=''; $('note').value=''; $('err').textContent='';
+  $('recmeta').textContent='Recording today ('+friendly(todayISO())+')'+(whoami()?' as '+whoami():'');
+  $('ov').classList.add('show');
+}
+function openEdit(id){
+  const r=ROWS.find(x=>x.id===id); if(!r) return;
+  EDIT_ID=id;
+  $('editnote').textContent='Editing an existing entry';
+  $('fordate').value=r.for_date; renderForBig();
+  $('amount').value=r.amount; $('who').value=r.consultant_name||''; $('note').value=r.note||''; $('err').textContent='';
+  const on=r.created_at?friendly(r.created_at.slice(0,10)):'';
+  $('recmeta').textContent='Originally entered '+on+(r.entered_by?' by '+r.entered_by:'');
+  $('ov').classList.add('show');
+}
+function closeOv(){ $('ov').classList.remove('show'); }
+
+async function save(){
+  const for_date=$('fordate').value;
+  const amount=parseFloat($('amount').value);
+  if(!for_date){ $('err').textContent='Please choose which day the cash is for.'; return; }
+  if(!(amount>0)){ $('err').textContent='Please enter an amount.'; return; }
+  const rec={
+    for_date,
+    amount,
+    consultant_name:($('who').value.trim()||null),
+    note:($('note').value.trim()||null)
+  };
+  let error;
+  if(EDIT_ID){
+    ({error}=await sb.from('sim_cash_ledger').update(rec).eq('id',EDIT_ID));
+  }else{
+    rec.entered_by=whoami();
+    ({error}=await sb.from('sim_cash_ledger').insert(rec));
+  }
+  if(error){ $('err').textContent=error.message; return; }
+  closeOv(); load();
+}
+
+async function del(id){
+  const r=ROWS.find(x=>x.id===id); if(!r) return;
+  if(!confirm('Remove this cash entry?\n\n'+friendly(r.for_date)+' · '+MONEY(r.amount)+(r.consultant_name?' · '+r.consultant_name:''))) return;
+  const {error}=await sb.from('sim_cash_ledger').delete().eq('id',id);
+  if(error){ alert(error.message); return; }
+  load();
+}
+
+window.SIMTEC_RELOAD=function(){ load(); };
+load();
+</script>
+</body>
+</html>
