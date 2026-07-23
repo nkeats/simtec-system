@@ -61,12 +61,30 @@ body{font-family:system-ui,sans-serif}
     <option value="14:00">2:00 PM – 4:00 PM</option>
     <option value="16:00">4:00 PM – 6:00 PM</option>
   </select>
+  <label class="k block mb-1">Exact time <span style="text-transform:none;letter-spacing:normal;color:#64748b">(optional — use only if a precise time is required; overrides the window above)</span></label>
+  <input type="time" id="bkexact" class="inp mb-3" oninput="bkExactSync()">
   <label class="k block mb-1">Delivery note <span style="text-transform:none;letter-spacing:normal;color:#64748b">(optional — prints on the docket)</span></label>
   <textarea id="bknote" class="inp mb-4" rows="2" placeholder="e.g. call on arrival, gate code, leave at side door"></textarea>
+
+  <div id="bkAck" style="border:1px solid #3a4a63;border-radius:.6rem;padding:.75rem .85rem;margin-bottom:1rem;background:#0f172a">
+    <div class="lbl" style="margin-bottom:.55rem">Before booking, confirm</div>
+    <label style="display:flex;gap:.6rem;align-items:flex-start;cursor:pointer;margin-bottom:.55rem">
+      <input type="checkbox" id="ackAddr" onchange="bkGate()" style="width:20px;height:20px;accent-color:#c9a84c;margin-top:1px;flex:0 0 auto">
+      <span style="font-size:.85rem;color:#dbe4f0;line-height:1.3">Delivery address confirmed with the customer
+        <span id="ackAddrTxt" style="display:block;color:#8aa0c0;font-size:.75rem;margin-top:1px"></span></span>
+    </label>
+    <label style="display:flex;gap:.6rem;align-items:flex-start;cursor:pointer">
+      <input type="checkbox" id="ackContact" onchange="bkGate()" style="width:20px;height:20px;accent-color:#c9a84c;margin-top:1px;flex:0 0 auto">
+      <span style="font-size:.85rem;color:#dbe4f0;line-height:1.3">Contact person's name confirmed
+        <span id="ackContactTxt" style="display:block;color:#8aa0c0;font-size:.75rem;margin-top:1px"></span></span>
+    </label>
+  </div>
+
   <div class="flex gap-3">
-    <button class="btn gold flex-1" onclick="saveBooking()">Confirm booking</button>
+    <button class="btn gold flex-1" id="bkConfirm" onclick="saveBooking()" disabled style="opacity:.4;cursor:not-allowed">Confirm booking</button>
     <button class="btn flex-1" onclick="closeOv()">Cancel</button>
   </div>
+  <p id="bkHint" class="k" style="margin-top:.6rem;color:#8a95a8">Tick both boxes above to enable booking.</p>
 </div></div>
 
 <script>
@@ -96,7 +114,7 @@ function winTxt(t){
   const [h,m]=hhmm.split(':').map(Number);
   if(isNaN(h)) return String(t);
   const f=n=>{const ap=n>=12?'PM':'AM';const hr=n%12===0?12:n%12;return hr+':'+String(m||0).padStart(2,'0')+' '+ap;};
-  return f(h)+' \u2013 '+f((h+2)%24);
+  return f(h);   // an exact time (not one of the preset windows) \u2014 show the precise time
 }const esc=s=>(s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const titleCase=s=>(s||'').replace(/_/g,' ').replace(/\b\w/g,m=>m.toUpperCase());
 const suburb=a=>{const p=(a||'').split(',');return (p[1]||p[0]||'').trim();};
@@ -758,10 +776,28 @@ window.openBook=(id,name)=>{bookId=id;$('ovwho').textContent=name;
   // rescheduling? default to the date/window already booked, else tomorrow
   if(r&&r.deliveryDate){ $('bkdate').value=r.deliveryDate; }
   else { const t=new Date(now.getTime()+DAY);$('bkdate').value=`${t.getFullYear()}-${String(t.getMonth()+1).padStart(2,'0')}-${String(t.getDate()).padStart(2,'0')}`; }
-  $('bktime').value = (r&&r.deliveryTime)?String(r.deliveryTime).slice(0,5):'';
+  // an existing time is either a preset window or an exact time — put it in the right field
+  const hhmm=(r&&r.deliveryTime)?String(r.deliveryTime).slice(0,5):'';
+  const isWin=WINDOWS.some(w=>w[0]===hhmm);
+  $('bktime').value  = isWin?hhmm:'';
+  $('bkexact').value = (hhmm && !isWin)?hhmm:'';
   $('bknote').value = (r&&r.note)?r.note:'';
+  // confirm-before-booking checkboxes: show what's on file, start unticked
+  $('ackAddrTxt').textContent    = (r&&r.address)?r.address:'(no address on file)';
+  $('ackContactTxt').textContent = [name||'', (r&&r.phone)?r.phone:''].filter(Boolean).join(' · ');
+  $('ackAddr').checked=false; $('ackContact').checked=false;
+  bkExactSync(); bkGate();
   $('ov').classList.add('show');};
 window.closeOv=()=>{$('ov').classList.remove('show');bookId=null;};
+// exact time overrides the window — dim the window select when an exact time is set
+window.bkExactSync=()=>{ $('bktime').style.opacity = $('bkexact').value?'.45':''; };
+// the Confirm button stays disabled until both confirmations are ticked
+window.bkGate=()=>{
+  const ok=$('ackAddr').checked && $('ackContact').checked;
+  const b=$('bkConfirm');
+  b.disabled=!ok; b.style.opacity=ok?'':'.4'; b.style.cursor=ok?'':'not-allowed';
+  $('bkHint').style.display=ok?'none':'block';
+};
 
 // ── Geocoding (OpenStreetMap / Nominatim — free, no API key) ────────────────
 // We look an address up ONCE and store the coordinates on the order, so the map
@@ -779,8 +815,9 @@ async function geocode(address){
 }
 
 window.saveBooking=async()=>{
+  if(!$('ackAddr').checked || !$('ackContact').checked){alert('Please confirm the delivery address and the contact person’s name before booking.');return;}
   const d=$('bkdate').value;if(!d){alert('Pick a delivery date');return;}
-  const t=$('bktime').value||null;
+  const t=($('bkexact').value||$('bktime').value)||null;   // an exact time takes precedence over the window
   const patch={delivery_date:d,delivery_time:t,delivery_status:'scheduled',delivery_note:($('bknote').value.trim()||null)};
   // geocode the address once, so it can be pinned on the map
   const r=rows.find(x=>x.id===bookId);
