@@ -81,6 +81,7 @@
 
 <script>
 const sb = supabase.createClient("https://jvqjoenaungubpoegyvf.supabase.co","sb_publishable_J4MYTdJJyEaWe-GadpwdYA_upPT2rKw");
+const esc=s=>(s==null?"":String(s)).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c]));
 const $=id=>document.getElementById(id);
 const TERM_YEARS=3;
 const PERIODS={weekly:{per:7,total:156,word:"wk"},fortnightly:{per:14,total:78,word:"fn"},monthly:{per:30.44,total:36,word:"mo"}};
@@ -190,9 +191,9 @@ function render(){
     const behind = s.behindBy>1 ? `<span class="behind">${fmt(s.behindBy)}</span> <span class="muted">(${s.periodsBehind.toFixed(0)} ${s.freq.word})</span>` : '<span class="muted">—</span>';
     return `<tr class="row" data-id="${r.id}">
       <td><span class="pill ${s.cls}"><span class="dot ${s.cls}"></span>${s.label}</span></td>
-      <td>${r.name}</td>
+      <td>${esc(r.name)}</td>
       <td class="hide">${r.consultant_name||'<span class="muted">—</span>'}</td>
-      <td class="hide">${r.mobile}</td>
+      <td class="hide">${esc(r.mobile)}</td>
       <td><span class="deliv ${s.delivered?'yes':'no'}">${s.delivered?'✓ Yes':'– No'}</span></td>
       <td class="num">${fmt(s.contract)}</td>
       <td class="num">${fmt(s.paid)}</td>

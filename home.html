@@ -249,6 +249,7 @@
 
 <script>
 const sb = supabase.createClient("https://jvqjoenaungubpoegyvf.supabase.co","sb_publishable_J4MYTdJJyEaWe-GadpwdYA_upPT2rKw");
+const esc=s=>(s==null?"":String(s)).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c]));
 window.addEventListener("message", e=>{
   if(e.data && e.data.simtecEmbedHeight){
     const f=document.getElementById("importFrame");
@@ -361,7 +362,7 @@ async function loadUrgent(){
         : "background:#7a2420;border:none;color:#ffd9d5";
       const btn=`<button onclick="event.stopPropagation();markContacted('${r.o.id}','${(c.name||"").replace(/'/g,"\\'")}',${Number(r.o.amount_paid_to_date||0)})" style="${style};border-radius:7px;padding:4px 10px;font-size:12px;cursor:pointer;white-space:nowrap">${label}</button>`;
       return `<tr class="row" onclick="location.href='customer-detail.html?id=${r.o.id}'" style="cursor:pointer">
-        <td>${c.name||""}${c.mobile?`<div style="color:#8593a5;font-size:11.5px">${c.mobile}</div>`:""}</td>
+        <td>${esc(c.name||"")}${c.mobile?`<div style="color:#8593a5;font-size:11.5px">${esc(c.mobile)}</div>`:""}</td>
         <td class="num" style="white-space:nowrap">${fmt(r.b.behindBy)}<div style="color:#8593a5;font-size:11.5px">${r.b.periods.toFixed(0)} ${r.b.word} behind</div></td>
         <td class="num">${btn}</td></tr>`;
     };

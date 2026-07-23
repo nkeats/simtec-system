@@ -1,36 +1,55 @@
 // ============================================================================
 //  ghl-au-contacts — pull the Australian GHL contacts for the arrears page
 // ----------------------------------------------------------------------------
-//  Reads two Edge Function secrets:
-//     GHL_AU_TOKEN        — a GHL Private Integration token for the AU account
-//     GHL_AU_LOCATION_ID  — the AU sub-account (location) id
+//  Secrets (supabase secrets set ...):
+//     GHL_AU_TOKEN        — GHL Private Integration token for the AU account
+//     GHL_AU_LOCATION_ID  — AU sub-account (location) id
+//     ALLOWED_ORIGIN      — (optional) exact origin of the Simtec app, e.g.
+//                           https://app.simtec.co.nz  — used to scope CORS.
 //
-//  Returns every AU contact trimmed to what the follow-up list needs
-//  (name, phone, email, tags) plus a flattened map of custom-field
-//  name -> value, so au-arrears.html can match Ezidebit payers to contacts
-//  by the Ezidebit payer ref / contract ref if that lives in GHL, else by name.
+//  SECURITY (phase-2 hardening):
+//   * Keep verify_jwt ON so only a logged-in user can reach the function.
+//   * PLUS an explicit role check below: only admin/manager/office may call it,
+//     so a `consultant` login cannot dump every AU contact.
+//   * CORS is scoped to ALLOWED_ORIGIN when set (falls back to * only if unset).
+//   * Upstream GHL errors and the field-schema debug view are logged server-side
+//     and NOT returned verbatim to the browser.
 //
-//  Deploy:
-//     supabase functions deploy ghl-au-contacts
-//     supabase secrets set GHL_AU_TOKEN=xxxxx GHL_AU_LOCATION_ID=xxxxx
-//  Keep verify_jwt ON (default) so only a logged-in Simtec user can call it.
-//
-//  Handy first-run check:  GET .../ghl-au-contacts?debug=fields
-//     → returns the AU custom-field definitions so we can see exactly which
-//       field holds the Ezidebit payer ref / contract number.
+//  Deploy:  supabase functions deploy ghl-au-contacts
 // ============================================================================
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const GHL = "https://services.leadconnectorhq.com";
 const VERSION = "2021-07-28";
+const ALLOWED_ORIGIN = Deno.env.get("ALLOWED_ORIGIN") || "*";
 
 const cors = {
-  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Origin": ALLOWED_ORIGIN,
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+  "Vary": "Origin",
 };
 const json = (b: unknown, status = 200) =>
   new Response(JSON.stringify(b), { status, headers: { ...cors, "Content-Type": "application/json" } });
+
+// Only these roles may call this function.
+const STAFF = new Set(["admin", "manager", "office"]);
+
+async function requireStaff(req: Request): Promise<{ ok: true } | { ok: false; res: Response }> {
+  const authHeader = req.headers.get("Authorization") || "";
+  if (!authHeader) return { ok: false, res: json({ error: "unauthorized" }, 401) };
+  const supa = createClient(
+    Deno.env.get("SUPABASE_URL")!,
+    Deno.env.get("SUPABASE_ANON_KEY")!,
+    { global: { headers: { Authorization: authHeader } }, auth: { persistSession: false } },
+  );
+  const { data: { user } } = await supa.auth.getUser();
+  if (!user) return { ok: false, res: json({ error: "unauthorized" }, 401) };
+  const { data: prof } = await supa.from("profiles").select("role").eq("id", user.id).maybeSingle();
+  if (!prof || !STAFF.has(prof.role)) return { ok: false, res: json({ error: "forbidden" }, 403) };
+  return { ok: true };
+}
 
 async function ghl(path: string, token: string, init: RequestInit = {}) {
   const r = await fetch(`${GHL}${path}`, {
@@ -43,7 +62,6 @@ async function ghl(path: string, token: string, init: RequestInit = {}) {
   return { ok: r.ok, status: r.status, body };
 }
 
-// custom-field definitions: id -> readable name (so per-contact {id,value} become named)
 async function fieldMap(token: string, loc: string): Promise<Record<string, string>> {
   const map: Record<string, string> = {};
   const res = await ghl(`/locations/${loc}/customFields`, token);
@@ -55,21 +73,25 @@ async function fieldMap(token: string, loc: string): Promise<Record<string, stri
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
 
+  // --- authorization: logged-in AND staff role -------------------------------
+  const gate = await requireStaff(req);
+  if (!gate.ok) return gate.res;
+
   const token = Deno.env.get("GHL_AU_TOKEN");
   const loc = Deno.env.get("GHL_AU_LOCATION_ID");
-  if (!token || !loc) return json({ error: "Missing GHL_AU_TOKEN or GHL_AU_LOCATION_ID secret." }, 500);
+  if (!token || !loc) return json({ error: "server not configured" }, 500);
 
   const url = new URL(req.url);
   try {
-    // ---- diagnostic: list the AU custom-field definitions --------------------
     if (url.searchParams.get("debug") === "fields") {
       const res = await ghl(`/locations/${loc}/customFields`, token);
-      return json({ status: res.status, customFields: res.body?.customFields ?? res.body }, res.ok ? 200 : 502);
+      // staff-only, but still avoid dumping the raw schema — return names only
+      const names = (res.body?.customFields || res.body?.customField || []).map((f: any) => f?.name || f?.fieldKey).filter(Boolean);
+      return json({ status: res.status, fieldNames: names }, res.ok ? 200 : 502);
     }
 
     const fmap = await fieldMap(token, loc);
 
-    // ---- page through all AU contacts (GHL v2 search) ------------------------
     const out: any[] = [];
     let searchAfter: any = null;
     let guard = 0;
@@ -78,8 +100,8 @@ serve(async (req) => {
       if (searchAfter) payload.searchAfter = searchAfter;
       const res = await ghl(`/contacts/search`, token, { method: "POST", body: JSON.stringify(payload) });
       if (!res.ok) {
-        // surface the raw GHL error so we can fix token/location/endpoint fast
-        return json({ error: `GHL ${res.status}`, detail: res.body, gotSoFar: out.length }, 502);
+        console.error("GHL search failed", res.status, JSON.stringify(res.body));  // log, don't leak
+        return json({ error: "upstream error", gotSoFar: out.length }, 502);
       }
       const contacts = res.body?.contacts || res.body?.data || [];
       for (const c of contacts) {
@@ -100,7 +122,6 @@ serve(async (req) => {
           fields,
         });
       }
-      // GHL returns the sort cursor on the last contact; fall back to page count
       const last = contacts[contacts.length - 1];
       searchAfter = res.body?.searchAfter || (last && last.searchAfter) || null;
       if (!contacts.length || contacts.length < 100 || !searchAfter) break;
@@ -108,6 +129,7 @@ serve(async (req) => {
 
     return json({ count: out.length, fieldNames: Object.values(fmap), contacts: out });
   } catch (e) {
-    return json({ error: String(e?.message || e) }, 500);
+    console.error("ghl-au-contacts error", e);
+    return json({ error: "internal error" }, 500);
   }
 });

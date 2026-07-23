@@ -592,7 +592,7 @@ async function loadBook(){
           <th class="text-right">Paid</th><th class="text-right">Owing</th><th class="text-left">Why</th>
         </tr></thead><tbody>
         ${notCollected.map(o=>`<tr>
-          <td><a href="customer-detail.html?cust=${o.customer_id}" style="color:#cbd5e1">${o.name}</a></td>
+          <td><a href="customer-detail.html?cust=${o.customer_id}" style="color:#cbd5e1">${esc(o.name)}</a></td>
           <td class="text-slate-400">${dd(o.order_date)}</td>
           <td class="text-right text-slate-400">${money(o.paid)}</td>
           <td class="text-right" style="color:#f0b46a;font-weight:700">${money(o.owing)}</td>

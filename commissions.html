@@ -646,7 +646,7 @@ async function showRun(){
           const s=sums[c.id];
           return`<button onclick="go('con','${runId}','${c.id}')" class="text-left card hover:border-yellow-500/40 transition-all group w-full">
             <div class="flex items-start justify-between mb-3">
-              <div class="font-semibold text-white">${c.name}</div>
+              <div class="font-semibold text-white">${esc(c.name)}</div>
               <span class="text-slate-500 group-hover:text-yellow-400">→</span>
             </div>
             ${s&&(s.sc>0||s.ac>0||s.mb>0||s.td>0||s.net!==0)?`<div class="space-y-1 text-sm">
@@ -722,7 +722,7 @@ async function showCon(){
             <tbody class="divide-y divide-slate-700/50">
               ${sales.map(sale=>`<tr>
                 <td class="py-2 pr-3 text-slate-400 whitespace-nowrap">${fmtD(sale.sale_date)}</td>
-                <td class="py-2 pr-3 font-medium">${sale.customer_name}</td>
+                <td class="py-2 pr-3 font-medium">${esc(sale.customer_name)}</td>
                 <td class="py-2 pr-3 text-slate-400 text-xs">${sale.items.map(it=>`${it.product?.name||''}${it.quantity>1?` ×${it.quantity}`:''}`).join(', ')}</td>
                 <td class="py-2 text-right text-yellow-400 font-medium">${fmt(saleComm(sale))}</td>
                 <td class="py-2 pl-2"><button onclick="delSale('${sale.id}')" class="text-slate-600 hover:text-red-400 text-xs">✕</button></td>
@@ -741,7 +741,7 @@ async function showCon(){
             <span>Auto cash bonuses (${s.cash_bonus?Math.round(cv.ac/s.cash_bonus):0} × ${fmt(s.cash_bonus)} — paid-in-full only)</span>
             <span>${fmt(cv.ac)}</span></div>`:''}
           ${(bonuses||[]).filter(b=>b.description!=='__RETENTION_PAYOUT__').map(b=>`<div class="flex items-center justify-between text-sm py-1.5 border-t border-slate-700/50">
-            <span class="text-slate-300">${b.description}</span>
+            <span class="text-slate-300">${esc(b.description)}</span>
             <div class="flex items-center gap-3"><span class="text-yellow-400 font-medium">${fmt(b.amount)}</span>
             <button onclick="delBonus('${b.id}')" class="text-slate-600 hover:text-red-400 text-xs">✕</button></div>
           </div>`).join('')}
@@ -1008,7 +1008,7 @@ async function showInv(){
           <tbody>
             ${sales.map((sale,i)=>`<tr style="border-bottom:.5pt solid #eee;background:${i%2?'#fafafa':'white'}">
               <td style="padding:2mm 3mm;color:#555;white-space:nowrap">${fmtD(sale.sale_date)}</td>
-              <td style="padding:2mm 3mm;font-weight:500">${sale.customer_name}</td>
+              <td style="padding:2mm 3mm;font-weight:500">${esc(sale.customer_name)}</td>
               <td style="padding:2mm 3mm;color:#555">${sale.items.map(it=>`${it.product?.name||''}${it.quantity>1?` ×${it.quantity}`:''}`).join(', ')}</td>
               <td style="padding:2mm 3mm;text-align:right;font-weight:600;color:#1a3a6b">${fmt(saleC(sale))}</td>
             </tr>`).join('')}
@@ -1028,7 +1028,7 @@ async function showInv(){
             <td style="padding:1.5mm 3mm;text-align:right;font-weight:600;color:#1a3a6b">${fmt(cv.ac)}</td>
           </tr>`:''}
           ${(bons||[]).filter(b=>b.description!=='__RETENTION_PAYOUT__').map(b=>`<tr style="border-bottom:.5pt solid #eee">
-            <td style="padding:1.5mm 3mm;color:#555">${b.description}</td>
+            <td style="padding:1.5mm 3mm;color:#555">${esc(b.description)}</td>
             <td style="padding:1.5mm 3mm;text-align:right;font-weight:600;color:#1a3a6b">${fmt(b.amount)}</td>
           </tr>`).join('')}
           <tr style="background:#f0f0f0;font-weight:bold">
@@ -1137,7 +1137,7 @@ async function showGiveaways(){
             const byKind=k=>mine.filter(g=>(g.kind||'giveaway')===k).reduce((a,g)=>a+(+g.amount||0),0);
             const kG=byKind('giveaway')+byKind('opening'), kA=byKind('advance'), kL=byKind('loan');
             return `<tr class="border-b border-slate-800">
-            <td class="py-2.5 font-medium">${c.name}</td>
+            <td class="py-2.5 font-medium">${esc(c.name)}</td>
             <td class="py-2.5 text-right text-slate-400">${kG?fmt(kG):'<span class="text-slate-700">—</span>'}</td>
             <td class="py-2.5 text-right ${kA?'text-sky-400':'text-slate-700'}">${kA?fmt(kA):'—'}</td>
             <td class="py-2.5 text-right ${kL?'text-purple-400':'text-slate-700'}">${kL?fmt(kL):'—'}</td>
@@ -1176,7 +1176,7 @@ async function showGiveaways(){
     openMod(`<h3 class="font-semibold text-white mb-1">${titles[kind]}</h3>
       <p class="text-xs text-slate-500 mb-4">${blurb[kind]}</p>
       <label class="text-xs text-slate-400 block mb-1">Consultant</label>
-      <select id="gcons" class="inp mb-3">${active.map(c=>`<option value="${c.id}">${c.name}</option>`).join('')}</select>
+      <select id="gcons" class="inp mb-3">${active.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join('')}</select>
       ${isGiv?`
         <label class="text-xs text-slate-400 block mb-1">Item</label>
         <select id="gitem" class="inp mb-3">${GIVEAWAY_ITEMS.map(i=>`<option value="${i}">${i}</option>`).join('')}</select>
@@ -1453,7 +1453,7 @@ async function showSetup(){
           ${!consultants.length?'<p class="text-slate-500 text-sm text-center py-4">No consultants yet</p>':
             consultants.map(c=>`<div class="py-4">
               <div class="flex items-center justify-between mb-2">
-                <span class="text-sm font-medium ${c.active?'text-white':'text-slate-500 line-through'}">${c.name}</span>
+                <span class="text-sm font-medium ${c.active?'text-white':'text-slate-500 line-through'}">${esc(c.name)}</span>
                 <button onclick="togCons('${c.id}',${c.active})" class="text-xs px-2.5 py-1 rounded-full bg-slate-700 text-slate-400 hover:text-${c.active?'red':'green'}-400">
                   ${c.active?'Deactivate':'Reactivate'}
                 </button>
@@ -1630,7 +1630,7 @@ async function showCustomers(){
         <h1 class="text-2xl font-bold mb-6">Customer History</h1>
         <div class="flex gap-3 mb-6 flex-wrap">
           ${active.map(c=>`<button onclick="window._custConsId='${c.id}';renderCustList('${c.id}')"
-            class="btn ${c.id===consId?'gold':'dark'} text-sm">${c.name}</button>`).join('')}
+            class="btn ${c.id===consId?'gold':'dark'} text-sm">${esc(c.name)}</button>`).join('')}
         </div>
         <div id="custlist"></div>
       </div>`;
@@ -1672,7 +1672,7 @@ async function showCustomers(){
           <tbody class="divide-y divide-slate-700/50">
             ${activeSales.map(s=>`<tr>
               <td class="py-2 pr-3 text-slate-400 whitespace-nowrap">${fmtD(s.sale_date)}</td>
-              <td class="py-2 pr-3 font-medium">${s.customer_name}</td>
+              <td class="py-2 pr-3 font-medium">${esc(s.customer_name)}</td>
               <td class="py-2 pr-3 text-slate-400 text-xs">${prodStr(s)}</td>
               <td class="py-2 text-right ${s.paid_date?'text-yellow-400':'text-slate-500'}">${s.paid_date?fmt(s.commission_paid):'Not yet paid'}</td>
               <td class="py-2 pl-2 whitespace-nowrap text-right">
@@ -1693,7 +1693,7 @@ async function showCustomers(){
           <tbody class="divide-y divide-slate-700/50">
             ${cancelledSales.map(s=>`<tr class="opacity-60">
               <td class="py-2 pr-3 text-slate-400 whitespace-nowrap">${fmtD(s.sale_date)}</td>
-              <td class="py-2 pr-3 line-through text-slate-400">${s.customer_name}</td>
+              <td class="py-2 pr-3 line-through text-slate-400">${esc(s.customer_name)}</td>
               <td class="py-2 pr-3 text-slate-500 text-xs">${prodStr(s)}</td>
               <td class="py-2 text-right text-red-400">-${fmt(s.commission_paid)}</td>
               <td class="py-2 pl-3 text-slate-500 text-xs">${s.cancellation_notes||''}</td>
