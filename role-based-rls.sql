@@ -15,27 +15,48 @@
 --   IN A QUIET WINDOW and run the TEST CHECKLIST below with a real login of each
 --   role before go-live. Rollback is at the very bottom.
 --
--- MODEL
---   profiles(id=auth.uid()) holds role + consultant_name. Two SECURITY DEFINER
---   helpers read it without tripping RLS. Policies are written per role.
+-- MODEL  (uses the helpers already in this database — single source of truth)
+--   The DB already ships these SECURITY DEFINER helpers, which read the caller's
+--   profile row without tripping RLS:
+--       public.is_staff()      -> boolean  (role in admin/manager/office)
+--       public.my_role()       -> text     (the caller's role)
+--       public.my_consultant() -> text     (the caller's consultant_name)
+--   This migration REUSES them rather than defining a parallel set, so there is
+--   nothing to drift out of sync. Section 1 just verifies they exist.
 -- ============================================================================
 
--- ---- 1. Helpers -------------------------------------------------------------
-create or replace function public.app_role()
-  returns text language sql stable security definer set search_path = public as
-$$ select role from public.profiles where id = auth.uid() $$;
+-- ---- 1. Precondition: the shared helpers must exist -------------------------
+--   Fail loudly (instead of silently mis-securing tables) if this is applied to
+--   a database that doesn't have the helpers. If it raises, either you're on the
+--   wrong project, or the base migration that defines them hasn't run yet — see
+--   the commented fallback in section 1b to create compatible helpers.
+do $$
+begin
+  if to_regprocedure('public.is_staff()')      is null
+  or to_regprocedure('public.my_role()')       is null
+  or to_regprocedure('public.my_consultant()') is null then
+    raise exception
+      'Missing helper(s): is_staff()/my_role()/my_consultant(). '
+      'Apply the base helper migration first, or uncomment section 1b below.';
+  end if;
+end $$;
 
-create or replace function public.app_consultant_name()
-  returns text language sql stable security definer set search_path = public as
-$$ select consultant_name from public.profiles where id = auth.uid() $$;
-
-revoke all on function public.app_role() from public;
-revoke all on function public.app_consultant_name() from public;
-grant execute on function public.app_role() to authenticated;
-grant execute on function public.app_consultant_name() to authenticated;
-
--- Convenience predicate used everywhere:  app_role() in staff
---   staff = admin, manager, office
+-- ---- 1b. FALLBACK helpers (only if section 1 raised) ------------------------
+--   Uncomment this block ONLY if the helpers above do not yet exist. It creates
+--   them from the profiles table with the same names/semantics the policies use.
+--   Leave it commented when the helpers already exist (the normal case).
+--
+-- create or replace function public.my_role()
+--   returns text language sql stable security definer set search_path = public as
+-- $$ select role from public.profiles where id = auth.uid() $$;
+-- create or replace function public.my_consultant()
+--   returns text language sql stable security definer set search_path = public as
+-- $$ select consultant_name from public.profiles where id = auth.uid() $$;
+-- create or replace function public.is_staff()
+--   returns boolean language sql stable security definer set search_path = public as
+-- $$ select coalesce(public.my_role() in ('admin','manager','office'), false) $$;
+-- revoke all on function public.my_role(), public.my_consultant(), public.is_staff() from public;
+-- grant execute on function public.my_role(), public.my_consultant(), public.is_staff() to authenticated;
 
 -- ---- 2. Reset: drop the blanket "any authenticated" policies ---------------
 -- (These were created by the phase-1 lockdown. We replace them with role-aware
@@ -44,7 +65,6 @@ do $$
 declare t text; p record;
 begin
   foreach t in array array[
-    -- staff-only tables (no consultant/driver access at all)
     'sim_customers','sim_orders','sim_order_items','sim_order_applications','sim_order_confirmations',
     'sim_payments','sim_payment_events','sim_dishonours','sim_communications','sim_contacts',
     'sim_arrears_sequence','sms_log','debt_contacts','order_amendments','schedule_changes',
@@ -55,6 +75,7 @@ begin
     'commission_cancel_review','config','delivery_rules','appointments','appointment_reschedules',
     'zz_legacy_orders','zz_legacy_payments','profiles','sim_stock_items','sim_stock_movements'
   ] loop
+    if to_regclass('public.'||t) is null then continue; end if;  -- skip tables not in this DB
     for p in select policyname from pg_policies where schemaname='public' and tablename=t loop
       execute format('drop policy %I on public.%I', p.policyname, t);
     end loop;
@@ -76,70 +97,69 @@ begin
     'commission_cancel_review','config','delivery_rules','appointments','appointment_reschedules',
     'zz_legacy_orders','zz_legacy_payments','sim_stock_items','sim_stock_movements'
   ] loop
+    if to_regclass('public.'||t) is null then continue; end if;
     execute format($f$create policy staff_all on public.%I for all to authenticated
-      using (public.app_role() in ('admin','manager','office'))
-      with check (public.app_role() in ('admin','manager','office'))$f$, t);
+      using (public.is_staff()) with check (public.is_staff())$f$, t);
   end loop;
 end $$;
 
 -- profiles: staff manage all; every user may read their OWN row (auth.js needs it)
 create policy staff_all on public.profiles for all to authenticated
-  using (public.app_role() in ('admin','manager','office'))
-  with check (public.app_role() in ('admin','manager','office'));
+  using (public.is_staff()) with check (public.is_staff());
 create policy self_read on public.profiles for select to authenticated
   using (id = auth.uid());
 
 -- ---- 4. CONSULTANT: only their own data + read-only reference --------------
 -- Orders they entered (order-app sets consultant_name = the logged-in consultant)
 create policy consultant_own on public.sim_orders for all to authenticated
-  using (public.app_role()='consultant' and consultant_name = public.app_consultant_name())
-  with check (public.app_role()='consultant' and consultant_name = public.app_consultant_name());
+  using (public.my_role()='consultant' and consultant_name = public.my_consultant())
+  with check (public.my_role()='consultant' and consultant_name = public.my_consultant());
 
 -- Customers: read the ones tied to their orders; insert new ones during a sale
 create policy consultant_read on public.sim_customers for select to authenticated
-  using (public.app_role()='consultant'
+  using (public.my_role()='consultant'
          and id in (select customer_id from public.sim_orders
-                    where consultant_name = public.app_consultant_name()));
+                    where consultant_name = public.my_consultant()));
 create policy consultant_insert on public.sim_customers for insert to authenticated
-  with check (public.app_role()='consultant');
+  with check (public.my_role()='consultant');
 
 -- Order items for their own orders
 create policy consultant_own on public.sim_order_items for all to authenticated
-  using (public.app_role()='consultant'
+  using (public.my_role()='consultant'
          and order_id in (select id from public.sim_orders
-                          where consultant_name = public.app_consultant_name()))
-  with check (public.app_role()='consultant'
+                          where consultant_name = public.my_consultant()))
+  with check (public.my_role()='consultant'
          and order_id in (select id from public.sim_orders
-                          where consultant_name = public.app_consultant_name()));
+                          where consultant_name = public.my_consultant()));
 
 -- Order applications they create
 create policy consultant_own on public.sim_order_applications for all to authenticated
-  using (public.app_role()='consultant')
-  with check (public.app_role()='consultant');
+  using (public.my_role()='consultant')
+  with check (public.my_role()='consultant');
 
 -- Their commission rows (read only)
 create policy consultant_read on public.commission_sales for select to authenticated
-  using (public.app_role()='consultant'
+  using (public.my_role()='consultant'
          and consultant_id in (select id from public.commission_consultants
-                               where name = public.app_consultant_name()));
+                               where name = public.my_consultant()));
 
 -- Reference/config a consultant page needs (read only)
-create policy consultant_read on public.commission_awards      for select to authenticated using (public.app_role()='consultant');
-create policy consultant_read on public.commission_consultants for select to authenticated using (public.app_role()='consultant');
-create policy consultant_read on public.commission_products    for select to authenticated using (public.app_role()='consultant');
-create policy consultant_read on public.commission_settings    for select to authenticated using (public.app_role()='consultant');
+create policy consultant_read on public.commission_awards      for select to authenticated using (public.my_role()='consultant');
+create policy consultant_read on public.commission_consultants for select to authenticated using (public.my_role()='consultant');
+create policy consultant_read on public.commission_products    for select to authenticated using (public.my_role()='consultant');
+create policy consultant_read on public.commission_settings    for select to authenticated using (public.my_role()='consultant');
 
 -- Diary (appointments) — read
-create policy consultant_read on public.appointments            for select to authenticated using (public.app_role()='consultant');
-create policy consultant_read on public.appointment_reschedules for select to authenticated using (public.app_role()='consultant');
+create policy consultant_read on public.appointments            for select to authenticated using (public.my_role()='consultant');
+create policy consultant_read on public.appointment_reschedules for select to authenticated using (public.my_role()='consultant');
 
 -- ---- 5. DRIVER: delivery data, read only -----------------------------------
-create policy driver_read on public.sim_orders     for select to authenticated using (public.app_role()='driver');
-create policy driver_read on public.sim_payments   for select to authenticated using (public.app_role()='driver');
-create policy driver_read on public.sim_dishonours for select to authenticated using (public.app_role()='driver');
-create policy driver_read on public.delivery_rules for select to authenticated using (public.app_role()='driver');
-create policy driver_read on public.sim_customers  for select to authenticated using (public.app_role()='driver');
-create policy driver_read on public.sim_order_items for select to authenticated using (public.app_role()='driver');
+create policy driver_read on public.sim_orders     for select to authenticated using (public.my_role()='driver');
+create policy driver_read on public.sim_payments   for select to authenticated using (public.my_role()='driver');
+create policy driver_read on public.sim_dishonours for select to authenticated using (public.my_role()='driver');
+create policy driver_read on public.delivery_rules for select to authenticated using (public.my_role()='driver');
+create policy driver_read on public.sim_customers  for select to authenticated using (public.my_role()='driver');
+create policy driver_read on public.sim_order_items for select to authenticated using (public.my_role()='driver');
 
 -- ============================================================================
 -- TEST CHECKLIST (run before go-live; use a real login for each role)
@@ -157,6 +177,7 @@ create policy driver_read on public.sim_order_items for select to authenticated 
 -- declare t text; p record;
 -- begin
 --   foreach t in array array[ ...same table list as section 2... ] loop
+--     if to_regclass('public.'||t) is null then continue; end if;
 --     for p in select policyname from pg_policies where schemaname='public' and tablename=t loop
 --       execute format('drop policy %I on public.%I', p.policyname, t);
 --     end loop;

@@ -109,6 +109,16 @@ const fmt=n=>(n==null)?"—":"$"+Number(n).toLocaleString(undefined,{minimumFrac
 function auDate(v){if(!v)return"";const m=String(v).match(/^(\d{4})-(\d{2})-(\d{2})/);if(m)return m[3]+"/"+m[2]+"/"+m[1];return v;}
 function iso(dmy){const m=String(dmy).match(/(\d{2})\/(\d{2})\/(\d{4})/);return m?`${m[3]}-${m[2]}-${m[1]}`:null;}
 
+// Turn raw DB errors into something an admin can act on.
+function friendly(error){
+  const m=(error&&error.message)||String(error);
+  if(/duplicate key|already exists|unique constraint/i.test(m))
+    return "some of these transactions are already in the system (duplicate). They were skipped — it's safe to re-upload; anything new will still be applied. ("+m+")";
+  if(/row-level security|permission denied|not authorized|JWT/i.test(m))
+    return "you don't have permission to write these records — make sure you're logged in as office/admin, then try again. ("+m+")";
+  return m;
+}
+
 let PARSED=null; // {settle, paid:[], refunds:[], dishonours:[], all:[]}
 
 // ---- read PDF text ----
@@ -156,7 +166,27 @@ function parse(text){
 }
 
 // ---- build dedup key ----
-const keyOf=(r,result)=>`${r.settle}|${r.payer}|${r.payamt.toFixed(2)}|${result}`;
+// The BASE key (settlement date | payer | amount | result) is what we store and
+// what we match old imports against — do NOT change its shape or previously
+// imported rows would stop matching and re-import (double counting).
+const baseKey=(r,result)=>`${r.settle}|${r.payer}|${r.payamt.toFixed(2)}|${result}`;
+
+// A single settlement report can legitimately contain TWO debits that share the
+// same base key — same payer, same amount, cleared the same day (e.g. two orders
+// under one Ezidebit payer reference, or a catch-up double debit). Those are
+// genuinely different payments, but the base key can't tell them apart, so the
+// insert used to collide ("duplicate value") and the whole apply failed.
+// Fix: walk each list once and give the 2nd, 3rd… occurrence of a base key a
+// "#n" suffix. Occurrence #1 keeps the exact base key (stays backward-compatible
+// with everything already imported); only true in-file repeats get a suffix.
+function assignKeys(list,result){
+  const seen={};
+  list.forEach(r=>{
+    const b=baseKey(r,result);
+    const n=(seen[b]=(seen[b]||0)+1);
+    r._key = n===1 ? b : b+"#"+n;
+  });
+}
 
 async function onFile(file){
   clearMsg(); $("preview").style.display="none";
@@ -169,6 +199,9 @@ async function onFile(file){
     if(!p.paid.length && !p.dishonours.length && !p.refunds.length){
       show("Couldn't find any transactions in that PDF. Is it the Payment Settlement Report?","err"); return;
     }
+    // Give every row its dedup key up front (occurrence-aware) so preview and
+    // apply use exactly the same key and true in-file repeats stay distinct.
+    assignKeys(p.paid,"paid"); assignKeys(p.refunds,"refund"); assignKeys(p.dishonours,"dishonour");
     // match payers to orders
     const {data:orders}=await sb.from("sim_orders").select("id,ezidebit_payer_ref,amount_paid_to_date").not("ezidebit_payer_ref","is",null);
     const norm=r=>String(r||"").replace(/-/g,"").trim();
@@ -201,9 +234,9 @@ async function onFile(file){
 
 function renderPreview(){
   const p=PARSED;
-  const newPaid=p.paid.filter(r=>!p.existPay.has(keyOf(r,"paid")));
-  const newRef =p.refunds.filter(r=>!p.existPay.has(keyOf(r,"refund")));
-  const newDis =p.dishonours.filter(r=>!p.existDis.has(keyOf(r,"dishonour")));
+  const newPaid=p.paid.filter(r=>!p.existPay.has(r._key));
+  const newRef =p.refunds.filter(r=>!p.existPay.has(r._key));
+  const newDis =p.dishonours.filter(r=>!p.existDis.has(r._key));
   const dupe = (p.paid.length-newPaid.length)+(p.refunds.length-newRef.length)+(p.dishonours.length-newDis.length);
 
   const paidTotal=newPaid.reduce((s,r)=>s+r.payamt,0);
@@ -245,14 +278,17 @@ async function apply(){
   const p=PARSED; if(!p) return;
   $("apply").disabled=true; $("apply").textContent="Applying…";
   try{
+    // Belt-and-braces: never send two rows with the same dedup_key in one insert.
+    const uniqByKey=(rows)=>{ const seen=new Set(); return rows.filter(x=>{ if(seen.has(x.dedup_key)) return false; seen.add(x.dedup_key); return true; }); };
+
     // 1. insert payments + refunds
-    const payRows=[...p.newPaid.map(r=>({...r,result:"paid"})),...p.newRef.map(r=>({...r,result:"refund"}))]
-      .map(r=>({payer_ref:r.payer,payment_date:r.trans,settlement_date:r.settle,amount:r.payamt,fees:r.fees,cleared:r.cleared,result:r.result,source:"ezidebit",dedup_key:keyOf(r,r.result)}));
-    if(payRows.length){ const {error}=await sb.from("sim_payments").insert(payRows); if(error) throw new Error("Payments: "+error.message); }
+    const payRows=uniqByKey([...p.newPaid.map(r=>({...r,result:"paid"})),...p.newRef.map(r=>({...r,result:"refund"}))]
+      .map(r=>({payer_ref:r.payer,payment_date:r.trans,settlement_date:r.settle,amount:r.payamt,fees:r.fees,cleared:r.cleared,result:r.result,source:"ezidebit",dedup_key:r._key})));
+    if(payRows.length){ const {error}=await sb.from("sim_payments").insert(payRows); if(error) throw new Error("Payments: "+friendly(error)); }
 
     // 2. insert dishonours
-    const disRows=p.newDis.map(r=>({payer_ref:r.payer,dishonour_date:r.trans,settlement_date:r.settle,amount:r.payamt,failed_reason:r.reason||null,dedup_key:keyOf(r,"dishonour")}));
-    if(disRows.length){ const {error}=await sb.from("sim_dishonours").insert(disRows); if(error) throw new Error("Dishonours: "+error.message); }
+    const disRows=uniqByKey(p.newDis.map(r=>({payer_ref:r.payer,dishonour_date:r.trans,settlement_date:r.settle,amount:r.payamt,failed_reason:r.reason||null,dedup_key:r._key})));
+    if(disRows.length){ const {error}=await sb.from("sim_dishonours").insert(disRows); if(error) throw new Error("Dishonours: "+friendly(error)); }
 
     // 3. Recompute balances FROM THE LEDGER, rather than adding to a running total.
     //    Two numbers meaning the same thing always drift. sim_payments is the truth;

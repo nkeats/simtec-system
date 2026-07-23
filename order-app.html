@@ -132,7 +132,7 @@
   </header>
 
   <main>
-    <div class="note">Products &amp; prices come from your live catalogue. <b>No internet?</b> Tap <b>Park</b> at any time — the order is saved on this iPad and uploads automatically when you're back online. (Email code, ID storage, Ezidebit &amp; confirmation email are still being wired.)</div>
+    <div class="note">Products &amp; prices come from your live catalogue. <b>No internet?</b> Tap <b>Park</b> at any time — the order is saved on this iPad and uploads automatically when you're back online. Once the order is submitted, the office completes the confirmation call before delivery is booked.</div>
 
     <!-- 0 START -->
     <section class="step on" data-step="0">
@@ -349,7 +349,7 @@
     <!-- 5 ID -->
     <section class="step" data-step="5">
       <h2 class="title">Identity documents</h2>
-      <p class="sub">Photograph each applicant's ID with the iPad camera. <span class="stub">Stored securely — stub in prototype.</span></p>
+      <p class="sub">Photograph each applicant's ID with the iPad camera. Stored securely against the order in the encrypted documents store.</p>
       <div class="card">
         <div class="id-grid" id="idGrid">
           <label class="id-tile" id="idTileA1">
@@ -462,7 +462,7 @@
       <div style="text-align:center;padding:40px 10px;">
         <div style="font-size:56px;" id="doneIcon">✅</div>
         <h2 class="title" style="margin-top:10px;" id="doneTitle">Order complete</h2>
-        <p class="sub" id="doneMsg">The order has been recorded and the confirmation email sent.</p>
+        <p class="sub" id="doneMsg">The order has been recorded.</p>
         <button class="btn next" style="max-width:260px;margin:22px auto 0;display:block;" onclick="newOrder()">Start new order</button>
       </div>
     </section>
@@ -683,7 +683,7 @@ function buildReview(){
     '<div class="rev-sec"><div class="rh">Customer</div><div class="rev-line"><span>'+esc(name)+'</span><span>'+(S.emailVerified?'<span class="badge ok">✓ email</span>':'<span class="badge wait">email unverified</span>')+'</span></div><div class="sub">'+esc(val('email'))+' · '+esc(val('mobile'))+'</div></div>'+
     '<div class="rev-sec"><div class="rh">Products</div>'+prods+(wantDel?'<div class="rev-line"><span>Delivery fee</span><span>$170.00</span></div>':'<div class="rev-line" style="color:var(--muted)"><span>No delivery</span><span>—</span></div>')+'<div class="rev-line" style="font-weight:800;border-top:1px solid var(--line);margin-top:4px;padding-top:6px;"><span>Total</span><span>'+money(total)+'</span></div></div>'+
     '<div class="rev-sec"><div class="rh">Payment</div><div class="rev-line"><span>'+payLabel+'</span><span></span></div></div>'+
-    '<div class="rev-sec"><div class="rh">Confirmation email will attach</div><div class="sub">Order PDF · Terms &amp; Conditions · 15-year warranty'+(hasGuar?' · 30-day comfort guarantee':'')+'</div></div>';
+    '<div class="rev-sec"><div class="rh">Documents on file for this order</div><div class="sub">Order PDF · Terms &amp; Conditions · 15-year warranty'+(hasGuar?' · 30-day comfort guarantee':'')+'</div></div>';
 }
 
 // ============================================================================
@@ -763,20 +763,33 @@ async function savePayload(P){
   P.products.forEach(p=>items.push({order_id:ord.id,line_no:++ln,product_name:p.name,quantity:p.qty,unit_price:p.price}));
   if(P.wantDel) items.push({order_id:ord.id,line_no:++ln,product_name:'Delivery fee',quantity:1,unit_price:DELIVERY_FEE});
   if(items.length){ const {error:e3}=await sb.from('sim_order_items').insert(items); if(e3) throw new Error('items: '+e3.message); }
-  // 4) extras + ID/signature files (best-effort; needs sim_order_applications + order-documents bucket)
-  await saveExtrasPayload(ord.id,P).catch(e=>console.warn('extras/files pending setup:',e.message||e));
+  // 4) extras + ID/signature files. The customer/order/items above are the
+  //    commission-critical save and are already committed; file/extra failures
+  //    here must NOT lose the order, but they must be SURFACED (not swallowed)
+  //    so the consultant knows to re-capture ID photos before leaving.
+  S.lastExtrasWarn = await saveExtrasPayload(ord.id,P)
+    .catch(e=>['Customer details and order were saved, but the ID photos / extra details could not be attached ('+(e.message||e)+'). Please re-capture the ID before you leave.']);
   return ord.id;
 }
 
+// Returns an array of human-readable warnings ([] when everything attached OK).
 async function saveExtrasPayload(orderId,P){
-  if(!sb) return;
+  if(!sb) return ['No database connection — ID photos and extra details were not attached.'];
   const f=P.fields||{}, fl=P.flags||{}, files=P.files||{};
-  const uploads={};
-  const put=async(key,durl,sub)=>{ if(!durl) return; const blob=dataURLtoBlob(durl); const path=orderId+'/'+sub; const {error}=await sb.storage.from('order-documents').upload(path,blob,{upsert:true,contentType:blob.type}); if(!error) uploads[key]=path; };
-  await put('id_a1', files.idA1, 'id-applicant1');
-  if(fl.a2) await put('id_a2', files.idA2, 'id-applicant2');
-  await put('sig_a1', files.sigA1, 'signature1.png');
-  if(fl.a2) await put('sig_a2', files.sigA2, 'signature2.png');
+  const uploads={}; const failed=[];
+  const put=async(key,durl,sub,label)=>{
+    if(!durl) return;
+    try{
+      const blob=dataURLtoBlob(durl); const path=orderId+'/'+sub;
+      const {error}=await sb.storage.from('order-documents').upload(path,blob,{upsert:true,contentType:blob.type});
+      if(error){ failed.push(label); console.warn('upload failed',sub,error.message||error); }
+      else uploads[key]=path;
+    }catch(e){ failed.push(label); console.warn('upload threw',sub,e.message||e); }
+  };
+  await put('id_a1', files.idA1, 'id-applicant1', 'Applicant 1 ID photo');
+  if(fl.a2) await put('id_a2', files.idA2, 'id-applicant2', 'Applicant 2 ID photo');
+  await put('sig_a1', files.sigA1, 'signature1.png', 'Applicant 1 signature');
+  if(fl.a2) await put('sig_a2', files.sigA2, 'signature2.png', 'Applicant 2 signature');
   const row={
     order_id:orderId,
     a1_id_type:f.a1idtype||null, a1_id_number:f.a1dl||null,
@@ -791,7 +804,9 @@ async function saveExtrasPayload(orderId,P){
     id_doc_a1_path:uploads.id_a1||null, id_doc_a2_path:uploads.id_a2||null,
     signature_a1_path:uploads.sig_a1||null, signature_a2_path:uploads.sig_a2||null
   };
-  await sb.from('sim_order_applications').insert(row);
+  const {error:eApp}=await sb.from('sim_order_applications').insert(row);
+  if(eApp){ failed.push('applicant details row'); console.warn('sim_order_applications insert failed',eApp.message||eApp); }
+  return failed.length ? ['Could not attach: '+failed.join(', ')+'. The order itself is saved.'] : [];
 }
 
 // Returns 'saved' | 'parked' | 'error'
@@ -806,10 +821,17 @@ async function submitOrder(){
     const P=await collectOrder();
     const id=await savePayload(P);
     S.orderId=id;
+    pushOrderToGhl(id);   // fire-and-forget; server-side function is INERT until configured (see below)
     setDoneSaved();
     done.textContent = S.pay==='ezidebit'
       ? 'Order saved. Complete the Ezidebit direct debit next.'
-      : 'Order saved. The office will make the confirmation call. Confirmation email queued (PDF, T&Cs, warranty).';
+      : 'Order saved. The office will make the confirmation call before delivery is booked.';
+    // Surface any ID/document attach warnings without losing the order.
+    const warns=(S.lastExtrasWarn||[]);
+    if(warns.length){
+      done.innerHTML = esc(done.textContent)
+        + '<br><span style="color:var(--warn);font-weight:700">⚠ '+esc(warns.join(' '))+'</span>';
+    }
     return 'saved';
   }catch(err){
     const msg=(err&&err.message)||String(err);
@@ -820,6 +842,31 @@ async function submitOrder(){
     done.textContent='Save failed — '+msg+'. Tap Park to keep the order safe on this iPad.';
     return 'error';
   }
+}
+
+// ----------------------------------------------------------------------------
+//  GHL contact push (Option B: tag-isolated testing).
+//  Fire-and-forget: creates/updates a GHL contact so the office can run and
+//  record the confirmation CALL against it, and so a confirmation email can be
+//  fired from a GHL workflow keyed ONLY to the isolation tag.
+//
+//  *** SAFETY ***  The server-side function `ghl-order-push` is INERT until the
+//  office sets the GHL_NZ_TOKEN / GHL_NZ_LOCATION_ID / GHL_APP_TAG secrets and
+//  deploys it. Until then it returns {status:"disabled"} and creates nothing —
+//  so this call cannot touch the live paper-order email. Any error here is
+//  swallowed and never blocks or delays the saved order.
+// ----------------------------------------------------------------------------
+function pushOrderToGhl(orderId){
+  try{
+    if(!sb || !orderId || !sb.functions) return;
+    sb.functions.invoke('ghl-order-push',{ body:{ orderId } })
+      .then(({data,error})=>{
+        if(error){ console.warn('ghl push:',error.message||error); return; }
+        if(data && data.status==='disabled') console.info('ghl push inert (not yet configured)');
+        else if(data && data.status==='ok') console.info('ghl contact synced:',data.contactId);
+      })
+      .catch(e=>console.warn('ghl push failed:',e&&e.message||e));
+  }catch(e){ console.warn('ghl push threw:',e&&e.message||e); }
 }
 
 function setDoneSaved(){ const i=document.getElementById('doneIcon'),t=document.getElementById('doneTitle'); if(i)i.textContent='✅'; if(t)t.textContent='Order complete'; }
@@ -880,7 +927,7 @@ window.uploadOne=async function(id){
   if(!navigator.onLine){ alert('Still offline — connect to the internet, then try again.'); return; }
   if(!sb && window.supabase) sb=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
   const list=loadParked(); const P=list.find(x=>x.id===id); if(!P) return;
-  try{ await savePayload(P); writeParked(loadParked().filter(x=>x.id!==id)); renderParked(); alert('Uploaded: '+(P.customerName||'order')); }
+  try{ await savePayload(P); writeParked(loadParked().filter(x=>x.id!==id)); renderParked(); const w=(S.lastExtrasWarn||[]); alert('Uploaded: '+(P.customerName||'order')+(w.length?'\n\n⚠ '+w.join(' '):'')); }
   catch(e){ alert('Upload failed — '+(e.message||e)+'. It\'s still parked; try again when you have a stronger connection.'); }
 };
 
