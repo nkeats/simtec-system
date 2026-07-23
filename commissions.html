@@ -232,7 +232,7 @@ async function showCashWeek(){
     const d=new Date(new Date(cwWeek+'T12:00:00').getTime()+i*86400000);
     const sd=new Date(d.getTime()-86400000);
     days.push({iso:isoD(d), lbl:d.toLocaleDateString('en-NZ',{weekday:'short'}), dm:`${d.getDate()}/${d.getMonth()+1}`,
-               sales:sd.toLocaleDateString('en-NZ',{weekday:'short'})});
+               sales:sd.toLocaleDateString('en-NZ',{weekday:'short'}), salesdm:`${sd.getDate()}/${sd.getMonth()+1}`});
   }
   const active=consultants.filter(c=>c.active);
   const ids=active.map(c=>c.id);
@@ -294,8 +294,9 @@ function render_cw(){
           <tr class="text-slate-500">
             <th class="text-left pb-1 pr-3" style="position:sticky;left:0;background:#1e293b;z-index:2">Consultant</th>
             ${days.map(d=>`<th colspan="3" class="text-center pb-1 px-1" style="border-left:1px solid #334155">
-                <div class="text-slate-300 font-semibold">${d.lbl} ${d.dm}</div>
-                <div class="text-slate-600" style="font-size:10px">pays ${d.sales}'s sales</div></th>`).join('')}
+                <div style="font-size:8px;letter-spacing:.06em;color:#c9a84c;font-weight:700">SALES DAY</div>
+                <div class="font-bold" style="color:#e8eefc;font-size:12px">${d.sales} ${d.salesdm}</div>
+                <div class="text-slate-600" style="font-size:9px">cash paid ${d.lbl} ${d.dm}</div></th>`).join('')}
             <th colspan="3" class="text-center pb-1 px-2" style="border-left:2px solid #c9a84c">
               <div class="text-yellow-500 font-semibold">Week</div></th>
           </tr>
@@ -325,14 +326,13 @@ function render_cw(){
     </div>
 
     <div class="card mt-4">
-      <div class="lbl mb-3">Post to the pay run</div>
-      <div class="text-slate-400 text-xs mb-3">Each consultant's cash must be posted to the week's pay run as a deduction, or <b>they'll be paid twice</b>. Create the pay run for week ending ${fmtD(weekEnd)} first.</div>
-      <div class="flex flex-wrap gap-2">
+      <div class="lbl mb-2">Cash handed out this week</div>
+      <div class="text-slate-400 text-xs mb-3">A running record of cash paid out, for tracking only — it is <b>not</b> posted to the pay run.</div>
+      <div class="flex flex-wrap items-center gap-2">
         ${rows.filter(r=>r.totPaid>0).map(r=>
-          r.wk&&r.wk.status==='reconciled'
-            ? `<span class="text-xs px-3 py-1.5 rounded" style="background:#14361f;color:#4ade80">✓ ${esc(r.con.name)} posted</span>`
-            : `<button class="btn gold text-xs py-1.5 px-3" onclick="cwPost('${r.con.id}','${weekEnd}',${r.totPaid})">Post ${esc(r.con.name)} — ${cwMoney(r.totPaid)}</button>`
-        ).join('') || '<span class="text-slate-600 text-xs">Nothing to post yet.</span>'}
+          `<span class="text-xs px-3 py-1.5 rounded" style="background:#0f1830;border:1px solid #26324a;color:#cbd5e1">${esc(r.con.name)} — <b style="color:#7dd3fc">${cwMoney(r.totPaid)}</b></span>`
+        ).join('') || '<span class="text-slate-600 text-xs">No cash recorded yet.</span>'}
+        ${(()=>{const tot=rows.reduce((s,r)=>s+(+r.totPaid||0),0);return tot>0?`<span class="text-xs px-3 py-1.5 rounded ml-auto" style="background:#1f2937;color:#c9a84c;font-weight:700">Week total ${cwMoney(tot)}</span>`:'';})()}
       </div>
     </div>
   </div>`;
