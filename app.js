@@ -1,4 +1,6 @@
 let configCache = {};
+// XSS-safe HTML escape for any customer/user-supplied text rendered via innerHTML
+const esc = s => (s==null?'':String(s)).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
 // ══════════════════════════════════════════════════════
 // LOAN TERM CALCULATION
@@ -2903,8 +2905,8 @@ function renderApptCard(a) {
   <div class="card" style="border-left:4px solid ${statusColour};margin-bottom:12px">
     <div style="display:flex;justify-content:space-between;align-items:flex-start">
       <div>
-        <div style="font-size:16px;font-weight:700;color:var(--navy)">${a.customer_name}</div>
-        <div style="font-size:12px;color:var(--gm);margin-top:2px">${a.address || '-'} · ${a.phone || '-'}</div>
+        <div style="font-size:16px;font-weight:700;color:var(--navy)">${esc(a.customer_name)}</div>
+        <div style="font-size:12px;color:var(--gm);margin-top:2px">${esc(a.address || '-')} · ${esc(a.phone || '-')}</div>
         <div style="font-size:13px;font-weight:600;color:var(--navy);margin-top:6px">${dateStr} at ${timeStr}</div>
       </div>
       <div style="text-align:right">
@@ -3076,10 +3078,10 @@ async function loadAdminAppointments() {
           }[a.status] || 'b-gold';
           return `<tr>
             <td style="font-weight:600">${timeStr}</td>
-            <td>${a.consultant}</td>
-            <td><b>${a.customer_name}</b></td>
-            <td style="font-size:12px;color:var(--gm)">${a.address || '-'}</td>
-            <td style="font-size:12px">${a.phone || '-'}</td>
+            <td>${esc(a.consultant)}</td>
+            <td><b>${esc(a.customer_name)}</b></td>
+            <td style="font-size:12px;color:var(--gm)">${esc(a.address || '-')}</td>
+            <td style="font-size:12px">${esc(a.phone || '-')}</td>
             <td><span class="badge ${statusBadge}">${a.status}</span></td>
             <td style="font-size:12px">${outcomeLabel}</td>
           </tr>`;
