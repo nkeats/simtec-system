@@ -6,8 +6,10 @@
 <title>Simtec — Sales Order (iPad)</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-<!-- On deploy, also include your auth gate for consultants, e.g.:
-     <script src="auth.js?v=3" data-roles="admin,manager,office,consultant"></script> -->
+<!-- Login gate: STAFF ONLY for now (admin/manager/office) so consultants can't
+     reach the order app before go-live. When you roll out to consultants, add
+     ",consultant" to data-roles below and add a New Order button to my-sales.html. -->
+<script src="auth.js?v=3" data-roles="admin,manager,office"></script>
 
 <style>
   :root{
