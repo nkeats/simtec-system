@@ -82,9 +82,12 @@ async function requireUser(req: Request): Promise<{ ok: true; userId: string } |
   // edge function), so it must be passed the token — otherwise every call 401s.
   const token = (req.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "").trim();
   if (!token) return { ok: false, res: json({ error: "unauthorized" }, 401) };
+  // Validate the caller's JWT with the SERVICE-ROLE key as the apikey. The legacy
+  // anon key can be disabled on projects migrated to publishable/secret keys, which
+  // makes an anon-keyed getUser() fail; the service-role key always validates.
   const supa = createClient(
     Deno.env.get("SUPABASE_URL")!,
-    Deno.env.get("SUPABASE_ANON_KEY")!,
+    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     { auth: { persistSession: false } },
   );
   const { data: { user }, error } = await supa.auth.getUser(token);
