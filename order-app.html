@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>Simtec — Sales Order (iPad)</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <!-- On deploy, also include your auth gate for consultants, e.g.:
      <script src="auth.js?v=3" data-roles="admin,manager,office,consultant"></script> -->
 
@@ -769,7 +770,42 @@ async function savePayload(P){
   //    so the consultant knows to re-capture ID photos before leaving.
   S.lastExtrasWarn = await saveExtrasPayload(ord.id,P)
     .catch(e=>['Customer details and order were saved, but the ID photos / extra details could not be attached ('+(e.message||e)+'). Please re-capture the ID before you leave.']);
+  // 5) order-summary PDF (best-effort) — the GHL confirmation email links to this.
+  await generateAndUploadOrderPdf(ord.id,P).catch(e=>console.warn('order PDF pending:',e&&e.message||e));
   return ord.id;
+}
+
+// Build a one-page order-summary PDF and store it in the order-documents bucket
+// at {orderId}/order-summary.pdf. The ghl-order-push function turns this into a
+// signed link for the confirmation email. Best-effort — never blocks the order.
+async function generateAndUploadOrderPdf(orderId,P){
+  if(!sb || !window.jspdf) return;
+  const f=P.fields||{}, fl=P.flags||{};
+  const { jsPDF } = window.jspdf;
+  const doc=new jsPDF({unit:'pt',format:'a4'});
+  const M=48, R=547; let y=54;
+  doc.setFont('helvetica','bold'); doc.setFontSize(18); doc.text('Simtec — Order Summary', M, y); y+=8;
+  doc.setDrawColor(200); doc.line(M,y,R,y); y+=24;
+  doc.setFontSize(10);
+  const name=((f.a1first||'')+' '+(f.a1last||'')).trim()||'(no name)';
+  const addr=[f.street,f.suburb,f.city,f.postcode].filter(Boolean).join(', ');
+  const info=[['Order ID',orderId],['Date',f.visitDate||new Date().toLocaleDateString('en-NZ')],
+    ['Consultant',f.consultant||''],['Customer',name],['Mobile',f.mobile||''],['Email',f.email||''],['Address',addr]];
+  doc.setFont('helvetica','bold'); doc.text('Customer & order', M, y); y+=16; doc.setFont('helvetica','normal');
+  info.forEach(([k,v])=>{ doc.setTextColor(120); doc.text(k,M,y); doc.setTextColor(20); doc.text(String(v||'-'),M+120,y); y+=15; });
+  y+=12; doc.setFont('helvetica','bold'); doc.text('Products',M,y); y+=16; doc.setFont('helvetica','normal');
+  let total=0;
+  (P.products||[]).forEach(p=>{ const line=(p.price*p.qty)||0; total+=line;
+    doc.setTextColor(20); doc.text(`${p.name}   x${p.qty}`,M,y); doc.text('$'+line.toFixed(2),R,y,{align:'right'}); y+=15; });
+  if(P.wantDel){ total+=DELIVERY_FEE; doc.text('Delivery fee',M,y); doc.text('$'+DELIVERY_FEE.toFixed(2),R,y,{align:'right'}); y+=15; }
+  y+=6; doc.setDrawColor(200); doc.line(M,y,R,y); y+=18;
+  doc.setFont('helvetica','bold'); doc.text('Total',M,y); doc.text('$'+total.toFixed(2),R,y,{align:'right'}); y+=26;
+  const payLabel={full:'Paid in full',deposit50:'50% deposit',ezidebit:'Ezidebit direct debit'}[fl.pay]||'—';
+  doc.setFont('helvetica','normal'); doc.setTextColor(20); doc.text('Payment method: '+payLabel,M,y); y+=26;
+  doc.setTextColor(120); doc.setFontSize(9);
+  doc.text('This order is confirmed on the confirmation call. Terms & Conditions and the 15-year warranty apply.',M,y);
+  const blob=doc.output('blob');
+  await sb.storage.from('order-documents').upload(orderId+'/order-summary.pdf', blob, {upsert:true, contentType:'application/pdf'});
 }
 
 // Returns an array of human-readable warnings ([] when everything attached OK).

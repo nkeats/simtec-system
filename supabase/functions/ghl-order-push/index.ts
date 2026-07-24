@@ -131,6 +131,38 @@ serve(async (req) => {
     if (cErr) { console.error("customer lookup failed", cErr.message); return json({ error: "lookup failed" }, 500); }
     if (!cust) return json({ error: "customer not found" }, 404);
 
+    // Order line items -> a readable product summary for the email merge field.
+    const { data: items } = await admin
+      .from("sim_order_items")
+      .select("product_name, quantity, unit_price")
+      .eq("order_id", orderId)
+      .order("line_no", { ascending: true });
+    const productSummary = (items || [])
+      .map((i: any) => `${i.product_name} x${i.quantity}`)
+      .join(", ");
+
+    // A time-limited signed link to the order-summary PDF the app uploaded. The
+    // confirmation email links to this (GHL email attachments must be static, so
+    // a per-order document is delivered as a link, not an attachment).
+    let pdfLink = "";
+    try {
+      const { data: signed } = await admin.storage
+        .from("order-documents")
+        .createSignedUrl(`${orderId}/order-summary.pdf`, 60 * 60 * 24 * 180); // 180 days
+      pdfLink = signed?.signedUrl || "";
+    } catch (e) { console.warn("pdf signed url pending:", (e as Error)?.message || e); }
+
+    // Custom fields the confirmation-email workflow merges. These field KEYS must
+    // exist in the GHL location (created during setup). Sent by key so no field
+    // IDs are hard-coded here.
+    const customFields = [
+      { key: "order_id", field_value: orderId },
+      { key: "order_value", field_value: order.contract_value != null ? String(order.contract_value) : "" },
+      { key: "order_products", field_value: productSummary },
+      { key: "order_consultant", field_value: order.consultant_name || "" },
+      { key: "order_pdf_link", field_value: pdfLink },
+    ].filter((f) => f.field_value !== "");
+
     // Build the GHL contact. Tag it so the confirmation-email workflow (keyed to
     // GHL_APP_TAG) can pick it up in isolation from the paper-order flow.
     const payload: Record<string, unknown> = {
@@ -143,6 +175,7 @@ serve(async (req) => {
       address1: cust.address || undefined,
       tags: [tag],
       source: "Simtec app order",
+      customFields,
     };
 
     // GHL v2 upsert: matches on email/phone within the location, else creates.
