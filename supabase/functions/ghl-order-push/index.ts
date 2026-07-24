@@ -141,6 +141,13 @@ serve(async (req) => {
       .map((i: any) => `${i.product_name} x${i.quantity}`)
       .join(", ");
 
+    // 30-day comfort guarantee applies only to these products (matches order-app's
+    // GUARANTEE_PRODUCTS). When the order includes one, we add a second tag so the
+    // workflow can attach the guarantee document ONLY for qualifying orders.
+    const GUARANTEE_PRODUCTS = ["Mk III Queen", "Mk III Super King"];
+    const hasGuarantee = (items || []).some((i: any) => GUARANTEE_PRODUCTS.includes(i.product_name));
+    const guaranteeTag = Deno.env.get("GHL_GUARANTEE_TAG") || "comfort-guarantee";
+
     // A time-limited signed link to the order-summary PDF the app uploaded. The
     // confirmation email links to this (GHL email attachments must be static, so
     // a per-order document is delivered as a link, not an attachment).
@@ -173,7 +180,7 @@ serve(async (req) => {
       email: cust.email || undefined,
       phone: cust.mobile || undefined,
       address1: cust.address || undefined,
-      tags: [tag],
+      tags: hasGuarantee ? [tag, guaranteeTag] : [tag],
       source: "Simtec app order",
       customFields,
     };
