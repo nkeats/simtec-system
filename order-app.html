@@ -387,9 +387,23 @@
       <div class="card">
         <div class="choices three" id="payOption">
           <div class="choice" data-val="full"><div class="ct">Paid in full</div><div class="cd">Direct deposit; proof shown to consultant.</div></div>
-          <div class="choice" data-val="deposit50"><div class="ct">50% deposit</div><div class="cd">Direct deposit; proof shown to consultant.</div></div>
+          <div class="choice" data-val="deposit50"><div class="ct">50% deposit</div><div class="cd">Half now, balance by Ezidebit direct debit.</div></div>
           <div class="choice" data-val="ezidebit"><div class="ct">Ezidebit</div><div class="cd">Direct debit set up after signing.</div></div>
         </div>
+
+        <!-- Deposit-method sub-panel: only for 50% deposit. Unsolicited sales are
+             locked to an Ezidebit one-off (cooling-off); solicited sales choose. -->
+        <div id="depositMethodBox" class="hidden" style="margin-top:16px;padding-top:16px;border-top:1px solid var(--line);">
+          <div class="lab" style="margin-bottom:8px;">How is the 50% deposit collected?</div>
+          <div id="depMethodUnsol" class="note hidden" style="background:#fff8e8;border-color:#f0dca8;color:#7a5b12;">
+            <b>Unsolicited sale.</b> The 5-working-day cooling-off period means no money can be taken upfront, so the 50% deposit is collected by <b>Ezidebit as a one-off payment</b> scheduled after the cooling-off period. Set this on the next step.
+          </div>
+          <div id="depMethodSol" class="choices hidden">
+            <div class="choice sel" data-val="ezidebit"><div class="ct">Ezidebit one-off</div><div class="cd">50% taken as a single Ezidebit payment.</div></div>
+            <div class="choice" data-val="bank"><div class="ct">Bank transfer</div><div class="cd">50% paid by direct deposit now; proof shown to consultant.</div></div>
+          </div>
+        </div>
+
         <p class="sub" style="margin:14px 0 0;">Bank account for direct deposits: Simtec Therapeutic Limited · BNZ 02-0200-0352393-000</p>
       </div>
     </section>
@@ -534,7 +548,7 @@ function normNZ(raw){
 }
 function numOrNull(v){ v=String(v==null?"":v).replace(/[^0-9.]/g,""); return v?Number(v):null; }
 
-const S = { step:0, saleType:'', pay:'', a2:false, products:[], emailVerified:false, sentCode:null, tncRead:false, idPhotos:{A1:[],A2:[]} };
+const S = { step:0, saleType:'', pay:'', depositMethod:'ezidebit', a2:false, products:[], emailVerified:false, sentCode:null, tncRead:false, idPhotos:{A1:[],A2:[]} };
 const STEP_LABELS = ['Start','Products','Details','Referees','Terms','ID','Payment','Sign','Ezidebit','Done'];
 
 function visibleSteps(){
@@ -568,6 +582,7 @@ function showStep(ds){
   else { next.textContent='Next'; next.className='btn next'; }
   const park=document.getElementById('parkBtn'); if(park) park.style.display=(ds===9)?'none':'';
   if(ds===0) renderParked();
+  if(ds===6) updateDepositMethodUI();
   if(ds===7) buildReview();
   if(ds===8) setEziDefaults();
   renderSteps(); window.scrollTo(0,0);
@@ -604,8 +619,27 @@ function bindChoices(wrapId, cb){
     c.classList.add('sel'); cb(c.dataset.val);
   });
 }
-bindChoices('saleType', v=>{ S.saleType=v; document.getElementById('referrerBox').classList.toggle('hidden', v!=='solicited'); });
-bindChoices('payOption', v=>{ S.pay=v; renderSteps(); });
+bindChoices('saleType', v=>{ S.saleType=v; document.getElementById('referrerBox').classList.toggle('hidden', v!=='solicited'); updateDepositMethodUI(); });
+bindChoices('payOption', v=>{ S.pay=v; updateDepositMethodUI(); renderSteps(); });
+bindChoices('depMethodSol', v=>{ S.depositMethod=v; });
+
+// Show/lock the 50%-deposit collection method. Unsolicited → forced Ezidebit
+// one-off (cooling-off); solicited → consultant picks bank transfer or Ezidebit.
+function updateDepositMethodUI(){
+  const box=document.getElementById('depositMethodBox'); if(!box) return;
+  const isDep = S.pay==='deposit50';
+  box.classList.toggle('hidden', !isDep);
+  if(!isDep) return;
+  const unsol=document.getElementById('depMethodUnsol'), sol=document.getElementById('depMethodSol');
+  if(S.saleType==='unsolicited'){
+    S.depositMethod='ezidebit';               // locked — no upfront money allowed
+    unsol.classList.remove('hidden'); sol.classList.add('hidden');
+  } else {
+    unsol.classList.add('hidden'); sol.classList.remove('hidden');
+    // reflect current choice in the buttons
+    document.querySelectorAll('#depMethodSol .choice').forEach(c=>c.classList.toggle('sel', c.dataset.val===S.depositMethod));
+  }
+}
 
 document.querySelectorAll('#a2toggle button').forEach(b=>b.onclick=()=>{
   document.querySelectorAll('#a2toggle button').forEach(x=>x.classList.remove('on')); b.classList.add('on');
@@ -762,7 +796,7 @@ function snapshotFields(){
 // Gather the whole order (incl. ID photos + signatures as data URLs) into one object.
 async function collectOrder(){
   const fields=snapshotFields();
-  const flags={ saleType:S.saleType, pay:S.pay, a2:S.a2, emailVerified:S.emailVerified,
+  const flags={ saleType:S.saleType, pay:S.pay, depositMethod:S.depositMethod, a2:S.a2, emailVerified:S.emailVerified,
     acksAll:[...document.querySelectorAll('.ackbox')].every(a=>a.checked) };
   const products=S.products.filter(p=>p.name).map(p=>({name:p.name,price:p.price,qty:p.qty}));
   const wantDel=document.getElementById('wantDelivery').checked;
@@ -1073,8 +1107,9 @@ function resetForm(){
   document.querySelectorAll('main select').forEach(s=>s.selectedIndex=0);
   document.querySelectorAll('.choice.sel').forEach(c=>c.classList.remove('sel'));
   ['sigA1','sigA2','sigEzi'].forEach(clearSig);
-  Object.assign(S,{step:0,saleType:'',pay:'',a2:false,products:[],emailVerified:false,sentCode:null,tncRead:false,orderId:null,idPhotos:{A1:[],A2:[]}});
+  Object.assign(S,{step:0,saleType:'',pay:'',depositMethod:'ezidebit',a2:false,products:[],emailVerified:false,sentCode:null,tncRead:false,orderId:null,idPhotos:{A1:[],A2:[]}});
   renderIdGallery('A1'); renderIdGallery('A2');
+  const dmb=document.getElementById('depositMethodBox'); if(dmb) dmb.classList.add('hidden');
   document.querySelectorAll('#a2toggle button').forEach(x=>x.classList.toggle('on',x.dataset.v==='no'));
   document.getElementById('a2box').classList.add('hidden');
   document.getElementById('emp2card').classList.add('hidden');
@@ -1108,9 +1143,13 @@ function eziDateToIso(s){ if(!s) return null; s=String(s).trim();
   return null;
 }
 function eziGross(){ return S.products.reduce((s,p)=>s+(p.price*p.qty||0),0)+(document.getElementById('wantDelivery').checked?DELIVERY_FEE:0); }
-// For a 50% deposit, only the remaining half is financed by direct debit.
-function eziDeposit(){ return S.pay==='deposit50' ? Math.round(eziGross()*50)/100 : 0; }
-function eziTotal(){ return eziGross()-eziDeposit(); }
+// Amount paid OUTSIDE Ezidebit — only when a 50% deposit is taken by bank transfer.
+function eziBankDeposit(){ return (S.pay==='deposit50' && S.depositMethod==='bank') ? Math.round(eziGross()*50)/100 : 0; }
+// Amount Ezidebit must collect: full for a straight DD or an Ezidebit-paid deposit;
+// just the balance when the deposit was a bank transfer.
+function eziTotal(){ return eziGross()-eziBankDeposit(); }
+// When the 50% deposit itself is an Ezidebit one-off, this is the suggested one-off.
+function eziOneoffDefault(){ return (S.pay==='deposit50' && S.depositMethod==='ezidebit') ? Math.round(eziGross()*50)/100 : 0; }
 function computeEziBalance(){
   const hint=document.getElementById('eziBalanceHint'); if(!hint) return;
   const bal=Math.max(0, eziTotal()-(numOrNull(val('eziOneoffAmount'))||0));
@@ -1119,16 +1158,21 @@ function computeEziBalance(){
 // Sensible defaults on entering the step (only fills empty fields).
 function setEziDefaults(){
   const visit=val('visitDate')||null;
-  const oneoff=document.getElementById('eziOneoffDate');
+  const oneoffDate=document.getElementById('eziOneoffDate');
   const start =document.getElementById('eziPlanStart');
-  if(oneoff && !oneoff.value) oneoff.value=isoAddDays(visit,7);          // ~1 week out (after 5-day cooling-off)
-  if(start  && !start.value)  start.value =isoAddDays(oneoff.value||visit,7);
-  // 50%-deposit context: make it explicit that only the remaining half is on DD.
+  const oneoffAmt=document.getElementById('eziOneoffAmount');
+  if(oneoffDate && !oneoffDate.value) oneoffDate.value=isoAddDays(visit,7);   // ~1 week out (after 5-day cooling-off)
+  if(start  && !start.value)  start.value =isoAddDays(oneoffDate.value||visit,7);
+  // When the deposit itself is an Ezidebit one-off, pre-fill it to the 50% figure.
+  if(oneoffAmt && !oneoffAmt.value && eziOneoffDefault()>0) oneoffAmt.value=eziOneoffDefault().toFixed(2);
   const note=document.getElementById('eziDepositNote');
   if(note){
-    if(S.pay==='deposit50'){
+    if(S.pay==='deposit50' && S.depositMethod==='bank'){
       note.classList.remove('hidden');
-      note.innerHTML='<b>50% deposit order.</b> The customer pays a '+money(eziDeposit())+' deposit by direct deposit (bank transfer). Set up Ezidebit below for the remaining <b>'+money(eziTotal())+'</b> only.';
+      note.innerHTML='<b>50% deposit by bank transfer.</b> The '+money(eziBankDeposit())+' deposit is paid by direct deposit — set up Ezidebit below for the remaining <b>'+money(eziTotal())+'</b> only.';
+    } else if(S.pay==='deposit50'){
+      note.classList.remove('hidden');
+      note.innerHTML='<b>50% deposit via Ezidebit.</b> The deposit is taken as a one-off Ezidebit payment (pre-filled to '+money(eziOneoffDefault())+', dated after the cooling-off period); the remaining '+money(eziGross()-eziOneoffDefault())+' goes on the ongoing plan.';
     } else { note.classList.add('hidden'); note.innerHTML=''; }
   }
   computeEziBalance();
@@ -1204,9 +1248,10 @@ async function applyEzidebitCallback(cb){
     instalment_amount:numOrNull(cb.ramount), term_periods:numOrNull(cb.numpayments),
     first_payment_date:rIso, schedule_start_date:rIso, next_payment_date:rIso
   };
-  // On a 50% deposit order, deposit_amount already holds the 50% bank-transfer
-  // deposit — don't let an Ezidebit one-off overwrite it.
-  const oAmt=numOrNull(cb.oamount); if(oAmt!=null && S.pay!=='deposit50') upd.deposit_amount=oAmt;
+  // If the 50% deposit was paid by BANK TRANSFER, deposit_amount already holds it —
+  // don't let an Ezidebit one-off overwrite it. In every other case (full DD, or a
+  // deposit collected AS the Ezidebit one-off), the one-off IS the deposit to record.
+  const oAmt=numOrNull(cb.oamount); if(oAmt!=null && !(S.pay==='deposit50' && S.depositMethod==='bank')) upd.deposit_amount=oAmt;
   await sb.from('sim_orders').update(upd).eq('id',S.orderId);
 }
 
