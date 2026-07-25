@@ -850,17 +850,24 @@ async function saveExtrasPayload(orderId,P){
 // Returns 'saved' | 'parked' | 'error'
 async function submitOrder(){
   const done=document.getElementById('doneMsg');
+  const btn=document.getElementById('nextBtn');
+  // Visible "working" state ON THE BUTTON the consultant just tapped, so a slow
+  // or failing save never looks like a dead button (the done screen is hidden here).
+  const btnLabel=btn?btn.textContent:'';
+  const setBtn=(txt,busy)=>{ if(!btn)return; btn.textContent=txt; btn.disabled=!!busy; btn.style.opacity=busy?'0.6':''; };
   // No connection at all → park automatically (the whole reason Park exists).
   if(!navigator.onLine || !sb){
     await parkCurrent(); setDoneParked(); return 'parked';
   }
   done.textContent='Saving…';
+  setBtn('Saving…',true);
   try{
     const P=await collectOrder();
     const id=await savePayload(P);
     S.orderId=id;
     pushOrderToGhl(id);   // fire-and-forget; server-side function is INERT until configured (see below)
     setDoneSaved();
+    setBtn(btnLabel,false);
     done.textContent = S.pay==='ezidebit'
       ? 'Order saved. Complete the Ezidebit direct debit next.'
       : 'Order saved. The office will make the confirmation call before delivery is booked.';
@@ -873,10 +880,14 @@ async function submitOrder(){
     return 'saved';
   }catch(err){
     const msg=(err&&err.message)||String(err);
+    setBtn(btnLabel,false);
     // Treat network-type failures as "no coverage" → park instead of losing the order.
     if(!navigator.onLine || /fetch|network|failed to fetch|offline|timeout/i.test(msg)){
       await parkCurrent(); setDoneParked(); return 'parked';
     }
+    // Show the REAL reason right here on the review screen (alert always shows on
+    // iPad regardless of which step is visible) AND leave it on the button area.
+    alert('Order could not be saved.\n\n'+msg+'\n\nTap Park to keep the order safe on this iPad, then tell the office.');
     done.textContent='Save failed — '+msg+'. Tap Park to keep the order safe on this iPad.';
     return 'error';
   }
