@@ -105,6 +105,12 @@
   .id-tile .cam{font-size:30px;}
   .id-tile .cap{font-size:13px;font-weight:600;color:var(--navy);margin-top:6px;}
   .id-tile input{display:none;}
+  .id-tile.add{max-width:220px;}
+  .id-grid{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:10px;}
+  .id-thumb{position:relative;width:110px;height:110px;border-radius:10px;overflow:hidden;border:2px solid var(--ok);background:#000;}
+  .id-thumb img{width:100%;height:100%;object-fit:cover;display:block;}
+  .id-thumb .rmv{position:absolute;top:3px;right:3px;width:24px;height:24px;border:0;border-radius:50%;background:rgba(0,0,0,.62);color:#fff;font-size:15px;line-height:1;cursor:pointer;}
+  .id-count{font-size:12px;color:var(--muted);margin:2px 0 6px;}
   .sigwrap{border:1px solid var(--line);border-radius:12px;overflow:hidden;background:#fff;}
   .sigwrap .sighead{display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:#f6f8fb;font-size:12px;color:var(--muted);}
   canvas.sig{width:100%;height:180px;display:block;touch-action:none;background:#fff;}
@@ -354,17 +360,23 @@
       <h2 class="title">Identity documents</h2>
       <p class="sub">Photograph each applicant's ID with the iPad camera. Stored securely against the order in the encrypted documents store.</p>
       <div class="card">
-        <div class="id-grid" id="idGrid">
-          <label class="id-tile" id="idTileA1">
+        <div id="idBlockA1">
+          <h3 style="margin:0 0 8px;">Applicant 1 — ID photos</h3>
+          <div class="id-grid" id="idGridA1"></div>
+          <label class="id-tile add" id="idAddA1">
             <input type="file" accept="image/*" capture="environment" onchange="idCaptured(this,'A1')">
-            <div class="cam">📷</div><div class="cap">Applicant 1 — ID photo</div>
-          </label>
-          <label class="id-tile hidden" id="idTileA2">
-            <input type="file" accept="image/*" capture="environment" onchange="idCaptured(this,'A2')">
-            <div class="cam">📷</div><div class="cap">Applicant 2 — ID photo</div>
+            <div class="cam">📷</div><div class="cap">Add photo</div>
           </label>
         </div>
-        <p class="sub" style="margin:12px 0 0;">Tip: capture each applicant's driver's licence or passport. Tap a photo to retake.</p>
+        <div id="idBlockA2" class="hidden" style="margin-top:18px;padding-top:18px;border-top:1px solid var(--line);">
+          <h3 style="margin:0 0 8px;">Applicant 2 — ID photos</h3>
+          <div class="id-grid" id="idGridA2"></div>
+          <label class="id-tile add" id="idAddA2">
+            <input type="file" accept="image/*" capture="environment" onchange="idCaptured(this,'A2')">
+            <div class="cam">📷</div><div class="cap">Add photo</div>
+          </label>
+        </div>
+        <p class="sub" style="margin:12px 0 0;">Capture the front and back of each licence, a passport, or any supporting ID — add as many photos as you need. Tap a photo's ✕ to remove it.</p>
       </div>
     </section>
 
@@ -409,6 +421,7 @@
     <section class="step" data-step="8">
       <h2 class="title">Ezidebit direct debit</h2>
       <p class="sub">Set the schedule, then the customer completes their payment details and signs the direct-debit authority.</p>
+      <div id="eziDepositNote" class="note hidden" style="margin-bottom:12px;background:#fff8e8;border-color:#f0dca8;color:#7a5b12;"></div>
 
       <!-- schedule builder -->
       <div class="card">
@@ -521,12 +534,14 @@ function normNZ(raw){
 }
 function numOrNull(v){ v=String(v==null?"":v).replace(/[^0-9.]/g,""); return v?Number(v):null; }
 
-const S = { step:0, saleType:'', pay:'', a2:false, products:[], emailVerified:false, sentCode:null, tncRead:false };
+const S = { step:0, saleType:'', pay:'', a2:false, products:[], emailVerified:false, sentCode:null, tncRead:false, idPhotos:{A1:[],A2:[]} };
 const STEP_LABELS = ['Start','Products','Details','Referees','Terms','ID','Payment','Sign','Ezidebit','Done'];
 
 function visibleSteps(){
   let arr=[0,1,2,3,4,5,6,7];
-  if(S.pay==='ezidebit') arr.push(8);
+  // Ezidebit step is needed both for a full direct-debit AND for a 50% deposit
+  // (the remaining 50% is collected by direct debit).
+  if(S.pay==='ezidebit' || S.pay==='deposit50') arr.push(8);
   arr.push(9);
   return arr;
 }
@@ -547,7 +562,7 @@ function showStep(ds){
   const back=document.getElementById('backBtn'), next=document.getElementById('nextBtn');
   back.style.visibility=(ds===visibleSteps()[0])?'hidden':'visible';
   next.classList.remove('hidden'); back.classList.remove('hidden');
-  if(ds===7){ next.textContent=(S.pay==='ezidebit')?'Submit & set up Ezidebit':'Submit order'; next.className='btn submit'; }
+  if(ds===7){ next.textContent=(S.pay==='ezidebit'||S.pay==='deposit50')?'Submit & set up Ezidebit':'Submit order'; next.className='btn submit'; }
   else if(ds===8){ next.textContent='Finish'; next.className='btn submit'; }
   else if(ds===9){ next.classList.add('hidden'); back.classList.add('hidden'); }
   else { next.textContent='Next'; next.className='btn next'; }
@@ -597,7 +612,7 @@ document.querySelectorAll('#a2toggle button').forEach(b=>b.onclick=()=>{
   S.a2=b.dataset.v==='yes';
   document.getElementById('a2box').classList.toggle('hidden',!S.a2);
   document.getElementById('emp2card').classList.toggle('hidden',!S.a2);
-  document.getElementById('idTileA2').classList.toggle('hidden',!S.a2);
+  document.getElementById('idBlockA2').classList.toggle('hidden',!S.a2);
   document.getElementById('sigA2card').classList.toggle('hidden',!S.a2);
   document.getElementById('emp1Head').textContent='Employment & income — Applicant '+(S.a2?'1':'1');
 });
@@ -646,16 +661,47 @@ function checkCode(){
 // ----- T&Cs gate -----
 function tncScrolled(el){ if(el.scrollTop+el.clientHeight>=el.scrollHeight-8){ S.tncRead=true; document.getElementById('tncAgree').disabled=false; } }
 
-// ----- ID capture (STUB) -----
-function idCaptured(input,who){
-  const f=input.files[0]; if(!f) return;
-  const url=URL.createObjectURL(f);
-  const tile=document.getElementById('idTile'+who);
-  tile.classList.add('filled');
-  const cam=tile.querySelector('.cam'); if(cam) cam.remove();
-  let img=tile.querySelector('img'); if(!img){img=document.createElement('img');tile.appendChild(img);} img.src=url;
-  const cap=tile.querySelector('.cap'); if(cap) cap.textContent=who+' ID ✓ (tap to retake)';
+// ----- ID capture (multiple photos per applicant) -----
+// Photos are downscaled before storage so several fit comfortably in the offline
+// park (localStorage) and upload fast. ~1600px longest edge / JPEG q0.72 keeps a
+// licence perfectly legible at a few hundred KB instead of multiple MB.
+function downscaleImage(file, maxDim=1600, quality=0.72){
+  return new Promise(async res=>{
+    const durl=await fileToDataURL(file); if(!durl) return res(null);
+    const img=new Image();
+    img.onload=()=>{
+      try{
+        let w=img.naturalWidth||img.width, h=img.naturalHeight||img.height;
+        const scale=Math.min(1, maxDim/Math.max(w,h));
+        w=Math.max(1,Math.round(w*scale)); h=Math.max(1,Math.round(h*scale));
+        const c=document.createElement('canvas'); c.width=w; c.height=h;
+        c.getContext('2d').drawImage(img,0,0,w,h);
+        res(c.toDataURL('image/jpeg', quality));
+      }catch(e){ res(durl); }   // fallback: keep original if canvas is blocked
+    };
+    img.onerror=()=>res(durl);
+    img.src=durl;
+  });
 }
+async function idCaptured(input,who){
+  const f=input.files&&input.files[0]; if(!f) return;
+  const add=document.getElementById('idAdd'+who); const cap=add&&add.querySelector('.cap');
+  if(cap) cap.textContent='Processing…';
+  try{
+    const durl=await downscaleImage(f);
+    if(durl){ (S.idPhotos[who]=S.idPhotos[who]||[]).push(durl); renderIdGallery(who); }
+  }catch(e){ alert('Could not add that photo: '+(e.message||e)); }
+  if(cap) cap.textContent='Add photo';
+  input.value='';   // reset so the same slot can capture the next photo
+}
+function renderIdGallery(who){
+  const grid=document.getElementById('idGrid'+who); if(!grid) return;
+  const arr=S.idPhotos[who]||[];
+  grid.innerHTML=arr.map((durl,i)=>
+    '<div class="id-thumb"><img src="'+durl+'"><button class="rmv" type="button" onclick="removeIdPhoto(\''+who+'\','+i+')">✕</button></div>'
+  ).join('');
+}
+function removeIdPhoto(who,i){ (S.idPhotos[who]||[]).splice(i,1); renderIdGallery(who); }
 
 // ----- signature pads -----
 const pads={};
@@ -720,7 +766,7 @@ async function collectOrder(){
     acksAll:[...document.querySelectorAll('.ackbox')].every(a=>a.checked) };
   const products=S.products.filter(p=>p.name).map(p=>({name:p.name,price:p.price,qty:p.qty}));
   const wantDel=document.getElementById('wantDelivery').checked;
-  const files={ idA1:await fileToDataURL(fileOf('A1')), idA2:(S.a2?await fileToDataURL(fileOf('A2')):null),
+  const files={ idA1:(S.idPhotos.A1||[]).slice(), idA2:(S.a2?(S.idPhotos.A2||[]).slice():[]),
     sigA1:canvasDataURL('sigA1'), sigA2:(S.a2?canvasDataURL('sigA2'):null), sigEzi:canvasDataURL('sigEzi') };
   const customerName=((fields.a1first||'')+' '+(fields.a1last||'')).trim()||'(no name)';
   return { v:1, savedAt:Date.now(), customerName, fields, flags, products, wantDel, files };
@@ -824,8 +870,28 @@ async function saveExtrasPayload(orderId,P){
       else uploads[key]=path;
     }catch(e){ failed.push(label); console.warn('upload threw',sub,e.message||e); }
   };
-  await put('id_a1', files.idA1, 'id-applicant1', 'Applicant 1 ID photo');
-  if(fl.a2) await put('id_a2', files.idA2, 'id-applicant2', 'Applicant 2 ID photo');
+  // ID photos: each applicant can have MANY. Store them all under
+  // {orderId}/id-applicant{1,2}/{n}.jpg; the applications row keeps the first as
+  // the primary path (back-compat) plus the full count. The office retrieves the
+  // whole set by listing that folder.
+  const putMany=async(list,folder,label)=>{
+    const arr=Array.isArray(list)?list:(list?[list]:[]);
+    const paths=[];
+    for(let i=0;i<arr.length;i++){
+      const sub=folder+'/'+(i+1)+'.jpg';
+      try{
+        const blob=dataURLtoBlob(arr[i]); const path=orderId+'/'+sub;
+        const {error}=await sb.storage.from('order-documents').upload(path,blob,{upsert:true,contentType:blob.type||'image/jpeg'});
+        if(error){ failed.push(label+' '+(i+1)); console.warn('upload failed',sub,error.message||error); }
+        else paths.push(path);
+      }catch(e){ failed.push(label+' '+(i+1)); console.warn('upload threw',sub,e.message||e); }
+    }
+    return paths;
+  };
+  const idA1Paths=await putMany(files.idA1,'id-applicant1','Applicant 1 ID photo');
+  const idA2Paths=fl.a2?await putMany(files.idA2,'id-applicant2','Applicant 2 ID photo'):[];
+  uploads.id_a1=idA1Paths[0]||null;
+  uploads.id_a2=idA2Paths[0]||null;
   await put('sig_a1', files.sigA1, 'signature1.png', 'Applicant 1 signature');
   if(fl.a2) await put('sig_a2', files.sigA2, 'signature2.png', 'Applicant 2 signature');
   const row={
@@ -1007,13 +1073,12 @@ function resetForm(){
   document.querySelectorAll('main select').forEach(s=>s.selectedIndex=0);
   document.querySelectorAll('.choice.sel').forEach(c=>c.classList.remove('sel'));
   ['sigA1','sigA2','sigEzi'].forEach(clearSig);
-  document.querySelectorAll('#idTile A1,#idTileA1,#idTileA2').forEach(()=>{});
-  ['A1','A2'].forEach(w=>{ const t=document.getElementById('idTile'+w); if(t){ t.classList.remove('filled'); const img=t.querySelector('img'); if(img)img.remove(); if(!t.querySelector('.cam')){ const c=document.createElement('div'); c.className='cam'; c.textContent='📷'; t.insertBefore(c,t.querySelector('.cap')); } const cap=t.querySelector('.cap'); if(cap)cap.textContent=(w==='A1'?'Applicant 1':'Applicant 2')+' — ID photo'; const inp=t.querySelector('input'); if(inp)inp.value=''; } });
-  Object.assign(S,{step:0,saleType:'',pay:'',a2:false,products:[],emailVerified:false,sentCode:null,tncRead:false,orderId:null});
+  Object.assign(S,{step:0,saleType:'',pay:'',a2:false,products:[],emailVerified:false,sentCode:null,tncRead:false,orderId:null,idPhotos:{A1:[],A2:[]}});
+  renderIdGallery('A1'); renderIdGallery('A2');
   document.querySelectorAll('#a2toggle button').forEach(x=>x.classList.toggle('on',x.dataset.v==='no'));
   document.getElementById('a2box').classList.add('hidden');
   document.getElementById('emp2card').classList.add('hidden');
-  document.getElementById('idTileA2').classList.add('hidden');
+  document.getElementById('idBlockA2').classList.add('hidden');
   document.getElementById('sigA2card').classList.add('hidden');
   document.getElementById('referrerBox').classList.add('hidden');
   document.getElementById('verifyRow').classList.add('hidden');
@@ -1042,7 +1107,10 @@ function eziDateToIso(s){ if(!s) return null; s=String(s).trim();
   m=/^(\d{1,2})\/(\d{1,2})\/(\d{4})/.exec(s); if(m) return m[3]+'-'+String(m[2]).padStart(2,'0')+'-'+String(m[1]).padStart(2,'0');
   return null;
 }
-function eziTotal(){ return S.products.reduce((s,p)=>s+(p.price*p.qty||0),0)+(document.getElementById('wantDelivery').checked?DELIVERY_FEE:0); }
+function eziGross(){ return S.products.reduce((s,p)=>s+(p.price*p.qty||0),0)+(document.getElementById('wantDelivery').checked?DELIVERY_FEE:0); }
+// For a 50% deposit, only the remaining half is financed by direct debit.
+function eziDeposit(){ return S.pay==='deposit50' ? Math.round(eziGross()*50)/100 : 0; }
+function eziTotal(){ return eziGross()-eziDeposit(); }
 function computeEziBalance(){
   const hint=document.getElementById('eziBalanceHint'); if(!hint) return;
   const bal=Math.max(0, eziTotal()-(numOrNull(val('eziOneoffAmount'))||0));
@@ -1055,6 +1123,14 @@ function setEziDefaults(){
   const start =document.getElementById('eziPlanStart');
   if(oneoff && !oneoff.value) oneoff.value=isoAddDays(visit,7);          // ~1 week out (after 5-day cooling-off)
   if(start  && !start.value)  start.value =isoAddDays(oneoff.value||visit,7);
+  // 50%-deposit context: make it explicit that only the remaining half is on DD.
+  const note=document.getElementById('eziDepositNote');
+  if(note){
+    if(S.pay==='deposit50'){
+      note.classList.remove('hidden');
+      note.innerHTML='<b>50% deposit order.</b> The customer pays a '+money(eziDeposit())+' deposit by direct deposit (bank transfer). Set up Ezidebit below for the remaining <b>'+money(eziTotal())+'</b> only.';
+    } else { note.classList.add('hidden'); note.innerHTML=''; }
+  }
   computeEziBalance();
 }
 
@@ -1128,7 +1204,9 @@ async function applyEzidebitCallback(cb){
     instalment_amount:numOrNull(cb.ramount), term_periods:numOrNull(cb.numpayments),
     first_payment_date:rIso, schedule_start_date:rIso, next_payment_date:rIso
   };
-  const oAmt=numOrNull(cb.oamount); if(oAmt!=null) upd.deposit_amount=oAmt;
+  // On a 50% deposit order, deposit_amount already holds the 50% bank-transfer
+  // deposit — don't let an Ezidebit one-off overwrite it.
+  const oAmt=numOrNull(cb.oamount); if(oAmt!=null && S.pay!=='deposit50') upd.deposit_amount=oAmt;
   await sb.from('sim_orders').update(upd).eq('id',S.orderId);
 }
 
