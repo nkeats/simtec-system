@@ -679,11 +679,25 @@ function upQty(i,v){ S.products[i].qty=Math.max(1,parseInt(v||1)); renderProduct
 function rmP(i){ S.products.splice(i,1); if(S.products.length===0) addProduct(); else renderProducts(); }
 
 // ----- email verify (STUB) -----
-function sendCode(){
+async function sendCode(){
   const em=val('email'); if(!em){alert('Enter an email first.');return;}
+  const btn=document.getElementById('sendCodeBtn');
   S.sentCode=String(Math.floor(100000+Math.random()*900000));
   document.getElementById('verifyRow').classList.remove('hidden');
-  document.getElementById('verifyState').innerHTML='<span class="badge wait">● Code sent to '+esc(em)+'</span> <span class="stub">(prototype shows it: '+S.sentCode+')</span>';
+  const state=document.getElementById('verifyState');
+  state.innerHTML='<span class="badge wait">● Sending code…</span>';
+  if(btn) btn.disabled=true;
+  try{
+    if(!sb || !sb.functions) throw new Error('no connection');
+    const {data,error}=await sb.functions.invoke('send-verify-code',{ body:{ email:em, code:S.sentCode } });
+    if(error) throw error;
+    if(data && data.status==='disabled')
+      state.innerHTML='<span class="badge wait">● Code sender not switched on yet.</span>';
+    else
+      state.innerHTML='<span class="badge wait">● Code sent to '+esc(em)+' — ask the customer to read it back.</span>';
+  }catch(e){
+    state.innerHTML='<span class="badge wait">✕ Could not send the code ('+esc(e&&e.message||e)+'). Check the address and retry.</span>';
+  }finally{ if(btn) btn.disabled=false; }
 }
 function checkCode(){
   if(val('codeInput')===S.sentCode){ S.emailVerified=true;
