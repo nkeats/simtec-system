@@ -530,6 +530,10 @@ function orderSection(o, items, pays, open){
     <table><thead><tr><th>Date</th><th class="num">Amount</th></tr></thead><tbody>${payRows}</tbody></table></div>`;
 
   const oid=o.id;
+  // Identity documents — admin/manager only. Photos live in the private
+  // order-documents bucket; fetched on demand via short-lived signed URLs.
+  const iddocs = isMgr() ? `<div class="card full"><h2>Identity documents</h2>
+    <div id="iddocs_${oid}"><button onclick="loadIdDocs('${oid}')" style="background:#122347;color:#fff;border:none;border-radius:7px;padding:7px 14px;font-size:13px;font-weight:600;cursor:pointer">View ID documents</button></div></div>` : "";
   return `<div class="ordsec">
     <div class="ordhd" onclick="togOrder('${oid}')">
       <span class="caret" id="car_${oid}">${open?"▾":"▸"}</span>
@@ -540,7 +544,7 @@ function orderSection(o, items, pays, open){
     </div>
     <div class="ordbody" id="ord_${oid}" style="display:${open?"":"none"}">
       <div style="display:flex;justify-content:flex-end;align-items:center;flex-wrap:wrap;gap:6px;margin:0 0 12px">${actions}</div>
-      <div class="cards">${sale}${money}${delivery}${products}${history}</div>
+      <div class="cards">${sale}${money}${delivery}${products}${iddocs}${history}</div>
     </div>
   </div>`;
 }
@@ -548,6 +552,25 @@ function togOrder(oid){
   const b=document.getElementById("ord_"+oid), c=document.getElementById("car_"+oid);
   const shown=b.style.display!=="none";
   b.style.display=shown?"none":""; c.textContent=shown?"▸":"▾";
+}
+// Load an order's ID photos on demand (admin/manager only). Lists both applicant
+// folders in the private bucket and renders each via a 1-hour signed URL.
+async function loadIdDocs(oid){
+  const box=document.getElementById("iddocs_"+oid); if(!box) return;
+  box.innerHTML='<span class="muted">Loading…</span>';
+  try{
+    const photos=[];
+    for(const sub of ["id-applicant1","id-applicant2"]){
+      const {data:files}=await sb.storage.from("order-documents").list(oid+"/"+sub,{limit:100});
+      for(const f of (files||[])){
+        if(!f.name || f.name===".emptyFolderPlaceholder") continue;
+        const {data:signed}=await sb.storage.from("order-documents").createSignedUrl(oid+"/"+sub+"/"+f.name, 3600);
+        if(signed&&signed.signedUrl) photos.push({who:sub==="id-applicant2"?"Applicant 2":"Applicant 1", url:signed.signedUrl});
+      }
+    }
+    if(!photos.length){ box.innerHTML='<span class="muted">No ID documents on file for this order.</span>'; return; }
+    box.innerHTML=photos.map(p=>`<a href="${p.url}" target="_blank" title="${p.who} — open full size" style="display:inline-block;margin:0 12px 12px 0;text-align:center;text-decoration:none"><img src="${p.url}" style="width:160px;height:160px;object-fit:cover;border:1px solid #cbd4df;border-radius:8px;display:block"><span class="muted" style="font-size:11px">${p.who}</span></a>`).join("");
+  }catch(e){ box.innerHTML='<span style="color:var(--red)">Could not load documents: '+esc(e.message||e)+'</span>'; }
 }
 
 // ---------- actions (all scoped to one order) ----------
