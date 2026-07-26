@@ -1,81 +1,71 @@
 # Simtec Order System — Handover
 
-_Last updated: 25 July 2026_
+_Last updated: 26 July 2026_
 
-**One-line status:** Order app is live and working end-to-end (submit → save → order PDF → GHL contact). Email delivery is being moved OFF the slow/unreliable GHL-Mailgun path ONTO Resend for both the verification code and the welcome email. We stopped mid-way through setting up a Resend account (Path B).
-
----
-
-## ▶ IMMEDIATE NEXT ACTION — finish the Resend setup (Path B)
-
-We are standing up a **new, self-owned Resend account** to send email fast (GHL/Mailgun was taking ~10 min or not delivering at all — unusable because the welcome email is confirmed on the immediate confirmation call).
-
-Steps, in order:
-
-1. Create a free account at **resend.com** (free tier is plenty).
-2. Domains → Add Domain → enter **`tx.simtectp.com`** (the `tx` subdomain deliberately avoids clashing with the existing `resend._domainkey` and the `send`/`mail` records already in the zone). Pick the default region.
-3. Resend shows DNS records (MX + SPF TXT + DKIM TXT). Add them at **Digital Pacific** DNS (same place we added the Mailgun records). Then click Verify in Resend. _Claude can verify each record is live via `https://dns.google/resolve?name=…&type=…` before you hit Verify._
-4. Resend → API Keys → create one.
-5. In Supabase → Edge Functions → **`send-verify-code`**: create the function (paste `supabase/functions/send-verify-code/index.ts`), deploy it, and set secrets:
-   - `RESEND_API_KEY` = the key from step 4
-   - `RESEND_FROM` = `Simtec Therapeutic <noreply@tx.simtectp.com>`
-6. Push `order-app.html` (already updated). Test: on an order, "Send code" should email a 6-digit code that arrives in **seconds**.
-
-**Then (still to build):** move the **welcome/confirmation email** onto Resend too, sent instantly by the edge function on order submit. This needs the T&Cs / 15-yr warranty / 30-day guarantee PDFs at public URLs (simplest: drop them in the repo). Once that's live, switch OFF the GHL confirmation-email workflow.
+**Status:** Order-taking system is built and largely live. Email (verification codes + welcome email) runs on Resend, fast and reliable. A pre-go-live security review has been done and its fixes applied. The remaining milestone is the **Ezidebit production switch** (still on sandbox).
 
 ---
 
-## What is LIVE and working
+## ⚠ DEPLOYMENT STATUS — do these to be fully live
 
-- **Order app** — `nkeats.github.io/simtec-system/order-app.html`. Staff-only login gate (`admin, manager, office`; consultants excluded until go-live). Full flow works: products → customer → ID → payment → sign → submit → saves to Supabase, generates a one-page order-summary PDF, pushes a GHL contact.
-- **Email domain authentication** — `mg.simtectp.com` fully verified in GHL (SPF, DKIM, DMARC, both MX green). This authenticates the GHL sending path (which we're nonetheless retiring for speed).
-- **Idempotency** — `ghl-order-push` edge function claims each order once (`sim_orders.ghl_pushed_at`), so one order = one GHL push, even if invoked multiple times.
-- **Test data cleaned** — all app test orders + their commission rows removed from Supabase; figures back to normal.
+**1. PUSH `order-app.html`** — this is the important one. The live GitHub copy is **stale** (missing the full T&Cs, the Ezidebit schedule on the summary, the address fix, and the security fixes). The correct file is in the repo folder already — it just wasn't in the last push. Commit + push `order-app.html` (make sure it's ticked in GitHub Desktop's changes). Live should then be ~1333 lines and contain "Ezidebit payment schedule" and "Continuing Payment Obligation".
 
-## Changed this session — deploy status
+**2. Confirm the two SQL scripts ran** (run the verify queries at the bottom of each): `storage-policy-fix.sql` and `applications-rls-fix.sql`.
 
-| Change | Where | Deployed? |
-|---|---|---|
-| Multiple ID photos per applicant (auto-compressed) | order-app.html | in repo — **push to deploy** |
-| 50% deposit → Ezidebit, with deposit-method logic | order-app.html | in repo — **push to deploy** |
-| "Send code" calls `send-verify-code` (real email) | order-app.html | in repo — **push to deploy** |
-| Visible submit errors (no more dead button) | order-app.html | LIVE |
-| Idempotency guard | ghl-order-push/index.ts | LIVE (redeployed) |
-| `send-verify-code` function | new edge function | **not yet created in Supabase** (inert until RESEND_API_KEY set) |
-| `ghl_pushed_at` column | sim_orders | LIVE (SQL run) |
+**3. Confirm the two edge functions were redeployed** in the Supabase dashboard (recent "deployed" timestamp): `ghl-order-push` and `send-verify-code` — both now role-gated.
 
-_Note: `order-app.html` in the repo has several unpushed changes bundled together — one push deploys them all._
+**Confirmed live:** `customer-detail.html` (ID-document viewer) is deployed. RLS is enabled on all sensitive tables; the `order-documents` bucket is private.
 
-### Deposit-method logic (for reference)
-- **Unsolicited sale + 50% deposit** → locked to Ezidebit one-off (5-day cooling-off means no upfront money); Ezidebit covers 100% (one-off 50% + plan 50%).
-- **Solicited sale + 50% deposit** → consultant chooses: Bank transfer (Ezidebit covers remaining 50%) OR Ezidebit one-off (covers 100%).
+---
 
-## Full pending list
+## What the system does now
 
-1. **Finish Resend (Path B)** — see top of doc. Unblocks all fast email.
-2. **Welcome email → Resend** — build the instant send; retire the GHL workflow email.
-3. **Push `order-app.html`** — deploys the multiple-photos, deposit, and code-sender changes.
-4. **Ezidebit production switch** (currently SANDBOX): in `order-app.html`, `EZI_EDDR_BASE` demo→`secure.ezidebit.com.au`, `EZI_PUBLIC_KEY`→live key; whitelist the return URL with Ezidebit; verify payer-ref matching (cref vs uref).
-5. **Delete GHL test contacts** (cosmetic) — search `nigel+`, `nigelkeats3004`, and leftover "Test"/"TEST3" contacts; bulk-delete.
-6. **Consultant go-live** — add `,consultant` to the order-app `data-roles`, and add a "New Order" button to `my-sales.html`.
+- **Order app** (`order-app.html`, iPad, staff-gated `admin/manager/office`): products → customer → **email verification (real code via Resend)** → ID docs (**multiple photos per applicant**, auto-compressed) → payment (full / **50% deposit** / Ezidebit) → **full T&Cs** (scroll-to-enable) → sign → submit → **Ezidebit step** (for deposit/DD) → Done. On Done it regenerates the order-summary PDF **with the Ezidebit schedule**, pushes a GHL contact, and sends the welcome email.
+- **50% deposit logic:** unsolicited sale → deposit locked to an Ezidebit one-off (cooling-off); solicited → choose bank transfer or Ezidebit; Ezidebit finances the balance accordingly.
+- **Email (all via Resend, instant):** the verification code (`send-verify-code`) and the welcome email (built into `ghl-order-push`) both go through Resend on the verified `simtectp.com` domain — NOT the old slow GHL/Mailgun path. The GHL confirmation-email workflow is OFF. GHL keeps the **contact** for the office's confirmation call. Welcome email attaches the order-summary PDF + T&Cs + 15-yr warranty, and the 30-day guarantee **only** for Mk III Queen / Super King.
+- **Customer page** (`customer-detail.html`): admin/manager can view an order's **ID documents** (signed-URL viewer).
+- **Idempotency:** one GHL push / one welcome email per order (`sim_orders.ghl_pushed_at` claim).
 
-## Open issue / decision made
-- **GHL/Mailgun email is unreliable** — sometimes ~10 min late, sometimes never delivered, even when the GHL contact is created correctly. Decision: stop using it for email; send both the code and the welcome email via **Resend** (direct transactional, instant). GHL keeps the **contact** (for the office's confirmation call), not the email.
+## Security posture (after the review + fixes)
+
+Confirmed: RLS enabled on all sensitive tables; `order-documents` bucket private; storage reads locked to admin/manager; consultants scoped to their own orders (incl. the `sim_order_applications` fix); both edge functions role-gated to order-takers; welcome-email signed URL cut to 7 days; double-submit guard; Ezidebit schedule-save errors surfaced; `esc()` hardened; no bank data touches the app (hosted eDDR iframe).
+
+See `SECURITY-REVIEW.md` for the full findings. Remaining, non-blocking items are listed there and below.
+
+## Pending — Ezidebit production go-live (the last milestone)
+
+Ezidebit is still on **sandbox**. You don't give Ezidebit access to your system — you get **production credentials from Ezidebit** and register your callback URL. Steps:
+
+1. From Ezidebit (Ezionline portal / account manager): the **production Public Key** (for the eDDR form), the **production Digital Key** (server-side secret for API reconciliation), confirmation the **eDDR is enabled**, and your **return URL** (`ezidebit-return.html` on the GitHub Pages domain) **whitelisted**.
+2. App switch: point the form at `secure.ezidebit.com.au` with the live public key (ideally behind a single `EZI_LIVE` flag so it can't be half-switched).
+3. **Build server-side reconciliation** (the security-critical part, review finding H2): a small edge function that calls the Ezidebit API with the Digital Key to confirm the direct debit actually exists before the order is trusted as funded — because the current browser callback can be faked.
+4. Test one real direct-debit setup end to end.
+
+## Other pending (non-blocking, from the review)
+
+- **Offline-synced (parked) orders** don't push to GHL / send the welcome email — they bypass the confirmation pipeline. (H4)
+- **Abandoned orders** (saved at Submit, never reach Done) get no GHL contact / email; consider pushing the contact at save time + a server-side sweep. (H5)
+- The park/offline flow can hit the iPad localStorage quota with many photos; move the queue to IndexedDB. (H3)
+- Set `ALLOWED_ORIGIN` on the edge functions (currently defaults to `*`); add rate-limiting to `send-verify-code`; pull and review the `manage-users` edge function for a server-side admin check.
+- Consultant go-live: add `,consultant` to the order-app `data-roles` + a "New Order" button on `my-sales.html`.
+- Delete leftover GHL **test contacts** (cosmetic).
 
 ---
 
 ## Technical reference
 
-- **Repo:** `github.com/nkeats/simtec-system` — GitHub Pages auto-deploys static HTML on push. Local copy: `D:\SIMTEC\Simtec NZ\System Apps\GitHub\simtec-system`.
-- **Edge functions do NOT auto-deploy** — deploy manually in the Supabase dashboard (Edge Functions → paste `index.ts` → Deploy).
-- **Supabase project ref:** `jvqjoenaungubpoegyvf`. Publishable key: `sb_publishable_J4MYTdJJyEaWe-GadpwdYA_upPT2rKw`.
-- **GHL:** agency "Matus", NZ location `s78O4hTnREBpEQAmR2aI` ("Simtec Therapeutic"). Isolation tag: `simtec-app-order`. Guarantee tag: `comfort-guarantee`.
-- **DNS:** Digital Pacific (nameservers aussiedns.net.au). Root email on Microsoft 365.
-- **Secrets to set on `send-verify-code`:** `RESEND_API_KEY`, `RESEND_FROM`. (`ghl-order-push` uses `GHL_NZ_TOKEN`, `GHL_NZ_LOCATION_ID`, `GHL_APP_TAG`, `GHL_GUARANTEE_TAG`.)
+- **Repo:** `github.com/nkeats/simtec-system` — GitHub Pages auto-deploys static HTML on push. Local: `D:\SIMTEC\Simtec NZ\System Apps\GitHub\simtec-system`. **Edge functions deploy manually** in the Supabase dashboard (paste `index.ts` → Deploy) — they do NOT deploy from git.
+- **Supabase project:** `jvqjoenaungubpoegyvf`. Publishable (browser) key: `sb_publishable_J4MYTdJJyEaWe-GadpwdYA_upPT2rKw` (public by design).
+- **Edge functions:** `ghl-order-push` (GHL contact + welcome email + idempotency), `send-verify-code` (Resend code), `ghl-au-contacts` (AU), plus a `manage-users` (referenced by users.html; review it).
+- **Secrets (project-wide, in Supabase):** `RESEND_API_KEY`, `RESEND_FROM` (`Simtec Therapeutic <noreply@simtectp.com>`), `WELCOME_DOC_TERMS` / `WELCOME_DOC_WARRANTY` / `WELCOME_DOC_GUARANTEE` (GHL media URLs of the PDFs), `GHL_NZ_TOKEN` / `GHL_NZ_LOCATION_ID` / `GHL_APP_TAG` / `GHL_GUARANTEE_TAG`.
+- **Resend:** account under `nigel@simtectp.com`; `simtectp.com` verified.
+- **GHL:** NZ location `s78O4hTnREBpEQAmR2aI`. Isolation tag `simtec-app-order`, guarantee tag `comfort-guarantee`. Confirmation-email workflow is OFF (email moved to Resend).
+- **Ezidebit (sandbox):** `order-app.html` `EZI_EDDR_BASE` (demo) + `EZI_PUBLIC_KEY` (sandbox). eDDR address params: `addr`=street, `suburb`=suburb, `state`=city, `pCode`=postcode. Reconciliation key `uRef` = order UUID.
 
-### Gotchas learned this session
-- **Outlook/M365 does NOT support `+` (plus) addressing** — `nigel+test@simtectp.com` bounces. Gmail DOES. Use a fresh Gmail alias (`nigelkeats3004+t1@gmail.com`) for testing, and expect real customers on normal addresses.
-- **A brand-new sending domain gets greylisted** by Gmail (delayed first emails) — one reason we're using Resend's warm IPs instead of the fresh Mailgun domain.
-- **GHL "Contact Tag" workflows:** turn re-entry **ON** (so repeat customers get emails) and rely on the edge-function idempotency to prevent duplicates — NOT re-entry off (which blocks repeat customers and re-tests).
-- **GHL & Supabase detail pages don't render in browser automation** (blank) — Claude can't "look" at them; needs screenshots or SQL/DNS queries instead.
-- **Edge function auth:** validate the caller JWT with `getUser(token)` using the SERVICE_ROLE key (the anon key can be disabled on this project).
+### Gotchas learned
+- **Outlook/M365 doesn't support `+` addressing** — test with a real Gmail alias (`nigelkeats3004+t1@gmail.com`); Gmail supports it.
+- **New sending domains get greylisted** by Gmail (delayed first emails) — why email moved to Resend's warm IPs.
+- **GHL & Supabase detail pages render blank in browser automation** — needs screenshots or SQL/DNS queries.
+- **Supabase SQL editor commits per statement** — `create temp table ... on commit drop` gets dropped mid-script; use inline subqueries instead.
+- **Windows opens `.ts` as video** — deliver edge-function code as `.txt` to open in Notepad.
+- **Every app-pushed order has `ghl_pushed_at` set** — the clean way to identify app (test) orders vs real imported orders (which have it NULL).
