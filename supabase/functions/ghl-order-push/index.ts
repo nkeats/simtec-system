@@ -120,6 +120,26 @@ serve(async (req) => {
   );
 
   try {
+    // --- IDEMPOTENCY CLAIM -----------------------------------------------------
+    // Atomically "claim" this order exactly once. The UPDATE ... WHERE
+    // ghl_pushed_at IS NULL succeeds for only the FIRST invocation (Postgres row
+    // lock); every later/duplicate call — whatever its source (client retry, a
+    // GHL tag event firing more than once, etc.) — gets zero rows back and exits
+    // WITHOUT re-tagging. That guarantees the confirmation-email workflow (keyed
+    // to the tag we apply below) fires exactly once per order. Setting only
+    // ghl_pushed_at leaves order_status untouched, so the cancel triggers no-op.
+    const { data: claim, error: claimErr } = await admin
+      .from("sim_orders")
+      .update({ ghl_pushed_at: new Date().toISOString() })
+      .eq("id", orderId)
+      .is("ghl_pushed_at", null)
+      .select("id");
+    if (claimErr) { console.error("idempotency claim failed", claimErr.message); return json({ error: "claim failed" }, 500); }
+    if (!claim || claim.length === 0) {
+      console.info("ghl-order-push: order already pushed, skipping", orderId);
+      return json({ status: "duplicate-skipped" }, 200);
+    }
+
     // Pull the order + its customer (server-side; never trust client-supplied PII).
     const { data: order, error: oErr } = await admin
       .from("sim_orders")
@@ -211,7 +231,58 @@ serve(async (req) => {
       .eq("id", cust.id);
     if (wErr) console.error("ghl_contact_id writeback failed", wErr.message); // non-fatal
 
-    return json({ status: "ok", contactId, tagged: true });
+    // --- INSTANT WELCOME EMAIL via Resend --------------------------------------
+    // Sent directly here (not via a GHL workflow) so it lands in the customer's
+    // inbox in seconds — before the office's confirmation call connects. Attaches
+    // the per-order summary PDF plus the static docs (T&Cs, warranty, and the
+    // 30-day guarantee only when the order qualifies). Best-effort: a mail failure
+    // is logged but never fails the order or the GHL sync.
+    //   SECRETS: RESEND_API_KEY, RESEND_FROM   (shared with send-verify-code)
+    //   DOC URLS (optional): WELCOME_DOC_TERMS, WELCOME_DOC_WARRANTY, WELCOME_DOC_GUARANTEE
+    let emailed = false;
+    try {
+      const resendKey = Deno.env.get("RESEND_API_KEY");
+      if (resendKey && cust.email) {
+        const from = Deno.env.get("RESEND_FROM") || "Simtec Therapeutic <noreply@simtectp.com>";
+        const first = cust.first_name || "there";
+        const attach: Array<{ path: string; filename: string }> = [];
+        if (pdfLink) attach.push({ path: pdfLink, filename: "Order-Summary.pdf" });
+        const terms = Deno.env.get("WELCOME_DOC_TERMS");
+        const warranty = Deno.env.get("WELCOME_DOC_WARRANTY");
+        const guarantee = Deno.env.get("WELCOME_DOC_GUARANTEE");
+        if (terms) attach.push({ path: terms, filename: "Terms-and-Conditions.pdf" });
+        if (warranty) attach.push({ path: warranty, filename: "15-Year-Warranty.pdf" });
+        if (hasGuarantee && guarantee) attach.push({ path: guarantee, filename: "30-Day-Comfort-Guarantee.pdf" });
+
+        const esc = (s: string) => String(s ?? "").replace(/[&<>"]/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[m]!));
+        const rows = [
+          ["Order reference", orderId],
+          ["Products", productSummary || "—"],
+          ["Order value", order.contract_value != null ? `$${Number(order.contract_value).toFixed(2)}` : "—"],
+          ["Your consultant", order.consultant_name || "—"],
+        ].map(([k, v]) => `<tr><td style="padding:4px 12px 4px 0;color:#5a6b8c">${esc(k)}</td><td style="padding:4px 0;font-weight:600">${esc(v)}</td></tr>`).join("");
+        const html = `
+          <div style="font-family:Arial,Helvetica,sans-serif;max-width:560px;margin:0 auto;padding:24px;color:#1b2a4a">
+            <h2 style="margin:0 0 6px">Thanks for your order, ${esc(first)}</h2>
+            <p style="margin:0 0 16px;color:#5a6b8c">We've received your order and our team will call you shortly to confirm the details.</p>
+            <table style="border-collapse:collapse;margin:0 0 16px">${rows}</table>
+            <p style="margin:0 0 16px">Your order summary${attach.length > 1 ? ", Terms &amp; Conditions and 15-year warranty are" : " is"} attached to this email.</p>
+            <p style="margin:0;color:#8a97ad;font-size:13px">Simtec Therapeutic Limited</p>
+          </div>`;
+
+        const mail = await fetch("https://api.resend.com/emails", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${resendKey}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ from, to: [cust.email], subject: "Your Simtec order confirmation", html, attachments: attach }),
+        });
+        if (!mail.ok) console.error("welcome email failed", mail.status, await mail.text());
+        else emailed = true;
+      }
+    } catch (e) {
+      console.error("welcome email error", (e as Error)?.message || e);
+    }
+
+    return json({ status: "ok", contactId, tagged: true, emailed });
   } catch (e) {
     console.error("ghl-order-push error", (e as Error)?.message || e);
     return json({ error: "internal error" }, 500);
