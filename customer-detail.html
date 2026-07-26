@@ -598,7 +598,11 @@ async function markItem(itemId, oid, val){
     const done=mattresses.filter(i=>i.delivered).length;
     status = done===0 ? "pending" : done===mattresses.length ? "delivered" : "partial";
   }
-  await sb.from("sim_orders").update({delivery_status:status}).eq("id",oid);
+  // keep delivered_at in step with the status (the stock page reads it). Set it
+  // when the order first becomes fully delivered; clear it if it drops back.
+  const orderPatch={delivery_status:status};
+  orderPatch.delivered_at = (status==="delivered") ? new Date().toISOString() : null;
+  await sb.from("sim_orders").update(orderPatch).eq("id",oid);
   run();
 }
 async function setFurtherAction(oid, val){
