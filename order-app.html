@@ -606,6 +606,7 @@ function showStep(ds){
   if(ds===6) updateDepositMethodUI();
   if(ds===7) buildReview();
   if(ds===8) setEziDefaults();
+  if(ds===9) finalizeOrder();   // saved order reached Done → regen PDF w/ schedule, push GHL + welcome email
   renderSteps(); window.scrollTo(0,0);
   document.querySelectorAll('section.step.on canvas.sig').forEach(sizeCanvas);
 }
@@ -918,7 +919,20 @@ async function generateAndUploadOrderPdf(orderId,P){
   y+=6; doc.setDrawColor(200); doc.line(M,y,R,y); y+=18;
   doc.setFont('helvetica','bold'); doc.text('Total',M,y); doc.text('$'+total.toFixed(2),R,y,{align:'right'}); y+=26;
   const payLabel={full:'Paid in full',deposit50:'50% deposit',ezidebit:'Ezidebit direct debit'}[fl.pay]||'—';
-  doc.setFont('helvetica','normal'); doc.setTextColor(20); doc.text('Payment method: '+payLabel,M,y); y+=26;
+  doc.setFont('helvetica','normal'); doc.setTextColor(20); doc.text('Payment method: '+payLabel,M,y); y+=20;
+  // Exact Ezidebit schedule (read from the step-8 fields; populated by the time the
+  // summary is regenerated at the Done step).
+  if(fl.pay==='ezidebit' || fl.pay==='deposit50'){
+    const oAmt=numOrNull(val('eziOneoffAmount')), oDate=val('eziOneoffDate');
+    const pAmt=numOrNull(val('eziPlanAmount')), pFreq=val('eziPlanFreq'), pStart=val('eziPlanStart'), pCount=numOrNull(val('eziPlanCount'));
+    if(oAmt!=null || pAmt!=null){
+      doc.setFont('helvetica','bold'); doc.text('Ezidebit payment schedule',M,y); y+=16; doc.setFont('helvetica','normal');
+      if(oAmt!=null){ doc.text('One-off payment: $'+oAmt.toFixed(2)+(oDate?' on '+isoToDMY(oDate):''),M,y); y+=15; }
+      if(pAmt!=null){ const fl2={weekly:'Weekly',fortnightly:'Fortnightly',monthly:'Monthly'}[pFreq]||pFreq;
+        doc.text(fl2+' payments: $'+pAmt.toFixed(2)+(pStart?' from '+isoToDMY(pStart):'')+(pCount?' for '+pCount+' payments':' until the balance is paid'),M,y); y+=15; }
+      y+=8;
+    }
+  }
   doc.setTextColor(120); doc.setFontSize(9);
   doc.text('This order is confirmed on the confirmation call. Terms & Conditions and the 15-year warranty apply.',M,y);
   const blob=doc.output('blob');
@@ -999,8 +1013,9 @@ async function submitOrder(){
   try{
     const P=await collectOrder();
     const id=await savePayload(P);
-    S.orderId=id;
-    pushOrderToGhl(id);   // fire-and-forget; server-side function is INERT until configured (see below)
+    S.orderId=id; S.lastP=P;   // keep the payload; the summary PDF is regenerated with the Ezidebit schedule at the Done step
+    // NOTE: the GHL contact push + welcome email now fire in finalizeOrder() when
+    // the order reaches the Done step, so the emailed summary includes the schedule.
     setDoneSaved();
     setBtn(btnLabel,false);
     done.textContent = S.pay==='ezidebit'
@@ -1051,6 +1066,19 @@ function pushOrderToGhl(orderId){
       })
       .catch(e=>console.warn('ghl push failed:',e&&e.message||e));
   }catch(e){ console.warn('ghl push threw:',e&&e.message||e); }
+}
+
+// Runs once when a saved order reaches the Done step. By now the Ezidebit schedule
+// (step 8) is set, so we regenerate the summary PDF to include it BEFORE the push,
+// then fire the GHL contact sync + instant welcome email (which attaches that PDF).
+async function finalizeOrder(){
+  if(!sb || !S.orderId || S.finalized) return;
+  S.finalized=true;
+  if((S.pay==='ezidebit' || S.pay==='deposit50') && S.lastP){
+    try{ await generateAndUploadOrderPdf(S.orderId, S.lastP); }
+    catch(e){ console.warn('summary regen pending:',e&&e.message||e); }
+  }
+  pushOrderToGhl(S.orderId);
 }
 
 function setDoneSaved(){ const i=document.getElementById('doneIcon'),t=document.getElementById('doneTitle'); if(i)i.textContent='✅'; if(t)t.textContent='Order complete'; }
@@ -1142,7 +1170,7 @@ function resetForm(){
   document.querySelectorAll('main select').forEach(s=>s.selectedIndex=0);
   document.querySelectorAll('.choice.sel').forEach(c=>c.classList.remove('sel'));
   ['sigA1','sigA2','sigEzi'].forEach(clearSig);
-  Object.assign(S,{step:0,saleType:'',pay:'',depositMethod:'ezidebit',a2:false,products:[],emailVerified:false,sentCode:null,tncRead:false,orderId:null,idPhotos:{A1:[],A2:[]}});
+  Object.assign(S,{step:0,saleType:'',pay:'',depositMethod:'ezidebit',a2:false,products:[],emailVerified:false,sentCode:null,tncRead:false,orderId:null,finalized:false,lastP:null,idPhotos:{A1:[],A2:[]}});
   renderIdGallery('A1'); renderIdGallery('A2');
   const dmb=document.getElementById('depositMethodBox'); if(dmb) dmb.classList.add('hidden');
   document.querySelectorAll('#a2toggle button').forEach(x=>x.classList.toggle('on',x.dataset.v==='no'));
@@ -1226,6 +1254,7 @@ function buildEddrUrl(){
   if(e164)          q.set('mobile', e164.replace(/^\+/,''));
   if(val('street')) q.set('addr', val('street'));
   if(val('suburb')) q.set('suburb', val('suburb'));
+  if(val('city')) q.set('state', val('city'));   // eDDR's "state" field carries the NZ city
   if(val('postcode')) q.set('pCode', val('postcode'));
   // once-off
   const oAmt=numOrNull(val('eziOneoffAmount')), oDate=val('eziOneoffDate');
