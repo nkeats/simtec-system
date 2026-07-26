@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Simtec — Weekly Snapshot</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="auth.js" data-roles="matt,admin,manager"></script>
+<style>
+  :root{--navy:#122347;--gold:#c6a15b;--ink:#1a2334;--sub:#6b7889;--line:#e6ebf2;--bg:#eef2f7;--green:#1c6b34;}
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;}
+  .wrap{max-width:520px;margin:0 auto;padding:0 16px 40px;}
+  header{position:sticky;top:0;background:var(--navy);color:#fff;margin:0 -16px 18px;padding:18px 20px calc(18px + env(safe-area-inset-bottom,0));padding-top:calc(18px + env(safe-area-inset-top,0));}
+  header .brand{font-size:15px;font-weight:800;letter-spacing:2px;opacity:.85}
+  header h1{margin:2px 0 0;font-size:22px;font-weight:800}
+  header .week{margin-top:4px;font-size:13.5px;color:#aab8d4}
+  .card{background:#fff;border:1px solid var(--line);border-radius:16px;padding:20px;margin-bottom:14px;box-shadow:0 1px 2px rgba(18,35,71,.04)}
+  .lbl{font-size:12.5px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;color:var(--sub)}
+  .sub{font-size:12.5px;color:var(--sub);margin-top:2px}
+  .big{font-size:38px;font-weight:800;color:var(--navy);margin-top:8px;line-height:1;font-variant-numeric:tabular-nums;letter-spacing:-.5px}
+  .row{display:flex;justify-content:space-between;align-items:baseline;padding:11px 0;border-top:1px solid var(--line)}
+  .row:first-of-type{border-top:none}
+  .row .nm{font-size:15.5px;font-weight:600}
+  .row .amt{font-size:16px;font-weight:700;font-variant-numeric:tabular-nums;color:var(--navy)}
+  .row .cnt{font-size:12px;color:var(--sub);font-weight:500;margin-left:6px}
+  .tot{display:flex;justify-content:space-between;align-items:baseline;margin-top:12px;padding-top:12px;border-top:2px solid var(--navy)}
+  .tot .nm{font-size:14px;font-weight:800;text-transform:uppercase;letter-spacing:.4px}
+  .tot .amt{font-size:20px;font-weight:800;color:var(--green);font-variant-numeric:tabular-nums}
+  .refresh{display:block;width:100%;margin-top:6px;padding:14px;border:1px solid var(--line);background:#fff;color:var(--navy);font-size:15px;font-weight:700;border-radius:14px;cursor:pointer}
+  .foot{text-align:center;color:var(--sub);font-size:12px;margin-top:16px}
+  .muted{color:var(--sub)}
+  .err{background:#fdecea;border:1px solid #f5c6c0;color:#8a2018;border-radius:12px;padding:16px;font-size:14px}
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div class="brand">SIMTEC</div>
+      <h1>Weekly snapshot</h1>
+      <div class="week" id="week">&nbsp;</div>
+    </header>
+    <div id="content"><p class="muted" style="padding:24px 4px">Loading…</p></div>
+    <button class="refresh" onclick="load()">↻ Refresh</button>
+    <div class="foot" id="foot"></div>
+  </div>
+
+<script>
+const sb = supabase.createClient("https://jvqjoenaungubpoegyvf.supabase.co","sb_publishable_J4MYTdJJyEaWe-GadpwdYA_upPT2rKw");
+const money = n => "$" + Math.round(Number(n)||0).toLocaleString("en-NZ");
+const esc = s => String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+function dm(iso){ if(!iso) return ""; const d=new Date(iso+"T00:00:00"); return d.toLocaleDateString("en-NZ",{day:"numeric",month:"short"}); }
+
+async function load(){
+  const content=document.getElementById("content");
+  content.innerHTML='<p class="muted" style="padding:24px 4px">Loading…</p>';
+  try{
+    const {data,error}=await sb.rpc("matt_dashboard");
+    if(error) throw error;
+    const d = data || {};
+    document.getElementById("week").textContent = "Week of "+dm(d.week_start)+" – "+dm(d.week_end);
+
+    const sales = Array.isArray(d.sales)?d.sales:[];
+    const salesRows = sales.length
+      ? sales.map(s=>`<div class="row"><span class="nm">${esc(s.consultant)}</span>`
+          +`<span class="amt">${money(s.value)}<span class="cnt">${s.orders} order${s.orders==1?"":"s"}</span></span></div>`).join("")
+      : `<div class="row"><span class="muted">No sales recorded this week yet.</span></div>`;
+
+    content.innerHTML = `
+      <div class="card">
+        <div class="lbl">Loan book</div>
+        <div class="sub">Total outstanding across the active book</div>
+        <div class="big">${money(d.loan_book)}</div>
+      </div>
+      <div class="card">
+        <div class="lbl">Ezidebit — this week</div>
+        <div class="sub">Received Mon–Sun (net of refunds)</div>
+        <div class="big">${money(d.ezidebit_week)}</div>
+      </div>
+      <div class="card">
+        <div class="lbl">Sales this week</div>
+        <div class="sub">By consultant</div>
+        <div style="margin-top:10px">${salesRows}</div>
+        <div class="tot"><span class="nm">Total</span><span class="amt">${money(d.sales_total)}</span></div>
+      </div>`;
+    document.getElementById("foot").textContent = "Updated "+new Date().toLocaleTimeString("en-NZ",{hour:"numeric",minute:"2-digit"});
+  }catch(e){
+    const msg=(e&&e.message)||String(e);
+    content.innerHTML='<div class="err"><b>Couldn’t load the snapshot.</b><br>'+esc(/not authorised/i.test(msg)?"This account doesn’t have access to the dashboard.":msg)+'</div>';
+  }
+}
+load();
+</script>
+</body>
+</html>

@@ -54,7 +54,8 @@ function clearMsg(){ $("msg").style.display="none"; }
 // where should this user land? consultants go to My Sales; everyone else to the hub.
 async function landing(userId){
   try{ const {data}=await sb.from("profiles").select("role").eq("id",userId).maybeSingle();
-    return (data && data.role==="consultant") ? "my-sales.html" : "home.html"; }
+    return (data && data.role==="consultant") ? "my-sales.html"
+         : (data && data.role==="matt") ? "matt.html" : "home.html"; }
   catch(e){ return "home.html"; }
 }
 
