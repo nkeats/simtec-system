@@ -51,7 +51,12 @@ async function requireUser(req: Request): Promise<boolean> {
     { auth: { persistSession: false } },
   );
   const { data: { user }, error } = await supa.auth.getUser(token);
-  return !(error || !user);
+  if (error || !user) return false;
+  // Role gate: only order-taking staff/consultants may send codes (stops any
+  // logged-in account blasting emails from the Simtec domain).
+  const { data: prof } = await supa.from("profiles").select("role").eq("id", user.id).maybeSingle();
+  const role = prof?.role || null;
+  return !!role && ["admin", "manager", "office", "consultant"].includes(role);
 }
 
 const escapeHtml = (s: string) =>

@@ -92,6 +92,12 @@ async function requireUser(req: Request): Promise<{ ok: true; userId: string } |
   );
   const { data: { user }, error } = await supa.auth.getUser(token);
   if (error || !user) return { ok: false, res: json({ error: "unauthorized" }, 401) };
+  // Role gate: only order-taking roles may trigger a customer email + GHL push.
+  const { data: prof } = await supa.from("profiles").select("role").eq("id", user.id).maybeSingle();
+  const role = prof?.role || null;
+  if (!role || !["admin", "manager", "office", "consultant"].includes(role)) {
+    return { ok: false, res: json({ error: "forbidden" }, 403) };
+  }
   return { ok: true, userId: user.id };
 }
 
@@ -181,7 +187,7 @@ serve(async (req) => {
     try {
       const { data: signed } = await admin.storage
         .from("order-documents")
-        .createSignedUrl(`${orderId}/order-summary.pdf`, 60 * 60 * 24 * 180); // 180 days
+        .createSignedUrl(`${orderId}/order-summary.pdf`, 60 * 60 * 24 * 7); // 7 days (email attaches the file at send time; link is a convenience)
       pdfLink = signed?.signedUrl || "";
     } catch (e) { console.warn("pdf signed url pending:", (e as Error)?.message || e); }
 

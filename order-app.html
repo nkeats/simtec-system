@@ -998,6 +998,7 @@ async function saveExtrasPayload(orderId,P){
 
 // Returns 'saved' | 'parked' | 'error'
 async function submitOrder(){
+  if(S.orderId) return 'saved';   // already saved this order — Back→Next must not create a duplicate
   const done=document.getElementById('doneMsg');
   const btn=document.getElementById('nextBtn');
   // Visible "working" state ON THE BUTTON the consultant just tapped, so a slow
@@ -1316,13 +1317,14 @@ async function applyEzidebitCallback(cb){
   // don't let an Ezidebit one-off overwrite it. In every other case (full DD, or a
   // deposit collected AS the Ezidebit one-off), the one-off IS the deposit to record.
   const oAmt=numOrNull(cb.oamount); if(oAmt!=null && !(S.pay==='deposit50' && S.depositMethod==='bank')) upd.deposit_amount=oAmt;
-  await sb.from('sim_orders').update(upd).eq('id',S.orderId);
+  const {error:eUpd}=await sb.from('sim_orders').update(upd).eq('id',S.orderId);
+  if(eUpd) throw new Error(eUpd.message||'could not store the Ezidebit schedule');
 }
 
 // ----- init -----
 document.querySelectorAll('canvas.sig').forEach(c=>{sizeCanvas(c);initSig(c);});
 window.addEventListener('resize',()=>document.querySelectorAll('section.step.on canvas.sig').forEach(sizeCanvas));
-function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]));}
+function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));}
 (function(){const d=new Date();const p=n=>String(n).padStart(2,'0');document.getElementById('visitDate').value=d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate());})();
 addProduct(); showStep(0);
 renderParked(); trySync();
