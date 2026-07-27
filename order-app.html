@@ -1007,7 +1007,8 @@ async function submitOrder(){
   const setBtn=(txt,busy)=>{ if(!btn)return; btn.textContent=txt; btn.disabled=!!busy; btn.style.opacity=busy?'0.6':''; };
   // No connection at all → park automatically (the whole reason Park exists).
   if(!navigator.onLine || !sb){
-    await parkCurrent(); setDoneParked(); return 'parked';
+    if(!await parkCurrent()) return 'error';   // offline AND iPad storage full — writeParked already warned
+    setDoneParked(); return 'parked';
   }
   done.textContent='Saving…';
   setBtn('Saving…',true);
@@ -1015,8 +1016,10 @@ async function submitOrder(){
     const P=await collectOrder();
     const id=await savePayload(P);
     S.orderId=id; S.lastP=P;   // keep the payload; the summary PDF is regenerated with the Ezidebit schedule at the Done step
-    // NOTE: the GHL contact push + welcome email now fire in finalizeOrder() when
-    // the order reaches the Done step, so the emailed summary includes the schedule.
+    // Create the GHL contact NOW (contact-only) so the office has it even if the
+    // order is abandoned before Done. The welcome email — with the final Ezidebit
+    // schedule — is sent from finalizeOrder() when the order reaches the Done step.
+    pushOrderToGhl(id, {contactOnly:true});
     setDoneSaved();
     setBtn(btnLabel,false);
     done.textContent = S.pay==='ezidebit'
@@ -1034,7 +1037,8 @@ async function submitOrder(){
     setBtn(btnLabel,false);
     // Treat network-type failures as "no coverage" → park instead of losing the order.
     if(!navigator.onLine || /fetch|network|failed to fetch|offline|timeout/i.test(msg)){
-      await parkCurrent(); setDoneParked(); return 'parked';
+      if(!await parkCurrent()) return 'error';   // network failed AND storage full — writeParked already warned
+      setDoneParked(); return 'parked';
     }
     // Show the REAL reason right here on the review screen (alert always shows on
     // iPad regardless of which step is visible) AND leave it on the button area.
@@ -1056,10 +1060,11 @@ async function submitOrder(){
 //  so this call cannot touch the live paper-order email. Any error here is
 //  swallowed and never blocks or delays the saved order.
 // ----------------------------------------------------------------------------
-function pushOrderToGhl(orderId){
+function pushOrderToGhl(orderId, opts){
   try{
     if(!sb || !orderId || !sb.functions) return;
-    sb.functions.invoke('ghl-order-push',{ body:{ orderId } })
+    const body={ orderId }; if(opts && opts.contactOnly) body.contactOnly=true;
+    sb.functions.invoke('ghl-order-push',{ body })
       .then(({data,error})=>{
         if(error){ console.warn('ghl push:',error.message||error); return; }
         if(data && data.status==='disabled') console.info('ghl push inert (not yet configured)');
@@ -1100,12 +1105,14 @@ function writeParked(list){ try{ localStorage.setItem(PARK_KEY,JSON.stringify(li
 async function parkCurrent(){
   const P=await collectOrder();
   P.id='pk_'+P.savedAt+'_'+Math.floor(Math.random()*1e6);
-  const list=loadParked(); list.push(P); writeParked(list); renderParked();
-  return P;
+  const list=loadParked(); list.push(P);
+  const ok=writeParked(list);   // false → iPad storage full (writeParked already alerted); order NOT saved
+  if(ok) renderParked();
+  return ok;
 }
 async function parkNow(){
   if(!S.products.some(p=>p.name) && !val('a1first')){ alert('Start the order first, then tap Park to save it for later.'); return; }
-  await parkCurrent();
+  if(!await parkCurrent()) return;   // storage full — the order was NOT saved; don't claim it was
   setDoneParked(); showStep(9);
 }
 
@@ -1140,7 +1147,7 @@ window.uploadOne=async function(id){
   if(!navigator.onLine){ alert('Still offline — connect to the internet, then try again.'); return; }
   if(!sb && window.supabase) sb=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
   const list=loadParked(); const P=list.find(x=>x.id===id); if(!P) return;
-  try{ await savePayload(P); writeParked(loadParked().filter(x=>x.id!==id)); renderParked(); const w=(S.lastExtrasWarn||[]); alert('Uploaded: '+(P.customerName||'order')+(w.length?'\n\n⚠ '+w.join(' '):'')); }
+  try{ const oid=await savePayload(P); pushOrderToGhl(oid); writeParked(loadParked().filter(x=>x.id!==id)); renderParked(); const w=(S.lastExtrasWarn||[]); alert('Uploaded: '+(P.customerName||'order')+(w.length?'\n\n⚠ '+w.join(' '):'')); }
   catch(e){ alert('Upload failed — '+(e.message||e)+'. It\'s still parked; try again when you have a stronger connection.'); }
 };
 
@@ -1153,7 +1160,7 @@ async function trySync(){
   syncing=true; renderParked();
   const remaining=[]; let uploaded=0;
   for(const P of list){
-    try{ await savePayload(P); uploaded++; }
+    try{ const oid=await savePayload(P); pushOrderToGhl(oid); uploaded++; }
     catch(e){ console.warn('sync failed',P.id,e.message||e); remaining.push(P); }
   }
   writeParked(remaining); syncing=false; renderParked();

@@ -89,7 +89,7 @@ body{font-family:system-ui,sans-serif}
 
 <script>
 const SUPABASE_URL='https://jvqjoenaungubpoegyvf.supabase.co';
-const SUPABASE_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imp2cWpvZW5hdW5ndWJwb2VneXZmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA1MzQyMjYsImV4cCI6MjA5NjExMDIyNn0.ypVt8578XTdNwBH6TRDn30s1cF_rHTu67qCWYv5XHcQ';
+const SUPABASE_KEY='sb_publishable_J4MYTdJJyEaWe-GadpwdYA_upPT2rKw';
 const sb=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
 
 const $=id=>document.getElementById(id);
@@ -377,9 +377,12 @@ function render(){
   if(todaysDeliveries.length){
     const rows_=todaysDeliveries
       .sort((a,b)=>(a.deliveryTime||'').localeCompare(b.deliveryTime||'')||suburb(a.address).localeCompare(suburb(b.address)))
-      .map(r=>`<div class="flex flex-wrap items-center justify-between gap-2" style="padding:5px 0;border-bottom:1px solid #2a2410">
+      .map(r=>`<div class="flex flex-wrap items-center justify-between gap-2" style="padding:6px 0;border-bottom:1px solid #2a2410">
         <div><span class="font-semibold text-white">${esc(r.name)}</span>${r.deliveryTime?`<span class="k"> · ${esc(winTxt(r.deliveryTime))}</span>`:''}<span class="k"> · ${esc(r.product)}</span></div>
-        <div>${r.address?`<a class="maplink" href="${mapLink(r.address)}" target="_blank">${esc(suburb(r.address))} ↗</a>`:'<span class="k">no address</span>'}</div>
+        <div class="flex items-center gap-2">
+          ${r.address?`<a class="maplink" href="${mapLink(r.address)}" target="_blank">${esc(suburb(r.address))} ↗</a>`:'<span class="k">no address</span>'}
+          <button class="btn gold noprint" style="padding:.35rem .7rem" onclick="markDelivered('${r.id}')">✓ Delivered</button>
+        </div>
       </div>`).join('');
     todayBanner=`<div class="card mb-4" style="border-color:#c9a84c;background:#211d0f">
       <div class="flex items-center justify-between mb-1">
@@ -387,7 +390,10 @@ function render(){
         <span class="text-xl font-bold text-amber-300">${todaysDeliveries.length}</span>
       </div>
       ${rows_}
-      <button class="btn gold noprint mt-3" onclick="window.open('docket.html?date='+encodeURIComponent('${todayStr}'),'_blank')">🖨 Print today's dockets</button>
+      <div class="flex flex-wrap gap-2 mt-3 noprint">
+        <button class="btn gold" onclick="markDayDelivered('${todayStr}')">✓ Confirm all delivered</button>
+        <button class="btn" onclick="window.open('docket.html?date='+encodeURIComponent('${todayStr}'),'_blank')">🖨 Print today's dockets</button>
+      </div>
     </div>`;
   }
 
@@ -543,9 +549,10 @@ function renderBookedHead(booked){
         <input type="date" id="docketDate" value="${def}" onchange="updateDocketCount()"
           style="background:#0d1424;border:1px solid #26324a;color:#e2e8f0;border-radius:8px;padding:8px 10px;font-size:14px">
         <button class="btn gold noprint" onclick="printDayDockets()">🖨 Print all dockets for this day</button>
+        <button class="btn noprint" onclick="markDayDeliveredFromPicker()">✓ Mark all delivered for this day</button>
         <span class="k" id="docketCount"></span>
       </div>
-      <div class="text-xs text-slate-500 mt-2">Opens the dockets for every delivery booked on that day — two copies each (customer &amp; office) — ready to print and hand to the driver.</div>
+      <div class="text-xs text-slate-500 mt-2">Print opens the dockets for every delivery booked that day (two copies each — customer &amp; office) to hand to the driver. “Mark all delivered” confirms the whole run at once once it’s complete.</div>
     </div>`;
   updateDocketCount();
   renderMap(booked);
@@ -750,7 +757,8 @@ function renderList(view,mode){
         <button class="btn gold noprint mt-2" onclick="event.stopPropagation();markDelivered('${r.id}')">Mark delivered</button></div>`;
       if(!r.cleared)warn=`<div class="mt-2 text-xs font-semibold" style="color:#f87171">⚠ No longer cleared — check payments before delivering</div>`;
     }
-    else right=`<div class="text-right"><div class="k">Delivered</div><div class="text-sm font-semibold text-slate-200">${fmtD(r.deliveryDate)}</div></div>`;
+    else right=`<div class="text-right"><div class="k">Delivered</div><div class="text-sm font-semibold text-slate-200">${fmtD(r.deliveryDate)}</div>
+      <button class="btn noprint mt-2" onclick="event.stopPropagation();undoDelivered('${r.id}')">Undo</button></div>`;
     return `<div class="card dl mb-3" style="cursor:pointer" onclick="location.href='client.html?c=${r.custId}'" title="Open ${esc(r.name)}'s details">
       <div class="flex flex-wrap items-start gap-4">
         <div class="flex-1 min-w-[220px]">
@@ -831,11 +839,61 @@ window.saveBooking=async()=>{
   if(error){alert(error.message);return;}
   closeOv();await load();
 };
+// ── Confirming a delivery ───────────────────────────────────────────────────
+// Marking a whole order delivered (or undoing it). This mirrors the per-item
+// logic on the customer page so BOTH screens stay in step: it flips the mattress
+// line items (delivered / delivered_date / delivered_by) AND the order status,
+// and stamps delivered_at — the timestamp the stock page reads. The office does
+// this today from here; when drivers get tablets they use this same screen.
+function whoNow(){ return (window.SIMTEC_USER && (window.SIMTEC_USER.full_name||window.SIMTEC_USER.email)) || 'staff'; }
+const isMattress=n=>!/delivery fee|protector|pillow/i.test(n||'');
+async function applyDelivered(orderId, delivered){
+  const {data:its,error:e1}=await sb.from('sim_order_items').select('id,product_name').eq('order_id',orderId);
+  if(e1) throw e1;
+  const ids=(its||[]).filter(i=>isMattress(i.product_name)).map(i=>i.id);
+  if(delivered){
+    const todayD=new Date().toISOString().slice(0,10);
+    if(ids.length){
+      const {error:e2}=await sb.from('sim_order_items').update({delivered:true,delivered_date:todayD,delivered_by:whoNow()}).in('id',ids);
+      if(e2) throw e2;
+    }
+    const {error:e3}=await sb.from('sim_orders').update({delivery_status:'delivered',delivered_at:new Date().toISOString()}).eq('id',orderId);
+    if(e3) throw e3;
+  } else {
+    if(ids.length){
+      const {error:e2}=await sb.from('sim_order_items').update({delivered:false,delivered_date:null,delivered_by:null}).in('id',ids);
+      if(e2) throw e2;
+    }
+    // still has a booking date → back to 'scheduled', otherwise 'pending'
+    const {data:o}=await sb.from('sim_orders').select('delivery_date').eq('id',orderId).maybeSingle();
+    const status=(o&&o.delivery_date)?'scheduled':'pending';
+    const {error:e3}=await sb.from('sim_orders').update({delivery_status:status,delivered_at:null}).eq('id',orderId);
+    if(e3) throw e3;
+  }
+}
 window.markDelivered=async(id)=>{
-  const {error}=await sb.from('sim_orders').update({delivery_status:'delivered',delivered_at:new Date().toISOString()}).eq('id',id);
-  if(error){alert(error.message);return;}
+  const r=rows.find(x=>x.id===id);
+  if(!confirm('Mark '+((r&&r.name)||'this order')+' as delivered?\n\nThis records the delivery against your name and updates stock. You can undo it from the Delivered tab.')) return;
+  try{ await applyDelivered(id,true); }catch(e){ alert('Couldn’t mark delivered: '+(e.message||e)); return; }
   await load();
 };
+window.undoDelivered=async(id)=>{
+  const r=rows.find(x=>x.id===id);
+  if(!confirm('Undo delivered for '+((r&&r.name)||'this order')+'?\n\nIt goes back to booked so you can re-confirm or reschedule.')) return;
+  try{ await applyDelivered(id,false); }catch(e){ alert('Couldn’t undo: '+(e.message||e)); return; }
+  await load();
+};
+// Bulk: confirm every delivery booked for a given day in one go (the whole run).
+window.markDayDelivered=async(dateStr)=>{
+  const list=BOOKED.filter(r=>r.deliveryDate===dateStr);
+  if(!list.length){ alert('No deliveries are booked for that day.'); return; }
+  if(!confirm('Mark all '+list.length+' deliver'+(list.length===1?'y':'ies')+' booked for '+fmtD(dateStr)+' as delivered?\n\nDo this once the run is complete. You can undo any of them from the Delivered tab.')) return;
+  let ok=0, fail=0;
+  for(const r of list){ try{ await applyDelivered(r.id,true); ok++; }catch(e){ fail++; } }
+  await load();
+  if(fail) alert(ok+' marked delivered, '+fail+' could not be updated — check the Booked tab.');
+};
+window.markDayDeliveredFromPicker=function(){ const d=document.getElementById('docketDate'); if(d&&d.value) markDayDelivered(d.value); };
 
 // live.js calls this when the database changes, when this tab regains focus,
 // and once a minute as a safety net. Nobody has to remember to refresh.
