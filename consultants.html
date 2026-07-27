@@ -72,7 +72,10 @@
   <div class="card">
     <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:6px">
       <h2 style="margin-bottom:0">Consultants</h2>
-      <button type="button" class="mini" onclick="printAllCards()">🖨 Print all ID cards</button>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button type="button" class="mini ghost" onclick="location.href='id-cards.html'">🪪 Select cards to print…</button>
+        <button type="button" class="mini" onclick="printAllCards()">🖨 Print all ID cards</button>
+      </div>
     </div>
     <div id="listState" class="muted">Loading…</div>
     <table id="tbl" style="display:none">
@@ -196,22 +199,44 @@ const CARD_CSS = `
   .idcontact{font-style:italic;font-size:6.5pt;color:#3a3f47;margin-top:.4mm}
 `;
 
+const CUT_CSS = `
+  .cut{position:relative;width:50mm;height:78mm;break-inside:avoid;page-break-inside:avoid}
+  .cut .idcard{border:0.4mm solid #000}
+  .cm{position:absolute}
+  .cm.v{width:0;height:4mm;border-left:0.4mm solid #000}
+  .cm.h{width:4mm;height:0;border-top:0.4mm solid #000}
+  .tl.v{left:0;top:0;transform:translate(-50%,-100%)}
+  .tl.h{left:0;top:0;transform:translate(-100%,-50%)}
+  .tr.v{right:0;top:0;transform:translate(50%,-100%)}
+  .tr.h{right:0;top:0;transform:translate(100%,-50%)}
+  .bl.v{left:0;bottom:0;transform:translate(-50%,100%)}
+  .bl.h{left:0;bottom:0;transform:translate(-100%,50%)}
+  .br.v{right:0;bottom:0;transform:translate(50%,100%)}
+  .br.h{right:0;bottom:0;transform:translate(100%,50%)}
+`;
+const MARKS = `<span class="cm tl v"></span><span class="cm tl h"></span>`+
+  `<span class="cm tr v"></span><span class="cm tr h"></span>`+
+  `<span class="cm bl v"></span><span class="cm bl h"></span>`+
+  `<span class="cm br v"></span><span class="cm br h"></span>`;
+function cutWrap(c){ return `<div class="cut">${MARKS}${cardHTML(c)}</div>`; }
+
 function printOne(c){
   const w=window.open("","_blank"); if(!w){ alert("Allow pop-ups to print the card."); return; }
   w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>ID card — ${esc(c.name||"")}</title>
-  <style>@page{size:50mm 78mm;margin:0}html,body{margin:0;padding:0}${CARD_CSS}</style></head>
-  <body>${cardHTML(c)}<script>window.onload=function(){window.print()}<\/script></body></html>`);
+  <style>@page{size:A4;margin:12mm}html,body{margin:0;padding:0}
+    .sheet{display:flex;justify-content:center;padding-top:6mm}
+    ${CARD_CSS}${CUT_CSS}</style></head>
+  <body><div class="sheet">${cutWrap(c)}</div><script>window.onload=function(){window.print()}<\/script></body></html>`);
   w.document.close();
 }
 function printBatch(list){
   if(!list.length){ alert("No consultants to print."); return; }
   const w=window.open("","_blank"); if(!w){ alert("Allow pop-ups to print the cards."); return; }
-  const cards=list.map(c=>`<div class="cut">${cardHTML(c)}</div>`).join("");
+  const cards=list.map(c=>cutWrap(c)).join("");
   w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>ID cards — ${list.length}</title>
-  <style>@page{size:A4;margin:8mm}html,body{margin:0;padding:0}
-    .sheet{display:flex;flex-wrap:wrap;gap:6mm;align-content:flex-start}
-    .cut{border:.3mm dashed #b8c0cc;line-height:0;break-inside:avoid;page-break-inside:avoid}
-    ${CARD_CSS}</style></head>
+  <style>@page{size:A4;margin:10mm}html,body{margin:0;padding:0}
+    .sheet{display:grid;grid-template-columns:repeat(3,50mm);column-gap:8mm;row-gap:10mm;justify-content:center;align-content:start}
+    ${CARD_CSS}${CUT_CSS}</style></head>
   <body><div class="sheet">${cards}</div><script>window.onload=function(){window.print()}<\/script></body></html>`);
   w.document.close();
 }
