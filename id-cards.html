@@ -197,10 +197,10 @@ const PRINT_CSS = `
 // a whole sheet, and neighbouring cards' ticks line up column-to-column.
 const CUT_CSS = `
   .cut{position:relative;width:50mm;height:78mm;break-inside:avoid;page-break-inside:avoid}
-  .cut .idcard{border:0.25mm solid #111}
-  .cm{position:absolute;background:#000;-webkit-print-color-adjust:exact;print-color-adjust:exact}
-  .cm.v{width:0.25mm;height:4mm}
-  .cm.h{height:0.25mm;width:4mm}
+  .cut .idcard{border:0.4mm solid #000}
+  .cm{position:absolute}
+  .cm.v{width:0;height:4mm;border-left:0.4mm solid #000}
+  .cm.h{width:4mm;height:0;border-top:0.4mm solid #000}
   .tl.v{left:0;top:0;transform:translate(-50%,-100%)}
   .tl.h{left:0;top:0;transform:translate(-100%,-50%)}
   .tr.v{right:0;top:0;transform:translate(50%,-100%)}
