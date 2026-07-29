@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Simtec — Ezidebit actions (sandbox test)</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/@supabase/supabase-js@2.38.4/dist/umd/supabase.js"></script>
+<script src="auth.js?v=3" data-roles="admin,manager,office"></script>
+<style>
+body{font-family:system-ui,sans-serif}
+.card{background:#1e293b;border:1px solid #334155;border-radius:.75rem;padding:1.25rem}
+.inp{padding:.5rem .7rem;background:#0f172a;border:1px solid #334155;border-radius:.6rem;color:#fff;font-size:.95rem;width:100%;box-sizing:border-box}
+.btn{padding:.6rem 1.2rem;border-radius:.55rem;font-weight:700;cursor:pointer;border:none;background:#c9a84c;color:#1a2438;font-size:.95rem}
+.btn:disabled{opacity:.6}
+label{font-size:.72rem;letter-spacing:.05em;text-transform:uppercase;color:#7c8aa0;font-weight:700;display:block;margin-bottom:4px}
+pre{white-space:pre-wrap;word-break:break-word;background:#0b1220;border:1px solid #24324a;border-radius:.6rem;padding:1rem;font-size:.82rem;color:#cbd5e1;max-height:55vh;overflow:auto}
+.row{margin-bottom:14px}
+</style>
+</head>
+<body class="bg-slate-950 text-white min-h-screen">
+<nav class="bg-slate-900 border-b border-slate-800 px-6 py-3 flex items-center gap-3">
+  <a href="home.html" style="color:#cbd5e1;text-decoration:none;font-size:.85rem;margin-right:8px">&lsaquo; Home</a>
+  <span class="font-bold tracking-wide text-lg">SIMTEC</span>
+  <span class="text-slate-400 text-sm">Ezidebit actions — sandbox test</span>
+</nav>
+
+<div class="max-w-2xl mx-auto p-6">
+  <div class="card mb-5">
+    <div class="row">
+      <label>Action</label>
+      <select id="action" class="inp" onchange="showFields()">
+        <option value="change-status">change-status (cancel / hold / reactivate)</option>
+        <option value="refund">refund</option>
+        <option value="update-contact">update-contact (email / mobile)</option>
+      </select>
+    </div>
+    <div class="row"><label>Payer ref (EzidebitCustomerID)</label><input id="payerRef" class="inp" placeholder="from sim_orders.ezidebit_payer_ref"></div>
+
+    <div id="f-status" class="row"><label>New status</label>
+      <select id="newStatus" class="inp"><option value="C">C — Cancel</option><option value="H">H — Hold</option><option value="A">A — Reactivate</option></select>
+    </div>
+    <div id="f-refund1" class="row" style="display:none"><label>Payment ID (Ezidebit PaymentID)</label><input id="paymentId" class="inp"></div>
+    <div id="f-refund2" class="row" style="display:none"><label>Refund amount (cents)</label><input id="amountCents" class="inp" placeholder="e.g. 5000 for $50.00"></div>
+    <div id="f-email" class="row" style="display:none"><label>New email</label><input id="email" class="inp"></div>
+    <div id="f-mobile" class="row" style="display:none"><label>New mobile</label><input id="mobile" class="inp"></div>
+
+    <button id="run" class="btn" onclick="run()">Run action</button>
+  </div>
+  <pre id="out">Pick an action, fill the fields, press “Run action”.</pre>
+</div>
+
+<script>
+const sb = supabase.createClient(
+  'https://jvqjoenaungubpoegyvf.supabase.co',
+  'sb_publishable_J4MYTdJJyEaWe-GadpwdYA_upPT2rKw'
+);
+const $ = id => document.getElementById(id);
+function showFields(){
+  const a = $('action').value;
+  $('f-status').style.display = a==='change-status' ? 'block':'none';
+  $('f-refund1').style.display = a==='refund' ? 'block':'none';
+  $('f-refund2').style.display = a==='refund' ? 'block':'none';
+  $('f-email').style.display = a==='update-contact' ? 'block':'none';
+  $('f-mobile').style.display = a==='update-contact' ? 'block':'none';
+}
+showFields();
+window.run = async () => {
+  const btn=$('run'), out=$('out'); btn.disabled=true; out.textContent='Running…';
+  const body = { action: $('action').value, payerRef: $('payerRef').value.trim() };
+  if (body.action==='change-status') body.newStatus = $('newStatus').value;
+  if (body.action==='refund'){ body.paymentId=$('paymentId').value.trim(); body.amountCents=$('amountCents').value.trim(); }
+  if (body.action==='update-contact'){ body.email=$('email').value.trim(); body.mobile=$('mobile').value.trim(); }
+  try {
+    const { data, error } = await sb.functions.invoke('ezidebit-actions', { body });
+    if (error) {
+      let d = error.message || String(error);
+      try { if (error.context && error.context.text) d = await error.context.text(); } catch(e){}
+      out.textContent = 'ERROR\n\n' + d;
+    } else out.textContent = JSON.stringify(data, null, 2);
+  } catch(e){ out.textContent = 'ERROR\n\n' + (e && e.message ? e.message : String(e)); }
+  btn.disabled=false;
+};
+</script>
+</body>
+</html>
