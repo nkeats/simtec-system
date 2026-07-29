@@ -61,6 +61,11 @@ tr:last-child td{border-bottom:none}
         <input id="eta" type="number" class="ctl" min="0" onchange="setCtl('reorder_eta',this.value)">
         <div class="k mt-1" style="max-width:150px">When your current on-order stock lands</div>
       </div>
+      <div>
+        <label class="k block mb-1">Pillows used / week</label>
+        <input id="ppw" type="number" class="ctl" min="0" onchange="setCtl('reorder_ppw',this.value)">
+        <div class="k mt-1" style="max-width:150px">Pillows given out per week (drives pillow reorder)</div>
+      </div>
       <div style="margin-left:auto">
         <button class="btn" style="background:#c9a84c;color:#1a2438;border:none;font-size:.9rem;padding:.55rem 1.1rem;font-weight:700" onclick="printOrder()">Print order &rsaquo;</button>
       </div>
@@ -80,7 +85,7 @@ const sb=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
 const $=id=>document.getElementById(id);
 const esc=s=>(s==null?'':String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const NUM=n=>(+n||0).toLocaleString('en-NZ');
-const CATS=[['mattress','Mattresses'],['base','Bed bases'],['protector','Protectors']];
+const CATS=[['mattress','Mattresses'],['base','Bed bases'],['protector','Protectors'],['pillow','Pillows']];
 const IGNORE_PRODUCTS=new Set(['Delivery fee']);
 
 // Arrears, mirrored from payments-risk.html / stock.html so "in arrears" is consistent.
@@ -103,11 +108,12 @@ function periodsBehindOf(o){
   return perAmt>0?Math.max(0,(expected-paid)/perAmt):0;
 }
 
-let ITEMS=[], ITEM_NAMES=new Set(), MOVES=[], DELIVERED={}, COMMITTED={}, MIX={}, MATT_TOTAL=0;
+let ITEMS=[], ITEM_NAMES=new Set(), MOVES=[], DELIVERED={}, COMMITTED={}, MIX={}, MATT_TOTAL=0, PILLOW_TOTAL=0;
 let DPW=+localStorage.getItem('reorder_dpw')||20;
 let LEAD=+localStorage.getItem('reorder_lead')||13;
 let TARGET=+localStorage.getItem('reorder_target')||26;
 let ETA=+localStorage.getItem('reorder_eta')||5;
+let PPW=+localStorage.getItem('reorder_ppw')||0;
 
 async function fetchAllOrders(build){
   const PAGE=1000; let out=[];
@@ -151,6 +157,7 @@ async function load(){
     });
   });
   MATT_TOTAL=ITEMS.filter(i=>i.category==='mattress').reduce((s,i)=>s+(MIX[i.product_name]||0),0);
+  PILLOW_TOTAL=ITEMS.filter(i=>i.category==='pillow').reduce((s,i)=>s+(MIX[i.product_name]||0),0);
 
   $('state').classList.add('hidden');
   render();
@@ -160,7 +167,13 @@ function calcRow(it){
   const name=it.product_name;
   const oh=onHand(it), req=COMMITTED[name]||0, oo=+it.on_order||0;
   const avail=oh+oo, mix=MIX[name]||0;
-  const weeklyUse=MATT_TOTAL>0? DPW*(mix/MATT_TOTAL) : 0;
+  let weeklyUse;
+  if(it.category==='pillow'){
+    const pillowItems=ITEMS.filter(i=>i.category==='pillow').length||1;
+    weeklyUse = PILLOW_TOTAL>0 ? PPW*(mix/PILLOW_TOTAL) : PPW/pillowItems;   // pillows: manual rate, not mattress mix
+  } else {
+    weeklyUse = MATT_TOTAL>0 ? DPW*(mix/MATT_TOTAL) : 0;
+  }
   // cover = weeks until stock is exhausted, with the incoming on-order factored in at its ETA
   let cover=null, reorderIn=null, gap=0;
   if(weeklyUse>0){
@@ -175,7 +188,7 @@ function calcRow(it){
 }
 
 function render(){
-  $('dpw').value=DPW; $('lead').value=LEAD; $('target').value=TARGET; $('eta').value=ETA;
+  $('dpw').value=DPW; $('lead').value=LEAD; $('target').value=TARGET; $('eta').value=ETA; $('ppw').value=PPW;
 
   const all=ITEMS.map(calcRow);
   // Alert: order now + can't-cover-backlog
@@ -252,7 +265,7 @@ window.saveOO=async(el)=>{
 };
 
 function setCtl(k,v){ v=Math.max(0,+v||0); localStorage.setItem(k,v);
-  if(k==='reorder_dpw')DPW=v; if(k==='reorder_lead')LEAD=v; if(k==='reorder_target')TARGET=v; if(k==='reorder_eta')ETA=v;
+  if(k==='reorder_dpw')DPW=v; if(k==='reorder_lead')LEAD=v; if(k==='reorder_target')TARGET=v; if(k==='reorder_eta')ETA=v; if(k==='reorder_ppw')PPW=v;
   render();
 }
 
