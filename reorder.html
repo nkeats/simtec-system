@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Simtec — Reorder planning</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/@supabase/supabase-js@2.38.4/dist/umd/supabase.js"></script>
+<script src="live.js?v=1" defer></script>
+<script src="auth.js?v=3" data-roles="admin,manager,office"></script>
+<style>
+body{font-family:system-ui,sans-serif}
+.card{background:#1e293b;border:1px solid #334155;border-radius:.75rem;padding:1.1rem 1.25rem}
+.lbl{font-size:.7rem;letter-spacing:.06em;text-transform:uppercase;color:#c9a84c;font-weight:700}
+.k{color:#7c8aa0;font-size:.75rem}
+.btn{padding:.4rem .85rem;border-radius:.5rem;font-size:.8rem;font-weight:600;cursor:pointer;border:1px solid #334155;background:#1e293b;color:#94a3b8}
+.btn:hover{border-color:#c9a84c;color:#e2e8f0}
+.inp{display:block;width:100%;padding:.5rem .7rem;background:#0f172a;border:1px solid #334155;border-radius:.6rem;color:#fff;font-size:1rem;box-sizing:border-box}
+table{width:100%;border-collapse:collapse}
+th{font-size:.66rem;letter-spacing:.05em;text-transform:uppercase;color:#7c8aa0;font-weight:700;text-align:left;padding:8px 10px;border-bottom:1px solid #334155}
+td{padding:9px 10px;border-bottom:1px solid #24324a;font-size:.9rem;vertical-align:middle}
+td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+tr:last-child td{border-bottom:none}
+.pillc{display:inline-block;font-size:11px;font-weight:700;padding:2px 9px;border-radius:999px;background:#0f1830;border:1px solid #26324a;color:#93a4bd}
+.oo{width:74px;padding:4px 8px;background:#0f172a;border:1px solid #3b4a63;border-radius:.45rem;color:#fff;text-align:right;font-size:.85rem;font-variant-numeric:tabular-nums}
+.oo:focus{outline:none;border-color:#c9a84c}
+.ctl{width:90px;padding:.45rem .6rem;background:#0f172a;border:1px solid #334155;border-radius:.5rem;color:#fff;text-align:right;font-size:1rem;font-variant-numeric:tabular-nums}
+</style>
+</head>
+<body class="bg-slate-950 text-white min-h-screen">
+
+<nav class="bg-slate-900 border-b border-slate-800 px-6 py-3 flex items-center gap-3">
+  <a href="home.html" style="color:#cbd5e1;text-decoration:none;font-size:.85rem;margin-right:8px">&lsaquo; Home</a>
+  <span class="font-bold tracking-wide text-lg">SIMTEC</span>
+  <span class="text-slate-400 text-sm">Reorder planning</span>
+  <a href="stock.html" style="margin-left:auto;color:#7dd3fc;text-decoration:none;font-size:.85rem">Stock on hand &rsaquo;</a>
+</nav>
+
+<div class="max-w-6xl mx-auto p-6">
+
+  <div class="card mb-5">
+    <div class="lbl mb-3">Planning settings</div>
+    <div class="flex flex-wrap gap-6 items-end">
+      <div>
+        <label class="k block mb-1">Deliveries per week</label>
+        <input id="dpw" type="number" class="ctl" min="0" onchange="setCtl('reorder_dpw',this.value)">
+        <div class="k mt-1" style="max-width:140px">Total mattresses delivered/week</div>
+      </div>
+      <div>
+        <label class="k block mb-1">Lead time (weeks)</label>
+        <input id="lead" type="number" class="ctl" min="0" onchange="setCtl('reorder_lead',this.value)">
+        <div class="k mt-1" style="max-width:140px">Order &rarr; delivery lag (13)</div>
+      </div>
+      <div>
+        <label class="k block mb-1">Target cover (weeks)</label>
+        <input id="target" type="number" class="ctl" min="0" onchange="setCtl('reorder_target',this.value)">
+        <div class="k mt-1" style="max-width:150px">Weeks of stock each order should top you up to</div>
+      </div>
+    </div>
+  </div>
+
+  <div id="alert" class="mb-5"></div>
+  <div id="body"></div>
+  <div id="state" class="text-center text-slate-500 py-20">Loading orders&hellip;</div>
+  <div id="help" class="k mt-5" style="line-height:1.5"></div>
+</div>
+
+<script>
+const SUPABASE_URL='https://jvqjoenaungubpoegyvf.supabase.co';
+const SUPABASE_KEY='sb_publishable_J4MYTdJJyEaWe-GadpwdYA_upPT2rKw';
+const sb=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
+const $=id=>document.getElementById(id);
+const esc=s=>(s==null?'':String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const NUM=n=>(+n||0).toLocaleString('en-NZ');
+const CATS=[['mattress','Mattresses'],['base','Bed bases'],['protector','Protectors']];
+const IGNORE_PRODUCTS=new Set(['Delivery fee']);
+
+// Arrears, mirrored from payments-risk.html / stock.html so "in arrears" is consistent.
+const PERIODS={weekly:{per:7,total:156},fortnightly:{per:14,total:78},monthly:{per:30.44,total:36}};
+function periodsBehindOf(o){
+  const contract=o.contract_value!=null?Number(o.contract_value):null;
+  const paid=o.amount_paid_to_date!=null?Number(o.amount_paid_to_date):0;
+  const freq=PERIODS[o.payment_frequency]||PERIODS.weekly;
+  if(contract==null||contract<=0) return 0;
+  if(paid>=contract*0.999) return 0;
+  const haveTerms=o.instalment_amount!=null&&Number(o.instalment_amount)>0;
+  const perAmt=haveTerms?Number(o.instalment_amount):contract/freq.total;
+  const startStr=o.schedule_start_date||o.loan_start_date||o.first_payment_date||null;
+  if(!startStr) return 0;
+  const start=new Date(String(startStr).slice(0,10)+'T00:00:00');
+  const now=new Date();
+  if(start>now) return 0;
+  const dueCount=Math.floor((now-start)/86400000/freq.per)+1;
+  const expected=Math.min(contract,perAmt*Math.max(0,dueCount));
+  return perAmt>0?Math.max(0,(expected-paid)/perAmt):0;
+}
+
+let ITEMS=[], ITEM_NAMES=new Set(), MOVES=[], DELIVERED={}, COMMITTED={}, MIX={}, MATT_TOTAL=0;
+let DPW=+localStorage.getItem('reorder_dpw')||20;
+let LEAD=+localStorage.getItem('reorder_lead')||13;
+let TARGET=+localStorage.getItem('reorder_target')||26;
+
+async function fetchAllOrders(build){
+  const PAGE=1000; let out=[];
+  for(let from=0;;from+=PAGE){
+    const {data,error}=await build(sb.from('sim_orders')).range(from,from+PAGE-1);
+    if(error){ console.warn('reorder orders:',error.message); break; }
+    out=out.concat(data||[]);
+    if(!data||data.length<PAGE) break;
+  }
+  return out;
+}
+function movementSum(name){ return MOVES.filter(m=>m.product_name===name).reduce((s,m)=>s+(+m.qty||0),0); }
+function onHand(it){ return (+it.opening_qty||0)+movementSum(it.product_name)-(DELIVERED[it.product_name]||0); }
+
+async function load(){
+  const {data:items,error}=await sb.from('sim_stock_items').select('*').eq('active',true).order('sort');
+  if(error){ $('state').innerHTML=`<div class="text-amber-300">Stock tables aren't set up. (${esc(error.message)})</div>`; return; }
+  ITEMS=items||[]; ITEM_NAMES=new Set(ITEMS.map(i=>i.product_name));
+  const AS_OF=ITEMS.reduce((m,i)=>!m||i.as_of<m?i.as_of:m,null); const asOfIso=(AS_OF||'2000-01-01')+'T00:00:00';
+
+  const {data:moves}=await sb.from('sim_stock_movements').select('*'); MOVES=moves||[];
+
+  const delivered=await fetchAllOrders(q=>q
+    .select('id,delivered_at,order_status,sim_order_items(product_name,quantity)')
+    .eq('delivery_status','delivered').gte('delivered_at',asOfIso).neq('order_status','cancelled'));
+
+  const active=await fetchAllOrders(q=>q
+    .select('id,delivery_status,order_status,contract_value,amount_paid_to_date,payment_frequency,instalment_amount,schedule_start_date,loan_start_date,first_payment_date,next_payment_date,sim_order_items(product_name,quantity,cancelled,delivered)')
+    .eq('order_status','active'));
+
+  DELIVERED={}; COMMITTED={}; MIX={};
+  delivered.forEach(o=>(o.sim_order_items||[]).forEach(it=>{const n=it.product_name; if(!n||IGNORE_PRODUCTS.has(n))return; DELIVERED[n]=(DELIVERED[n]||0)+(+it.quantity||0);}));
+  active.forEach(o=>{
+    const undel=(o.delivery_status||'')!=='delivered';
+    const committed=undel && periodsBehindOf(o)<5;
+    (o.sim_order_items||[]).forEach(it=>{
+      const n=it.product_name; if(!n||IGNORE_PRODUCTS.has(n)||it.cancelled) return;
+      const q=+it.quantity||0;
+      if(ITEM_NAMES.has(n)) MIX[n]=(MIX[n]||0)+q;
+      if(committed && !it.delivered) COMMITTED[n]=(COMMITTED[n]||0)+q;
+    });
+  });
+  MATT_TOTAL=ITEMS.filter(i=>i.category==='mattress').reduce((s,i)=>s+(MIX[i.product_name]||0),0);
+
+  $('state').classList.add('hidden');
+  render();
+}
+
+function calcRow(it){
+  const name=it.product_name;
+  const oh=onHand(it), req=COMMITTED[name]||0, oo=+it.on_order||0;
+  const avail=oh+oo, mix=MIX[name]||0;
+  const weeklyUse=MATT_TOTAL>0? DPW*(mix/MATT_TOTAL) : 0;
+  const cover=weeklyUse>0? avail/weeklyUse : null;
+  const reorderIn=cover==null? null : cover-LEAD;
+  const suggested=weeklyUse>0? Math.max(0, Math.round(TARGET*weeklyUse-avail)) : 0;
+  return {it,name,oh,req,oo,avail,mix,weeklyUse,cover,reorderIn,suggested};
+}
+
+function render(){
+  $('dpw').value=DPW; $('lead').value=LEAD; $('target').value=TARGET;
+
+  const all=ITEMS.map(calcRow);
+  // Alert: order now + can't-cover-backlog
+  const orderNow=all.filter(r=>r.reorderIn!=null && r.reorderIn<=0 && r.suggested>0).sort((a,b)=>a.reorderIn-b.reorderIn);
+  const shortNow=all.filter(r=>r.avail<r.req);
+  const soonest=all.filter(r=>r.reorderIn!=null).sort((a,b)=>a.reorderIn-b.reorderIn)[0];
+  let a='';
+  if(orderNow.length){
+    a+=`<div class="card" style="border-color:#7f1d1d;background:#2a1414">
+      <div class="lbl" style="color:#fca5a5">Order now &mdash; cover has dropped to the ${LEAD}-week lead time</div>
+      <div class="mt-2 text-sm" style="line-height:1.7">${orderNow.map(r=>`<b>${esc(r.name)}</b> &mdash; <span style="color:#7dd3fc">order ${NUM(r.suggested)}</span>`).join(' &nbsp;·&nbsp; ')}</div></div>`;
+  } else if(soonest && soonest.reorderIn<999){
+    a+=`<div class="card" style="border-color:#3f6212">
+      <div class="lbl" style="color:#a3e635">Nothing to order yet</div>
+      <div class="mt-1 text-sm text-slate-300">Next item to reach the ${LEAD}-week reorder point: <b>${esc(soonest.name)}</b> in about <b>${soonest.reorderIn.toFixed(1)} weeks</b>.</div></div>`;
+  }
+  if(shortNow.length){
+    a+=`<div class="card mt-3" style="border-color:#8a5a12">
+      <div class="lbl" style="color:#e6c260">Below committed orders &mdash; on hand + on order won't cover what's already sold</div>
+      <div class="mt-2 text-sm" style="line-height:1.7">${shortNow.map(r=>`<b>${esc(r.name)}</b> <span class="k">(${NUM(r.avail)} vs ${NUM(r.req)} required)</span>`).join(' &nbsp;·&nbsp; ')}</div></div>`;
+  }
+  $('alert').innerHTML=a;
+
+  let html='';
+  CATS.forEach(([cat,label])=>{
+    const rows=ITEMS.filter(i=>i.category===cat).map(calcRow).sort((x,y)=>(x.reorderIn??1e9)-(y.reorderIn??1e9));
+    if(!rows.length) return;
+    html+=`<div class="card mb-4" style="padding:0;overflow:hidden">
+      <div class="lbl" style="padding:12px 14px 6px">${esc(label)}</div>
+      <table><thead><tr>
+        <th>Product</th><th class="num">On hand</th><th class="num">Required</th><th class="num">On order</th>
+        <th class="num">Available</th><th class="num">Wk use</th><th class="num">Wks cover</th><th class="num">Reorder in</th><th class="num">Order now</th>
+      </tr></thead><tbody>`;
+    rows.forEach(r=>{
+      const coverTxt=r.cover==null?'&mdash;':r.cover.toFixed(1);
+      const availColor=r.avail<r.req?'#f87171':'#e2e8f0';
+      const ri=r.reorderIn; let riTxt,riColor;
+      if(ri==null){ riTxt='&mdash;'; riColor='#64748b'; }
+      else if(ri<=0){ riTxt='ORDER NOW'; riColor='#f87171'; }
+      else if(ri<=2){ riTxt=ri.toFixed(1)+' wk'; riColor='#fbbf24'; }
+      else { riTxt=ri.toFixed(1)+' wk'; riColor='#4ade80'; }
+      html+=`<tr>
+        <td class="text-slate-100">${esc(r.name)}</td>
+        <td class="num text-slate-300" style="font-weight:600">${NUM(r.oh)}</td>
+        <td class="num text-slate-400">${NUM(r.req)}</td>
+        <td class="num"><input class="oo" type="number" min="0" value="${r.oo}" data-id="${esc(String(r.it.id))}" onchange="saveOO(this)"></td>
+        <td class="num" style="font-weight:700;color:${availColor}">${NUM(r.avail)}</td>
+        <td class="num text-slate-400">${r.weeklyUse.toFixed(1)}</td>
+        <td class="num text-slate-300">${coverTxt}</td>
+        <td class="num" style="color:${riColor};font-weight:700">${riTxt}</td>
+        <td class="num" style="color:${r.suggested>0?'#7dd3fc':'#64748b'};font-weight:700">${r.suggested>0?NUM(r.suggested):'&mdash;'}</td>
+      </tr>`;
+    });
+    html+='</tbody></table></div>';
+  });
+  $('body').innerHTML=html;
+
+  $('help').innerHTML=`<b>How this works.</b> <b>Required</b> = mattresses/items on current orders under 5 payments in arrears, still to deliver. <b>Available</b> = on hand + on order (turns red if it won't cover Required). <b>Wk use</b> = deliveries/week &times; each product's share of mattress volume, so bases and protectors deplete at their real attach rate. <b>Wks cover</b> = available &divide; weekly use. <b>Reorder in</b> = weeks until cover hits the lead time &mdash; at <b>0</b> you must place the order so it lands before you run out. <b>Order now</b> = quantity to top the product up to your target cover, sized by current sales mix. On-order is counted as available now (your current order lands in ~5 weeks, well inside the ${LEAD}-week window).`;
+}
+
+window.saveOO=async(el)=>{
+  const id=el.dataset.id, val=Math.max(0,Math.round(+el.value||0));
+  el.value=val;
+  const it=ITEMS.find(i=>String(i.id)===String(id)); if(it) it.on_order=val;
+  render();
+  const {error}=await sb.from('sim_stock_items').update({on_order:val}).eq('id',id);
+  if(error){ $('help').innerHTML=`<span style="color:#f87171">Couldn't save &ldquo;on order&rdquo; &mdash; the <b>on_order</b> column probably doesn't exist yet. Run this once in the Supabase SQL editor, then refresh:<br><code>alter table sim_stock_items add column on_order integer default 0;</code><br>(${esc(error.message)})</span>`; }
+};
+
+function setCtl(k,v){ v=Math.max(0,+v||0); localStorage.setItem(k,v);
+  if(k==='reorder_dpw')DPW=v; if(k==='reorder_lead')LEAD=v; if(k==='reorder_target')TARGET=v;
+  render();
+}
+
+load();
+</script>
+</body>
+</html>
