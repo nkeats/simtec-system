@@ -25,6 +25,12 @@ tr:last-child td{border-bottom:none}
 .oo{width:74px;padding:4px 8px;background:#0f172a;border:1px solid #3b4a63;border-radius:.45rem;color:#fff;text-align:right;font-size:.85rem;font-variant-numeric:tabular-nums}
 .oo:focus{outline:none;border-color:#c9a84c}
 .ctl{width:90px;padding:.45rem .6rem;background:#0f172a;border:1px solid #334155;border-radius:.5rem;color:#fff;text-align:right;font-size:1rem;font-variant-numeric:tabular-nums}
+.gold{background:#c9a84c;color:#1a2438;border:none}
+.ov{position:fixed;inset:0;background:rgba(2,6,23,.7);display:none;align-items:center;justify-content:center;z-index:50;padding:1rem}
+.ov.show{display:flex}
+.modal{background:#1e293b;border:1px solid #334155;border-radius:.9rem;padding:1.5rem;max-width:22rem;width:100%}
+.arrbtn{font-size:10px;font-weight:700;padding:3px 8px;border-radius:.4rem;border:1px solid #2f6b3f;background:#12291a;color:#86efac;cursor:pointer;letter-spacing:.02em}
+.arrbtn:hover{border-color:#4ade80;color:#bbf7d0}
 </style>
 </head>
 <body class="bg-slate-950 text-white min-h-screen">
@@ -33,7 +39,7 @@ tr:last-child td{border-bottom:none}
   <a href="home.html" style="color:#cbd5e1;text-decoration:none;font-size:.85rem;margin-right:8px">&lsaquo; Home</a>
   <span class="font-bold tracking-wide text-lg">SIMTEC</span>
   <span class="text-slate-400 text-sm">Reorder planning</span>
-  <a href="stock.html" style="margin-left:auto;color:#7dd3fc;text-decoration:none;font-size:.85rem">Stock on hand &rsaquo;</a>
+  <a href="stock.html" style="color:#7dd3fc;text-decoration:none;font-size:.85rem;margin-left:14px">&lsaquo; Stock on hand</a>
 </nav>
 
 <div class="max-w-6xl mx-auto p-6">
@@ -77,6 +83,19 @@ tr:last-child td{border-bottom:none}
   <div id="state" class="text-center text-slate-500 py-20">Loading orders&hellip;</div>
   <div id="help" class="k mt-5" style="line-height:1.5"></div>
 </div>
+
+<div class="ov" id="ov"><div class="modal">
+  <h3 class="font-semibold text-white mb-1" id="ovtitle">Stock arrived</h3>
+  <p id="ovsub" class="k mb-4"></p>
+  <label class="k block mb-1">Quantity arrived</label>
+  <input id="arrqty" class="inp mb-1" type="text" inputmode="numeric" oninput="this.value=this.value.replace(/[^0-9]/g,'')">
+  <p class="k mb-4">Adds to stock on hand and reduces on-order. Enter a smaller number for a partial delivery.</p>
+  <div class="flex gap-3">
+    <button class="btn gold flex-1" onclick="confirmArrived()">Receive into stock</button>
+    <button class="btn flex-1" onclick="closeOv()">Cancel</button>
+  </div>
+  <div id="arrerr" class="text-xs mt-3" style="color:#f87171"></div>
+</div></div>
 
 <script>
 const SUPABASE_URL='https://jvqjoenaungubpoegyvf.supabase.co';
@@ -240,7 +259,7 @@ function render(){
         <td class="text-slate-100">${esc(r.name)}</td>
         <td class="num text-slate-300" style="font-weight:600">${NUM(r.oh)}</td>
         <td class="num text-slate-400">${NUM(r.req)}</td>
-        <td class="num"><input class="oo" type="text" inputmode="numeric" value="${r.oo}" data-name="${esc(r.it.product_name)}" oninput="this.value=this.value.replace(/[^0-9]/g,'')" onchange="saveOO(this)"></td>
+        <td class="num"><input class="oo" type="text" inputmode="numeric" value="${r.oo}" data-name="${esc(r.it.product_name)}" oninput="this.value=this.value.replace(/[^0-9]/g,'')" onchange="saveOO(this)">${r.oo>0?`<div style="margin-top:3px"><button class="arrbtn" data-name="${esc(r.it.product_name)}" onclick="openArrived(this.dataset.name)" title="Receive this on-order stock into on hand">&#10003; arrived</button></div>`:''}</td>
         <td class="num" style="font-weight:700;color:${availColor}">${NUM(r.avail)}</td>
         <td class="num text-slate-400">${r.weeklyUse.toFixed(1)}</td>
         <td class="num" style="color:${r.gap>0.05?'#fca5a5':'#cbd5e1'}">${coverTxt}${r.gap>0.05?' <span style="color:#f87171" title="on hand runs dry before the incoming order arrives">&#9888;</span>':''}</td>
@@ -262,6 +281,35 @@ window.saveOO=async(el)=>{
   render();
   const {error}=await sb.from('sim_stock_items').update({on_order:val}).eq('product_name',name);
   if(error){ $('help').innerHTML=`<span style="color:#f87171">Couldn't save &ldquo;on order&rdquo; for ${esc(name)}: ${esc(error.message)}</span>`; }
+};
+
+let arrProduct=null;
+window.openArrived=(name)=>{
+  const it=ITEMS.find(i=>i.product_name===name); if(!it) return;
+  arrProduct=name;
+  const oo=+it.on_order||0;
+  $('ovtitle').textContent='Stock arrived — '+name;
+  $('ovsub').textContent='On order: '+NUM(oo)+'. Enter how many landed.';
+  $('arrqty').value=oo; $('arrerr').textContent='';
+  $('ov').classList.add('show'); setTimeout(()=>$('arrqty').focus(),0);
+};
+window.closeOv=()=>$('ov').classList.remove('show');
+window.confirmArrived=async()=>{
+  const qty=Math.max(0,Math.round(+$('arrqty').value||0));
+  if(qty<=0){ $('arrerr').textContent='Enter a quantity greater than zero.'; return; }
+  const it=ITEMS.find(i=>i.product_name===arrProduct); if(!it){ closeOv(); return; }
+  const by=(window.SIMTEC_USER&&(window.SIMTEC_USER.full_name||window.SIMTEC_USER.email))||null;
+  const btn=document.querySelector('#ov .gold'); if(btn){btn.disabled=true;btn.textContent='Saving…';}
+  // 1) log a received movement -> raises on hand (same ledger the stock page uses)
+  const {error:e1}=await sb.from('sim_stock_movements').insert({product_name:arrProduct, qty, reason:'received', note:'On-order arrival', created_by:by});
+  if(e1){ $('arrerr').textContent=e1.message; if(btn){btn.disabled=false;btn.textContent='Receive into stock';} return; }
+  // 2) reduce on-order by what arrived (never below zero)
+  const newOO=Math.max(0,(+it.on_order||0)-qty);
+  const {error:e2}=await sb.from('sim_stock_items').update({on_order:newOO}).eq('product_name',arrProduct);
+  if(btn){btn.disabled=false;btn.textContent='Receive into stock';}
+  if(e2){ $('arrerr').textContent='Stock received, but couldn\'t lower on-order: '+e2.message; return; }
+  closeOv();
+  await load();   // re-fetch movements + items -> on hand up, on order down
 };
 
 function setCtl(k,v){ v=Math.max(0,+v||0); localStorage.setItem(k,v);
