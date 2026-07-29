@@ -56,6 +56,14 @@ tr:last-child td{border-bottom:none}
         <input id="target" type="number" class="ctl" min="0" onchange="setCtl('reorder_target',this.value)">
         <div class="k mt-1" style="max-width:150px">Weeks of stock each order should top you up to</div>
       </div>
+      <div>
+        <label class="k block mb-1">On-order arrives in (weeks)</label>
+        <input id="eta" type="number" class="ctl" min="0" onchange="setCtl('reorder_eta',this.value)">
+        <div class="k mt-1" style="max-width:150px">When your current on-order stock lands</div>
+      </div>
+      <div style="margin-left:auto">
+        <button class="btn" style="background:#c9a84c;color:#1a2438;border:none;font-size:.9rem;padding:.55rem 1.1rem;font-weight:700" onclick="printOrder()">Print order &rsaquo;</button>
+      </div>
     </div>
   </div>
 
@@ -99,6 +107,7 @@ let ITEMS=[], ITEM_NAMES=new Set(), MOVES=[], DELIVERED={}, COMMITTED={}, MIX={}
 let DPW=+localStorage.getItem('reorder_dpw')||20;
 let LEAD=+localStorage.getItem('reorder_lead')||13;
 let TARGET=+localStorage.getItem('reorder_target')||26;
+let ETA=+localStorage.getItem('reorder_eta')||5;
 
 async function fetchAllOrders(build){
   const PAGE=1000; let out=[];
@@ -152,14 +161,21 @@ function calcRow(it){
   const oh=onHand(it), req=COMMITTED[name]||0, oo=+it.on_order||0;
   const avail=oh+oo, mix=MIX[name]||0;
   const weeklyUse=MATT_TOTAL>0? DPW*(mix/MATT_TOTAL) : 0;
-  const cover=weeklyUse>0? avail/weeklyUse : null;
-  const reorderIn=cover==null? null : cover-LEAD;
+  // cover = weeks until stock is exhausted, with the incoming on-order factored in at its ETA
+  let cover=null, reorderIn=null, gap=0;
+  if(weeklyUse>0){
+    const onHandWeeks=oh/weeklyUse;
+    if(oo<=0)                  cover=onHandWeeks;              // nothing on order
+    else if(onHandWeeks>=ETA)  cover=avail/weeklyUse;         // on hand bridges to arrival -> continuous
+    else { cover=ETA+oo/weeklyUse; gap=ETA-onHandWeeks; }     // on hand runs dry before it lands -> gap
+    reorderIn=cover-LEAD;
+  }
   const suggested=weeklyUse>0? Math.max(0, Math.round(TARGET*weeklyUse-avail)) : 0;
-  return {it,name,oh,req,oo,avail,mix,weeklyUse,cover,reorderIn,suggested};
+  return {it,name,oh,req,oo,avail,mix,weeklyUse,cover,reorderIn,gap,suggested};
 }
 
 function render(){
-  $('dpw').value=DPW; $('lead').value=LEAD; $('target').value=TARGET;
+  $('dpw').value=DPW; $('lead').value=LEAD; $('target').value=TARGET; $('eta').value=ETA;
 
   const all=ITEMS.map(calcRow);
   // Alert: order now + can't-cover-backlog
@@ -180,6 +196,12 @@ function render(){
     a+=`<div class="card mt-3" style="border-color:#8a5a12">
       <div class="lbl" style="color:#e6c260">Below committed orders &mdash; on hand + on order won't cover what's already sold</div>
       <div class="mt-2 text-sm" style="line-height:1.7">${shortNow.map(r=>`<b>${esc(r.name)}</b> <span class="k">(${NUM(r.avail)} vs ${NUM(r.req)} required)</span>`).join(' &nbsp;·&nbsp; ')}</div></div>`;
+  }
+  const gapItems=all.filter(r=>r.gap>0.05).sort((x,y)=>y.gap-x.gap);
+  if(gapItems.length){
+    a+=`<div class="card mt-3" style="border-color:#7f1d1d;background:#241016">
+      <div class="lbl" style="color:#fca5a5">Near-term stockout &mdash; on hand runs dry before your incoming order lands (~${ETA} wks)</div>
+      <div class="mt-2 text-sm" style="line-height:1.7">${gapItems.map(r=>`<b>${esc(r.name)}</b> <span class="k">(dry ~${r.gap.toFixed(1)} wk before it arrives)</span>`).join(' &nbsp;·&nbsp; ')}</div></div>`;
   }
   $('alert').innerHTML=a;
 
@@ -205,10 +227,10 @@ function render(){
         <td class="text-slate-100">${esc(r.name)}</td>
         <td class="num text-slate-300" style="font-weight:600">${NUM(r.oh)}</td>
         <td class="num text-slate-400">${NUM(r.req)}</td>
-        <td class="num"><input class="oo" type="number" min="0" value="${r.oo}" data-id="${esc(String(r.it.id))}" onchange="saveOO(this)"></td>
+        <td class="num"><input class="oo" type="text" inputmode="numeric" value="${r.oo}" data-id="${esc(String(r.it.id))}" oninput="this.value=this.value.replace(/[^0-9]/g,'')" onchange="saveOO(this)"></td>
         <td class="num" style="font-weight:700;color:${availColor}">${NUM(r.avail)}</td>
         <td class="num text-slate-400">${r.weeklyUse.toFixed(1)}</td>
-        <td class="num text-slate-300">${coverTxt}</td>
+        <td class="num" style="color:${r.gap>0.05?'#fca5a5':'#cbd5e1'}">${coverTxt}${r.gap>0.05?' <span style="color:#f87171" title="on hand runs dry before the incoming order arrives">&#9888;</span>':''}</td>
         <td class="num" style="color:${riColor};font-weight:700">${riTxt}</td>
         <td class="num" style="color:${r.suggested>0?'#7dd3fc':'#64748b'};font-weight:700">${r.suggested>0?NUM(r.suggested):'&mdash;'}</td>
       </tr>`;
@@ -217,7 +239,7 @@ function render(){
   });
   $('body').innerHTML=html;
 
-  $('help').innerHTML=`<b>How this works.</b> <b>Required</b> = mattresses/items on current orders under 5 payments in arrears, still to deliver. <b>Available</b> = on hand + on order (turns red if it won't cover Required). <b>Wk use</b> = deliveries/week &times; each product's share of mattress volume, so bases and protectors deplete at their real attach rate. <b>Wks cover</b> = available &divide; weekly use. <b>Reorder in</b> = weeks until cover hits the lead time &mdash; at <b>0</b> you must place the order so it lands before you run out. <b>Order now</b> = quantity to top the product up to your target cover, sized by current sales mix. On-order is counted as available now (your current order lands in ~5 weeks, well inside the ${LEAD}-week window).`;
+  $('help').innerHTML=`<b>How this works.</b> <b>Required</b> = items on current orders under 5 payments in arrears, still to deliver. <b>Available</b> = on hand + on order (turns red if it won't cover Required). <b>Wk use</b> = deliveries/week &times; each product's share of mattress volume, so bases and protectors deplete at their real attach rate. <b>Wks cover</b> = weeks until you run out, counting your incoming order at the moment it lands (the &ldquo;arrives in&rdquo; setting) &mdash; if on hand would run dry first, cover shows &#9888; and the item appears under near-term stockout. <b>Reorder in</b> = weeks until cover hits the lead time; at <b>0</b> you must place the order so it lands before you run out. <b>Order now</b> = quantity to top the product up to target cover, sized by current sales mix. <b>Print order</b> compiles those quantities into a supplier list.`;
 }
 
 window.saveOO=async(el)=>{
@@ -230,9 +252,43 @@ window.saveOO=async(el)=>{
 };
 
 function setCtl(k,v){ v=Math.max(0,+v||0); localStorage.setItem(k,v);
-  if(k==='reorder_dpw')DPW=v; if(k==='reorder_lead')LEAD=v; if(k==='reorder_target')TARGET=v;
+  if(k==='reorder_dpw')DPW=v; if(k==='reorder_lead')LEAD=v; if(k==='reorder_target')TARGET=v; if(k==='reorder_eta')ETA=v;
   render();
 }
+
+window.printOrder=()=>{
+  const rows=ITEMS.map(calcRow).filter(r=>r.suggested>0);
+  const today=new Date().toLocaleDateString('en-NZ',{day:'numeric',month:'long',year:'numeric'});
+  let body='';
+  CATS.forEach(([cat,label])=>{
+    const list=rows.filter(r=>r.it.category===cat).sort((x,y)=>y.suggested-x.suggested);
+    if(!list.length) return;
+    const tot=list.reduce((s,r)=>s+r.suggested,0);
+    body+=`<h2>${esc(label)}</h2><table><thead><tr><th>Product</th><th class="q">Order qty</th></tr></thead><tbody>`;
+    list.forEach(r=>{ body+=`<tr><td>${esc(r.name)}</td><td class="q">${NUM(r.suggested)}</td></tr>`; });
+    body+=`<tr class="tot"><td>Total ${esc(label.toLowerCase())}</td><td class="q">${NUM(tot)}</td></tr></tbody></table>`;
+  });
+  if(!body) body='<p>Nothing to order right now &mdash; every product is at or above its target cover.</p>';
+  const w=window.open('','_blank');
+  if(!w){ alert('Please allow pop-ups to print the order.'); return; }
+  w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Simtec stock order ${today}</title><style>
+    body{font-family:system-ui,Arial,sans-serif;color:#111;margin:34px;max-width:640px}
+    h1{font-size:20px;margin:0 0 2px}
+    .sub{color:#555;font-size:13px;margin-bottom:22px}
+    h2{font-size:13px;margin:22px 0 6px;text-transform:uppercase;letter-spacing:.05em;color:#333}
+    table{width:100%;border-collapse:collapse;margin-bottom:6px}
+    th,td{text-align:left;padding:6px 8px;border-bottom:1px solid #ddd;font-size:14px}
+    th.q,td.q{text-align:right}
+    tr.tot td{font-weight:700;border-top:2px solid #333;border-bottom:none}
+    @media print{.noprint{display:none}}
+  </style></head><body>
+    <h1>Simtec &mdash; Stock Order</h1>
+    <div class="sub">${today} &nbsp;&middot;&nbsp; topping up to ${TARGET} weeks cover at ${DPW} deliveries/week (${LEAD}-week lead)</div>
+    ${body}
+    <button class="noprint" onclick="window.print()" style="margin-top:18px;padding:8px 18px;font-size:14px;cursor:pointer">Print</button>
+  </body></html>`);
+  w.document.close();
+};
 
 load();
 </script>
