@@ -227,7 +227,7 @@ function render(){
         <td class="text-slate-100">${esc(r.name)}</td>
         <td class="num text-slate-300" style="font-weight:600">${NUM(r.oh)}</td>
         <td class="num text-slate-400">${NUM(r.req)}</td>
-        <td class="num"><input class="oo" type="text" inputmode="numeric" value="${r.oo}" data-id="${esc(String(r.it.id))}" oninput="this.value=this.value.replace(/[^0-9]/g,'')" onchange="saveOO(this)"></td>
+        <td class="num"><input class="oo" type="text" inputmode="numeric" value="${r.oo}" data-name="${esc(r.it.product_name)}" oninput="this.value=this.value.replace(/[^0-9]/g,'')" onchange="saveOO(this)"></td>
         <td class="num" style="font-weight:700;color:${availColor}">${NUM(r.avail)}</td>
         <td class="num text-slate-400">${r.weeklyUse.toFixed(1)}</td>
         <td class="num" style="color:${r.gap>0.05?'#fca5a5':'#cbd5e1'}">${coverTxt}${r.gap>0.05?' <span style="color:#f87171" title="on hand runs dry before the incoming order arrives">&#9888;</span>':''}</td>
@@ -243,12 +243,12 @@ function render(){
 }
 
 window.saveOO=async(el)=>{
-  const id=el.dataset.id, val=Math.max(0,Math.round(+el.value||0));
+  const name=el.dataset.name, val=Math.max(0,Math.round(+el.value||0));
   el.value=val;
-  const it=ITEMS.find(i=>String(i.id)===String(id)); if(it) it.on_order=val;
+  const it=ITEMS.find(i=>i.product_name===name); if(it) it.on_order=val;
   render();
-  const {error}=await sb.from('sim_stock_items').update({on_order:val}).eq('id',id);
-  if(error){ $('help').innerHTML=`<span style="color:#f87171">Couldn't save &ldquo;on order&rdquo; &mdash; the <b>on_order</b> column probably doesn't exist yet. Run this once in the Supabase SQL editor, then refresh:<br><code>alter table sim_stock_items add column on_order integer default 0;</code><br>(${esc(error.message)})</span>`; }
+  const {error}=await sb.from('sim_stock_items').update({on_order:val}).eq('product_name',name);
+  if(error){ $('help').innerHTML=`<span style="color:#f87171">Couldn't save &ldquo;on order&rdquo; for ${esc(name)}: ${esc(error.message)}</span>`; }
 };
 
 function setCtl(k,v){ v=Math.max(0,+v||0); localStorage.setItem(k,v);
