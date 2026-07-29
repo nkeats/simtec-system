@@ -42,6 +42,8 @@ pre{white-space:pre-wrap;word-break:break-word;background:#0b1220;border:1px sol
     </div>
     <div id="f-refund1" class="row" style="display:none"><label>Payment ID (Ezidebit PaymentID)</label><input id="paymentId" class="inp"></div>
     <div id="f-refund2" class="row" style="display:none"><label>Refund amount (cents)</label><input id="amountCents" class="inp" placeholder="e.g. 5000 for $50.00"></div>
+    <div id="f-fname" class="row" style="display:none"><label>First name</label><input id="firstName" class="inp"></div>
+    <div id="f-lname" class="row" style="display:none"><label>Last name</label><input id="lastName" class="inp"></div>
     <div id="f-email" class="row" style="display:none"><label>New email</label><input id="email" class="inp"></div>
     <div id="f-mobile" class="row" style="display:none"><label>New mobile</label><input id="mobile" class="inp"></div>
 
@@ -61,6 +63,8 @@ function showFields(){
   $('f-status').style.display = a==='change-status' ? 'block':'none';
   $('f-refund1').style.display = a==='refund' ? 'block':'none';
   $('f-refund2').style.display = a==='refund' ? 'block':'none';
+  $('f-fname').style.display = a==='update-contact' ? 'block':'none';
+  $('f-lname').style.display = a==='update-contact' ? 'block':'none';
   $('f-email').style.display = a==='update-contact' ? 'block':'none';
   $('f-mobile').style.display = a==='update-contact' ? 'block':'none';
 }
@@ -70,7 +74,7 @@ window.run = async () => {
   const body = { action: $('action').value, payerRef: $('payerRef').value.trim() };
   if (body.action==='change-status') body.newStatus = $('newStatus').value;
   if (body.action==='refund'){ body.paymentId=$('paymentId').value.trim(); body.amountCents=$('amountCents').value.trim(); }
-  if (body.action==='update-contact'){ body.email=$('email').value.trim(); body.mobile=$('mobile').value.trim(); }
+  if (body.action==='update-contact'){ body.firstName=$('firstName').value.trim(); body.lastName=$('lastName').value.trim(); body.email=$('email').value.trim(); body.mobile=$('mobile').value.trim(); }
   try {
     const { data, error } = await sb.functions.invoke('ezidebit-actions', { body });
     if (error) {
