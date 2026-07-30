@@ -57,6 +57,8 @@
     <h2>Add a consultant</h2>
     <div class="grid">
       <div><label for="name">Full name</label><input id="name" autocomplete="off" placeholder="e.g. Jordan Smith"></div>
+      <div><label for="phone">Phone</label><input id="phone" autocomplete="off" placeholder="e.g. 021 234 5678"></div>
+      <div><label for="email">Email</label><input id="email" type="email" autocomplete="off" placeholder="e.g. jordan@example.com"></div>
       <div><label for="tl">Team leader</label><select id="tl"><option value="">— none —</option></select></div>
       <div><button id="add" onclick="addConsultant()">Add</button></div>
     </div>
@@ -97,7 +99,7 @@ function clearMsg(){ $("msg").style.display="none"; }
 let LIST=[];
 
 async function load(){
-  const { data, error } = await sb.from("commission_consultants").select("id,name,team_leader,is_team_leader,photo,id_card_no").order("name");
+  const { data, error } = await sb.from("commission_consultants").select("id,name,team_leader,is_team_leader,photo,id_card_no,phone,email").order("name");
   if(error){ $("listState").textContent="Couldn't load: "+error.message; return; }
   LIST=data||[];
   // backfill any missing (cosmetic) ID numbers once, and persist
@@ -113,7 +115,11 @@ async function load(){
     const thumb = c.photo ? `<img class="thumb" src="${c.photo}" alt="">` : `<span class="thumb noph">No<br>photo</span>`;
     return `<tr>
       <td>${thumb}</td>
-      <td><b>${esc(c.name)}</b><div class="muted" style="font-size:11.5px">ID #: ${esc(c.id_card_no||"—")}</div></td>
+      <td><b>${esc(c.name)}</b><div class="muted" style="font-size:11.5px">ID #: ${esc(c.id_card_no||"—")}</div>
+        <div style="margin-top:5px;display:flex;gap:6px;flex-wrap:wrap">
+          <input value="${esc(c.phone||'')}" placeholder="Phone" style="font-size:11px;padding:3px 6px;width:130px;border:1px solid #cbd5e1;border-radius:6px" onchange="saveContact('${c.id}','phone',this.value)">
+          <input value="${esc(c.email||'')}" placeholder="Email" style="font-size:11px;padding:3px 6px;width:180px;border:1px solid #cbd5e1;border-radius:6px" onchange="saveContact('${c.id}','email',this.value)">
+        </div></td>
       <td><span class="badge ${c.is_team_leader?"tl":"con"}">${c.is_team_leader?"Team leader":"Consultant"}</span></td>
       <td>${c.is_team_leader?'<span class="muted">—</span>':`<select onchange="setLeader('${c.id}',this.value)">${tlOpts}</select>`}</td>
       <td style="white-space:nowrap">
@@ -133,19 +139,31 @@ async function addConsultant(){
   const btn=$("add"); btn.disabled=true;
   try{
     const isTL=$("isTL").checked;
+    const phone=$("phone").value.trim();
+    const email=$("email").value.trim();
     const { error } = await sb.from("commission_consultants").insert({
       name, is_team_leader: isTL,
       team_leader: isTL ? name : ($("tl").value||null),  // a leader earns override on their own sales too
+      phone: phone||null, email: email||null,            // contact details
       photo: newPhoto || null,                           // ID card photo (optional)
       id_card_no: genId()                                // cosmetic ID number for the card
     });
     if(error) throw error;
     show(`Added ${name}${newPhoto?" with ID photo":""}.`, true);
-    $("name").value=""; $("tl").value=""; $("isTL").checked=false;
+    $("name").value=""; $("phone").value=""; $("email").value=""; $("tl").value=""; $("isTL").checked=false;
     clearNewPhoto();
     load();
   }catch(e){ show(e.message||"Couldn't add.",false); }
   finally{ btn.disabled=false; }
+}
+
+// Save phone/email edits made inline in the consultant list (per field, on change).
+async function saveContact(id, field, value){
+  clearMsg();
+  const patch={}; patch[field]=value.trim()||null;
+  const { error } = await sb.from("commission_consultants").update(patch).eq("id",id);
+  if(error){ show(error.message,false); }
+  else { const c=LIST.find(x=>x.id===id); if(c) c[field]=patch[field]; show("Contact details saved.",true); }
 }
 
 async function setLeader(id, leader){
