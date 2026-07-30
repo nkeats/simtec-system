@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Simtec — Real Debt Book</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/@supabase/supabase-js@2.38.4/dist/umd/supabase.js"></script>
+<script src="auth.js?v=3" data-roles="admin"></script>
+<script src="doubtful.js?v=1"></script>
+<style>
+body{font-family:system-ui,sans-serif}
+.stat{background:#1e293b;border:1px solid #334155;border-radius:.75rem;padding:1.1rem 1.25rem}
+.lbl{font-size:.7rem;letter-spacing:.06em;text-transform:uppercase;color:#7c8aa0;font-weight:700}
+.big{font-size:1.9rem;font-weight:800;line-height:1.1;margin-top:.35rem}
+th,td{padding:.55rem .7rem;text-align:left}
+th{font-size:.68rem;letter-spacing:.05em;text-transform:uppercase;color:#94a3b8;border-bottom:1px solid #334155}
+td{border-bottom:1px solid #23324a;font-size:.86rem}
+tr:hover td{background:#243049}
+.money{text-align:right;font-variant-numeric:tabular-nums}
+.rm{padding:.28rem .6rem;border-radius:.45rem;font-size:.72rem;font-weight:600;cursor:pointer;border:1px solid #7f1d1d;background:#3a1414;color:#fca5a5}
+.rm:hover{background:#4c1a1a}
+@media print{.noprint{display:none!important}body{background:#fff;color:#000}.stat{border-color:#ccc}}
+</style>
+</head>
+<body class="bg-slate-950 text-white min-h-screen">
+
+<nav class="bg-slate-900 border-b border-slate-800 px-6 py-3 flex items-center gap-3 noprint">
+  <a href="home.html" style="color:#cbd5e1;text-decoration:none;font-size:.85rem;margin-right:8px">‹ Home</a>
+  <span class="font-bold tracking-wide text-lg">SIMTEC</span>
+  <span class="text-slate-400 text-sm">Real Debt Book</span>
+  <button class="ml-auto text-xs text-slate-400 border border-slate-700 rounded px-3 py-1" onclick="window.print()">🖨 Print</button>
+</nav>
+
+<div class="max-w-5xl mx-auto p-6">
+
+  <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6">
+    <div class="stat">
+      <div class="lbl">Total debt book</div>
+      <div class="big text-slate-200" id="totBook">—</div>
+      <div class="text-xs text-slate-500 mt-1" id="totCount"></div>
+    </div>
+    <div class="stat" style="border-color:#7f1d1d">
+      <div class="lbl" style="color:#fca5a5">Doubtful — unlikely to collect</div>
+      <div class="big" style="color:#f87171" id="totDoubt">—</div>
+      <div class="text-xs text-slate-500 mt-1" id="doubtCount"></div>
+    </div>
+    <div class="stat" style="border-color:#15803d;background:#10241a">
+      <div class="lbl" style="color:#86efac">Real debt book (expected)</div>
+      <div class="big" style="color:#4ade80" id="totReal">—</div>
+      <div class="text-xs text-slate-500 mt-1">Total book − doubtful</div>
+    </div>
+  </div>
+
+  <div class="flex items-center justify-between mb-2">
+    <h2 class="text-sm font-semibold text-slate-300">Clients flagged as unlikely to collect</h2>
+    <span class="text-xs text-slate-500" id="asOf"></span>
+  </div>
+
+  <div class="overflow-x-auto rounded-lg border border-slate-800">
+    <table class="w-full">
+      <thead><tr>
+        <th>Client</th><th>Mobile</th><th class="money">Contract</th><th class="money">Paid</th>
+        <th class="money">Owing</th><th>Flagged by</th><th>When</th><th class="noprint"></th>
+      </tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </div>
+  <div id="state" class="text-center text-slate-500 py-16">Loading…</div>
+
+  <p class="text-xs text-slate-500 mt-5 max-w-2xl">
+    This list is visible to admins only. Flagging a client here does <b>not</b> change anything about how they are
+    handled — the office continues to chase payment exactly as before. It only sets aside their balance so the
+    <span class="text-green-400">Real debt book</span> reflects what we genuinely expect to collect.
+  </p>
+</div>
+
+<script>
+const sb = supabase.createClient("https://jvqjoenaungubpoegyvf.supabase.co","sb_publishable_J4MYTdJJyEaWe-GadpwdYA_upPT2rKw");
+const $=id=>document.getElementById(id);
+const money=n=>"$"+(Math.round((n||0)*100)/100).toLocaleString("en-NZ",{minimumFractionDigits:2,maximumFractionDigits:2});
+const money0=n=>"$"+Math.round(n||0).toLocaleString("en-NZ");
+const esc=s=>(s||"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const owingOf=o=>Math.max(0,(+o.contract_value||0)-(+o.amount_paid_to_date||0));
+
+async function load(){
+  const { data, error } = await sb.from("sim_orders")
+    .select("id,contract_value,amount_paid_to_date,order_status,paid_in_full,doubtful,doubtful_at,doubtful_by,customer:sim_customers(first_name,last_name,mobile)")
+    .eq("order_status","active");
+  if(error){ $("state").textContent="Couldn't load: "+error.message; return; }
+
+  const live=(data||[]).filter(o=>owingOf(o)>0 && !o.paid_in_full);
+  const totalBook = live.reduce((s,o)=>s+owingOf(o),0);
+  const doubtful  = live.filter(o=>o.doubtful);
+  const doubtTot  = doubtful.reduce((s,o)=>s+owingOf(o),0);
+
+  $("totBook").textContent  = money0(totalBook);
+  $("totCount").textContent = live.length+" active orders owing";
+  $("totDoubt").textContent = money0(doubtTot);
+  $("doubtCount").textContent = doubtful.length+(doubtful.length===1?" client":" clients");
+  $("totReal").textContent  = money0(totalBook-doubtTot);
+  $("asOf").textContent = "as at "+new Date().toLocaleDateString("en-NZ",{day:"numeric",month:"short",year:"numeric"});
+
+  doubtful.sort((a,b)=>owingOf(b)-owingOf(a));
+  $("state").style.display = doubtful.length?"none":"block";
+  if(!doubtful.length){ $("state").textContent="No clients flagged yet."; $("rows").innerHTML=""; return; }
+
+  $("rows").innerHTML = doubtful.map(o=>{
+    const c=o.customer||{}; const name=esc((c.first_name||"")+" "+(c.last_name||"")).trim()||"—";
+    const when=o.doubtful_at?new Date(o.doubtful_at).toLocaleDateString("en-NZ",{day:"numeric",month:"short",year:"2-digit"}):"—";
+    return `<tr>
+      <td class="font-medium text-slate-200">${name}</td>
+      <td class="text-slate-400">${esc(c.mobile||"—")}</td>
+      <td class="money text-slate-400">${money(o.contract_value)}</td>
+      <td class="money text-slate-400">${money(o.amount_paid_to_date)}</td>
+      <td class="money font-semibold text-red-300">${money(owingOf(o))}</td>
+      <td class="text-slate-400">${esc(o.doubtful_by||"—")}</td>
+      <td class="text-slate-500">${when}</td>
+      <td class="noprint"><button class="rm" onclick="unflag('${o.id}')">Remove flag</button></td>
+    </tr>`;
+  }).join("");
+}
+
+async function unflag(id){
+  if(!confirm("Remove the 'unlikely to collect' flag for this client? Their balance returns to the real debt book.")) return;
+  await DOUBTFUL.save(id,false);
+  load();
+}
+
+load();
+</script>
+</body>
+</html>

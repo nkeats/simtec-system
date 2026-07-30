@@ -7,6 +7,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="live.js?v=1" defer></script>
 <script src="auth.js?v=3" data-roles="admin,manager,office"></script>
+<script src="doubtful.js?v=1"></script>
 <style>
   :root{--navy:#122347;--navy2:#1c3363;--gold:#c6a15b;--ink:#1a2334;--line:#d9e0ea;--bg:#eef1f5;
         --red:#c0332e;--redbg:#fdecec;--amber:#b8860b;--amberbg:#fff6da;--green:#1c6b34;--greenbg:#e7f6ec;--grey:#7a8798;--greybg:#eef1f4;}
@@ -149,7 +150,7 @@ const ORDER={red:0,amber:1,green:2,grey:3};
 async function load(quiet){
   try{
     const {data:orders,error}=await sb.from("sim_orders")
-      .select("id,customer_id,order_date,first_payment_date,loan_start_date,schedule_start_date,next_payment_date,instalment_amount,term_periods,payment_frequency,contract_value,amount_paid_to_date,delivery_status,ezidebit_payer_ref,order_status,consultant_name,paid_via_order_id")
+      .select("id,customer_id,order_date,first_payment_date,loan_start_date,schedule_start_date,next_payment_date,instalment_amount,term_periods,payment_frequency,contract_value,amount_paid_to_date,delivery_status,ezidebit_payer_ref,order_status,consultant_name,paid_via_order_id,doubtful")
       .eq("order_status","active");
     if(error) throw error;
     const live=(orders||[]).filter(o=>!o.paid_via_order_id);   // exclude orders paid on another account
@@ -191,7 +192,7 @@ function render(){
     const behind = s.behindBy>1 ? `<span class="behind">${fmt(s.behindBy)}</span> <span class="muted">(${s.periodsBehind.toFixed(0)} ${s.freq.word})</span>` : '<span class="muted">—</span>';
     return `<tr class="row" data-id="${r.id}">
       <td><span class="pill ${s.cls}"><span class="dot ${s.cls}"></span>${s.label}</span></td>
-      <td>${esc(r.name)}</td>
+      <td>${esc(r.name)} <span id="prx_${r.id}">${r.doubtful?DOUBTFUL.badge(true):''}</span> <span onclick="event.stopPropagation()"><input type="checkbox" ${r.doubtful?'checked':''} title="Flag: unlikely to collect (feeds the admin Real Debt Book)" onchange="DOUBTFUL.save('${r.id}',this.checked);var b=document.getElementById('prx_${r.id}');if(b)b.innerHTML=DOUBTFUL.badge(this.checked)"></span></td>
       <td class="hide">${r.consultant_name||'<span class="muted">—</span>'}</td>
       <td class="hide">${esc(r.mobile)}</td>
       <td><span class="deliv ${s.delivered?'yes':'no'}">${s.delivered?'✓ Yes':'– No'}</span></td>

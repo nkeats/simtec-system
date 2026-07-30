@@ -8,6 +8,7 @@
 <script src="https://unpkg.com/@supabase/supabase-js@2.38.4/dist/umd/supabase.js"></script>
 <script src="live.js?v=1" defer></script>
 <script src="auth.js?v=3" data-roles="admin,manager,office"></script>
+<script src="doubtful.js?v=1"></script>
 <style>
 body{font-family:system-ui,sans-serif}
 .card{background:#1e293b;border:1px solid #334155;border-radius:.75rem;padding:1.1rem 1.25rem}
@@ -218,7 +219,7 @@ async function load(quiet){
     const cust=o.sim_customers||{};
     const product=(o.sim_order_items||[]).map(i=>i.product_name).filter(Boolean).join(', ')||'—';
     behind.push({
-      orderId:o.id,
+      orderId:o.id, doubtful:o.doubtful,
       custId:cust.id||o.customer_id,
       name:`${cust.first_name||''} ${cust.last_name||''}`.trim()||'(no name)',
       mobile:cust.mobile||'', product,
@@ -328,10 +329,11 @@ function render(){
       <div class="flex flex-wrap items-start gap-4">
         <div class="flex-1 min-w-[180px]">
           <div class="flex items-center gap-2 flex-wrap">
-            <span class="font-semibold text-white">${esc(r.name)}</span>
+            <span class="font-semibold text-white">${esc(r.name)}</span><span class="dbtf-name">${r.doubtful?DOUBTFUL.badge(true):''}</span>
             ${r.delivered?'<span class="text-[10px] px-1.5 py-0.5 rounded bg-red-900/50 text-red-300 font-semibold">DELIVERED</span>':'<span class="text-[10px] px-1.5 py-0.5 rounded bg-slate-700 text-slate-300">'+esc(titleCase(r.deliveryStatus))+'</span>'}
             ${r.estimated?'<span class="text-[10px] px-1.5 py-0.5 rounded bg-amber-900/40 text-amber-300" title="This order has no instalment recorded — the figures assume the standard term">ESTIMATED</span>':''}
             ${watchBadge}
+            <span onclick="event.stopPropagation()"><label style="display:inline-flex;align-items:center;gap:4px;font-size:11px;color:#94a3b8;cursor:pointer;background:#0d1526;border:1px solid #334155;border-radius:5px;padding:2px 7px" title="Flag as unlikely to collect — feeds the admin Real Debt Book"><input type="checkbox" ${r.doubtful?'checked':''} onchange="DOUBTFUL.save('${r.orderId}',this.checked);this.closest('.arr').querySelector('.dbtf-name').innerHTML=DOUBTFUL.badge(this.checked)">Unlikely to collect</label></span>
           </div>
           <div class="text-xs text-slate-500 mt-0.5">${esc(r.mobile)}</div>
           <div class="text-xs text-slate-400 mt-1">${esc(r.product)}</div>
