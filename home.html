@@ -138,9 +138,11 @@
         <a href="reports.html"><span class="ni"><svg viewBox="0 0 24 24"><path d="M3 3v18h18"/><rect x="7" y="10" width="3" height="7"/><rect x="12" y="6" width="3" height="11"/><rect x="17" y="13" width="3" height="4"/></svg></span>Reports</a>
       </div>
 
+      <div class="nav-grp" id="navTeam" style="display:none"><div class="nav-gl">Team</div>
+        <a href="consultants.html"><span class="ni"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="3.2"/><path d="M6 20a6 6 0 0 1 12 0"/></svg></span>Consultants &amp; teams</a>
+      </div>
       <div class="nav-grp" id="navAdmin" style="display:none"><div class="nav-gl">Admin</div>
         <a href="users.html"><span class="ni"><svg viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/></svg></span>User access</a>
-        <a href="consultants.html"><span class="ni"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="3.2"/><path d="M6 20a6 6 0 0 1 12 0"/></svg></span>Consultants &amp; teams</a>
         <a href="add-consultant-guide.html"><span class="ni"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg></span>Giving a consultant access</a>
         <a href="cancellations.html"><span class="ni"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M15 9l-6 6M9 9l6 6"/></svg></span>Cancellations</a>
         <a href="settings.html"><span class="ni"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1M4.6 9a1.6 1.6 0 0 0-.3-1.8"/></svg></span>Settings</a>
@@ -241,7 +243,7 @@
       document.getElementById("whoName").textContent = u.full_name||u.email||"";
       if(u.role){ const r=document.getElementById("whoRole"); r.className="role"; r.textContent=u.role; }
       if(u.role==='admin'){ const g=document.getElementById('navAdmin'); if(g) g.style.display=''; }
-      if(u.role==='admin'||u.role==='manager'){ const fc=document.getElementById('navFA'); if(fc) fc.style.display=''; }
+      if(u.role==='admin'||u.role==='manager'){ const fc=document.getElementById('navFA'); if(fc) fc.style.display=''; const tm=document.getElementById('navTeam'); if(tm) tm.style.display=''; }
     } else if(n>60){ clearInterval(t); document.getElementById("hiName").textContent=greet; }
   },60);
 })();
