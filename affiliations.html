@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Simtec — Affiliations</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/@supabase/supabase-js@2.38.4/dist/umd/supabase.js"></script>
+<script src="auth.js?v=3" data-roles="office,manager,admin"></script>
+<style>
+body{font-family:system-ui,sans-serif}
+.stat{background:#1e293b;border:1px solid #334155;border-radius:.75rem;padding:1rem 1.15rem;cursor:pointer}
+.stat.sel{outline:2px solid #60a5fa}
+.lbl{font-size:.7rem;letter-spacing:.06em;text-transform:uppercase;color:#7c8aa0;font-weight:700}
+.big{font-size:1.9rem;font-weight:800;line-height:1.1;margin-top:.3rem}
+th,td{padding:.55rem .7rem;text-align:left;vertical-align:top}
+th{font-size:.68rem;letter-spacing:.05em;text-transform:uppercase;color:#94a3b8;border-bottom:1px solid #334155}
+td{border-bottom:1px solid #23324a;font-size:.86rem}
+tr:hover td{background:#243049}
+.badge{padding:.15rem .5rem;border-radius:.4rem;font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.03em;white-space:nowrap}
+.btn{padding:.3rem .7rem;border-radius:.45rem;font-size:.75rem;font-weight:600;cursor:pointer;border:1px solid #1d4ed8;background:#172554;color:#93c5fd}
+.btn:hover{background:#1e3a8a}
+.btn.gold{border-color:#b45309;background:#3a2606;color:#fbbf24}
+.btn.gold:hover{background:#4a3008}
+input,select,textarea{background:#0f172a;border:1px solid #334155;color:#e2e8f0;border-radius:.45rem;padding:.5rem .6rem;font-size:.86rem;width:100%}
+label{font-size:.72rem;letter-spacing:.04em;text-transform:uppercase;color:#94a3b8;font-weight:700;display:block;margin:0 0 .25rem}
+.modal{position:fixed;inset:0;background:rgba(2,6,23,.7);display:none;align-items:flex-start;justify-content:center;padding:5vh 1rem;z-index:50;overflow:auto}
+.modal.on{display:flex}
+.card{background:#0f172a;border:1px solid #334155;border-radius:.9rem;padding:1.4rem;max-width:520px;width:100%}
+</style>
+</head>
+<body class="bg-slate-950 text-white min-h-screen">
+
+<nav class="bg-slate-900 border-b border-slate-800 px-6 py-3 flex items-center gap-3">
+  <a href="home.html" style="color:#cbd5e1;text-decoration:none;font-size:.85rem;margin-right:8px">‹ Home</a>
+  <span class="font-bold tracking-wide text-lg">SIMTEC</span>
+  <span class="text-slate-400 text-sm">Affiliations</span>
+  <button class="btn gold ml-auto" onclick="openEdit(null)">＋ Add group</button>
+  <button class="text-xs text-slate-400 border border-slate-700 rounded px-3 py-1 ml-2" onclick="load()">↻ Refresh</button>
+</nav>
+
+<div class="max-w-5xl mx-auto p-6">
+  <p class="text-slate-400 text-sm mb-5">Churches, sports clubs, schools and other groups you partner with. Members referred from an active group can choose, in the rewards app, to donate their reward money back to their group. This page manages the groups and tracks what's been donated.</p>
+
+  <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+    <div class="stat" onclick="setFilter('active')" id="factive">
+      <div class="lbl" style="color:#34d399">Active groups</div><div class="big" style="color:#34d399" id="cActive">—</div></div>
+    <div class="stat" onclick="setFilter('prospect')" id="fprospect">
+      <div class="lbl" style="color:#fbbf24">Prospects</div><div class="big" style="color:#fbbf24" id="cProspect">—</div></div>
+    <div class="stat" onclick="setFilter('all')" id="fall">
+      <div class="lbl">Members enrolled</div><div class="big text-slate-200" id="cMembers">—</div></div>
+    <div class="stat" onclick="setFilter('all')">
+      <div class="lbl">Donations pending</div><div class="big text-slate-200" id="cPending">—</div></div>
+  </div>
+
+  <div id="state" class="text-slate-400 text-sm py-6">Loading…</div>
+  <div class="overflow-x-auto" id="tblWrap" style="display:none">
+    <table class="w-full border-collapse">
+      <thead><tr><th>Group</th><th>Type</th><th>Status</th><th class="text-right">Members</th><th class="text-right">Donations</th><th></th></tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </div>
+</div>
+
+<div class="modal" id="modal">
+  <div class="card">
+    <h2 class="text-lg font-bold mb-4" id="mTitle">Add group</h2>
+    <input type="hidden" id="mId">
+    <div class="mb-3"><label>Group name</label><input id="mName" placeholder="e.g. St Mary's Church, Ponsonby"></div>
+    <div class="grid grid-cols-2 gap-3 mb-3">
+      <div><label>Type</label><select id="mType">
+        <option value="church">Church</option><option value="sports_club">Sports club</option>
+        <option value="school">School</option><option value="community">Community group</option>
+        <option value="workplace">Workplace</option><option value="other">Other</option></select></div>
+      <div><label>Status</label><select id="mStatus">
+        <option value="prospect">Prospect (being approached)</option>
+        <option value="active">Active (signed on)</option>
+        <option value="inactive">Inactive</option></select></div>
+    </div>
+    <div class="grid grid-cols-2 gap-3 mb-3">
+      <div><label>Contact name</label><input id="mCName"></div>
+      <div><label>Contact phone</label><input id="mCPhone"></div>
+    </div>
+    <div class="mb-3"><label>Contact email</label><input id="mCEmail"></div>
+    <div class="mb-3"><label>Signed on date (if active)</label><input id="mSigned" type="date"></div>
+    <div class="mb-4"><label>Notes</label><textarea id="mNotes" rows="2"></textarea></div>
+    <div id="mErr" class="text-red-400 text-sm mb-3"></div>
+    <div class="flex gap-3">
+      <button class="btn gold flex-1" style="padding:.6rem" onclick="saveGroup()">Save</button>
+      <button class="btn flex-1" style="padding:.6rem;border-color:#334155;background:#1e293b;color:#cbd5e1" onclick="closeModal()">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const sb = supabase.createClient("https://jvqjoenaungubpoegyvf.supabase.co","sb_publishable_J4MYTdJJyEaWe-GadpwdYA_upPT2rKw");
+const $=id=>document.getElementById(id);
+const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const money=n=>"$"+(Number(n||0)).toLocaleString("en-NZ",{minimumFractionDigits:2,maximumFractionDigits:2});
+const TYPES={church:"Church",sports_club:"Sports club",school:"School",community:"Community",workplace:"Workplace",other:"Other"};
+let GROUPS=[], MEMBERS={}, DONS={}, FILTER="all";
+
+async function load(){
+  $("state").style.display=""; $("state").textContent="Loading…"; $("tblWrap").style.display="none";
+  const [g,c,d] = await Promise.all([
+    sb.from("affiliations").select("*").order("name"),
+    sb.from("sim_customers").select("affiliation_id").not("affiliation_id","is",null),
+    sb.from("affiliation_donations").select("affiliation_id,amount,status")
+  ]);
+  if(g.error){ $("state").innerHTML=`<span class="text-red-400">Couldn't load: ${esc(g.error.message)}</span>`; return; }
+  GROUPS=g.data||[];
+  MEMBERS={}; (c.data||[]).forEach(r=>{ MEMBERS[r.affiliation_id]=(MEMBERS[r.affiliation_id]||0)+1; });
+  DONS={}; (d.data||[]).forEach(r=>{ const t=(DONS[r.affiliation_id]=DONS[r.affiliation_id]||{pending:0,paid:0}); if(r.status==='paid_out') t.paid+=(+r.amount||0); else t.pending+=(+r.amount||0); });
+  render();
+}
+
+function render(){
+  const active=GROUPS.filter(x=>x.status==='active').length;
+  const prospect=GROUPS.filter(x=>x.status==='prospect').length;
+  const members=Object.values(MEMBERS).reduce((a,b)=>a+b,0);
+  const pending=Object.values(DONS).reduce((a,b)=>a+(b.pending||0),0);
+  $("cActive").textContent=active; $("cProspect").textContent=prospect;
+  $("cMembers").textContent=members; $("cPending").textContent=money(pending);
+  ["all","active","prospect"].forEach(f=>$("f"+f)?.classList.toggle("sel",FILTER===f));
+
+  const list=GROUPS.filter(x=>FILTER==='all'?true:x.status===FILTER);
+  if(!list.length){ $("state").style.display=""; $("state").textContent="No groups yet — add your first with “＋ Add group”."; $("tblWrap").style.display="none"; return; }
+  $("state").style.display="none"; $("tblWrap").style.display="";
+  const sb_=(st)=>st==='active'?'background:#064e3b;color:#6ee7b7':st==='prospect'?'background:#3a2606;color:#fbbf24':'background:#334155;color:#94a3b8';
+  $("rows").innerHTML=list.map(x=>{
+    const m=MEMBERS[x.id]||0; const dn=DONS[x.id]||{pending:0,paid:0};
+    const donTxt = (dn.pending||dn.paid) ? `<span style="color:#fbbf24">${money(dn.pending)}</span> pending${dn.paid?` · <span class="text-slate-400">${money(dn.paid)} paid</span>`:''}` : '<span class="text-slate-500">—</span>';
+    return `<tr>
+      <td><b>${esc(x.name)}</b>${x.contact_name?`<div class="text-slate-500" style="font-size:.75rem">${esc(x.contact_name)}${x.contact_phone?' · '+esc(x.contact_phone):''}</div>`:''}</td>
+      <td class="text-slate-300">${esc(TYPES[x.type]||x.type)}</td>
+      <td><span class="badge" style="${sb_(x.status)}">${esc(x.status)}</span></td>
+      <td class="text-right">${m}</td>
+      <td class="text-right" style="font-size:.8rem">${donTxt}</td>
+      <td class="text-right"><button class="btn" onclick='openEdit(${JSON.stringify(x.id)})'>Edit</button></td>
+    </tr>`;
+  }).join("");
+}
+
+window.setFilter=f=>{ FILTER=f; render(); };
+
+window.openEdit=id=>{
+  const g = id ? GROUPS.find(x=>x.id===id) : null;
+  $("mTitle").textContent = g ? "Edit group" : "Add group";
+  $("mId").value=g?.id||""; $("mName").value=g?.name||""; $("mType").value=g?.type||"church";
+  $("mStatus").value=g?.status||"prospect"; $("mCName").value=g?.contact_name||"";
+  $("mCPhone").value=g?.contact_phone||""; $("mCEmail").value=g?.contact_email||"";
+  $("mSigned").value=g?.signed_on_date||""; $("mNotes").value=g?.notes||""; $("mErr").textContent="";
+  $("modal").classList.add("on");
+};
+window.closeModal=()=>$("modal").classList.remove("on");
+
+window.saveGroup=async()=>{
+  const name=$("mName").value.trim();
+  if(!name){ $("mErr").textContent="Group name is required."; return; }
+  const rec={ name, type:$("mType").value, status:$("mStatus").value,
+    contact_name:$("mCName").value.trim()||null, contact_phone:$("mCPhone").value.trim()||null,
+    contact_email:$("mCEmail").value.trim()||null, signed_on_date:$("mSigned").value||null,
+    notes:$("mNotes").value.trim()||null };
+  const id=$("mId").value;
+  let res;
+  if(id){ res=await sb.from("affiliations").update(rec).eq("id",id); }
+  else { rec.created_by=(window.SIMTEC_USER&&window.SIMTEC_USER.email)||null; res=await sb.from("affiliations").insert(rec); }
+  if(res.error){ $("mErr").textContent=res.error.message; return; }
+  closeModal(); load();
+};
+
+load();
+</script>
+</body>
+</html>

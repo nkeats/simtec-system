@@ -299,6 +299,8 @@
         <p class="sub" style="margin-top:-6px">Anything the office or delivery team should know. Tick where each note applies.</p>
         <label class="f" style="margin-bottom:10px"><span class="lab">Reason for purchasing</span>
           <select id="purchaseReason"><option value="">Select…</option><option>Better sleep / sleep quality</option><option>Back or body pain relief</option><option>Health / therapeutic need</option><option>Old bed worn out</option><option>Upgrade / bigger bed</option><option>Recommended by friend or family</option><option>Other</option></select></label>
+        <label class="f" style="margin-bottom:10px"><span class="lab">Affiliated group (if the customer is a member)</span>
+          <select id="affiliationSel"><option value="">None</option></select></label>
         <textarea id="purchaseReasonNotes" placeholder="Any extra detail on why they're buying (helps the office and future service)…" style="min-height:60px"></textarea>
         <label class="ack" style="border-bottom:none;padding-bottom:4px"><input type="checkbox" id="noteAccountChk">
           <span class="txt"><b>Account set-up note — flagged to the office now</b>Best pay cycle, Ezidebit / direct-debit timing, income dates — anything affecting account set-up.</span></label>
@@ -596,6 +598,14 @@ function normNZ(raw){
 }
 function numOrNull(v){ v=String(v==null?"":v).replace(/[^0-9.]/g,""); return v?Number(v):null; }
 
+async function loadAffiliations(){
+  try{
+    const { data } = await sb.from('affiliations').select('id,name').eq('status','active').order('name');
+    const sel=document.getElementById('affiliationSel'); if(!sel||!data) return;
+    data.forEach(a=>{ const o=document.createElement('option'); o.value=a.id; o.textContent=a.name; sel.appendChild(o); });
+  }catch(e){ /* offline or not yet set up — group stays optional */ }
+}
+if(document.readyState!=='loading') loadAffiliations(); else document.addEventListener('DOMContentLoaded', loadAffiliations);
 const S = { step:0, saleType:'', pay:'', depositMethod:'ezidebit', a2:false, products:[], referralId:null, emailVerified:false, sentCode:null, tncRead:false, idPhotos:{A1:[],A2:[]} };
 const STEP_LABELS = ['Start','Products','Details','Referees','Terms','ID','Payment','Sign','Ezidebit','Done'];
 
@@ -891,6 +901,20 @@ async function collectOrder(){
 }
 
 // Live save from a payload (used for both immediate submit and parked replay).
+async function sendCustomerLoginLink(customerId){
+  // fire-and-forget: texts the customer a one-time sign-in link for their rewards account.
+  // never blocks or fails the sale.
+  try{
+    const { data:{ session } } = await sb.auth.getSession();
+    if(!session || !customerId) return;
+    await fetch(SUPABASE_URL + '/functions/v1/customer-magiclink', {
+      method:'POST',
+      headers:{ 'Content-Type':'application/json', 'apikey':SUPABASE_KEY, 'Authorization':'Bearer '+session.access_token },
+      body: JSON.stringify({ mode:'onboard', customer_id:customerId })
+    });
+  }catch(e){ /* ignore — onboarding is best-effort */ }
+}
+
 async function savePayload(P){
   if(!sb) throw new Error('offline: no database connection');
   const f=P.fields||{}, fl=P.flags||{};
@@ -901,7 +925,7 @@ async function savePayload(P){
   // (consultants are row-scoped and can't SELECT a customer until an order links them)
   const custId = (typeof crypto!=='undefined' && crypto.randomUUID) ? crypto.randomUUID() : (function(){const b=crypto.getRandomValues(new Uint8Array(16));b[6]=(b[6]&15)|64;b[8]=(b[8]&63)|128;const h=[...b].map(x=>x.toString(16).padStart(2,'0'));return h.slice(0,4).join('')+'-'+h.slice(4,6).join('')+'-'+h.slice(6,8).join('')+'-'+h.slice(8,10).join('')+'-'+h.slice(10).join('');})();
   const {error:e1}=await sb.from('sim_customers')
-    .insert({id:custId, first_name:f.a1first,last_name:f.a1last,mobile:e164,email:f.email||null,address:address||null});
+    .insert({id:custId, first_name:f.a1first,last_name:f.a1last,mobile:e164,email:f.email||null,address:address||null, affiliation_id:(function(){const e=document.getElementById('affiliationSel');return e&&e.value?e.value:null;})()});
   if(e1) throw new Error('customer: '+e1.message);
   // 2) order
   const total=P.products.reduce((s,p)=>s+(p.price*p.qty||0),0)+(P.wantDel?DELIVERY_FEE:0);
@@ -943,6 +967,7 @@ async function savePayload(P){
     .catch(e=>['Customer details and order were saved, but the ID photos / extra details could not be attached ('+(e.message||e)+'). Please re-capture the ID before you leave.']);
   // 5) order-summary PDF (best-effort) — the GHL confirmation email links to this.
   await generateAndUploadOrderPdf(ord.id,P).catch(e=>console.warn('order PDF pending:',e&&e.message||e));
+  try{ sendCustomerLoginLink(custId); }catch(_e){}
   return ord.id;
 }
 
