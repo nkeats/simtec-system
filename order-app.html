@@ -1263,13 +1263,16 @@ function computeEziBalance(){
   const bal=Math.max(0, total-(numOrNull(val('eziOneoffAmount'))||0));
   if(hint) hint.textContent=money(bal)+' of '+money(total);
   const mh=document.getElementById('eziMinHint');
-  if(mh){
-    const freq=val('eziPlanFreq')||'weekly';
-    const periods={weekly:156,fortnightly:78,monthly:36}[freq]||156;   // 36-month max term
-    if(bal>0){ const min=Math.ceil((bal/periods)*100)/100;
-      mh.textContent='Minimum acceptable: '+money(min)+' '+freq+' (clears the balance within the 36-month term).'; }
-    else { mh.textContent='Minimum shows once amounts are entered.'; }
-  }
+  if(!mh) return;
+  if(bal<=0){ mh.textContent='Minimum shows once amounts are entered.'; return; }
+  const freq=val('eziPlanFreq')||'weekly';
+  // Max term by order size:  under $1,000 -> 12 months;  $1,000-$2,000 -> 18 months;  over $2,000 -> 36 months.
+  const months = total<1000 ? 12 : (total<2000 ? 18 : 36);
+  const perYear = {weekly:52, fortnightly:26, monthly:12}[freq] || 52;
+  const periods = months/12 * perYear;
+  const floor   = 1040/perYear;                              // $20/week minimum, in the chosen frequency
+  const min     = Math.max(Math.ceil((bal/periods)*100)/100, Math.ceil(floor*100)/100);
+  mh.textContent = 'Minimum acceptable: '+money(min)+' '+freq+'  (max '+months+'-month term; minimum $20/week).';
 }
 // Sensible defaults on entering the step (only fills empty fields).
 function setEziDefaults(){

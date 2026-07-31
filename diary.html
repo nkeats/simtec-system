@@ -95,6 +95,7 @@
 <div class="wrap">
   <div class="bar">
     <button class="btn btn-gold" onclick="openBook()">＋ Book appointment</button>
+    <button class="btn btn-ghost" id="histBtn" onclick="toggleHistory()">🕓 Past</button>
     <span id="consultantPickWrap" style="display:none">
       <label style="font-size:12px;color:var(--sub);font-weight:700;margin-right:6px">Viewing</label>
       <select id="consultantPick" onchange="onPickConsultant()"></select>
@@ -102,6 +103,7 @@
   </div>
 
   <div id="loading">Loading…</div>
+  <div id="referralsPanel"></div>
   <div id="days"></div>
 </div>
 
@@ -196,6 +198,8 @@ const REASONS={dont_need:"Don't need",cant_afford:"Can't afford",think_about_it:
 
 let target = { cid:null, uid:null, name:null };   // whose diary we're showing
 let editingId = null;                             // appointment currently in the outcome sheet
+let bookingReferralId = null;                     // referral being booked (links the appointment back to it)
+let histMode = false;                             // false = upcoming window (today + this week +4d); true = past history
 const $ = id => document.getElementById(id);
 const esc = s => (s||"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 function ymd(d){return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");}
@@ -294,14 +298,20 @@ async function onPickConsultant(){
 async function render(){
   $("loading").style.display="";
   $("days").innerHTML="";
+  renderReferrals();
   const start = todayStr();
-  const back = new Date(); back.setHours(0,0,0,0); back.setDate(back.getDate()-DAYS_BACK);
-  const windowStart = ymd(back);
-  const { data, error } = await sb.from('appointments')
-    .select('*')
-    .eq('consultant_id', target.cid)
-    .gte('appt_date', windowStart)
-    .order('appt_date').order('appt_time');
+  const base=new Date(); base.setHours(0,0,0,0);
+  if($("histBtn")) $("histBtn").textContent = histMode ? '‹ Upcoming' : '🕓 Past';
+  let q = sb.from('appointments').select('*').eq('consultant_id', target.cid);
+  let span=0;
+  if(histMode){
+    q = q.lt('appt_date', start).order('appt_date',{ascending:false}).order('appt_time',{ascending:false});
+  } else {
+    span=10;                                                            // fixed rolling window: today + next 10 days (a week + 4)
+    const endD=new Date(base); endD.setDate(base.getDate()+span);
+    q = q.gte('appt_date', start).lte('appt_date', ymd(endD)).order('appt_date').order('appt_time');
+  }
+  const { data, error } = await q;
   if(error){ $("loading").textContent = "Couldn't load: "+error.message; return; }
   $("loading").style.display="none";
 
@@ -309,12 +319,15 @@ async function render(){
   const byDate={};
   (data||[]).forEach(a=>{ (byDate[a.appt_date]=byDate[a.appt_date]||[]).push(a); });
 
-  // build the list of dates to show: today..+DAYS_AHEAD, plus any later dates that have appts
-  const dates=[];
-  const base=new Date(); base.setHours(0,0,0,0);
-  for(let i=-DAYS_BACK;i<=DAYS_AHEAD;i++){ const d=new Date(base); d.setDate(base.getDate()+i); dates.push(ymd(d)); }
-  Object.keys(byDate).forEach(d=>{ if(!dates.includes(d)) dates.push(d); });
-  dates.sort();
+  // dates to show
+  let dates=[];
+  if(histMode){
+    dates = Object.keys(byDate).sort().reverse();            // most recent past first
+  } else {
+    for(let i=0;i<=span;i++){ const d=new Date(base); d.setDate(base.getDate()+i); dates.push(ymd(d)); }
+    Object.keys(byDate).forEach(d=>{ if(!dates.includes(d)) dates.push(d); });
+    dates.sort();                                            // today at the top, working down
+  }
 
   let html="";
   for(const d of dates){
@@ -329,7 +342,8 @@ async function render(){
     else list.forEach(a=>{ html+=apptCard(a); });
     html+=`</div>`;
   }
-  $("days").innerHTML = html || `<div class="free">Nothing booked yet. Tap “Book appointment”.</div>`;
+  $("days").innerHTML = html || (histMode?`<div class="free">No past appointments.</div>`:`<div class="free">Nothing booked yet. Tap “Book appointment”.</div>`);
+  if(!histMode) updatePastBadge();
 }
 
 function apptCard(a){
@@ -375,6 +389,7 @@ function apptCard(a){
 
 // ---------- booking ----------
 function openBook(){
+  bookingReferralId=null;
   $("bookTitle").textContent="Book appointment";
   $("bookSub").textContent="New prospect appointment for "+target.name+".";
   ["f_name","f_phone","f_suburb","f_address","f_note"].forEach(i=>$(i).value="");
@@ -396,13 +411,57 @@ async function saveBook(){
     note:$("f_note").value.trim()||null, appt_date:date, appt_time:time||null,
     status:'booked', reschedule_count:0
   };
-  const { error } = await sb.from('appointments').insert(row);
+  const { data:appt, error } = await sb.from('appointments').insert(row).select('id').single();
   $("bookSave").disabled=false;
   if(error){ return bookError(error.message); }
+  if(bookingReferralId && appt){ try{ await sb.rpc('link_referral_to_appointment',{p_ref:bookingReferralId,p_appt:appt.id}); }catch(e){} bookingReferralId=null; }
   closeSheet('bookScrim');
   await render();
 }
 function bookError(m){ const e=$("bookErr"); e.textContent=m; e.style.display="block"; }
+
+function toggleHistory(){ histMode=!histMode; render(); }
+async function updatePastBadge(){
+  const btn=$("histBtn"); if(!btn||!target||!target.cid) return;
+  try{
+    const { count } = await sb.from('appointments').select('id',{count:'exact',head:true})
+      .eq('consultant_id',target.cid).lt('appt_date',todayStr()).eq('status','booked');
+    btn.textContent = (count&&count>0) ? ('🕓 Past · '+count+' to update') : '🕓 Past';
+  }catch(e){}
+}
+
+// ---------- referral leads ----------
+async function renderReferrals(){
+  const panel=$("referralsPanel"); if(!panel) return;
+  if(!target||!target.cid){ panel.innerHTML=""; return; }
+  const { data, error } = await sb.from('referrals')
+    .select('id,referee_name,referee_mobile,referrer_name')
+    .eq('assigned_consultant_id',target.cid).eq('status','assigned')
+    .order('created_at',{ascending:true});
+  if(error||!data||!data.length){ panel.innerHTML=""; return; }
+  panel.innerHTML =
+    '<div style="font-weight:800;color:var(--navy,#1b2a4a);margin:4px 0 8px;font-size:15px">\uD83C\uDF81 Referrals to book ('+data.length+')</div>'+
+    data.map(r=>'<div style="display:flex;align-items:center;gap:10px;background:#fff8e8;border:1px solid #f0dca8;border-radius:12px;padding:12px 14px;margin-bottom:8px">'+
+      '<div style="flex:1"><div style="font-weight:700">'+esc(r.referee_name||'')+'</div>'+
+      '<div style="font-size:12px;color:var(--sub,#667)">'+esc(r.referee_mobile||'')+(r.referrer_name?(' \u00b7 referred by '+esc(r.referrer_name)):'')+'</div></div>'+
+      '<button class="btn btn-gold" style="flex:0 0 auto" onclick="bookReferral(\''+r.id+'\')">Book</button>'+
+    '</div>').join('');
+}
+async function bookReferral(id){
+  const { data } = await sb.from('referrals').select('*').eq('id',id).maybeSingle();
+  if(!data){ return; }
+  bookingReferralId=id;
+  $("bookTitle").textContent="Book referral";
+  $("bookSub").textContent="Referred lead for "+target.name+".";
+  $("f_name").value=data.referee_name||"";
+  $("f_phone").value=data.referee_mobile||"";
+  $("f_suburb").value=""; $("f_address").value="";
+  $("f_note").value=data.referrer_name?("Referral from "+data.referrer_name):"Referral";
+  fillTimeSelect($("f_time"),"");
+  $("f_date").value=todayStr();
+  $("bookErr").style.display="none";
+  $("bookScrim").classList.add("on");
+}
 
 // ---------- outcome ----------
 let curAppt=null;
