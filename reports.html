@@ -60,7 +60,7 @@
     <div class="flex items-center justify-between mb-1 flex-wrap gap-2">
       <h2 class="text-lg font-bold">Weekly sales</h2>
       <div class="flex items-center gap-3">
-        <div class="k" id="basis">Mon–Sun · net of same-week cancellations</div>
+        <div class="k" id="basis">Mon–Sun · net of cancellations (cancelled shown as CNX)</div>
         <select id="salesWin" onchange="load()" class="text-xs rounded-lg px-2 py-1" style="background:#0d1728;color:#cbd5e1;border:1px solid #26375a">
           <option value="4" selected>Last 4 weeks</option>
           <option value="8">Last 8 weeks</option>
@@ -69,7 +69,7 @@
         </select>
       </div>
     </div>
-    <p class="text-xs text-slate-500 mb-4">A sale counts in the week it was made if it wasn't cancelled by that Sunday. Later cancellations don't change past weeks. Click a week for the agent breakdown.</p>
+    <p class="text-xs text-slate-500 mb-4">Every sale shows in the week it was made. Cancelled sales are shown struck-through as CNX and don't count toward the totals — un-cancel a sale and it counts again. Click a week for the agent breakdown.</p>
     <div id="state" class="text-slate-400 text-sm py-6">Loading…</div>
     <table id="tbl" style="display:none"><thead><tr>
       <th>Week beginning</th><th class="num">Mattresses</th><th class="num">Sales value</th>
@@ -191,6 +191,12 @@ async function load(){
     .select("id,customer_id,order_date,contract_value,consultant_name,order_status,cancellation_date"),
     "Loading orders from sim_orders");
 
+  // orders whose COMMISSION record was cancelled (pay-run cancel doesn't touch the order itself)
+  const cxIds=new Set();
+  { const cxs = must(await sb.from("commission_sales").select("sim_order_id,status").eq("status","cancelled"),
+      "Loading cancelled commission records");
+    (cxs||[]).forEach(r=>{ if(r.sim_order_id) cxIds.add(r.sim_order_id); }); }
+
   // pull their line items — batched by order id AND paged, so we NEVER hit the
   // database's 1000-row response cap (that cap was silently dropping items and
   // undercounting mattresses once the book grew past ~1000 line items).
@@ -223,15 +229,26 @@ async function load(){
     (cs||[]).forEach(c=>custName[c.id]=[c.first_name,c.last_name].filter(Boolean).join(" ")||"(no name)");
   }
 
-  const weeks={};   // mondayStr -> {mattresses, value, byCon:{name:{m,v,sales:[]}}}
+  const weeks={};   // mondayStr -> {mattresses, value, cxCount, cxValue, byCon:{name:{m,v,sales:[],cancelled:[]}}}
+  const getC=(wk,con)=>{ const w=(weeks[wk]=weeks[wk]||{mattresses:0,value:0,cxCount:0,cxValue:0,byCon:{}});
+    const c=(w.byCon[con]=w.byCon[con]||{m:0,v:0,sales:[],cancelled:[]}); return {w,c}; };
   for(const o of (orders||[])){
     if(!o.order_date) continue;
     const wk=weekStart(o.order_date), wEnd=weekEnd(wk);
-    // whole-order cancelled within the sale week?  -> drop entirely
-    const cx=o.cancellation_date?String(o.cancellation_date).slice(0,10):null;
-    if(o.order_status==="cancelled" && cx && cx<=wEnd) continue;
-
+    const con=o.consultant_name||"(unassigned)";
     const items=itemsByOrder[o.id]||[];
+
+    // cancelled = order marked cancelled OR its commission record cancelled (pay-run cancel).
+    // Purely display-driven, so un-cancelling the sale automatically brings it back here.
+    const isCancelled = o.order_status==="cancelled" || cxIds.has(o.id);
+    if(isCancelled){
+      let mtx=0; for(const it of items){ if(isMattress(it.product_name)) mtx += (+it.quantity||1); }
+      const val=(+o.contract_value||0);
+      const {w,c}=getC(wk,con); w.cxCount++; w.cxValue+=val;
+      c.cancelled.push({ id:o.id, name:custName[o.customer_id]||"(no name)", mattresses:mtx, value:val });
+      continue;
+    }
+
     let mattresses=0, cancelledValueInWeek=0, hadPartCancel=false;
     for(const it of items){
       const itCx = it.cancelled && it.cancelled_date ? String(it.cancelled_date).slice(0,10) : null;
@@ -239,17 +256,13 @@ async function load(){
       if(cancelledInWeek){ hadPartCancel=true; cancelledValueInWeek += (+it.unit_price||0)*(+it.quantity||1); continue; }
       if(isMattress(it.product_name)) mattresses += (+it.quantity||1);
     }
-    // value: contract value, less any items part-cancelled within the week
     let value = (+o.contract_value||0) - cancelledValueInWeek;
     if(value<0) value=0;
     if(mattresses===0 && value===0) continue;
 
-    const con=o.consultant_name||"(unassigned)";
-    const w=(weeks[wk]=weeks[wk]||{mattresses:0,value:0,byCon:{}});
-    w.mattresses+=mattresses; w.value+=value;
-    const c=(w.byCon[con]=w.byCon[con]||{m:0,v:0,sales:[]}); c.m+=mattresses; c.v+=value;
-    c.sales.push({ id:o.id, name:custName[o.customer_id]||"(no name)",
-                   mattresses, value, partCancel:hadPartCancel });
+    const {w,c}=getC(wk,con);
+    w.mattresses+=mattresses; w.value+=value; c.m+=mattresses; c.v+=value;
+    c.sales.push({ id:o.id, name:custName[o.customer_id]||"(no name)", mattresses, value, partCancel:hadPartCancel });
   }
 
   _weeksCache = weeks;
@@ -291,18 +304,24 @@ function draw(weeks){
   let html="";
   for(const k of shown){
     const w=weeks[k];
-    html+=`<tr class="wk" onclick="tog('${k}')"><td>▸ ${fmtWk(k)}<span class="chip">${Object.keys(w.byCon).length} agent${Object.keys(w.byCon).length!==1?'s':''}</span></td><td class="num">${w.mattresses}</td><td class="num">${fmt(w.value)}</td></tr>`;
+    html+=`<tr class="wk" onclick="tog('${k}')"><td>▸ ${fmtWk(k)}<span class="chip">${Object.keys(w.byCon).length} agent${Object.keys(w.byCon).length!==1?'s':''}</span>${w.cxCount?`<span class="chip" style="background:#5a2330;color:#f0c9d0">${w.cxCount} cancelled</span>`:''}</td><td class="num">${w.mattresses}</td><td class="num">${fmt(w.value)}</td></tr>`;
     const cons=Object.entries(w.byCon).sort((a,b)=>b[1].v-a[1].v);
     for(const [name,c] of cons){
       const cid=`${k}__${name}`.replace(/[^a-zA-Z0-9_]/g,"_");
       html+=`<tr class="sub" data-wk="${k}" style="display:none;cursor:pointer" onclick="togCon('${cid}')">`
-        +`<td>▸ ${esc(name)}</td><td class="num">${c.m}</td><td class="num">${fmt(c.v)}</td></tr>`;
+        +`<td>▸ ${esc(name)}${c.cancelled&&c.cancelled.length?` <span style="color:#c0392b;font-size:11px">(${c.cancelled.length} CNX)</span>`:''}</td><td class="num">${c.m}</td><td class="num">${fmt(c.v)}</td></tr>`;
       // the consultant's individual sales — customer names, to check crediting
       for(const sale of c.sales.sort((a,b)=>b.value-a.value)){
         html+=`<tr class="sale" data-con="${cid}" style="display:none">`
           +`<td style="padding-left:2.5rem"><a href="customer-detail.html?id=${sale.id}" onclick="event.stopPropagation()" style="color:#9db4d6">${esc(sale.name)}</a>`
           +`${sale.partCancel?' <span style="color:#e0a34a;font-size:11px">(part-cancelled)</span>':''}</td>`
           +`<td class="num">${sale.mattresses||""}</td><td class="num">${fmt(sale.value)}</td></tr>`;
+      }
+      for(const sale of (c.cancelled||[]).sort((a,b)=>b.value-a.value)){
+        html+=`<tr class="sale" data-con="${cid}" style="display:none;opacity:.6">`
+          +`<td style="padding-left:2.5rem"><a href="customer-detail.html?id=${sale.id}" onclick="event.stopPropagation()" style="color:#9db4d6"><s>${esc(sale.name)}</s></a>`
+          +` <span style="display:inline-block;font-size:10px;font-weight:800;color:#fff;background:#c0392b;border-radius:4px;padding:1px 5px;margin-left:6px;letter-spacing:.5px">CNX</span></td>`
+          +`<td class="num"><s>${sale.mattresses||""}</s></td><td class="num"><s>${fmt(sale.value)}</s></td></tr>`;
       }
     }
   }

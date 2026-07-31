@@ -250,8 +250,14 @@ function render(name, sales, orders, baseline){
       <div class="bar"><div style="width:${pct}%"></div></div><div class="prog">${p.label}</div></div>`;
   }
 
-  const active = orders.filter(o=>(o.order_status||"active")!=="cancelled");
-  const rows = active.map((o,i)=>{
+  // a row counts as cancelled if the ORDER was cancelled (customer-screen cancel)
+  // OR its commission record was cancelled (pay-run cancel, which doesn't touch the order)
+  const cxIds = new Set((sales||[]).filter(s=>(s.status||"active")==="cancelled" && s.sim_order_id).map(s=>s.sim_order_id));
+  const isCx = o => (o.order_status||"active")==="cancelled" || cxIds.has(o.id);
+  const active = orders.filter(o=>!isCx(o));
+  const cancelled = orders.filter(isCx);
+  const rows = orders.map((o,i)=>{
+    const cx=isCx(o);
     const c=o.sim_customers||{}; const cname=`${c.first_name||""} ${c.last_name||""}`.trim()||"(no name)";
     const items=(o._items||[]).slice().sort((a,b)=>(a.line_no||0)-(b.line_no||0));
     const pd=items.map(it=>(it.quantity>1?it.quantity+"× ":"")+it.product_name).join(", ")||"—";
@@ -261,9 +267,14 @@ function render(name, sales, orders, baseline){
       <div class="kv full"><span class="k">Address</span><span class="v">${esc(c.address)||"—"}</span></div>
       <div class="kv full"><span class="k">Products</span><span class="v">${esc(pd)}</span></div>
     </div></td></tr>`;
-    return `<tr class="sale" onclick="tog(${i})">
-      <td><b>${esc(cname)}</b><div class="muted" style="font-size:12px">${esc(pd)}</div></td>
-      <td>${auDate(o.order_date)}</td><td class="num">$${Math.round(+o.contract_value||0).toLocaleString()}</td>
+    const cnx = cx ? ` <span style="display:inline-block;font-size:10px;font-weight:800;color:#fff;background:#c0392b;border-radius:4px;padding:1px 5px;margin-left:6px;letter-spacing:.5px;vertical-align:middle">CNX</span>` : "";
+    const nm  = cx ? `<b><s>${esc(cname)}</s></b>${cnx}` : `<b>${esc(cname)}</b>`;
+    const pdh = cx ? `<s>${esc(pd)}</s>` : esc(pd);
+    const dth = cx ? `<s>${auDate(o.order_date)}</s>` : auDate(o.order_date);
+    const vlh = cx ? `<s>$${Math.round(+o.contract_value||0).toLocaleString()}</s>` : `$${Math.round(+o.contract_value||0).toLocaleString()}`;
+    return `<tr class="sale" onclick="tog(${i})"${cx?' style="opacity:.62"':''}>
+      <td>${nm}<div class="muted" style="font-size:12px">${pdh}</div></td>
+      <td>${dth}</td><td class="num">${vlh}</td>
     </tr>${det}`;
   }).join("");
 
@@ -275,8 +286,8 @@ function render(name, sales, orders, baseline){
     </div>
     ${awardHTML}
     <div class="card">
-      <h2>My customers · ${active.length} in the system</h2>
-      ${active.length ? `<table><thead><tr><th>Customer / products</th><th>Sale date</th><th class="num">Value</th></tr></thead><tbody>${rows}</tbody></table>`
+      <h2>My sales · ${active.length} active${cancelled.length?` · <span style="color:#c0392b">${cancelled.length} cancelled</span>`:``}</h2>
+      ${orders.length ? `<table><thead><tr><th>Customer / products</th><th>Sale date</th><th class="num">Value</th></tr></thead><tbody>${rows}</tbody></table>`
         : `<div id="state">No customers to show here yet.</div>`}
       ${gap ? `<div style="padding:10px 18px;font-size:12px;color:#7a8798;border-top:1px solid #eef1f4">Your sales count comes from the pay record. A few older/imported sales aren\u2019t in the operating system yet, so they don\u2019t appear in this contact list — new sales entered here will.</div>` : ""}
     </div>`;
