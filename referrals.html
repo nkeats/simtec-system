@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Simtec — Referrals</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/@supabase/supabase-js@2.38.4/dist/umd/supabase.js"></script>
+<script src="auth.js?v=3" data-roles="office,manager,admin"></script>
+<style>
+body{font-family:system-ui,sans-serif}
+.stat{background:#1e293b;border:1px solid #334155;border-radius:.75rem;padding:1rem 1.15rem;cursor:pointer}
+.stat.sel{outline:2px solid #60a5fa}
+.lbl{font-size:.7rem;letter-spacing:.06em;text-transform:uppercase;color:#7c8aa0;font-weight:700}
+.big{font-size:1.9rem;font-weight:800;line-height:1.1;margin-top:.3rem}
+th,td{padding:.55rem .7rem;text-align:left;vertical-align:top}
+th{font-size:.68rem;letter-spacing:.05em;text-transform:uppercase;color:#94a3b8;border-bottom:1px solid #334155}
+td{border-bottom:1px solid #23324a;font-size:.86rem}
+tr:hover td{background:#243049}
+.badge{padding:.15rem .5rem;border-radius:.4rem;font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.03em;white-space:nowrap}
+select.asgnsel{background:#0f172a;border:1px solid #334155;color:#e2e8f0;border-radius:.4rem;padding:.3rem .4rem;font-size:.8rem;max-width:160px}
+.asgn{padding:.3rem .7rem;border-radius:.45rem;font-size:.75rem;font-weight:600;cursor:pointer;border:1px solid #1d4ed8;background:#172554;color:#93c5fd;margin-left:.4rem}
+.asgn:hover{background:#1e3a8a}
+.warn{color:#fbbf24;font-weight:700}
+</style>
+</head>
+<body class="bg-slate-950 text-white min-h-screen">
+
+<nav class="bg-slate-900 border-b border-slate-800 px-6 py-3 flex items-center gap-3">
+  <a href="home.html" style="color:#cbd5e1;text-decoration:none;font-size:.85rem;margin-right:8px">‹ Home</a>
+  <span class="font-bold tracking-wide text-lg">SIMTEC</span>
+  <span class="text-slate-400 text-sm">Referrals</span>
+  <button class="ml-auto text-xs text-slate-400 border border-slate-700 rounded px-3 py-1" onclick="load()">↻ Refresh</button>
+</nav>
+
+<div class="max-w-5xl mx-auto p-6">
+
+  <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+    <div class="stat" style="border-color:#b45309" onclick="setFilter('need')" id="fNeed">
+      <div class="lbl" style="color:#fbbf24">Needs assigning</div>
+      <div class="big" style="color:#fbbf24" id="cNeed">—</div>
+    </div>
+    <div class="stat" onclick="setFilter('active')" id="fActive">
+      <div class="lbl">In progress</div>
+      <div class="big text-slate-200" id="cActive">—</div>
+    </div>
+    <div class="stat" style="border-color:#15803d;background:#10241a" onclick="setFilter('converted')" id="fConverted">
+      <div class="lbl" style="color:#86efac">Converted</div>
+      <div class="big" style="color:#4ade80" id="cConv">—</div>
+    </div>
+    <div class="stat" onclick="setFilter('all')" id="fAll">
+      <div class="lbl">All referrals</div>
+      <div class="big text-slate-200" id="cAll">—</div>
+    </div>
+  </div>
+
+  <div class="flex items-center justify-between mb-2">
+    <h2 class="text-sm font-semibold text-slate-300" id="listTitle">Needs assigning</h2>
+    <span class="text-xs text-slate-500" id="asOf"></span>
+  </div>
+
+  <div class="overflow-x-auto rounded-lg border border-slate-800">
+    <table class="w-full">
+      <thead><tr>
+        <th>Referred customer</th><th>Referred by</th><th>Assigned to</th><th>Status</th><th>When</th><th></th>
+      </tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </div>
+  <div id="state" class="text-center text-slate-500 py-16">Loading…</div>
+
+  <p class="text-xs text-slate-500 mt-5 max-w-2xl">
+    Referrals arrive from the apps and auto-route to the consultant who sold the referrer. If that consultant has
+    left, the referral lands here flagged <span class="warn">Needs assigning</span> — pick another consultant and it
+    appears in their diary to book. Rewards are recorded but <b>held</b> until the loyalty programme launches.
+  </p>
+</div>
+
+<script>
+const sb = supabase.createClient("https://jvqjoenaungubpoegyvf.supabase.co","sb_publishable_J4MYTdJJyEaWe-GadpwdYA_upPT2rKw");
+const $=id=>document.getElementById(id);
+const esc=s=>(s||"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const fmtDate=d=>d?new Date(d).toLocaleDateString("en-NZ",{day:"numeric",month:"short",year:"2-digit"}):"—";
+
+let CONS=[], REFS=[], filter='need';
+const BADGES={
+  new:['New','#78350f','#fbbf24'], assigned:['Assigned','#1e3a5f','#93c5fd'],
+  booked:['Booked','#3b2f66','#c4b5fd'], converted:['Converted','#14532d','#86efac'],
+  lost:['Lost','#3a1414','#fca5a5']
+};
+function badge(s){ const b=BADGES[s]||['—','#334155','#cbd5e1']; return `<span class="badge" style="background:${b[1]};color:${b[2]}">${b[0]}</span>`; }
+
+async function load(){
+  $("state").style.display="block"; $("state").textContent="Loading…";
+  const [consRes, refsRes] = await Promise.all([
+    sb.from("commission_consultants").select("id,name").eq("active",true).order("name"),
+    sb.from("referrals").select("*").order("created_at",{ascending:false})
+  ]);
+  if(refsRes.error){ $("state").textContent="Couldn't load: "+refsRes.error.message; return; }
+  CONS = consRes.data||[];
+  REFS = refsRes.data||[];
+  $("asOf").textContent = "as at "+new Date().toLocaleString("en-NZ",{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"});
+  render();
+}
+
+function subsets(){
+  const need = REFS.filter(r=>r.needs_office_assignment && r.status!=='converted' && r.status!=='lost');
+  const active = REFS.filter(r=>['new','assigned','booked'].includes(r.status) && !r.needs_office_assignment);
+  const conv = REFS.filter(r=>r.status==='converted');
+  return {need,active,conv};
+}
+
+function setFilter(f){ filter=f; render(); }
+
+function render(){
+  const {need,active,conv}=subsets();
+  $("cNeed").textContent=need.length; $("cActive").textContent=active.length;
+  $("cConv").textContent=conv.length; $("cAll").textContent=REFS.length;
+  ['need','active','converted','all'].forEach(f=>{
+    const el=$({need:'fNeed',active:'fActive',converted:'fConverted',all:'fAll'}[f]);
+    el.classList.toggle('sel', filter===f);
+  });
+  let list, title;
+  if(filter==='need'){ list=need; title='Needs assigning'; }
+  else if(filter==='active'){ list=active; title='In progress'; }
+  else if(filter==='converted'){ list=conv; title='Converted'; }
+  else { list=REFS; title='All referrals'; }
+  $("listTitle").textContent=title;
+
+  if(!list.length){ $("rows").innerHTML=""; $("state").style.display="block"; $("state").textContent="Nothing here."; return; }
+  $("state").style.display="none";
+
+  $("rows").innerHTML = list.map(r=>{
+    const canAssign = r.status!=='converted' && r.status!=='lost';
+    const chosen = r.assigned_consultant_id||"";
+    const assignedCell = r.assigned_consultant_name
+      ? esc(r.assigned_consultant_name)
+      : '<span class="warn">⚠ Needs assigning</span>';
+    let action="";
+    if(canAssign){
+      const opts = '<option value="">— choose —</option>' +
+        CONS.map(c=>`<option value="${c.id}"${c.id===chosen?' selected':''}>${esc(c.name)}</option>`).join("");
+      action = `<select class="asgnsel">${opts}</select>`+
+               `<button class="asgn" onclick="assign('${r.id}', this.previousElementSibling)">${chosen?'Reassign':'Assign'}</button>`;
+    } else if(r.status==='converted'){
+      action = '<span class="text-xs text-slate-500">reward held</span>';
+    }
+    return `<tr>
+      <td class="font-medium text-slate-200">${esc(r.referee_name||'—')}<div class="text-xs text-slate-500">${esc(r.referee_mobile||'')}</div></td>
+      <td class="text-slate-400">${esc(r.referrer_name||'—')}</td>
+      <td class="text-slate-300">${assignedCell}</td>
+      <td>${badge(r.status)}</td>
+      <td class="text-slate-500">${fmtDate(r.created_at)}</td>
+      <td>${action}</td>
+    </tr>`;
+  }).join("");
+}
+
+async function assign(id, sel){
+  const cid=sel.value;
+  if(!cid){ alert("Choose a consultant first."); return; }
+  const cname=sel.options[sel.selectedIndex].textContent;
+  const { error } = await sb.from("referrals")
+    .update({ assigned_consultant_id:cid, assigned_consultant_name:cname, status:'assigned', needs_office_assignment:false })
+    .eq("id",id);
+  if(error){ alert("Couldn't assign: "+error.message); return; }
+  await load();
+}
+
+load();
+</script>
+</body>
+</html>
