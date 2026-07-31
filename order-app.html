@@ -236,8 +236,9 @@
       </div>
       <div class="card">
         <h3>Contact &amp; delivery</h3>
+        <div id="referralHit" class="note hidden" style="background:#eaf7ee;border-color:#b6e2c4;color:#1c6b3f;"></div>
         <div class="grid2">
-          <label class="f"><span class="lab">Mobile Phone <span class="req">*</span></span><input type="tel" id="mobile"></label>
+          <label class="f"><span class="lab">Mobile Phone <span class="req">*</span></span><input type="tel" id="mobile" onblur="checkReferral()"></label>
           <div>
             <label class="f" style="margin-bottom:6px;"><span class="lab">Email Address <span class="req">*</span></span>
               <div class="verify-row">
@@ -595,7 +596,7 @@ function normNZ(raw){
 }
 function numOrNull(v){ v=String(v==null?"":v).replace(/[^0-9.]/g,""); return v?Number(v):null; }
 
-const S = { step:0, saleType:'', pay:'', depositMethod:'ezidebit', a2:false, products:[], emailVerified:false, sentCode:null, tncRead:false, idPhotos:{A1:[],A2:[]} };
+const S = { step:0, saleType:'', pay:'', depositMethod:'ezidebit', a2:false, products:[], referralId:null, emailVerified:false, sentCode:null, tncRead:false, idPhotos:{A1:[],A2:[]} };
 const STEP_LABELS = ['Start','Products','Details','Referees','Terms','ID','Payment','Sign','Ezidebit','Done'];
 
 function visibleSteps(){
@@ -671,6 +672,23 @@ function bindChoices(wrapId, cb){
   });
 }
 bindChoices('saleType', v=>{ S.saleType=v; document.getElementById('referrerBox').classList.toggle('hidden', v!=='solicited'); updateDepositMethodUI(); });
+
+// Referral auto-detect: when the mobile is entered, ask the DB (via a security-definer
+// RPC) whether this number matches a pending referral. Only the single match is returned
+// — the consultant never reads the referrals table. Purely informational; never blocks.
+async function checkReferral(){
+  const box=document.getElementById('referralHit'); if(!box) return;
+  const m=val('mobile'); const digits=(m||'').replace(/[^0-9]/g,'');
+  if(!sb || digits.length<8){ S.referralId=null; box.classList.add('hidden'); return; }
+  try{
+    const { data, error } = await sb.rpc('find_referral_by_mobile', { p_mobile:m });
+    const hit = Array.isArray(data) ? data[0] : data;
+    if(error || !hit){ S.referralId=null; box.classList.add('hidden'); return; }
+    S.referralId=hit.id;
+    box.innerHTML='🎁 <b>Referred customer.</b> '+(hit.referrer_name?('Referred by '+esc(hit.referrer_name)+'. '):'')+'This sale will be credited to their referral once the order is saved.';
+    box.classList.remove('hidden');
+  }catch(e){ S.referralId=null; box.classList.add('hidden'); }
+}
 bindChoices('payOption', v=>{ S.pay=v; updateDepositMethodUI(); renderSteps(); });
 bindChoices('depMethodSol', v=>{ S.depositMethod=v; });
 
@@ -869,7 +887,7 @@ async function collectOrder(){
     sigA1:canvasDataURL('sigA1'), sigA2:(S.a2?canvasDataURL('sigA2'):null), sigEzi:canvasDataURL('sigEzi'),
     iTnc:canvasDataURL('iTnc'), iAck1:canvasDataURL('iAck1'), iAck2:canvasDataURL('iAck2'), iAck3:canvasDataURL('iAck3'), iAck4:canvasDataURL('iAck4') };
   const customerName=((fields.a1first||'')+' '+(fields.a1last||'')).trim()||'(no name)';
-  return { v:1, savedAt:Date.now(), customerName, fields, flags, products, wantDel, files };
+  return { v:1, savedAt:Date.now(), customerName, fields, flags, products, wantDel, files, referralId:S.referralId||null };
 }
 
 // Live save from a payload (used for both immediate submit and parked replay).
@@ -1052,6 +1070,7 @@ async function submitOrder(){
     const P=await collectOrder();
     const id=await savePayload(P);
     S.orderId=id; S.lastP=P;   // keep the payload; the summary PDF is regenerated with the Ezidebit schedule at the Done step
+    if(S.referralId){ try{ await sb.rpc('convert_referral_for_order',{p_ref:S.referralId,p_order:id}); }catch(_e){} }
     // Create the GHL contact NOW (contact-only) so the office has it even if the
     // order is abandoned before Done. The welcome email — with the final Ezidebit
     // schedule — is sent from finalizeOrder() when the order reaches the Done step.
@@ -1183,7 +1202,7 @@ window.uploadOne=async function(id){
   if(!navigator.onLine){ alert('Still offline — connect to the internet, then try again.'); return; }
   if(!sb && window.supabase) sb=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
   const list=loadParked(); const P=list.find(x=>x.id===id); if(!P) return;
-  try{ const oid=await savePayload(P); pushOrderToGhl(oid); writeParked(loadParked().filter(x=>x.id!==id)); renderParked(); const w=(S.lastExtrasWarn||[]); alert('Uploaded: '+(P.customerName||'order')+(w.length?'\n\n⚠ '+w.join(' '):'')); }
+  try{ const oid=await savePayload(P); if(P.referralId){ try{ await sb.rpc('convert_referral_for_order',{p_ref:P.referralId,p_order:oid}); }catch(_e){} } pushOrderToGhl(oid); writeParked(loadParked().filter(x=>x.id!==id)); renderParked(); const w=(S.lastExtrasWarn||[]); alert('Uploaded: '+(P.customerName||'order')+(w.length?'\n\n⚠ '+w.join(' '):'')); }
   catch(e){ alert('Upload failed — '+(e.message||e)+'. It\'s still parked; try again when you have a stronger connection.'); }
 };
 
@@ -1196,7 +1215,7 @@ async function trySync(){
   syncing=true; renderParked();
   const remaining=[]; let uploaded=0;
   for(const P of list){
-    try{ const oid=await savePayload(P); pushOrderToGhl(oid); uploaded++; }
+    try{ const oid=await savePayload(P); if(P.referralId){ try{ await sb.rpc('convert_referral_for_order',{p_ref:P.referralId,p_order:oid}); }catch(_e){} } pushOrderToGhl(oid); uploaded++; }
     catch(e){ console.warn('sync failed',P.id,e.message||e); remaining.push(P); }
   }
   writeParked(remaining); syncing=false; renderParked();
