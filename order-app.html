@@ -114,6 +114,12 @@
   .sigwrap{border:1px solid var(--line);border-radius:12px;overflow:hidden;background:#fff;}
   .sigwrap .sighead{display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:#f6f8fb;font-size:12px;color:var(--muted);}
   canvas.sig{width:100%;height:180px;display:block;touch-action:none;background:#fff;}
+  .ackrow{display:flex;gap:12px;align-items:flex-start;border-bottom:1px solid var(--line);padding:6px 0;}
+  .ackrow .ack{border-bottom:none;}
+  .initbox{flex:0 0 128px;display:flex;flex-direction:column;padding-top:4px;}
+  .initbox .ihead{display:flex;justify-content:space-between;align-items:center;font-size:11px;color:var(--muted);margin-bottom:3px;}
+  canvas.ini{width:128px;height:56px;border:1px dashed var(--blue);border-radius:8px;background:#fff;touch-action:none;display:block;}
+  @media(max-width:640px){.ackrow{flex-direction:column;gap:6px;}.initbox{flex:0 0 auto;}canvas.ini{width:100%;}}
   .clr{background:none;border:none;color:var(--blue);font-weight:600;cursor:pointer;font-size:13px;}
   .rev-sec{margin-bottom:14px;}
   .rev-sec .rh{font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:4px;}
@@ -203,7 +209,7 @@
           <label class="f"><span class="lab">Last Name / Surname <span class="req">*</span></span><input type="text" id="a1last"></label>
           <label class="f"><span class="lab">ID Document</span>
             <div style="display:flex;gap:8px;">
-              <select id="a1idtype" style="flex:0 0 46%;"><option>Driver's Licence</option><option>Passport</option></select>
+              <select id="a1idtype" style="flex:0 0 46%;"><option>Driver's Licence</option><option>Passport</option><option>18+ Card</option></select>
               <input type="text" id="a1dl" placeholder="Number" style="flex:1;">
             </div>
           </label>
@@ -220,7 +226,7 @@
             <label class="f"><span class="lab">Last Name / Surname</span><input type="text" id="a2last"></label>
             <label class="f"><span class="lab">ID Document</span>
               <div style="display:flex;gap:8px;">
-                <select id="a2idtype" style="flex:0 0 46%;"><option>Driver's Licence</option><option>Passport</option></select>
+                <select id="a2idtype" style="flex:0 0 46%;"><option>Driver's Licence</option><option>Passport</option><option>18+ Card</option></select>
                 <input type="text" id="a2dl" placeholder="Number" style="flex:1;">
               </div>
             </label>
@@ -290,6 +296,9 @@
       <div class="card">
         <h3>Notes / handover</h3>
         <p class="sub" style="margin-top:-6px">Anything the office or delivery team should know. Tick where each note applies.</p>
+        <label class="f" style="margin-bottom:10px"><span class="lab">Reason for purchasing</span>
+          <select id="purchaseReason"><option value="">Select…</option><option>Better sleep / sleep quality</option><option>Back or body pain relief</option><option>Health / therapeutic need</option><option>Old bed worn out</option><option>Upgrade / bigger bed</option><option>Recommended by friend or family</option><option>Other</option></select></label>
+        <textarea id="purchaseReasonNotes" placeholder="Any extra detail on why they're buying (helps the office and future service)…" style="min-height:60px"></textarea>
         <label class="ack" style="border-bottom:none;padding-bottom:4px"><input type="checkbox" id="noteAccountChk">
           <span class="txt"><b>Account set-up note — flagged to the office now</b>Best pay cycle, Ezidebit / direct-debit timing, income dates — anything affecting account set-up.</span></label>
         <textarea id="noteAccount" placeholder="Account set-up note…" oninput="if(this.value.trim())document.getElementById('noteAccountChk').checked=true"></textarea>
@@ -360,19 +369,35 @@
           <p>These Terms and Conditions of Sale are provided to the Customer upon confirmation of purchase. By proceeding with payment and/or accepting delivery of the Product, the Customer acknowledges that they have received, read, and agree to be bound by these Terms and Conditions of Sale.</p>
           <p style="color:var(--ok);font-weight:600;">— End of terms —</p>
         </div>
-        <label class="ack"><input type="checkbox" id="tncAgree" disabled>
-          <span class="txt"><b>I have read and agree to the Terms &amp; Conditions.</b>Scroll to the end of the terms above to enable this.</span></label>
+        <div class="ackrow">
+          <label class="ack" style="flex:1;border-bottom:none;"><input type="checkbox" id="tncAgree" disabled>
+            <span class="txt"><b>I have read and agree to the Terms &amp; Conditions.</b>Scroll to the end of the terms above to enable this.</span></label>
+          <div class="initbox"><div class="ihead"><span>Initials</span><button type="button" class="clr" onclick="clearSig('iTnc')">Clear</button></div><canvas class="sig ini" id="iTnc"></canvas></div>
+        </div>
       </div>
       <div class="card">
         <h3>Acknowledgements — customer confirms each</h3>
-        <label class="ack"><input type="checkbox" class="ackbox">
-          <span class="txt"><b>Minimum 10% deposit before delivery</b>Delivery is scheduled only after a minimum 10% deposit of the total purchase price is paid.</span></label>
-        <label class="ack"><input type="checkbox" class="ackbox">
-          <span class="txt"><b>Acceptable payment history before delivery</b>Delivery occurs once an acceptable repayment history is established. Simtec may cancel prior to delivery if the payment history is unacceptable.</span></label>
-        <label class="ack"><input type="checkbox" class="ackbox">
-          <span class="txt"><b>Collection &amp; use of personal information (Privacy Act 2020)</b>Details are collected only to assess affordability and manage the account, stored securely, and not sold or disclosed except as needed to manage payments.</span></label>
-        <label class="ack"><input type="checkbox" class="ackbox">
-          <span class="txt"><b>5-day cooling-off period explained</b>The consultant confirms the cooling-off period has been explained to the customer.</span></label>
+        <p class="sub" style="margin-top:-6px">Tick each box <b>and</b> have the customer initial it.</p>
+        <div class="ackrow">
+          <label class="ack" style="flex:1;border-bottom:none;"><input type="checkbox" class="ackbox">
+            <span class="txt"><b>Minimum 10% deposit before delivery</b>Delivery is scheduled only after a minimum 10% deposit of the total purchase price is paid.</span></label>
+          <div class="initbox"><div class="ihead"><span>Initials</span><button type="button" class="clr" onclick="clearSig('iAck1')">Clear</button></div><canvas class="sig ini" id="iAck1"></canvas></div>
+        </div>
+        <div class="ackrow">
+          <label class="ack" style="flex:1;border-bottom:none;"><input type="checkbox" class="ackbox">
+            <span class="txt"><b>Acceptable payment history before delivery</b>Delivery occurs once an acceptable repayment history is established. Simtec may cancel prior to delivery if the payment history is unacceptable.</span></label>
+          <div class="initbox"><div class="ihead"><span>Initials</span><button type="button" class="clr" onclick="clearSig('iAck2')">Clear</button></div><canvas class="sig ini" id="iAck2"></canvas></div>
+        </div>
+        <div class="ackrow">
+          <label class="ack" style="flex:1;border-bottom:none;"><input type="checkbox" class="ackbox">
+            <span class="txt"><b>Collection &amp; use of personal information (Privacy Act 2020)</b>Details are collected only to assess affordability and manage the account, stored securely, and not sold or disclosed except as needed to manage payments.</span></label>
+          <div class="initbox"><div class="ihead"><span>Initials</span><button type="button" class="clr" onclick="clearSig('iAck3')">Clear</button></div><canvas class="sig ini" id="iAck3"></canvas></div>
+        </div>
+        <div class="ackrow">
+          <label class="ack" style="flex:1;border-bottom:none;"><input type="checkbox" class="ackbox">
+            <span class="txt"><b>5-day cooling-off period explained</b>The consultant confirms the cooling-off period has been explained to the customer.</span></label>
+          <div class="initbox"><div class="ihead"><span>Initials</span><button type="button" class="clr" onclick="clearSig('iAck4')">Clear</button></div><canvas class="sig ini" id="iAck4"></canvas></div>
+        </div>
       </div>
     </section>
 
@@ -456,6 +481,7 @@
     <section class="step" data-step="8">
       <h2 class="title">Ezidebit direct debit</h2>
       <p class="sub">Set the schedule, then the customer completes their payment details and signs the direct-debit authority.</p>
+      <div class="note"><b>Failed payment fee:</b> Simtec charges nothing when a payment is declined or returned. However, <b>Ezidebit charges the customer $11.50</b> directly for each failed payment. Please make sure the customer understands this before signing.</div>
       <div id="eziDepositNote" class="note hidden" style="margin-bottom:12px;background:#fff8e8;border-color:#f0dca8;color:#7a5b12;"></div>
 
       <!-- schedule builder -->
@@ -467,9 +493,9 @@
           <label class="f"><span class="lab">One-off payment date</span><input type="date" id="eziOneoffDate"></label>
         </div>
         <div class="grid3">
-          <label class="f"><span class="lab">Plan amount (each payment)</span><input type="number" id="eziPlanAmount" inputmode="decimal" placeholder="$"></label>
+          <label class="f"><span class="lab">Plan amount (each payment)</span><input type="number" id="eziPlanAmount" inputmode="decimal" placeholder="$" oninput="computeEziBalance()"><div id="eziMinHint" class="sub" style="font-size:11px;margin-top:4px;color:var(--muted)">Minimum shows once amounts are entered.</div></label>
           <label class="f"><span class="lab">Frequency</span>
-            <select id="eziPlanFreq"><option value="weekly">Weekly</option><option value="fortnightly">Fortnightly</option><option value="monthly">Monthly</option></select>
+            <select id="eziPlanFreq" onchange="computeEziBalance()"><option value="weekly">Weekly</option><option value="fortnightly">Fortnightly</option><option value="monthly">Monthly</option></select>
           </label>
           <label class="f"><span class="lab">Plan start date</span><input type="date" id="eziPlanStart"></label>
         </div>
@@ -488,8 +514,8 @@
           <button class="btn-sm" type="button" onclick="launchEzidebit()">Open secure Ezidebit form</button>
           <div id="eziMsg" class="sub" style="margin-top:10px;color:var(--danger)"></div>
         </div>
-        <div id="eziFrameWrap" class="hidden" style="border:1px solid var(--line);border-radius:12px;height:660px;overflow-y:auto;-webkit-overflow-scrolling:touch;position:relative;">
-          <iframe id="eziFrame" title="Ezidebit direct debit" style="width:100%;min-height:660px;border:0;display:block"></iframe>
+        <div id="eziFrameWrap" class="hidden" style="border:1px solid var(--line);border-radius:12px;overflow:hidden;">
+          <iframe id="eziFrame" title="Ezidebit direct debit" style="width:100%;height:1200px;border:0;display:block"></iframe>
         </div>
         <div id="eziDone" class="hidden" style="text-align:center;padding:20px;border:2px solid var(--ok);border-radius:12px;background:var(--ok-soft);">
           <div style="font-size:34px;">✅</div>
@@ -498,11 +524,11 @@
         </div>
       </div>
 
-      <div class="card">
-        <h3>Direct-debit authority signature</h3>
-        <p class="sub" style="margin-top:-4px">A signed copy for Simtec's file — the binding authority is captured inside the Ezidebit form above.</p>
-        <div class="sigwrap">
-          <div class="sighead"><span>Sign to authorise the direct debit</span><button class="clr" onclick="clearSig('sigEzi')">Clear</button></div>
+      <div class="card" style="border:2px solid var(--navy);background:#f3f6ff;">
+        <div style="display:flex;align-items:center;gap:9px;margin-bottom:2px;"><span style="background:var(--navy);color:#fff;font-size:11px;font-weight:800;letter-spacing:.5px;padding:3px 10px;border-radius:20px;">FINAL STEP</span><h3 style="margin:0;">Direct-debit authority signature</h3></div>
+        <p class="sub" style="margin-top:2px">A signed copy for Simtec's file — the binding authority is captured inside the Ezidebit form above. <b>Don't forget to sign below to finish the order.</b></p>
+        <div class="sigwrap" style="border:2px solid var(--navy);">
+          <div class="sighead" style="background:#e7edff;color:var(--navy);font-weight:700;"><span>✍ Sign here to authorise the direct debit</span><button class="clr" onclick="clearSig('sigEzi')">Clear</button></div>
           <canvas class="sig" id="sigEzi"></canvas>
         </div>
       </div>
@@ -605,7 +631,7 @@ function showStep(ds){
   if(ds===0) renderParked();
   if(ds===6) updateDepositMethodUI();
   if(ds===7) buildReview();
-  if(ds===8) setEziDefaults();
+  if(ds===8){ setEziDefaults(); computeEziBalance(); }
   if(ds===9) finalizeOrder();   // saved order reached Done → regen PDF w/ schedule, push GHL + welcome email
   renderSteps(); window.scrollTo(0,0);
   document.querySelectorAll('section.step.on canvas.sig').forEach(sizeCanvas);
@@ -628,7 +654,10 @@ function validateStep(ds){
   if(ds===2){ if(!val('a1first')||!val('a1last')||!val('mobile')||!val('email')||!val('street')){alert('Fill the required customer fields.');return false;}
     if(!S.emailVerified && !confirm('Email not verified. Continue anyway?')) return false; }
   if(ds===4){ if(!document.getElementById('tncAgree').checked){alert('Customer must read and agree to the Terms & Conditions.');return false;}
-    if(![...document.querySelectorAll('.ackbox')].every(a=>a.checked)){alert('All acknowledgements must be confirmed.');return false;} }
+    if(![...document.querySelectorAll('.ackbox')].every(a=>a.checked)){alert('All acknowledgements must be confirmed.');return false;}
+    if(isBlank('iTnc')){alert('Customer must initial the Terms & Conditions box.');return false;}
+    for(let i=1;i<=4;i++){ if(isBlank('iAck'+i)){alert('Customer must initial every acknowledgement.');return false;} } }
+  if(ds===8){ if(isBlank('sigEzi')){alert('Please sign the direct-debit authority — the last box on this page — to finish.');return false;} }
   if(ds===6){ if(!S.pay){alert('Select a payment method.');return false;} }
   if(ds===7){ if(isBlank('sigA1')){alert('Applicant 1 must sign.');return false;} if(S.a2&&isBlank('sigA2')){alert('Applicant 2 must sign.');return false;} }
   return true;
@@ -837,7 +866,8 @@ async function collectOrder(){
   const products=S.products.filter(p=>p.name).map(p=>({name:p.name,price:p.price,qty:p.qty}));
   const wantDel=document.getElementById('wantDelivery').checked;
   const files={ idA1:(S.idPhotos.A1||[]).slice(), idA2:(S.a2?(S.idPhotos.A2||[]).slice():[]),
-    sigA1:canvasDataURL('sigA1'), sigA2:(S.a2?canvasDataURL('sigA2'):null), sigEzi:canvasDataURL('sigEzi') };
+    sigA1:canvasDataURL('sigA1'), sigA2:(S.a2?canvasDataURL('sigA2'):null), sigEzi:canvasDataURL('sigEzi'),
+    iTnc:canvasDataURL('iTnc'), iAck1:canvasDataURL('iAck1'), iAck2:canvasDataURL('iAck2'), iAck3:canvasDataURL('iAck3'), iAck4:canvasDataURL('iAck4') };
   const customerName=((fields.a1first||'')+' '+(fields.a1last||'')).trim()||'(no name)';
   return { v:1, savedAt:Date.now(), customerName, fields, flags, products, wantDel, files };
 }
@@ -877,6 +907,9 @@ async function savePayload(P){
   };
   const {data:ord,error:e2}=await sb.from('sim_orders').insert(order).select('id').single();
   if(e2) throw new Error('order: '+e2.message);
+  // reason for purchasing — best-effort; never blocks the order even if the column isn't present yet
+  const _reason=[f.purchaseReason,f.purchaseReasonNotes].map(x=>String(x||'').trim()).filter(Boolean).join(' — ')||null;
+  if(_reason){ try{ await sb.from('sim_orders').update({purchase_reason:_reason}).eq('id',ord.id); }catch(_e){} }
   // 3) product lines (incl. Delivery fee — commission feed matches on product_name)
   const items=[]; let ln=0;
   P.products.forEach(p=>items.push({order_id:ord.id,line_no:++ln,product_name:p.name,quantity:p.qty,unit_price:p.price}));
@@ -977,6 +1010,9 @@ async function saveExtrasPayload(orderId,P){
   uploads.id_a2=idA2Paths[0]||null;
   await put('sig_a1', files.sigA1, 'signature1.png', 'Applicant 1 signature');
   if(fl.a2) await put('sig_a2', files.sigA2, 'signature2.png', 'Applicant 2 signature');
+  await put('sig_ezi', files.sigEzi, 'signature-dd.png', 'DD authority signature');
+  await put('init_tnc', files.iTnc, 'initials-tnc.png', 'T&C initials');
+  for(let i=1;i<=4;i++){ await put('init_ack'+i, files['iAck'+i], 'initials-ack'+i+'.png', 'Acknowledgement '+i+' initials'); }
   const row={
     order_id:orderId,
     a1_id_type:f.a1idtype||null, a1_id_number:f.a1dl||null,
@@ -1222,9 +1258,18 @@ function eziTotal(){ return eziGross()-eziBankDeposit(); }
 // When the 50% deposit itself is an Ezidebit one-off, this is the suggested one-off.
 function eziOneoffDefault(){ return (S.pay==='deposit50' && S.depositMethod==='ezidebit') ? Math.round(eziGross()*50)/100 : 0; }
 function computeEziBalance(){
-  const hint=document.getElementById('eziBalanceHint'); if(!hint) return;
-  const bal=Math.max(0, eziTotal()-(numOrNull(val('eziOneoffAmount'))||0));
-  hint.textContent=money(bal)+' of '+money(eziTotal());
+  const hint=document.getElementById('eziBalanceHint');
+  const total=eziTotal();
+  const bal=Math.max(0, total-(numOrNull(val('eziOneoffAmount'))||0));
+  if(hint) hint.textContent=money(bal)+' of '+money(total);
+  const mh=document.getElementById('eziMinHint');
+  if(mh){
+    const freq=val('eziPlanFreq')||'weekly';
+    const periods={weekly:156,fortnightly:78,monthly:36}[freq]||156;   // 36-month max term
+    if(bal>0){ const min=Math.ceil((bal/periods)*100)/100;
+      mh.textContent='Minimum acceptable: '+money(min)+' '+freq+' (clears the balance within the 36-month term).'; }
+    else { mh.textContent='Minimum shows once amounts are entered.'; }
+  }
 }
 // Sensible defaults on entering the step (only fills empty fields).
 function setEziDefaults(){
