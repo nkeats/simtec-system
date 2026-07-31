@@ -155,11 +155,11 @@ async function load(){
         <button class="mini ghost" onclick="pickPhoto('${c.id}')">${c.photo?"Replace photo":"Add photo"}</button>
         <button class="mini" onclick="printCardById('${c.id}')">🪪 Print</button>
       </td>
-      <td style="white-space:nowrap">
+      <td><div style="display:flex;flex-wrap:wrap;gap:4px;max-width:180px">
         <button class="mini" onclick="openEdit('${c.id}')">✎ Edit</button>
-        <button class="mini ghost" onclick="toggleTL('${c.id}',${c.is_team_leader?"false":"true"})" style="margin-left:4px">${c.is_team_leader?"Make consultant":"Make team leader"}</button>
-        <button class="mini ghost" onclick="setActive('${c.id}',false)" title="Remove from the active list — their details are kept on file" style="margin-left:4px">Make inactive</button>
-      </td>
+        <button class="mini ghost" onclick="toggleTL('${c.id}',${c.is_team_leader?"false":"true"})">${c.is_team_leader?"Make consultant":"Make team leader"}</button>
+        <button class="mini ghost" onclick="setActive('${c.id}',false)" title="Remove from the active list — their details are kept on file">Make inactive</button>
+      </div></td>
     </tr>`;
   }).join("");
 
