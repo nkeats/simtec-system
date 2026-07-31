@@ -85,9 +85,39 @@
       <tbody id="rows"></tbody>
     </table>
   </div>
+
+  <div style="margin:-6px 0 14px">
+    <button type="button" class="mini ghost" id="showInactiveBtn" onclick="toggleInactive()" style="display:none">Show inactive consultants (<span id="inactiveN">0</span>)</button>
+  </div>
+  <div class="card" id="inactiveCard" style="display:none">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px">
+      <h2 style="margin-bottom:0">Inactive consultants</h2>
+      <button type="button" class="mini ghost" onclick="toggleInactive()">Hide</button>
+    </div>
+    <p class="muted" style="margin:0 0 12px;font-size:12.5px">Removed from the active list but kept on file. Reactivate to bring them back.</p>
+    <table><tbody id="inactiveRows"></tbody></table>
+  </div>
 </div>
 
 <input type="file" id="fileInput" accept="image/*" style="display:none">
+
+<div id="editModal" style="display:none;position:fixed;inset:0;background:rgba(15,25,45,.45);z-index:60;align-items:center;justify-content:center">
+  <div style="background:#fff;border-radius:12px;padding:22px;width:min(420px,92vw);box-shadow:0 14px 44px rgba(0,0,0,.28)">
+    <h2 style="margin:0 0 4px;font-size:16px;color:#122347">Edit consultant</h2>
+    <p style="margin:0 0 16px;font-size:12px;color:#5b6675">Fix a name, phone or email entered by mistake.</p>
+    <input type="hidden" id="ed_id">
+    <label style="display:block;font-size:12px;color:#5b6675;margin-bottom:3px">Full name</label>
+    <input id="ed_name" autocomplete="off" style="width:100%;box-sizing:border-box;padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px;margin-bottom:12px;font-size:14px">
+    <label style="display:block;font-size:12px;color:#5b6675;margin-bottom:3px">Phone</label>
+    <input id="ed_phone" autocomplete="off" style="width:100%;box-sizing:border-box;padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px;margin-bottom:12px;font-size:14px">
+    <label style="display:block;font-size:12px;color:#5b6675;margin-bottom:3px">Email</label>
+    <input id="ed_email" type="email" autocomplete="off" style="width:100%;box-sizing:border-box;padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px;margin-bottom:18px;font-size:14px">
+    <div style="display:flex;justify-content:flex-end;gap:8px">
+      <button class="mini ghost" onclick="closeEdit()">Cancel</button>
+      <button class="mini" onclick="saveEdit()">Save changes</button>
+    </div>
+  </div>
+</div>
 
 <script>
 const sb = supabase.createClient("https://jvqjoenaungubpoegyvf.supabase.co","sb_publishable_J4MYTdJJyEaWe-GadpwdYA_upPT2rKw");
@@ -99,50 +129,111 @@ function clearMsg(){ $("msg").style.display="none"; }
 let LIST=[];
 
 async function load(){
-  const { data, error } = await sb.from("commission_consultants").select("id,name,team_leader,is_team_leader,photo,id_card_no,phone,email").order("name");
+  const { data, error } = await sb.from("commission_consultants").select("id,name,team_leader,is_team_leader,photo,id_card_no,phone,email,active").order("name");
   if(error){ $("listState").textContent="Couldn't load: "+error.message; return; }
   LIST=data||[];
   // backfill any missing (cosmetic) ID numbers once, and persist
   LIST.forEach(c=>{ if(!c.id_card_no){ c.id_card_no=genId(); sb.from("commission_consultants").update({id_card_no:c.id_card_no}).eq("id",c.id); } });
-  const leaders = LIST.filter(c=>c.is_team_leader).map(c=>c.name).sort();
+  const ACTIVE   = LIST.filter(c=>c.active!==false);   // null (legacy) counts as active
+  const INACTIVE = LIST.filter(c=>c.active===false);
+  const leaders = ACTIVE.filter(c=>c.is_team_leader).map(c=>c.name).sort();
 
   // team-leader dropdown for the add form
   $("tl").innerHTML='<option value="">— none —</option>'+leaders.map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join("");
 
   $("listState").style.display="none"; $("tbl").style.display="table";
-  $("rows").innerHTML = LIST.map(c=>{
+  $("rows").innerHTML = ACTIVE.map(c=>{
     const tlOpts='<option value="">— none —</option>'+leaders.filter(n=>n!==c.name).map(n=>`<option value="${esc(n)}"${c.team_leader===n?" selected":""}>${esc(n)}</option>`).join("");
     const thumb = c.photo ? `<img class="thumb" src="${c.photo}" alt="">` : `<span class="thumb noph">No<br>photo</span>`;
     return `<tr>
       <td>${thumb}</td>
       <td><b>${esc(c.name)}</b><div class="muted" style="font-size:11.5px">ID #: ${esc(c.id_card_no||"—")}</div>
-        <div style="margin-top:5px;display:flex;gap:6px;flex-wrap:wrap">
-          <input value="${esc(c.phone||'')}" placeholder="Phone" style="font-size:11px;padding:3px 6px;width:130px;border:1px solid #cbd5e1;border-radius:6px" onchange="saveContact('${c.id}','phone',this.value)">
-          <input value="${esc(c.email||'')}" placeholder="Email" style="font-size:11px;padding:3px 6px;width:180px;border:1px solid #cbd5e1;border-radius:6px" onchange="saveContact('${c.id}','email',this.value)">
-        </div></td>
+        ${(c.phone||c.email)?`<div class="muted" style="font-size:11.5px;margin-top:3px">${esc(c.phone||"")}${c.phone&&c.email?" · ":""}${esc(c.email||"")}</div>`:`<div style="font-size:11.5px;margin-top:3px;color:#9aa7b4">No phone / email yet</div>`}</td>
       <td><span class="badge ${c.is_team_leader?"tl":"con"}">${c.is_team_leader?"Team leader":"Consultant"}</span></td>
       <td>${c.is_team_leader?'<span class="muted">—</span>':`<select onchange="setLeader('${c.id}',this.value)">${tlOpts}</select>`}</td>
       <td style="white-space:nowrap">
         <button class="mini ghost" onclick="pickPhoto('${c.id}')">${c.photo?"Replace photo":"Add photo"}</button>
         <button class="mini" onclick="printCardById('${c.id}')">🪪 Print</button>
       </td>
-      <td><button class="mini ghost" onclick="toggleTL('${c.id}',${c.is_team_leader?"false":"true"})">${c.is_team_leader?"Make consultant":"Make team leader"}</button></td>
+      <td style="white-space:nowrap">
+        <button class="mini" onclick="openEdit('${c.id}')">✎ Edit</button>
+        <button class="mini ghost" onclick="toggleTL('${c.id}',${c.is_team_leader?"false":"true"})" style="margin-left:4px">${c.is_team_leader?"Make consultant":"Make team leader"}</button>
+        <button class="mini ghost" onclick="setActive('${c.id}',false)" title="Remove from the active list — their details are kept on file" style="margin-left:4px">Make inactive</button>
+      </td>
     </tr>`;
   }).join("");
+
+  // inactive list — kept on file, hidden from the active list
+  if(INACTIVE.length){ $("showInactiveBtn").style.display=""; $("inactiveN").textContent=INACTIVE.length; }
+  else { $("showInactiveBtn").style.display="none"; $("inactiveCard").style.display="none"; }
+  $("inactiveRows").innerHTML = INACTIVE.map(c=>`<tr>
+      <td>${c.photo?`<img class="thumb" src="${c.photo}" alt="">`:`<span class="thumb noph">No<br>photo</span>`}</td>
+      <td><b>${esc(c.name)}</b><div class="muted" style="font-size:11.5px">${c.is_team_leader?"Team leader":"Consultant"} · ID #: ${esc(c.id_card_no||"—")}</div>
+        ${(c.phone||c.email)?`<div class="muted" style="font-size:11.5px">${esc(c.phone||"")}${c.phone&&c.email?" · ":""}${esc(c.email||"")}</div>`:""}</td>
+      <td style="white-space:nowrap"><button class="mini" onclick="setActive('${c.id}',true)">↩ Reactivate</button></td>
+    </tr>`).join("");
+}
+
+function toggleInactive(){ const c=$("inactiveCard"); c.style.display = c.style.display==="none" ? "" : "none"; }
+
+// Make a consultant inactive (removed from the active list, kept on file) or reactivate.
+async function setActive(id, on){
+  clearMsg();
+  const { error } = await sb.from("commission_consultants").update({active:on}).eq("id",id);
+  if(error){ show(error.message,false); return; }
+  show(on?"Consultant reactivated.":"Consultant made inactive — their details are kept on file.",true);
+  load();
+}
+
+// Edit a consultant's details (name / phone / email).
+function openEdit(id){
+  const c=LIST.find(x=>x.id===id); if(!c) return;
+  $("ed_id").value=id;
+  $("ed_name").value=c.name||"";
+  $("ed_phone").value=c.phone||"";
+  $("ed_email").value=c.email||"";
+  $("editModal").style.display="flex";
+}
+function closeEdit(){ $("editModal").style.display="none"; }
+async function saveEdit(){
+  clearMsg();
+  const id=$("ed_id").value;
+  const c=LIST.find(x=>x.id===id); if(!c){ closeEdit(); return; }
+  const name=$("ed_name").value.trim();
+  const phone=$("ed_phone").value.trim()||null;
+  const email=$("ed_email").value.trim()||null;
+  if(!name){ alert("Name can't be blank."); return; }
+  if(LIST.some(x=>x.id!==id && (x.name||"").toLowerCase()===name.toLowerCase())){ alert("Another consultant already has that name."); return; }
+  const oldName=c.name;
+  try{
+    const { error } = await sb.from("commission_consultants").update({name,phone,email}).eq("id",id);
+    if(error) throw error;
+    // If the name changed, re-point anything that referenced the old name so their
+    // sales and team stay linked (name is used as the key elsewhere).
+    if(name!==oldName && oldName){
+      await sb.from("sim_orders").update({consultant_name:name}).eq("consultant_name",oldName);
+      await sb.from("sim_orders").update({team_leader_name:name}).eq("team_leader_name",oldName);
+      await sb.from("commission_consultants").update({team_leader:name}).eq("team_leader",oldName);
+    }
+    closeEdit();
+    show("Consultant details updated.",true);
+    load();
+  }catch(e){ alert("Couldn't save: "+(e.message||e)); }
 }
 
 async function addConsultant(){
   clearMsg();
   const name=$("name").value.trim();
   if(!name){ return show("Enter a name.",false); }
-  if(LIST.some(c=>c.name.toLowerCase()===name.toLowerCase())){ return show("A consultant with that name already exists.",false); }
+  const dupe=LIST.find(c=>c.name.toLowerCase()===name.toLowerCase());
+  if(dupe){ return show(dupe.active===false?"That name exists as an inactive consultant — use “Show inactive consultants” to reactivate them.":"A consultant with that name already exists.",false); }
   const btn=$("add"); btn.disabled=true;
   try{
     const isTL=$("isTL").checked;
     const phone=$("phone").value.trim();
     const email=$("email").value.trim();
     const { error } = await sb.from("commission_consultants").insert({
-      name, is_team_leader: isTL,
+      name, is_team_leader: isTL, active: true,
       team_leader: isTL ? name : ($("tl").value||null),  // a leader earns override on their own sales too
       phone: phone||null, email: email||null,            // contact details
       photo: newPhoto || null,                           // ID card photo (optional)
