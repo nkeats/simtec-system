@@ -120,50 +120,17 @@ function cleared(o,payAcct,pays,dishonours){
 
 
 async function load(){
-  $('state').style.display='';$('state').textContent='Loading run sheet\u2026';
-  const {data:rules}=await sb.from('delivery_rules').select('*').order('min_deposit_pct'); RULES=rules||[];
-  const {data:orders,error}=await sb.from('sim_orders')
-    .select('*, sim_customers(first_name,last_name,mobile,address), sim_order_items(product_name,quantity)')
-    .eq('delivery_date',RUN_DATE);
+  $('state').style.display='';$('state').textContent='Loading run sheet…';
+  const {data:rows,error}=await sb.rpc('driver_run_sheet',{p_date:RUN_DATE});
   if(error){$('state').innerHTML=`<span class="text-red-400">${esc(error.message)}</span>`;return;}
-  // for paid-via deliveries, clearance is judged on the PAYER's account
-  const pvIds=[...new Set((orders||[]).map(o=>o.paid_via_order_id).filter(Boolean))];
-  let payerMap={};
-  if(pvIds.length){
-    const {data:po}=await sb.from('sim_orders').select('id,contract_value,amount_paid_to_date,first_payment_date,payment_frequency,order_date,cooling_off_expires,affordability_passed,payment_method,paid_in_full,deposit_amount,ezidebit_payer_ref').in('id',pvIds);
-    (po||[]).forEach(p=>payerMap[p.id]=p);
-  }
-  const refs=[...new Set((orders||[]).map(o=>{const pa=o.paid_via_order_id?(payerMap[o.paid_via_order_id]||o):o; return pa.ezidebit_payer_ref;}).filter(Boolean))];
-  let counts={};
-  if(refs.length){ const {data:cd}=await sb.rpc('sim_delivery_counts',{refs}); (cd||[]).forEach(r=>counts[r.payer_ref]={paid_count:r.paid_count,dishonour_count:r.dishonour_count}); }
-  // the clearance rule needs the ORDER of payments, not just totals
-  let paysByRef={}, disByRef={};
-  if(refs.length){
-    const {data:pm}=await sb.from('sim_payments').select('payer_ref,payment_date,result').in('payer_ref',refs);
-    (pm||[]).forEach(p=>{(paysByRef[p.payer_ref]=paysByRef[p.payer_ref]||[]).push(p);});
-    const {data:dh}=await sb.from('sim_dishonours').select('*').in('payer_ref',refs);
-    (dh||[]).forEach(d=>{(disByRef[d.payer_ref]=disByRef[d.payer_ref]||[]).push(d);});
-  }
-  const run=[];
-  for(const o of (orders||[])){
-    const cust=o.sim_customers||{};
-    const items=(o.sim_order_items||[]).map(i=>({name:i.product_name,qty:+i.quantity||1}));
-    const stop={
-      id:o.id, name:`${cust.first_name||''} ${cust.last_name||''}`.trim()||'(no name)',
-      phone:cust.mobile||'', address:o.delivery_address||cust.address||'',
-      items, product:items.map(i=>(i.qty>1?i.qty+'× ':'')+i.name).join(', ')||'—',
-      time:o.delivery_time||''
-    };
-    if(o.delivery_status==='delivered')continue;          // already done today — not on the run
-    const payAcct = o.paid_via_order_id ? (payerMap[o.paid_via_order_id]||o) : o;   // judge payments on payer
-    const pref=payAcct.ezidebit_payer_ref;
-    if(!cleared(o,payAcct,(pref?paysByRef[pref]:[])||[],(pref?disByRef[pref]:[])||[]))continue;   // held back for the office
-    run.push(stop);
-  }
+  const run=(rows||[]).map(r=>{
+    const items=(r.items||[]).map(i=>({name:i.name,qty:+i.qty||1}));
+    return { id:r.id, name:r.name||'(no name)', phone:r.mobile||'', address:r.address||'',
+             items, product:items.map(i=>(i.qty>1?i.qty+'× ':'')+i.name).join(', ')||'—', time:r.delivery_time||'' };
+  });
   run.sort((x,y)=>suburb(x.address).localeCompare(suburb(y.address))||x.address.localeCompare(y.address));
   render(run);
 }
-
 function render(run){
   $('state').style.display='none';
   const dstr=new Date(RUN_DATE+'T12:00:00').toLocaleDateString('en-NZ',{weekday:'long',day:'numeric',month:'long'})+(IS_TODAY?'':' \u2014 upcoming run');
@@ -204,7 +171,7 @@ function render(run){
 
 window.markDelivered=async(id,name)=>{
   if(!confirm(`Mark ${name} as delivered?`))return;
-  const {error}=await sb.from('sim_orders').update({delivery_status:'delivered'}).eq('id',id);
+  const {error}=await sb.rpc('mark_delivered',{p_order:id});
   if(error){alert(error.message);return;}
   await load();
 };

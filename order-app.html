@@ -897,14 +897,16 @@ async function savePayload(P){
   const {e164}=normNZ(f.mobile);
   const address=[f.street,f.suburb,f.city,f.postcode].filter(Boolean).join(', ');
   // 1) customer
-  const {data:cust,error:e1}=await sb.from('sim_customers')
-    .insert({first_name:f.a1first,last_name:f.a1last,mobile:e164,email:f.email||null,address:address||null})
-    .select('id').single();
+  // client-generate the customer id so we never rely on reading the row back
+  // (consultants are row-scoped and can't SELECT a customer until an order links them)
+  const custId = (typeof crypto!=='undefined' && crypto.randomUUID) ? crypto.randomUUID() : (function(){const b=crypto.getRandomValues(new Uint8Array(16));b[6]=(b[6]&15)|64;b[8]=(b[8]&63)|128;const h=[...b].map(x=>x.toString(16).padStart(2,'0'));return h.slice(0,4).join('')+'-'+h.slice(4,6).join('')+'-'+h.slice(6,8).join('')+'-'+h.slice(8,10).join('')+'-'+h.slice(10).join('');})();
+  const {error:e1}=await sb.from('sim_customers')
+    .insert({id:custId, first_name:f.a1first,last_name:f.a1last,mobile:e164,email:f.email||null,address:address||null});
   if(e1) throw new Error('customer: '+e1.message);
   // 2) order
   const total=P.products.reduce((s,p)=>s+(p.price*p.qty||0),0)+(P.wantDel?DELIVERY_FEE:0);
   const order={
-    customer_id:cust.id, order_date:f.visitDate||null,
+    customer_id:custId, order_date:f.visitDate||null,
     consultant_name:f.consultant, team_leader_name:TEAM[f.consultant]||null,
     sale_type:fl.saleType||null,
     referrer_name:(fl.saleType==='solicited'?(f.refName||null):null),
