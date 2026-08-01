@@ -518,12 +518,8 @@
           <button class="btn-sm" type="button" onclick="launchEzidebit()">Open secure Ezidebit form</button>
           <div id="eziMsg" class="sub" style="margin-top:10px;color:var(--danger)"></div>
         </div>
-        <div id="eziFrameWrap" style="display:none;position:fixed;inset:0;z-index:9998;background:#fff;flex-direction:column;">
-          <div style="display:flex;align-items:center;justify-content:space-between;padding:11px 14px;background:var(--navy);color:#fff;flex:0 0 auto;">
-            <span style="font-weight:700;font-size:14px;">Ezidebit secure direct-debit form</span>
-            <button type="button" onclick="closeEzidebit()" style="background:rgba(255,255,255,.18);border:0;color:#fff;font-size:13px;font-weight:600;padding:8px 14px;border-radius:8px;cursor:pointer;">Close</button>
-          </div>
-          <iframe id="eziFrame" title="Ezidebit direct debit" style="flex:1 1 auto;width:100%;border:0;display:block;"></iframe>
+        <div id="eziFrameWrap" class="hidden" style="overflow-x:auto;-webkit-overflow-scrolling:touch;border:1px solid var(--line);border-radius:12px;background:#fff;">
+          <iframe id="eziFrame" title="Ezidebit direct debit" style="width:900px;max-width:none;height:1300px;border:0;display:block"></iframe>
         </div>
         <div id="eziDone" class="hidden" style="text-align:center;padding:20px;border:2px solid var(--ok);border-radius:12px;background:var(--ok-soft);">
           <div style="font-size:34px;">✅</div>
@@ -1401,16 +1397,15 @@ function launchEzidebit(){
   if(oAmt!=null && !val('eziOneoffDate')){ msg.textContent='Enter the one-off payment date.'; return; }
   document.getElementById('eziFrame').src=buildEddrUrl();
   document.getElementById('eziLaunch').classList.add('hidden');
-  document.getElementById('eziFrameWrap').style.display='flex';
+  document.getElementById('eziFrameWrap').classList.remove('hidden');
 }
-function closeEzidebit(){ document.getElementById('eziFrameWrap').style.display='none'; document.getElementById('eziLaunch').classList.remove('hidden'); }
 
 // The return page (same-origin) postMessages the eDDR callback params here.
 window.addEventListener('message', function(ev){
   if(ev.origin!==location.origin) return;                    // only trust our own return page
   const d=ev.data; if(!d || d.__simtec!=='ezidebit-return') return;
   applyEzidebitCallback(d.params||{}).then(()=>{
-    document.getElementById('eziFrameWrap').style.display='none';
+    document.getElementById('eziFrameWrap').classList.add('hidden');
     const done=document.getElementById('eziDone'); done.classList.remove('hidden');
     const p=d.params||{};
     document.getElementById('eziDoneMsg').textContent=
