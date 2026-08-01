@@ -6,6 +6,7 @@
 <title>Simtec — Sales Order (iPad)</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
 <!-- Login gate: STAFF ONLY for now (admin/manager/office) so consultants can't
      reach the order app before go-live. When you roll out to consultants, add
      ",consultant" to data-roles below and add a New Order button to my-sales.html. -->
@@ -174,6 +175,8 @@
             <label class="f"><span class="lab">Referred By — Mobile</span><input type="tel" id="refMobile"></label>
           </div>
         </div>
+        <label class="f" style="margin-bottom:10px"><span class="lab">Affiliated group (if the customer is a member)</span>
+          <select id="affiliationSel"><option value="">None</option></select></label>
       </div>
     </section>
 
@@ -299,8 +302,6 @@
         <p class="sub" style="margin-top:-6px">Anything the office or delivery team should know. Tick where each note applies.</p>
         <label class="f" style="margin-bottom:10px"><span class="lab">Reason for purchasing</span>
           <select id="purchaseReason"><option value="">Select…</option><option>Better sleep / sleep quality</option><option>Back or body pain relief</option><option>Health / therapeutic need</option><option>Old bed worn out</option><option>Upgrade / bigger bed</option><option>Recommended by friend or family</option><option>Other</option></select></label>
-        <label class="f" style="margin-bottom:10px"><span class="lab">Affiliated group (if the customer is a member)</span>
-          <select id="affiliationSel"><option value="">None</option></select></label>
         <textarea id="purchaseReasonNotes" placeholder="Any extra detail on why they're buying (helps the office and future service)…" style="min-height:60px"></textarea>
         <label class="ack" style="border-bottom:none;padding-bottom:4px"><input type="checkbox" id="noteAccountChk">
           <span class="txt"><b>Account set-up note — flagged to the office now</b>Best pay cycle, Ezidebit / direct-debit timing, income dates — anything affecting account set-up.</span></label>
@@ -902,17 +903,28 @@ async function collectOrder(){
 
 // Live save from a payload (used for both immediate submit and parked replay).
 async function sendCustomerLoginLink(customerId){
-  // fire-and-forget: texts the customer a one-time sign-in link for their rewards account.
-  // never blocks or fails the sale.
+  // At point of sale: get the customer's unique sign-in link, show it as a QR on
+  // this iPad (customer scans to open their rewards app), and email it too if
+  // they have an email. Best-effort — never blocks or fails the sale.
   try{
     const { data:{ session } } = await sb.auth.getSession();
     if(!session || !customerId) return;
-    await fetch(SUPABASE_URL + '/functions/v1/customer-magiclink', {
+    const res = await fetch(SUPABASE_URL + '/functions/v1/customer-magiclink', {
       method:'POST',
       headers:{ 'Content-Type':'application/json', 'apikey':SUPABASE_KEY, 'Authorization':'Bearer '+session.access_token },
       body: JSON.stringify({ mode:'onboard', customer_id:customerId })
     });
+    const out = await res.json().catch(()=>({}));
+    if(out && out.link) showLoginQr(out.link, !!out.emailed);
   }catch(e){ /* ignore — onboarding is best-effort */ }
+}
+function showLoginQr(link, emailed){
+  const modal=document.getElementById('loginQrModal'); if(!modal) return;
+  const img=document.getElementById('loginQrImg'), em=document.getElementById('loginQrEmail');
+  if(em) em.textContent = emailed ? '\u2713 Also emailed to the customer' : '';
+  const draw=()=>{ if(window.QRCode && QRCode.toDataURL){ QRCode.toDataURL(link,{width:220,margin:1},(e,url)=>{ if(!e&&img) img.src=url; }); } };
+  if(window.QRCode) draw(); else setTimeout(draw,700);
+  modal.style.display='flex';
 }
 
 async function savePayload(P){
@@ -1431,5 +1443,14 @@ function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,m=>({'&':'&amp;',
 addProduct(); showStep(0);
 renderParked(); trySync();
 </script>
+<div id="loginQrModal" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(8,16,32,.72);align-items:center;justify-content:center;padding:20px;">
+  <div style="background:#fff;border-radius:18px;max-width:360px;width:100%;padding:24px;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,.4);">
+    <h3 style="margin:0 0 6px;">Open the rewards app \ud83c\udf81</h3>
+    <p style="margin:0 0 14px;color:#5a6b8c;font-size:13.5px;line-height:1.5;">Ask the customer to scan this with their phone camera to open their Simtec rewards account \u2014 then \u201cAdd to Home Screen\u201d.</p>
+    <img id="loginQrImg" alt="Sign-in QR" style="width:220px;height:220px;display:block;margin:0 auto 10px;border-radius:12px;">
+    <p id="loginQrEmail" style="margin:0 0 12px;color:#0f7b3f;font-size:12.5px;font-weight:600;"></p>
+    <button type="button" onclick="document.getElementById('loginQrModal').style.display='none'" style="width:100%;padding:13px;border:0;border-radius:12px;background:#0e2038;color:#fff;font-size:15px;font-weight:700;cursor:pointer;">Done</button>
+  </div>
+</div>
 </body>
 </html>

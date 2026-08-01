@@ -54,7 +54,7 @@ const SUPA_URL="https://jvqjoenaungubpoegyvf.supabase.co";
 const SUPA_KEY="sb_publishable_J4MYTdJJyEaWe-GadpwdYA_upPT2rKw";
 const FN_URL = SUPA_URL + "/functions/v1/customer-magiclink";
 const sb = supabase.createClient(SUPA_URL, SUPA_KEY, {
-  auth:{ persistSession:true, detectSessionInUrl:true, flowType:"pkce" }
+  auth:{ persistSession:true, detectSessionInUrl:false }   // we verify the one-time token ourselves (works cross-device)
 });
 const $=id=>document.getElementById(id);
 const view=$("view");
@@ -62,7 +62,14 @@ const money=n=>"$"+(Number(n||0)).toLocaleString("en-NZ",{minimumFractionDigits:
 const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 
 async function boot(){
-  // supabase-js processes a magic-link token in the URL automatically; give it a beat
+  // 1) one-time sign-in token from a QR scan or an emailed link (?token=...)
+  const token = new URLSearchParams(location.search).get("token");
+  if(token){
+    view.innerHTML=`<div class="center"><span class="spin"></span></div>`;
+    const { error } = await sb.auth.verifyOtp({ token_hash: token, type: "email" });
+    history.replaceState(null,"",location.pathname);   // strip the token from the address bar
+    if(!error){ return showAccount(); }
+  }
   const { data:{ session } } = await sb.auth.getSession();
   if(session){ return showAccount(); }
   showLogin();
@@ -71,10 +78,10 @@ async function boot(){
 function showLogin(){
   view.innerHTML=`
     <h1>My Simtec account</h1>
-    <p class="lead">Enter the mobile number on your Simtec order and we'll text you a secure link to sign in. No password needed.</p>
+    <p class="lead">Enter the mobile number on your Simtec order and we'll text you a 6-digit code to sign in. No password needed.</p>
     <label for="mob">Mobile number</label>
     <input id="mob" type="tel" inputmode="tel" placeholder="021 234 5678" autocomplete="tel">
-    <button id="send" class="btn">Text me a sign-in link</button>
+    <button id="send" class="btn">Text me a code</button>
     <div id="msg"></div>`;
   $("send").onclick=async()=>{
     const mobile=$("mob").value.trim();
@@ -82,13 +89,38 @@ function showLogin(){
     $("send").disabled=true; $("send").innerHTML='<span class="spin"></span>';
     try{
       await fetch(FN_URL,{ method:"POST", headers:{ "Content-Type":"application/json", "apikey":SUPA_KEY },
-        body:JSON.stringify({ mode:"login", mobile }) });
+        body:JSON.stringify({ mode:"request-code", mobile }) });
     }catch(e){}
-    // always show the same confirmation (we never reveal whether the number is on file)
-    view.innerHTML=`
-      <div class="ok">📱 If that number is on a Simtec order, a sign-in link is on its way.</div>
-      <p class="muted">Open the text and tap the link on this phone. The link works once and expires shortly.</p>
-      <button class="btn ghost" onclick="location.href=location.pathname">Back</button>`;
+    showCodeEntry(mobile);
+  };
+}
+function showCodeEntry(mobile){
+  view.innerHTML=`
+    <h1>Enter your code</h1>
+    <p class="lead">If ${esc(mobile)} is on a Simtec order, we've texted a 6-digit code. Enter it below.</p>
+    <label for="code">6-digit code</label>
+    <input id="code" type="tel" inputmode="numeric" maxlength="6" placeholder="123456" autocomplete="one-time-code" style="letter-spacing:8px;text-align:center;font-size:22px">
+    <button id="go" class="btn">Sign in</button>
+    <button class="btn ghost" onclick="location.href=location.pathname">Use a different number</button>
+    <div id="msg"></div>`;
+  $("go").onclick=async()=>{
+    const code=$("code").value.trim();
+    if(!/^\d{4,8}$/.test(code)){ $("msg").innerHTML='<div class="err">Enter the code from the text.</div>'; return; }
+    $("go").disabled=true; $("go").innerHTML='<span class="spin"></span>';
+    let out={};
+    try{
+      const r=await fetch(FN_URL,{ method:"POST", headers:{ "Content-Type":"application/json", "apikey":SUPA_KEY },
+        body:JSON.stringify({ mode:"verify-code", mobile, code }) });
+      out=await r.json().catch(()=>({}));
+    }catch(e){}
+    if(out && out.ok && out.token){
+      const { error } = await sb.auth.verifyOtp({ token_hash: out.token, type:"email" });
+      if(!error){ return showAccount(); }
+      $("msg").innerHTML='<div class="err">Sign-in failed, please try again.</div>';
+    } else {
+      $("msg").innerHTML='<div class="err">'+esc((out&&out.error)||"That code isn't right.")+'</div>';
+    }
+    $("go").disabled=false; $("go").textContent="Sign in";
   };
 }
 
