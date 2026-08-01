@@ -924,8 +924,9 @@ async function savePayload(P){
   // client-generate the customer id so we never rely on reading the row back
   // (consultants are row-scoped and can't SELECT a customer until an order links them)
   const custId = (typeof crypto!=='undefined' && crypto.randomUUID) ? crypto.randomUUID() : (function(){const b=crypto.getRandomValues(new Uint8Array(16));b[6]=(b[6]&15)|64;b[8]=(b[8]&63)|128;const h=[...b].map(x=>x.toString(16).padStart(2,'0'));return h.slice(0,4).join('')+'-'+h.slice(4,6).join('')+'-'+h.slice(6,8).join('')+'-'+h.slice(8,10).join('')+'-'+h.slice(10).join('');})();
-  const {error:e1}=await sb.from('sim_customers')
-    .insert({id:custId, first_name:f.a1first,last_name:f.a1last,mobile:e164,email:f.email||null,address:address||null, affiliation_id:(function(){const e=document.getElementById('affiliationSel');return e&&e.value?e.value:null;})()});
+  const custRec={id:custId, first_name:f.a1first,last_name:f.a1last,mobile:e164,email:f.email||null,address:address||null};
+  { const _a=document.getElementById('affiliationSel'); if(_a&&_a.value) custRec.affiliation_id=_a.value; }  // only sent when a group is chosen
+  const {error:e1}=await sb.from('sim_customers').insert(custRec);
   if(e1) throw new Error('customer: '+e1.message);
   // 2) order
   const total=P.products.reduce((s,p)=>s+(p.price*p.qty||0),0)+(P.wantDel?DELIVERY_FEE:0);
