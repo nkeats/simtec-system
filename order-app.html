@@ -240,6 +240,7 @@
       <div class="card">
         <h3>Contact &amp; delivery</h3>
         <div id="referralHit" class="note hidden" style="background:#eaf7ee;border-color:#b6e2c4;color:#1c6b3f;"></div>
+        <div id="standingHit" class="note hidden" style="background:#eef3fb;border-color:#c3d3ee;color:#12386e;"></div>
         <div class="grid2">
           <label class="f"><span class="lab">Mobile Phone <span class="req">*</span></span><input type="tel" id="mobile" onblur="checkReferral()"></label>
           <div>
@@ -699,6 +700,25 @@ async function checkReferral(){
     box.innerHTML='🎁 <b>Referred customer.</b> '+(hit.referrer_name?('Referred by '+esc(hit.referrer_name)+'. '):'')+'This sale will be credited to their referral once the order is saved.';
     box.classList.remove('hidden');
   }catch(e){ S.referralId=null; box.classList.add('hidden'); }
+  checkStanding(m);
+}
+
+// Existing-customer standing: shows the consultant an AAA/AA badge so the perks
+// (preferred pricing, first option on new ranges, top referral rate, priority
+// delivery) are honoured at the point of sale. Informational only; never blocks.
+async function checkStanding(m){
+  const box=document.getElementById('standingHit'); if(!box) return;
+  const digits=(m||'').replace(/[^0-9]/g,'');
+  if(!sb || digits.length<8){ box.classList.add('hidden'); return; }
+  try{
+    const { data } = await sb.rpc('staff_customer_standing', { p_mobile:m });
+    const st = data||{};
+    if(!st.found || !st.rating || (st.rating==='A' && !st.lifetime_aaa)){ box.classList.add('hidden'); return; }
+    const stars = st.rating==='AAA' ? '⭐⭐⭐' : '⭐⭐';
+    const life  = st.lifetime_aaa ? ' (Lifetime AAA — paid a previous plan in full; also gets 10% off this order)' : '';
+    box.innerHTML = stars+' <b>'+esc(st.first_name||'This customer')+' is an existing '+st.rating+' customer'+life+'.</b> Honour their perks: preferred pricing, first option on new ranges, top referral rate, priority delivery.';
+    box.classList.remove('hidden');
+  }catch(e){ box.classList.add('hidden'); }
 }
 bindChoices('payOption', v=>{ S.pay=v; updateDepositMethodUI(); renderSteps(); });
 bindChoices('depMethodSol', v=>{ S.depositMethod=v; });
