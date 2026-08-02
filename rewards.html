@@ -116,10 +116,42 @@ const SFX={ enabled:true, _ac:null, _noise:null,
 
 function toast(msg){ const t=document.createElement("div"); t.className="toast"; t.textContent=msg; document.body.appendChild(t); setTimeout(()=>t.remove(),2600); }
 
+function runConfetti(cv){
+  const ctx=cv.getContext("2d"), W=cv.width, H=cv.height, cols=["#c9a84c","#f0d98a","#ffffff","#cfd3da","#8fb4e8"], P=[];
+  for(let i=0;i<130;i++) P.push({x:W/2,y:H*0.42,vx:(Math.random()-0.5)*15,vy:(Math.random()-0.95)*15,g:0.32,s:5+Math.random()*7,c:cols[i%cols.length],r:Math.random()*6,vr:(Math.random()-0.5)*0.4,life:1});
+  let t=0;(function anim(){ t++; ctx.clearRect(0,0,W,H); let alive=false;
+    P.forEach(p=>{ p.vy+=p.g; p.x+=p.vx; p.y+=p.vy; p.r+=p.vr; p.life-=0.008;
+      if(p.life>0&&p.y<H+30){ alive=true; ctx.save(); ctx.globalAlpha=Math.max(0,p.life); ctx.translate(p.x,p.y); ctx.rotate(p.r); ctx.fillStyle=p.c; ctx.fillRect(-p.s/2,-p.s/2,p.s,p.s*0.6); ctx.restore(); } });
+    if(alive&&t<240) requestAnimationFrame(anim); })();
+}
+function celebrate(icon,title,sub){
+  const old=document.getElementById("celebOv"); if(old) old.remove();
+  const ov=document.createElement("div"); ov.id="celebOv";
+  ov.style.cssText="position:fixed;inset:0;z-index:100;display:flex;align-items:center;justify-content:center;background:rgba(7,15,32,.88)";
+  ov.innerHTML=`<canvas id="confCv" style="position:absolute;inset:0"></canvas>
+    <div style="position:relative;text-align:center;padding:30px;max-width:340px">
+      <div style="font-size:62px">${icon}</div>
+      <div style="font-size:25px;font-weight:900;margin:8px 0 4px;color:var(--gold)">${title}</div>
+      <div class="muted" style="font-size:15px">${sub||""}</div>
+      <button class="btn gold sm" style="margin-top:22px" onclick="document.getElementById('celebOv').remove()">Awesome!</button>
+    </div>`;
+  document.body.appendChild(ov);
+  const cv=ov.querySelector("#confCv"); cv.width=window.innerWidth; cv.height=window.innerHeight;
+  runConfetti(cv); try{SFX.jackpot();}catch(e){}
+  ov.addEventListener("click",e=>{ if(e.target===ov) ov.remove(); });
+}
+function checkCelebrations(){
+  const L=DRAW&&DRAW.latest;
+  if(L&&L.congrats_pending){ DRAW.latest.congrats_pending=false; celebrate("🎉","You won the draw!","+"+nf(L.prize)+" points added to your balance"); try{sb.rpc("mark_draw_seen",{p_month:L.month});}catch(e){} return; }
+  try{ const cur=Number(R.level||0), last=Number(localStorage.getItem("simtec_lvl")||"-1");
+    if(last>=0 && cur>last) celebrate("⬆️","Level Up!","You reached Level "+cur);
+    localStorage.setItem("simtec_lvl",String(cur));
+  }catch(e){}
+}
 async function boot(){
   const { data:{ session } } = await sb.auth.getSession();
   if(!session){ location.href="customer-login.html"; return; }
-  await loadAll(); render();
+  await loadAll(); render(); checkCelebrations();
 }
 async function loadAll(){
   const [r,s,c,d,u,pl,ms,lb]=await Promise.all([
@@ -313,7 +345,7 @@ async function doSpin(){
       await loadAll();
     } else { $("spinOut").innerHTML=`<div class="muted" style="margin-top:10px">${(data&&data.error)||'No spins left.'}</div>`; }
   }catch(e){ $("spinOut").innerHTML=`<div class="muted" style="margin-top:10px">Something went wrong — try again.</div>`; }
-  busy=false; renderKeepTab("play");
+  busy=false; renderKeepTab("play"); checkCelebrations();
 }
 async function doDaily(){
   if(busy||!R.daily_available) return; busy=true;
@@ -323,7 +355,7 @@ async function doDaily(){
     if(data&&data.ok){ SFX.coin(); $("dailyOut").innerHTML=`<div class="result">🎁 +${nf(data.points)} points!</div>`; await loadAll(); }
     else { $("dailyOut").innerHTML=`<div class="muted" style="margin-top:10px">${(data&&data.error)||'Already claimed today.'}</div>`; }
   }catch(e){ $("dailyOut").innerHTML=`<div class="muted" style="margin-top:10px">Try again.</div>`; }
-  busy=false; renderKeepTab("play");
+  busy=false; renderKeepTab("play"); checkCelebrations();
 }
 async function redeem(id,how){
   if(busy) return; busy=true;
@@ -359,8 +391,8 @@ async function openInbox(){
 }
 async function signOut(){ await sb.auth.signOut(); location.href="customer-login.html"; }
 
-document.addEventListener("visibilitychange", ()=>{ if(!document.hidden && !busy){ loadAll().then(()=>render()).catch(()=>{}); } });
-window.addEventListener("pageshow", (e)=>{ if(e.persisted && !busy){ loadAll().then(()=>render()).catch(()=>{}); } });
+document.addEventListener("visibilitychange", ()=>{ if(!document.hidden && !busy){ loadAll().then(()=>{render();checkCelebrations();}).catch(()=>{}); } });
+window.addEventListener("pageshow", (e)=>{ if(e.persisted && !busy){ loadAll().then(()=>{render();checkCelebrations();}).catch(()=>{}); } });
 boot();
 </script>
 </body>
