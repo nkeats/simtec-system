@@ -1,0 +1,409 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Simtec Rewards</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#0e2038">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Simtec">
+
+<style>
+  :root{ --navy:#0e2038; --navy2:#12294a; --gold:#c9a84c; --ink:#eaf0f8; --sub:#9fb2cc;
+         --line:rgba(255,255,255,.10); --card:rgba(255,255,255,.055); --good:#25c97a; --hot:#ff8a3d; }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+       background:radial-gradient(120% 80% at 50% 0%,#16305a 0%,#0b1830 55%,#070f20 100%);color:var(--ink);min-height:100vh}
+  .wrap{max-width:520px;margin:0 auto;padding:18px 16px 90px}
+  .center{display:flex;align-items:center;justify-content:center;min-height:70vh;color:var(--sub)}
+  .spin{width:26px;height:26px;border:3px solid rgba(255,255,255,.25);border-top-color:var(--gold);border-radius:50%;animation:sp 1s linear infinite;display:inline-block}
+  @keyframes sp{to{transform:rotate(360deg)}}
+  .top{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
+  .top h1{font-size:18px;margin:0;font-weight:800;letter-spacing:.2px}
+  .bell{position:relative;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:8px 11px;color:var(--ink);font-size:15px;cursor:pointer}
+  .bell b{position:absolute;top:-6px;right:-6px;background:var(--hot);color:#241000;font-size:11px;font-weight:800;border-radius:10px;padding:1px 6px}
+  .hero{background:linear-gradient(135deg,var(--navy2),#0c1c34);border:1px solid var(--line);border-radius:20px;padding:20px;text-align:center;margin-bottom:14px;box-shadow:0 18px 50px rgba(0,0,0,.35)}
+  .pts{font-size:40px;font-weight:900;letter-spacing:-.5px;line-height:1}
+  .pts span{font-size:15px;color:var(--sub);font-weight:600}
+  .chips{display:flex;gap:10px;justify-content:center;margin-top:14px;flex-wrap:wrap}
+  .chip{background:var(--card);border:1px solid var(--line);border-radius:999px;padding:7px 14px;font-size:13px;font-weight:700}
+  .chip .k{color:var(--sub);font-weight:600;margin-right:5px}
+  .rating{background:linear-gradient(120deg,var(--gold),#eBD98a);color:#2a2005}
+  h2{font-size:13px;text-transform:uppercase;letter-spacing:1.2px;color:var(--sub);margin:22px 4px 10px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:16px;margin-bottom:12px}
+  .btn{width:100%;border:0;border-radius:13px;padding:15px;font-size:16px;font-weight:800;cursor:pointer;color:#06210f;
+       background:linear-gradient(120deg,var(--good),#25d6ff);box-shadow:0 8px 22px rgba(37,201,122,.25)}
+  .btn:disabled{opacity:.45;box-shadow:none;cursor:default}
+  .btn.gold{background:linear-gradient(120deg,var(--gold),#f0d98a);color:#2a2005}
+  .btn.ghost{background:var(--card);color:var(--ink);border:1px solid var(--line);box-shadow:none;font-weight:700}
+  .btn.sm{padding:11px;font-size:14px}
+  .row{display:flex;gap:10px}
+  .muted{color:var(--sub);font-size:13px;line-height:1.5}
+  .result{text-align:center;padding:14px;border-radius:13px;background:rgba(201,168,76,.12);border:1px solid rgba(201,168,76,.4);margin-top:12px;font-weight:800;font-size:17px}
+  .cardrow{display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-bottom:1px solid var(--line)}
+  .cardrow:last-child{border-bottom:0}
+  .badge{display:inline-block;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:5px 10px;font-size:12.5px;font-weight:700;margin:3px 4px 0 0}
+  .win{background:linear-gradient(120deg,#FFD23F,#FF8A3D);color:#241000;border:0}
+  .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#0b1830;border:1px solid var(--gold);color:var(--ink);
+         padding:13px 18px;border-radius:13px;font-weight:700;box-shadow:0 12px 40px rgba(0,0,0,.5);z-index:50;max-width:90%}
+  .tabs{position:fixed;left:0;right:0;bottom:0;background:rgba(8,16,32,.92);backdrop-filter:blur(8px);border-top:1px solid var(--line);
+        display:flex;justify-content:space-around;padding:8px 6px 14px;max-width:520px;margin:0 auto}
+  .tab{flex:1;text-align:center;color:var(--sub);font-size:11px;font-weight:700;padding:6px 2px;cursor:pointer;border:0;background:none}
+  .tab.on{color:var(--gold)}
+  .tab .ic{font-size:19px;display:block;margin-bottom:2px}
+</style>
+</head>
+<body>
+<div class="wrap"><div id="app"><div class="center"><span class="spin"></span></div></div></div>
+<div class="tabs" id="tabs" style="display:none"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+const SUPA_URL="https://jvqjoenaungubpoegyvf.supabase.co";
+const SUPA_KEY="sb_publishable_J4MYTdJJyEaWe-GadpwdYA_upPT2rKw";
+const sb = supabase.createClient(SUPA_URL, SUPA_KEY, { auth:{ persistSession:true, detectSessionInUrl:false } });
+const $=id=>document.getElementById(id);
+const app=$("app"), tabsEl=$("tabs");
+const nf=n=>Number(n||0).toLocaleString();
+const SLEEP_TIPS=["Go to bed and wake up at the same time every day — even on weekends. Your body clock loves routine.", "Get 10–15 minutes of morning sunlight to anchor your body clock for the night ahead.", "Keep your bedroom cool — around 18°C is the sweet spot for deep sleep.", "Make your room as dark as possible; even small lights can disrupt your sleep.", "Put screens away an hour before bed — blue light tricks your brain into thinking it's daytime.", "Keep your last coffee to the morning; caffeine can linger in your system for 8+ hours.", "A warm shower before bed helps your body cool down afterwards, which nudges you toward sleep.", "If you can't sleep after 20 minutes, get up and do something calm until you feel drowsy.", "Try to reserve your bed for sleep — your brain will learn that bed means rest.", "Keep a notepad by the bed to jot down worries so your mind can let them go.", "Try slow breathing — in for 4, hold for 7, out for 8 — to settle your nervous system.", "Avoid big meals within three hours of bedtime to prevent restlessness.", "Alcohol might make you drowsy, but it fragments your sleep later in the night.", "Keep naps under 20 minutes and before 3pm so they don't steal from your night.", "Dim the lights in the evening to tell your body it's nearly time to wind down.", "Move your body during the day — even a walk helps you sleep more deeply.", "Finish intense workouts a few hours before bed rather than right before.", "Cold feet can keep you awake — a pair of socks can actually help you drift off.", "White noise or a fan can mask sounds that would otherwise wake you.", "Replace your pillow if it's lumpy or flat — good support means fewer aches.", "A consistent bedtime routine signals your brain to prepare for sleep.", "Reading a few pages of a paper book is a gentle way to wind down.", "Keep your bedroom tidy — a calm space makes for a calm mind.", "Sip water through the day, but ease off close to bedtime to avoid night trips.", "If your mattress is over eight years old, it may be working against your sleep.", "Choose a pillow that keeps your neck level with your spine.", "Sleeping on your side can ease snoring and reduce back strain.", "Breathable, natural bedding helps regulate your temperature overnight.", "A short stretch before bed can release the day's tension from your muscles.", "Write tomorrow's to-do list before bed so it's out of your head.", "Catch some daylight on your lunch break to keep your rhythm strong.", "Keep the hour before bed low-key — no stressful emails or news.", "Lavender scent has a calming effect for many people at bedtime.", "A caffeine-free herbal tea like chamomile can be a soothing evening ritual.", "If worries spin at night, remind yourself they'll feel smaller in the morning.", "Tense then release each muscle group in turn to melt away tension.", "Keep your phone out of reach so you're not tempted to scroll at 2am.", "A cooler room with a warm duvet is the cosiest combination for sleep.", "Blackout curtains can make a big difference, especially in summer.", "Wake with natural light where you can — it makes mornings easier.", "Turn the clock away so you're not counting the minutes you've lost.", "Afternoon sunlight still helps your rhythm if you missed the morning.", "A regular wind-down playlist can become a cue for sleep.", "Leave big decisions for daylight — let your mind rest at night.", "Keep pets off the bed if they disturb your sleep through the night.", "If you share a bed, a larger mattress can stop you waking each other.", "Sugary snacks late at night can cause energy spikes that delay sleep.", "A light snack like a banana or a few nuts can help if you're hungry at bedtime.", "Consistent meal times help keep your body clock steady.", "Morning movement, even light, helps you feel sleepier come night.", "Give yourself permission to switch off — rest is productive too.", "Try journaling three good things from your day before lights out.", "Keep work out of the bedroom so it stays a place of rest.", "If your mind races, count slow breaths instead of sheep.", "A weighted blanket can feel calming and secure for some sleepers.", "Warm your bed with a hot water bottle in winter for a cosy drift-off.", "Fresh air during the day supports better sleep at night.", "Limit late-night liquids to avoid waking for the bathroom.", "Finish all caffeine — including tea and cola — by early afternoon.", "Use a soft night light rather than bright bathroom lights after dark.", "A predictable order to your routine — brush, wash, read — cues sleep.", "Don't force sleep; relaxing is enough, and sleep often follows.", "Change your sheets weekly — fresh bedding simply feels better.", "If you wake in the night, keep the lights low so you can drift back off.", "Morning stretches wake your body gently and set up a better rhythm.", "Try a 10-minute body scan as you lie down, relaxing from head to toe.", "Earplugs are a simple fix if noise wakes you easily.", "A tidy bedside table means fewer distractions at bedtime.", "Warm hands and feet help the rest of you cool into sleep.", "Go easy on heavy or spicy food at dinner if it unsettles your stomach.", "A consistent wake time is even more powerful than a consistent bedtime.", "Let natural light into your home each morning to feel alert.", "Gentle yoga before bed can ease both body and mind.", "If you nap, set an alarm so you don't sleep into the evening.", "Cut back on evening screens gradually if going cold-turkey feels hard.", "A supportive mattress keeps your spine aligned all night long.", "Feeling too warm? A lighter duvet in summer can transform your sleep.", "One bad night won't set you back — keep your routine steady the next day.", "Sunlight tells your brain when to be awake and, later, when to sleep.", "Charge your phone outside the bedroom overnight if you can.", "A calm, clutter-free room helps a busy mind settle.", "Slow, deep belly breaths signal safety to your body and invite sleep.", "If you drink alcohol, keep it to earlier in the evening.", "A short walk after dinner aids digestion and winds you down.", "Replace pillows every year or two — they lose support over time.", "For snoring, side-sleeping and a good pillow can both help.", "Keep your room a comfortable, steady temperature through the night.", "Even shifting your bedtime by 15 minutes helps train your body clock.", "Put tomorrow's clothes out at night so mornings feel calmer.", "Wind down with something you enjoy — a book, soft music, gentle stretches.", "Trust your bed to be comfortable, and let yourself sink into it.", "Long weekend lie-ins can shift your clock and make Monday harder.", "Dark, cool and quiet is the foundation of good sleep.", "Give yourself a proper wind-down window — sleep isn't a light switch.", "Notice what helps you sleep, and make it a nightly habit.", "Be patient — better sleep is built one night at a time.", "Morning light plus evening dimness keeps your body clock in tune.", "A comfortable mattress you look forward to is half the battle won.", "If you must use screens at night, keep them dim and warm-toned.", "Read under soft, warm light rather than bright white before bed.", "A steady Sunday routine sets you up for the week's sleep.", "If your bed sags or dips in the middle, it may be time for an upgrade.", "Fresh pyjamas and clean sheets make bedtime feel like a treat.", "Keep your evenings a little boring — calm is the goal.", "Let go of the day with a few slow breaths as your head hits the pillow.", "Good sleep starts long before bedtime — with light, movement and routine.", "A quick tidy of the bedroom before bed helps your mind feel settled.", "Keep a glass of water handy so a small thirst doesn't wake you fully.", "Aim for seven to nine hours — most adults feel best in that range.", "If your alarm's a shock each morning, you may need an earlier bedtime.", "A good night's sleep is when your body repairs itself — muscle, memory and mood all rebuild while you rest.", "Quality sleep sharpens focus, steadies your mood and strengthens your immune system — it's the best habit you have.", "Sleep isn't wasted time; it's when your brain files the day away and resets you for tomorrow.", "You spend about a third of your life in bed — a top-quality mattress is one of the smartest investments in your health.", "A supportive mattress keeps your spine in its natural alignment all night, so you wake without aches.", "The right mattress relieves pressure on your hips and shoulders, so you settle quickly and toss and turn less.", "When your bed feels just right, falling asleep stops being a struggle and becomes something to look forward to.", "A great mattress cradles you where you need softness and supports you where you need strength.", "Deep, unbroken sleep starts with a bed that holds your body properly — comfort you feel from the very first night.", "A premium mattress absorbs movement, so a restless partner doesn't pull you out of a deep sleep.", "Breathable, quality materials help your bed stay cool, so you sleep straight through the night.", "A worn, sagging bed works against you every night; proper support pays you back with real, restful sleep.", "Good sleep helps your heart, your brain and your body recover — protect it like the medicine it is.", "The nights you sleep well are the days you feel your best — that's no coincidence.", "Invest in where you sleep and you invest in every single day that follows it.", "A mattress built to last keeps its support for years, so every night feels as good as the first.", "Waking up refreshed instead of stiff often comes down to sleeping on the right mattress.", "Great sleep rests on three things: a steady routine, a calm room, and a bed that truly supports you."];
+let TIP_I=Math.floor(Date.now()/86400000)%SLEEP_TIPS.length;
+const esc=v=>String(v==null?"":v).replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+const SIMTEC_PHONE="+6498869897"; // Simtec office 09 886 9897
+const SIMTEC_EMAIL="info@simtectp.com";
+
+// ---- state ----
+let R={}, S={}, CARDS=[], DRAW={}, PLAN={}, MS=[], LB={}, UNREAD=0, TAB="home", busy=false;
+
+// ---- sound (Web Audio, no files) ----
+const SFX={ enabled:true, _ac:null, _noise:null,
+  ac(){ try{ if(!this._ac) this._ac=new (window.AudioContext||window.webkitAudioContext)(); if(this._ac.state==="suspended") this._ac.resume(); }catch(e){} return this._ac; },
+  nb(){ const ac=this.ac(); if(!ac) return null; if(this._noise) return this._noise; const n=Math.floor(ac.sampleRate*2), b=ac.createBuffer(1,n,ac.sampleRate), d=b.getChannelData(0); for(let i=0;i<n;i++) d[i]=Math.random()*2-1; this._noise=b; return b; },
+  _tone(fr,dur,ty,vol,t,to){ const ac=this.ac(); if(!ac)return; const o=ac.createOscillator(),g=ac.createGain(); o.type=ty; o.frequency.setValueAtTime(fr,t); if(to)o.frequency.exponentialRampToValueAtTime(to,t+dur); g.gain.setValueAtTime(0.0001,t); g.gain.exponentialRampToValueAtTime(vol,t+0.008); g.gain.exponentialRampToValueAtTime(0.0001,t+dur); o.connect(g); g.connect(ac.destination); o.start(t); o.stop(t+dur+0.03); },
+  // a bright brass note (detuned saws -> lowpass, vibrato, punchy attack)
+  brass(fr,t0,dur,vol){ const ac=this.ac(); if(!ac)return; const o1=ac.createOscillator(),o2=ac.createOscillator(),g=ac.createGain(),lp=ac.createBiquadFilter(),lfo=ac.createOscillator(),lg=ac.createGain();
+    o1.type="sawtooth"; o2.type="sawtooth"; o1.frequency.value=fr; o2.frequency.value=fr*1.006;
+    lp.type="lowpass"; lp.Q.value=1; lp.frequency.setValueAtTime(fr*2,t0); lp.frequency.exponentialRampToValueAtTime(fr*5,t0+0.05); lp.frequency.exponentialRampToValueAtTime(fr*3,t0+dur);
+    lfo.type="sine"; lfo.frequency.value=5.5; lg.gain.value=fr*0.007; lfo.connect(lg); lg.connect(o1.frequency); lg.connect(o2.frequency);
+    g.gain.setValueAtTime(0.0001,t0); g.gain.exponentialRampToValueAtTime(vol,t0+0.03); g.gain.setValueAtTime(vol*0.85,t0+dur*0.7); g.gain.exponentialRampToValueAtTime(0.0001,t0+dur);
+    o1.connect(lp); o2.connect(lp); lp.connect(g); g.connect(ac.destination);
+    o1.start(t0); o2.start(t0); lfo.start(t0); o1.stop(t0+dur+0.05); o2.stop(t0+dur+0.05); lfo.stop(t0+dur+0.05); },
+  fanfare(when){ const ac=this.ac(); if(!ac||!this.enabled)return; const t=ac.currentTime+(when||0), g=392,c=523.25,e=659.25,G=783.99;
+    this.brass(g,t,0.13,0.17); this.brass(g,t+0.15,0.13,0.17); this.brass(g,t+0.30,0.13,0.17);
+    this.brass(c,t+0.48,0.75,0.19); this.brass(e,t+0.48,0.75,0.13); this.brass(G,t+0.48,0.75,0.10); },
+  applause(when,dur){ const ac=this.ac(); if(!ac||!this.enabled)return; dur=dur||2.2; const t0=ac.currentTime+(when||0);
+    const src=ac.createBufferSource(); src.buffer=this.nb(); src.loop=true;
+    const bp=ac.createBiquadFilter(); bp.type="bandpass"; bp.frequency.value=1900; bp.Q.value=0.6;
+    const g=ac.createGain(); src.connect(bp); bp.connect(g); g.connect(ac.destination);
+    let tt=t0; g.gain.setValueAtTime(0.0001,t0);
+    while(tt<t0+dur){ const p=(tt-t0)/dur, env=p<0.15?p/0.15:(p>0.7?Math.max(0,(1-p)/0.3):1), amp=(0.05+Math.random()*0.13)*env; g.gain.setValueAtTime(Math.max(0.0001,amp),tt); tt+=0.017+Math.random()*0.022; }
+    g.gain.exponentialRampToValueAtTime(0.0001,t0+dur+0.05); src.start(t0); src.stop(t0+dur+0.1); },
+  cheer(when,dur){ const ac=this.ac(); if(!ac||!this.enabled)return; dur=dur||2.0; const t0=ac.currentTime+(when||0);
+    const src=ac.createBufferSource(); src.buffer=this.nb(); src.loop=true;
+    const lp=ac.createBiquadFilter(); lp.type="lowpass"; lp.Q.value=3; lp.frequency.setValueAtTime(450,t0); lp.frequency.linearRampToValueAtTime(1700,t0+dur*0.5); lp.frequency.linearRampToValueAtTime(650,t0+dur);
+    const g=ac.createGain(); g.gain.setValueAtTime(0.0001,t0); g.gain.linearRampToValueAtTime(0.11,t0+0.4); g.gain.setValueAtTime(0.11,t0+dur*0.6); g.gain.exponentialRampToValueAtTime(0.0001,t0+dur);
+    src.playbackRate.setValueAtTime(0.9,t0); src.playbackRate.linearRampToValueAtTime(1.18,t0+dur*0.55);
+    src.connect(lp); lp.connect(g); g.connect(ac.destination); src.start(t0); src.stop(t0+dur+0.1); },
+  boom(when){ const ac=this.ac(); if(!ac||!this.enabled)return; const t=ac.currentTime+(when||0);
+    const o=ac.createOscillator(),g=ac.createGain(); o.type="triangle"; o.frequency.setValueAtTime(190,t); o.frequency.exponentialRampToValueAtTime(50,t+0.35); g.gain.setValueAtTime(0.0001,t); g.gain.exponentialRampToValueAtTime(0.6,t+0.01); g.gain.exponentialRampToValueAtTime(0.0001,t+0.5); o.connect(g); g.connect(ac.destination); o.start(t); o.stop(t+0.55);
+    const src=ac.createBufferSource(); src.buffer=this.nb(); const lp=ac.createBiquadFilter(); lp.type="lowpass"; lp.frequency.value=1100; const ng=ac.createGain(); ng.gain.setValueAtTime(0.5,t); ng.gain.exponentialRampToValueAtTime(0.0001,t+0.13); src.connect(lp); lp.connect(ng); ng.connect(ac.destination); src.start(t); src.stop(t+0.16); },
+  coin(){ const ac=this.ac(); if(!ac||!this.enabled)return; const t=ac.currentTime; this._tone(988,0.05,"square",0.12,t); this._tone(1319,0.14,"square",0.12,t+0.05); this._tone(2637,0.10,"sine",0.05,t+0.05); },
+  spin(){ const ac=this.ac(); if(!ac||!this.enabled)return; const t=ac.currentTime,o=ac.createOscillator(),g=ac.createGain(); o.type="sawtooth"; o.frequency.setValueAtTime(170,t); o.frequency.exponentialRampToValueAtTime(540,t+1.4); g.gain.setValueAtTime(0.0001,t); g.gain.exponentialRampToValueAtTime(0.05,t+0.06); g.gain.exponentialRampToValueAtTime(0.0001,t+1.5); o.connect(g); g.connect(ac.destination); o.start(t); o.stop(t+1.55); for(let i=0;i<11;i++) this._tone(1250,0.028,"square",0.05,t+i*0.115); },
+  win(){ this.coin(); this.fanfare(0.05); this.applause(0.2,1.7); },
+  jackpot(){ this.boom(0); this.fanfare(0.05); this.applause(0.25,2.8); this.cheer(0.2,2.6); },
+  levelup(){ this.fanfare(0); this.applause(0.2,1.4); } };
+
+function toast(msg){ const t=document.createElement("div"); t.className="toast"; t.textContent=msg; document.body.appendChild(t); setTimeout(()=>t.remove(),2600); }
+
+function runConfetti(cv){
+  const ctx=cv.getContext("2d"), W=cv.width, H=cv.height, cols=["#c9a84c","#f0d98a","#ffffff","#cfd3da","#8fb4e8"], P=[];
+  for(let i=0;i<130;i++) P.push({x:W/2,y:H*0.42,vx:(Math.random()-0.5)*15,vy:(Math.random()-0.95)*15,g:0.32,s:5+Math.random()*7,c:cols[i%cols.length],r:Math.random()*6,vr:(Math.random()-0.5)*0.4,life:1});
+  let t=0;(function anim(){ t++; ctx.clearRect(0,0,W,H); let alive=false;
+    P.forEach(p=>{ p.vy+=p.g; p.x+=p.vx; p.y+=p.vy; p.r+=p.vr; p.life-=0.008;
+      if(p.life>0&&p.y<H+30){ alive=true; ctx.save(); ctx.globalAlpha=Math.max(0,p.life); ctx.translate(p.x,p.y); ctx.rotate(p.r); ctx.fillStyle=p.c; ctx.fillRect(-p.s/2,-p.s/2,p.s,p.s*0.6); ctx.restore(); } });
+    if(alive&&t<240) requestAnimationFrame(anim); })();
+}
+function celebrate(icon,title,sub){
+  const old=document.getElementById("celebOv"); if(old) old.remove();
+  const ov=document.createElement("div"); ov.id="celebOv";
+  ov.style.cssText="position:fixed;inset:0;z-index:100;display:flex;align-items:center;justify-content:center;background:rgba(7,15,32,.88)";
+  ov.innerHTML=`<canvas id="confCv" style="position:absolute;inset:0"></canvas>
+    <div style="position:relative;text-align:center;padding:30px;max-width:340px">
+      <div style="font-size:62px">${icon}</div>
+      <div style="font-size:25px;font-weight:900;margin:8px 0 4px;color:var(--gold)">${title}</div>
+      <div class="muted" style="font-size:15px">${sub||""}</div>
+      <button class="btn gold sm" style="margin-top:22px" onclick="document.getElementById('celebOv').remove()">Awesome!</button>
+    </div>`;
+  document.body.appendChild(ov);
+  const cv=ov.querySelector("#confCv"); cv.width=window.innerWidth; cv.height=window.innerHeight;
+  runConfetti(cv); try{SFX.jackpot();}catch(e){}
+  ov.addEventListener("click",e=>{ if(e.target===ov) ov.remove(); });
+}
+function checkCelebrations(){
+  const L=DRAW&&DRAW.latest;
+  if(L&&L.congrats_pending){ DRAW.latest.congrats_pending=false; celebrate("🎉","You won the draw!","+"+nf(L.prize)+" points added to your balance"); try{sb.rpc("mark_draw_seen",{p_month:L.month});}catch(e){} return; }
+  try{ const cur=Number(R.level||0), last=Number(localStorage.getItem("simtec_lvl")||"-1");
+    if(last>=0 && cur>last) celebrate("⬆️","Level Up!","You reached Level "+cur);
+    localStorage.setItem("simtec_lvl",String(cur));
+  }catch(e){}
+}
+async function boot(){
+  const { data:{ session } } = await sb.auth.getSession();
+  if(!session){ location.href="customer-login.html"; return; }
+  await loadAll(); render(); checkCelebrations();
+}
+async function loadAll(){
+  const [r,s,c,d,u,pl,ms,lb]=await Promise.all([
+    sb.rpc("my_rewards"), sb.rpc("my_status"), sb.rpc("my_cards"), sb.rpc("draw_status"), sb.rpc("unread_count"), sb.rpc("my_plan"), sb.rpc("my_milestones"), sb.rpc("leaderboard")
+  ]);
+  R=r.data||{}; S=s.data||{}; CARDS=c.data||[]; DRAW=d.data||{}; UNREAD=u.data||0; PLAN=pl.data||{}; MS=ms.data||[]; LB=lb.data||{};
+}
+
+function ratingLabel(){ return (S.rating||"A"); }
+function render(){
+  tabsEl.style.display="flex";
+  tabsEl.innerHTML=[["home","Home","🏠"],["play","Play","🎰"],["rewards","Rewards","🎁"],["loot","Loot","🎯"],["draw","Draw","🎟️"]]
+    .map(([k,l,i])=>`<button class="tab ${TAB===k?'on':''}" onclick="setTab('${k}')"><span class="ic">${i}</span>${l}</button>`).join("");
+
+  const hero=`
+    <div class="top">
+      <h1>My Simtec Rewards</h1>
+      <button class="bell" onclick="openInbox()">🔔${UNREAD>0?`<b>${UNREAD>9?'9+':UNREAD}</b>`:''}</button>
+    </div>
+    <div class="hero">
+      <div class="pts">${nf(R.points)} <span>points</span></div>
+      <div class="chips">
+        <div class="chip"><span class="k">Level</span>${nf(R.level)}</div>
+        <div class="chip rating"><span class="k" style="color:#6a5410">Rating</span>${ratingLabel()}</div>
+        <div class="chip"><span class="k">Spins</span>${nf(R.spins)}</div>
+      </div>
+    </div>`;
+
+  let body="";
+  if(TAB==="home") body=homeView();
+  else if(TAB==="play") body=playView();
+  else if(TAB==="rewards") body=rewardsView();
+  else if(TAB==="loot") body=lootView();
+  else if(TAB==="draw") body=drawView();
+
+  app.innerHTML=hero+body;
+}
+
+function homeView(){
+  const sb_=(S.streak_badges||[]), rb=(S.referrer_badges||[]);
+  const badges=[...sb_.map(n=>`<span class="badge">🔥 ${n} on-time</span>`), ...rb.map(n=>`<span class="badge">🤝 ${n===25?'Super Referrer':n+' referred'}</span>`)];
+  return missedBanner()+raceView()+`
+    <h2>Your standing</h2>
+    <div class="card">
+      <div class="muted">Payment streak: <b style="color:var(--ink)">${nf(S.current_streak)}</b> in a row · best ever <b style="color:var(--ink)">${nf(S.max_streak)}</b><br>
+      Rating <b style="color:var(--gold)">${ratingLabel()}</b> — keep paying on time to reach AAA.</div>
+      ${badges.length?`<div style="margin-top:12px">${badges.join("")}</div>`:`<div class="muted" style="margin-top:10px">Earn badges by paying on time and referring friends.</div>`}
+    </div>
+    ${leaderboardView()}
+    ${sleepTipView()}
+    <h2>Sound</h2>
+    <div class="card"><button class="btn ghost sm" onclick="toggleSound(this)">${SFX.enabled?'🔊 Sound on — tap to mute':'🔇 Sound off — tap on'}</button></div>
+    <div class="card"><button class="btn ghost sm" onclick="signOut()">Sign out</button></div>`;
+}
+
+function missedBanner(){
+  if(!PLAN||!PLAN.missed) return "";
+  const tel=SIMTEC_PHONE.replace(/[^\d+]/g,"");
+  return `<div class="card" style="background:rgba(255,214,90,.10);border:1px solid rgba(255,214,90,.42)">
+    <div style="font-weight:800;font-size:16px">💛 A payment didn\'t go through</div>
+    <div class="muted" style="margin:6px 0 12px;color:#e7ddc0">No stress — it happens. Quick heads-up: Ezidebit charges an $11.50 fee on a missed payment (that\'s their charge, not ours), and a miss can dent your streak and rating. Let\'s sort it out together — no judgment.</div>
+    <div class="row">
+      <button class="btn sm" onclick="location.href='tel:${tel}'">📞 Call us</button>
+      <button class="btn sm ghost" onclick="location.href='mailto:'+SIMTEC_EMAIL">✉️ Email us</button>
+    </div>
+  </div>`;
+}
+function raceView(){
+  if(!PLAN||!PLAN.has_order) return "";
+  const delivered=PLAN.delivered, crossed=!delivered && (PLAN.authorised || PLAN.pct_to_delivery>=100);
+  let title,pct,hint;
+  if(delivered){ title="🏁 Race to paying it off"; pct=PLAN.pct_paid; hint=`$${nf(PLAN.owing)} to go`; }
+  else if(crossed){ title="🎉 Cleared for delivery!"; pct=100; hint="We'll be in touch to arrange your delivery"; }
+  else { title="🚚 Race to delivery"; pct=PLAN.pct_to_delivery; hint=`${pct}% of the way there`; }
+  const track=`<div style="position:relative;height:44px;margin:12px 0 4px">
+      <div style="position:absolute;top:22px;left:0;right:0;height:6px;background:rgba(255,255,255,.1);border-radius:3px"></div>
+      <div style="position:absolute;top:22px;left:0;height:6px;width:${pct}%;background:linear-gradient(90deg,var(--good),var(--gold));border-radius:3px;transition:width .7s"></div>
+      <div style="position:absolute;top:2px;left:calc(${pct}% - 13px);font-size:24px;transition:left .7s">🚚</div>
+      <div style="position:absolute;top:14px;right:-2px;font-size:20px">🏁</div>
+    </div><div class="muted" style="text-align:center">${hint}</div>`;
+  let extra="";
+  if(delivered){ extra=`<button class="btn gold sm" style="margin-top:14px" onclick="payExtra('extra')">💳 Make an extra payment</button>`; }
+  else if(!crossed && PLAN.deposit_shortfall>0){ extra=`<div style="margin-top:14px;padding:14px;border-radius:12px;background:rgba(201,168,76,.1);border:1px solid rgba(201,168,76,.4)">
+      <div style="font-weight:800">⚡ Fast Track your delivery</div>
+      <div class="muted" style="margin:4px 0 10px">Pay $${nf(PLAN.deposit_shortfall)} now to reach your deposit and get delivered sooner.</div>
+      <button class="btn gold sm" onclick="payExtra('deposit')">Fast Track — $${nf(PLAN.deposit_shortfall)}</button></div>`; }
+  return `<div class="card"><div style="font-weight:800;font-size:17px">${title}</div>${track}${extra}</div>`;
+}
+async function payExtra(purpose){
+  if(busy) return; busy=true;
+  try{ const { data }=await sb.functions.invoke("stripe-create-session",{ body:{ purpose } });
+    if(data&&data.url){ location.href=data.url; return; }
+    toast("Card payments are coming soon");
+  }catch(e){ toast("Card payments are coming soon"); }
+  busy=false;
+}
+function leaderboardView(){
+  if(!LB) return "";
+  if(!LB.opted_in){
+    return `<h2>Leaderboard</h2><div class="card">
+      <div class="muted" style="margin-bottom:12px">See how you rank all-time. Opt in and only your first name shows to others.</div>
+      <button class="btn ghost sm" onclick="toggleBoard(true)">Join the leaderboard</button></div>`;
+  }
+  const top=(LB.top||[]).slice(0,5);
+  const rows=top.map(r=>`<div class="cardrow"><span>${r.rank}. ${r.me?'<b style="color:var(--gold)">You</b>':(esc(r.name)||"—")}</span><b>${nf(r.points)}</b></div>`).join("");
+  const inTop=top.some(r=>r.me);
+  const mine=(!inTop && LB.my_rank)?`<div class="cardrow" style="border-top:1px solid var(--line)"><span><b style="color:var(--gold)">You — #${LB.my_rank}</b></span><b>${nf(LB.my_points)}</b></div>`:"";
+  return `<h2>Leaderboard</h2><div class="card">${rows||'<div class="muted">No one on the board yet — you could be first!</div>'}${mine}
+    <button class="btn ghost sm" style="margin-top:12px" onclick="toggleBoard(false)">Leave the leaderboard</button></div>`;
+}
+async function toggleBoard(on){ if(busy) return; busy=true; try{ await sb.rpc("set_leaderboard_optin",{ p_on:on }); await loadAll(); }catch(e){} busy=false; render(); }
+function sleepTipView(){
+  return `<h2>Tonight's sleep tip</h2><div class="card">
+    <div style="font-size:15px;line-height:1.55">🌙 ${esc(SLEEP_TIPS[TIP_I])}</div>
+    <button class="btn ghost sm" style="margin-top:12px" onclick="TIP_I=(TIP_I+1)%SLEEP_TIPS.length; render();">Another tip</button>
+    <div class="muted" style="font-size:11px;margin-top:8px">A fresh tip every morning · ${SLEEP_TIPS.length} in rotation</div>
+  </div>`;
+}
+function playView(){
+  return `
+    <h2>Spin to win</h2>
+    <div class="card">
+      <div class="muted" style="margin-bottom:12px">You have <b style="color:var(--ink)">${nf(R.spins)}</b> spin${R.spins==1?'':'s'}. Every payment earns one.</div>
+      <button class="btn gold" id="spinBtn" onclick="doSpin()" ${R.spins>0?'':'disabled'}>${R.spins>0?'🎰 Spin':'No spins yet'}</button>
+      <div id="spinOut"></div>
+    </div>
+    <h2>Daily bonus</h2>
+    <div class="card">
+      <div class="muted" style="margin-bottom:12px">A free bonus, once a day.</div>
+      <button class="btn" id="dailyBtn" onclick="doDaily()" ${R.daily_available?'':'disabled'}>${R.daily_available?'🎁 Claim daily bonus':'✓ Claimed today'}</button>
+      <div id="dailyOut"></div>
+    </div>`;
+}
+
+function rewardsView(){
+  const avail=CARDS.filter(c=>c.status==="available"), used=CARDS.filter(c=>c.status!=="available");
+  let h=`<h2>Your $50 reward cards</h2>`;
+  if(!CARDS.length) h+=`<div class="card"><div class="muted">You haven't earned a reward card yet — you get a $50 card every 50,000 points. Keep going!</div></div>`;
+  avail.forEach(c=>{ h+=`<div class="card">
+      <div style="font-weight:800;font-size:17px;margin-bottom:2px">🎁 $${nf(c.value)} reward card</div>
+      <div class="muted" style="margin-bottom:12px">Choose how to use it:</div>
+      <div class="row" style="margin-bottom:8px">
+        <button class="btn sm" onclick="redeem('${c.id}','giftcard')">Gift card</button>
+        <button class="btn sm gold" onclick="redeem('${c.id}','plan_credit')">$50 off my plan</button>
+      </div>
+      <button class="btn sm ghost" onclick="redeem('${c.id}','donation')">Donate to my group</button>
+    </div>`; });
+  if(used.length){ h+=`<h2>Used</h2><div class="card">${used.map(c=>`<div class="cardrow"><span>$${nf(c.value)} card</span><span class="muted">${c.redeemed_as? c.redeemed_as.replace('_',' '):'redeemed'}</span></div>`).join("")}</div>`; }
+  return h;
+}
+
+function lootView(){
+  const pct=(PLAN&&PLAN.has_order)?PLAN.pct_paid:0, has=k=>MS.indexOf(k)>=0;
+  const miles=[{k:"pct25",at:25,t:"25% paid off",r:"10,000 bonus points"},
+               {k:"pct50",at:50,t:"Halfway there — 50% paid",r:"A free pillow"},
+               {k:"paidfull",at:100,t:"Paid in full",r:"Lifetime Triple-A + 10% off your next order"}];
+  let h=`<h2>Milestones</h2>`;
+  miles.forEach(m=>{ const done=has(m.k)||pct>=m.at, prog=Math.min(100,Math.round(pct/m.at*100));
+    h+=`<div class="card"><div style="display:flex;justify-content:space-between;align-items:center">
+        <div style="font-weight:800">${done?"✅ ":"🔒 "}${m.t}</div>
+        <div class="muted" style="font-size:12px">${done?"Unlocked":pct+"% / "+m.at+"%"}</div></div>
+      <div class="muted" style="margin:4px 0 ${done?"0":"10px"}">${m.r}</div>
+      ${done?"":`<div style="height:6px;background:rgba(255,255,255,.1);border-radius:3px"><div style="height:6px;width:${prog}%;background:linear-gradient(90deg,var(--good),var(--gold));border-radius:3px"></div></div>`}
+    </div>`; });
+  h+=`<h2>Ways to earn</h2><div class="card">
+    <div class="cardrow"><span>Make your weekly payment</span><b style="color:var(--gold)">+200 &amp; a spin</b></div>
+    <div class="cardrow"><span>Make an extra payment</span><b style="color:var(--gold)">+1,000</b></div>
+    <div class="cardrow"><span>Refer a mate who buys</span><b style="color:var(--gold)">+50,000</b></div>
+  </div>`;
+  return h;
+}
+function drawView(){
+  const L=DRAW.latest;
+  let h=`<h2>Monthly draw</h2>
+    <div class="card">
+      <div class="muted" style="margin-bottom:12px">Leave us a review to enter this month's free draw for points. One entry per month.</div>
+      <button class="btn" id="drawBtn" onclick="doDraw()" ${DRAW.entered_this_month?'disabled':''}>${DRAW.entered_this_month?'✓ Entered this month':'📝 Review & enter'}</button>
+    </div>`;
+  if(L){ h+=`<h2>Latest winner</h2><div class="card ${L.i_won?'':''}">
+      <div style="font-weight:800;font-size:17px">${L.i_won?'🎉 You won!':'🏆 '+(L.winner_first||'A member')+' won'}</div>
+      <div class="muted" style="margin-top:4px">${nf(L.prize)} points${L.i_won?' — added to your balance':''}.</div>
+    </div>`; }
+  return h;
+}
+
+// ---- actions ----
+function setTab(t){ TAB=t; render(); }
+function toggleSound(btn){ SFX.enabled=!SFX.enabled; btn.textContent=SFX.enabled?'🔊 Sound on — tap to mute':'🔇 Sound off — tap on'; }
+
+async function doSpin(){
+  if(busy||!(R.spins>0)) return; busy=true;
+  const btn=$("spinBtn"); if(btn){btn.disabled=true; btn.textContent='Spinning…';}
+  SFX.spin();
+  try{
+    const { data }=await sb.rpc("play_spin");
+    if(data&&data.ok){
+      (data.points>=250?SFX.jackpot():SFX.win());
+      $("spinOut").innerHTML=`<div class="result">🎉 ${data.label} — +${nf(data.points)} points!</div>`;
+      await loadAll();
+    } else { $("spinOut").innerHTML=`<div class="muted" style="margin-top:10px">${(data&&data.error)||'No spins left.'}</div>`; }
+  }catch(e){ $("spinOut").innerHTML=`<div class="muted" style="margin-top:10px">Something went wrong — try again.</div>`; }
+  busy=false; renderKeepTab("play"); checkCelebrations();
+}
+async function doDaily(){
+  if(busy||!R.daily_available) return; busy=true;
+  const btn=$("dailyBtn"); if(btn){btn.disabled=true; btn.textContent='…';}
+  try{
+    const { data }=await sb.rpc("claim_daily");
+    if(data&&data.ok){ SFX.coin(); $("dailyOut").innerHTML=`<div class="result">🎁 +${nf(data.points)} points!</div>`; await loadAll(); }
+    else { $("dailyOut").innerHTML=`<div class="muted" style="margin-top:10px">${(data&&data.error)||'Already claimed today.'}</div>`; }
+  }catch(e){ $("dailyOut").innerHTML=`<div class="muted" style="margin-top:10px">Try again.</div>`; }
+  busy=false; renderKeepTab("play"); checkCelebrations();
+}
+async function redeem(id,how){
+  if(busy) return; busy=true;
+  const labels={giftcard:'gift card',plan_credit:'$50 off your plan',donation:'donation to your group'};
+  try{
+    const { data }=await sb.rpc("redeem_reward_card",{ p_card:id, p_how:how });
+    if(data&&data.ok){ SFX.win(); toast('✓ Redeemed as '+(labels[how]||how)); await loadAll(); }
+    else { toast((data&&data.error)||'Could not redeem'); }
+  }catch(e){ toast('Try again'); }
+  busy=false; renderKeepTab("rewards");
+}
+async function doDraw(){
+  if(busy||DRAW.entered_this_month) return; busy=true;
+  try{
+    const { data }=await sb.rpc("enter_draw");
+    if(data&&data.ok){ SFX.coin(); toast('✓ Entered the draw'); await loadAll(); }
+    // open the real review page for the customer (entry already recorded regardless)
+    window.open("https://g.page/r/","_blank");
+  }catch(e){ toast('Try again'); }
+  busy=false; renderKeepTab("draw");
+}
+function renderKeepTab(t){ TAB=t; render(); }
+
+async function openInbox(){
+  try{ const { data }=await sb.rpc("my_notifications"); const items=data||[];
+    app.innerHTML=`<div class="top"><h1>Notifications</h1><button class="bell" onclick="render()">✕</button></div>`+
+      (items.length? items.map(n=>`<div class="card"><div style="font-weight:800">${n.title||''}</div>${n.body?`<div class="muted" style="margin-top:3px">${n.body}</div>`:''}</div>`).join("")
+                   : `<div class="card"><div class="muted">No notifications yet.</div></div>`);
+    // mark all read
+    for(const n of items){ if(!n.read) sb.rpc("mark_notification_read",{ p_id:n.id }); }
+    UNREAD=0;
+  }catch(e){ render(); }
+}
+async function signOut(){ await sb.auth.signOut(); location.href="customer-login.html"; }
+
+document.addEventListener("visibilitychange", ()=>{ if(!document.hidden && !busy){ loadAll().then(()=>{render();checkCelebrations();}).catch(()=>{}); } });
+window.addEventListener("pageshow", (e)=>{ if(e.persisted && !busy){ loadAll().then(()=>{render();checkCelebrations();}).catch(()=>{}); } });
+boot();
+</script>
+</body>
+</html>
