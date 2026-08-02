@@ -63,7 +63,7 @@ const app=$("app"), tabsEl=$("tabs");
 const nf=n=>Number(n||0).toLocaleString();
 
 // ---- state ----
-let R={}, S={}, CARDS=[], DRAW={}, UNREAD=0, TAB="home", busy=false;
+let R={}, S={}, CARDS=[], DRAW={}, PLAN={}, UNREAD=0, TAB="home", busy=false;
 
 // ---- sound (Web Audio, no files) ----
 const SFX={ enabled:true, _ac:null, _noise:null,
@@ -111,10 +111,10 @@ async function boot(){
   await loadAll(); render();
 }
 async function loadAll(){
-  const [r,s,c,d,u]=await Promise.all([
-    sb.rpc("my_rewards"), sb.rpc("my_status"), sb.rpc("my_cards"), sb.rpc("draw_status"), sb.rpc("unread_count")
+  const [r,s,c,d,u,pl]=await Promise.all([
+    sb.rpc("my_rewards"), sb.rpc("my_status"), sb.rpc("my_cards"), sb.rpc("draw_status"), sb.rpc("unread_count"), sb.rpc("my_plan")
   ]);
-  R=r.data||{}; S=s.data||{}; CARDS=c.data||[]; DRAW=d.data||{}; UNREAD=u.data||0;
+  R=r.data||{}; S=s.data||{}; CARDS=c.data||[]; DRAW=d.data||{}; UNREAD=u.data||0; PLAN=pl.data||{};
 }
 
 function ratingLabel(){ return (S.rating||"A"); }
@@ -149,7 +149,7 @@ function render(){
 function homeView(){
   const sb_=(S.streak_badges||[]), rb=(S.referrer_badges||[]);
   const badges=[...sb_.map(n=>`<span class="badge">🔥 ${n} on-time</span>`), ...rb.map(n=>`<span class="badge">🤝 ${n===25?'Super Referrer':n+' referred'}</span>`)];
-  return `
+  return raceView()+`
     <h2>Your standing</h2>
     <div class="card">
       <div class="muted">Payment streak: <b style="color:var(--ink)">${nf(S.current_streak)}</b> in a row · best ever <b style="color:var(--ink)">${nf(S.max_streak)}</b><br>
@@ -161,6 +161,35 @@ function homeView(){
     <div class="card"><button class="btn ghost sm" onclick="signOut()">Sign out</button></div>`;
 }
 
+function raceView(){
+  if(!PLAN||!PLAN.has_order) return "";
+  const delivered=PLAN.delivered, crossed=!delivered && (PLAN.authorised || PLAN.pct_to_delivery>=100);
+  let title,pct,hint;
+  if(delivered){ title="🏁 Race to paying it off"; pct=PLAN.pct_paid; hint=`$${nf(PLAN.owing)} to go`; }
+  else if(crossed){ title="🎉 Cleared for delivery!"; pct=100; hint="We'll be in touch to arrange your delivery"; }
+  else { title="🚚 Race to delivery"; pct=PLAN.pct_to_delivery; hint=`${pct}% of the way there`; }
+  const track=`<div style="position:relative;height:44px;margin:12px 0 4px">
+      <div style="position:absolute;top:22px;left:0;right:0;height:6px;background:rgba(255,255,255,.1);border-radius:3px"></div>
+      <div style="position:absolute;top:22px;left:0;height:6px;width:${pct}%;background:linear-gradient(90deg,var(--good),var(--gold));border-radius:3px;transition:width .7s"></div>
+      <div style="position:absolute;top:2px;left:calc(${pct}% - 13px);font-size:24px;transition:left .7s">🚚</div>
+      <div style="position:absolute;top:14px;right:-2px;font-size:20px">🏁</div>
+    </div><div class="muted" style="text-align:center">${hint}</div>`;
+  let extra="";
+  if(delivered){ extra=`<button class="btn gold sm" style="margin-top:14px" onclick="payExtra('extra')">💳 Make an extra payment</button>`; }
+  else if(!crossed && PLAN.deposit_shortfall>0){ extra=`<div style="margin-top:14px;padding:14px;border-radius:12px;background:rgba(201,168,76,.1);border:1px solid rgba(201,168,76,.4)">
+      <div style="font-weight:800">⚡ Fast Track your delivery</div>
+      <div class="muted" style="margin:4px 0 10px">Pay $${nf(PLAN.deposit_shortfall)} now to reach your deposit and get delivered sooner.</div>
+      <button class="btn gold sm" onclick="payExtra('deposit')">Fast Track — $${nf(PLAN.deposit_shortfall)}</button></div>`; }
+  return `<div class="card"><div style="font-weight:800;font-size:17px">${title}</div>${track}${extra}</div>`;
+}
+async function payExtra(purpose){
+  if(busy) return; busy=true;
+  try{ const { data }=await sb.functions.invoke("stripe-create-session",{ body:{ purpose } });
+    if(data&&data.url){ location.href=data.url; return; }
+    toast("Card payments are coming soon");
+  }catch(e){ toast("Card payments are coming soon"); }
+  busy=false;
+}
 function playView(){
   return `
     <h2>Spin to win</h2>
@@ -270,6 +299,8 @@ async function openInbox(){
 }
 async function signOut(){ await sb.auth.signOut(); location.href="customer-login.html"; }
 
+document.addEventListener("visibilitychange", ()=>{ if(!document.hidden && !busy){ loadAll().then(()=>render()).catch(()=>{}); } });
+window.addEventListener("pageshow", (e)=>{ if(e.persisted && !busy){ loadAll().then(()=>render()).catch(()=>{}); } });
 boot();
 </script>
 </body>
