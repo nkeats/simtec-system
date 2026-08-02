@@ -208,7 +208,8 @@ function homeView(){
     ${sleepTipView()}
     <h2>Sound</h2>
     <div class="card"><button class="btn ghost sm" onclick="toggleSound(this)">${SFX.enabled?'🔊 Sound on — tap to mute':'🔇 Sound off — tap on'}</button></div>
-    <div class="card"><button class="btn ghost sm" onclick="signOut()">Sign out</button></div>`;
+    <div class="card"><button class="btn ghost sm" onclick="signOut()">Sign out</button>
+    <div style="margin-top:10px"><a href="customer-login.html?account=1" style="color:var(--muted);font-size:12.5px">Manage my community group & account</a></div></div>`;
 }
 
 function missedBanner(){
@@ -412,7 +413,7 @@ async function doDraw(){
     const { data }=await sb.rpc("enter_draw");
     if(data&&data.ok){ SFX.coin(); toast('✓ Entered the draw'); await loadAll(); }
     // open the real review page for the customer (entry already recorded regardless)
-    window.open("https://g.page/r/","_blank");
+    window.open("https://search.google.com/local/writereview?placeid=ChIJJzcUnodJDW0Rf6vgkpuhrWA","_blank");
   }catch(e){ toast('Try again'); }
   busy=false; renderKeepTab("draw");
 }

@@ -76,10 +76,10 @@ async function boot(){
     view.innerHTML=`<div class="center"><span class="spin"></span></div>`;
     const { error } = await sb.auth.verifyOtp({ token_hash: token, type: "email" });
     history.replaceState(null,"",location.pathname);   // strip the token from the address bar
-    if(!error){ return showAccount(); }
+    if(!error){ return wantsAccount()?showAccount():goRewards(); }
   }
   const { data:{ session } } = await sb.auth.getSession();
-  if(session){ return showAccount(); }
+  if(session){ return wantsAccount()?showAccount():goRewards(); }
   showLogin();
 }
 
@@ -123,7 +123,7 @@ function showCodeEntry(mobile){
     }catch(e){}
     if(out && out.ok && out.token){
       const { error } = await sb.auth.verifyOtp({ token_hash: out.token, type:"email" });
-      if(!error){ return showAccount(); }
+      if(!error){ return wantsAccount()?showAccount():goRewards(); }
       $("msg").innerHTML='<div class="err">Sign-in failed, please try again.</div>';
     } else {
       $("msg").innerHTML='<div class="err">'+esc((out&&out.error)||"That code isn't right.")+'</div>';
@@ -132,6 +132,8 @@ function showCodeEntry(mobile){
   };
 }
 
+function wantsAccount(){ return new URLSearchParams(location.search).has("account"); }
+function goRewards(){ location.replace("rewards.html"); }
 async function showAccount(){
   view.innerHTML=`<div class="center"><span class="spin"></span></div>`;
   // Everything below returns ONLY this customer's own rows (row-level security).
@@ -174,7 +176,7 @@ async function showAccount(){
   const dt=$("donate"); if(dt) dt.onchange=async()=>{ try{ await sb.rpc("set_my_affiliation_optin",{p_optin:dt.checked}); }catch(e){} };
 }
 
-sb.auth.onAuthStateChange((_e,session)=>{ if(session) showAccount(); });
+sb.auth.onAuthStateChange((_e,session)=>{ if(session && wantsAccount()) showAccount(); });
 boot();
 </script>
 </body>
