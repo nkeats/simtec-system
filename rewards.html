@@ -63,7 +63,7 @@ const app=$("app"), tabsEl=$("tabs");
 const nf=n=>Number(n||0).toLocaleString();
 
 // ---- state ----
-let R={}, S={}, CARDS=[], DRAW={}, PLAN={}, UNREAD=0, TAB="home", busy=false;
+let R={}, S={}, CARDS=[], DRAW={}, PLAN={}, MS=[], UNREAD=0, TAB="home", busy=false;
 
 // ---- sound (Web Audio, no files) ----
 const SFX={ enabled:true, _ac:null, _noise:null,
@@ -111,16 +111,16 @@ async function boot(){
   await loadAll(); render();
 }
 async function loadAll(){
-  const [r,s,c,d,u,pl]=await Promise.all([
-    sb.rpc("my_rewards"), sb.rpc("my_status"), sb.rpc("my_cards"), sb.rpc("draw_status"), sb.rpc("unread_count"), sb.rpc("my_plan")
+  const [r,s,c,d,u,pl,ms]=await Promise.all([
+    sb.rpc("my_rewards"), sb.rpc("my_status"), sb.rpc("my_cards"), sb.rpc("draw_status"), sb.rpc("unread_count"), sb.rpc("my_plan"), sb.rpc("my_milestones")
   ]);
-  R=r.data||{}; S=s.data||{}; CARDS=c.data||[]; DRAW=d.data||{}; UNREAD=u.data||0; PLAN=pl.data||{};
+  R=r.data||{}; S=s.data||{}; CARDS=c.data||[]; DRAW=d.data||{}; UNREAD=u.data||0; PLAN=pl.data||{}; MS=ms.data||[];
 }
 
 function ratingLabel(){ return (S.rating||"A"); }
 function render(){
   tabsEl.style.display="flex";
-  tabsEl.innerHTML=[["home","Home","🏠"],["play","Play","🎰"],["rewards","Rewards","🎁"],["draw","Draw","🎟️"]]
+  tabsEl.innerHTML=[["home","Home","🏠"],["play","Play","🎰"],["rewards","Rewards","🎁"],["loot","Loot","🎯"],["draw","Draw","🎟️"]]
     .map(([k,l,i])=>`<button class="tab ${TAB===k?'on':''}" onclick="setTab('${k}')"><span class="ic">${i}</span>${l}</button>`).join("");
 
   const hero=`
@@ -141,6 +141,7 @@ function render(){
   if(TAB==="home") body=homeView();
   else if(TAB==="play") body=playView();
   else if(TAB==="rewards") body=rewardsView();
+  else if(TAB==="loot") body=lootView();
   else if(TAB==="draw") body=drawView();
 
   app.innerHTML=hero+body;
@@ -223,6 +224,26 @@ function rewardsView(){
   return h;
 }
 
+function lootView(){
+  const pct=(PLAN&&PLAN.has_order)?PLAN.pct_paid:0, has=k=>MS.indexOf(k)>=0;
+  const miles=[{k:"pct25",at:25,t:"25% paid off",r:"10,000 bonus points"},
+               {k:"pct50",at:50,t:"Halfway there — 50% paid",r:"A free pillow"},
+               {k:"paidfull",at:100,t:"Paid in full",r:"Lifetime Triple-A + 10% off your next order"}];
+  let h=`<h2>Milestones</h2>`;
+  miles.forEach(m=>{ const done=has(m.k)||pct>=m.at, prog=Math.min(100,Math.round(pct/m.at*100));
+    h+=`<div class="card"><div style="display:flex;justify-content:space-between;align-items:center">
+        <div style="font-weight:800">${done?"✅ ":"🔒 "}${m.t}</div>
+        <div class="muted" style="font-size:12px">${done?"Unlocked":pct+"% / "+m.at+"%"}</div></div>
+      <div class="muted" style="margin:4px 0 ${done?"0":"10px"}">${m.r}</div>
+      ${done?"":`<div style="height:6px;background:rgba(255,255,255,.1);border-radius:3px"><div style="height:6px;width:${prog}%;background:linear-gradient(90deg,var(--good),var(--gold));border-radius:3px"></div></div>`}
+    </div>`; });
+  h+=`<h2>Ways to earn</h2><div class="card">
+    <div class="cardrow"><span>Make your weekly payment</span><b style="color:var(--gold)">+500 &amp; a spin</b></div>
+    <div class="cardrow"><span>Make an extra payment</span><b style="color:var(--gold)">+1,000</b></div>
+    <div class="cardrow"><span>Refer a mate who buys</span><b style="color:var(--gold)">+50,000</b></div>
+  </div>`;
+  return h;
+}
 function drawView(){
   const L=DRAW.latest;
   let h=`<h2>Monthly draw</h2>
