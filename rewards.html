@@ -1,0 +1,249 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Simtec Rewards</title>
+<style>
+  :root{ --navy:#0e2038; --navy2:#12294a; --gold:#c9a84c; --ink:#eaf0f8; --sub:#9fb2cc;
+         --line:rgba(255,255,255,.10); --card:rgba(255,255,255,.055); --good:#25c97a; --hot:#ff8a3d; }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+       background:radial-gradient(120% 80% at 50% 0%,#16305a 0%,#0b1830 55%,#070f20 100%);color:var(--ink);min-height:100vh}
+  .wrap{max-width:520px;margin:0 auto;padding:18px 16px 90px}
+  .center{display:flex;align-items:center;justify-content:center;min-height:70vh;color:var(--sub)}
+  .spin{width:26px;height:26px;border:3px solid rgba(255,255,255,.25);border-top-color:var(--gold);border-radius:50%;animation:sp 1s linear infinite;display:inline-block}
+  @keyframes sp{to{transform:rotate(360deg)}}
+  .top{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
+  .top h1{font-size:18px;margin:0;font-weight:800;letter-spacing:.2px}
+  .bell{position:relative;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:8px 11px;color:var(--ink);font-size:15px;cursor:pointer}
+  .bell b{position:absolute;top:-6px;right:-6px;background:var(--hot);color:#241000;font-size:11px;font-weight:800;border-radius:10px;padding:1px 6px}
+  .hero{background:linear-gradient(135deg,var(--navy2),#0c1c34);border:1px solid var(--line);border-radius:20px;padding:20px;text-align:center;margin-bottom:14px;box-shadow:0 18px 50px rgba(0,0,0,.35)}
+  .pts{font-size:40px;font-weight:900;letter-spacing:-.5px;line-height:1}
+  .pts span{font-size:15px;color:var(--sub);font-weight:600}
+  .chips{display:flex;gap:10px;justify-content:center;margin-top:14px;flex-wrap:wrap}
+  .chip{background:var(--card);border:1px solid var(--line);border-radius:999px;padding:7px 14px;font-size:13px;font-weight:700}
+  .chip .k{color:var(--sub);font-weight:600;margin-right:5px}
+  .rating{background:linear-gradient(120deg,var(--gold),#eBD98a);color:#2a2005}
+  h2{font-size:13px;text-transform:uppercase;letter-spacing:1.2px;color:var(--sub);margin:22px 4px 10px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:16px;margin-bottom:12px}
+  .btn{width:100%;border:0;border-radius:13px;padding:15px;font-size:16px;font-weight:800;cursor:pointer;color:#06210f;
+       background:linear-gradient(120deg,var(--good),#25d6ff);box-shadow:0 8px 22px rgba(37,201,122,.25)}
+  .btn:disabled{opacity:.45;box-shadow:none;cursor:default}
+  .btn.gold{background:linear-gradient(120deg,var(--gold),#f0d98a);color:#2a2005}
+  .btn.ghost{background:var(--card);color:var(--ink);border:1px solid var(--line);box-shadow:none;font-weight:700}
+  .btn.sm{padding:11px;font-size:14px}
+  .row{display:flex;gap:10px}
+  .muted{color:var(--sub);font-size:13px;line-height:1.5}
+  .result{text-align:center;padding:14px;border-radius:13px;background:rgba(201,168,76,.12);border:1px solid rgba(201,168,76,.4);margin-top:12px;font-weight:800;font-size:17px}
+  .cardrow{display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-bottom:1px solid var(--line)}
+  .cardrow:last-child{border-bottom:0}
+  .badge{display:inline-block;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:5px 10px;font-size:12.5px;font-weight:700;margin:3px 4px 0 0}
+  .win{background:linear-gradient(120deg,#FFD23F,#FF8A3D);color:#241000;border:0}
+  .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#0b1830;border:1px solid var(--gold);color:var(--ink);
+         padding:13px 18px;border-radius:13px;font-weight:700;box-shadow:0 12px 40px rgba(0,0,0,.5);z-index:50;max-width:90%}
+  .tabs{position:fixed;left:0;right:0;bottom:0;background:rgba(8,16,32,.92);backdrop-filter:blur(8px);border-top:1px solid var(--line);
+        display:flex;justify-content:space-around;padding:8px 6px 14px;max-width:520px;margin:0 auto}
+  .tab{flex:1;text-align:center;color:var(--sub);font-size:11px;font-weight:700;padding:6px 2px;cursor:pointer;border:0;background:none}
+  .tab.on{color:var(--gold)}
+  .tab .ic{font-size:19px;display:block;margin-bottom:2px}
+</style>
+</head>
+<body>
+<div class="wrap"><div id="app"><div class="center"><span class="spin"></span></div></div></div>
+<div class="tabs" id="tabs" style="display:none"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+const SUPA_URL="https://jvqjoenaungubpoegyvf.supabase.co";
+const SUPA_KEY="sb_publishable_J4MYTdJJyEaWe-GadpwdYA_upPT2rKw";
+const sb = supabase.createClient(SUPA_URL, SUPA_KEY, { auth:{ persistSession:true, detectSessionInUrl:false } });
+const $=id=>document.getElementById(id);
+const app=$("app"), tabsEl=$("tabs");
+const nf=n=>Number(n||0).toLocaleString();
+
+// ---- state ----
+let R={}, S={}, CARDS=[], DRAW={}, UNREAD=0, TAB="home", busy=false;
+
+// ---- sound (Web Audio, no files) ----
+const SFX={ enabled:true, _ac:null,
+  ac(){ try{ if(!this._ac) this._ac=new (window.AudioContext||window.webkitAudioContext)(); if(this._ac.state==="suspended") this._ac.resume(); }catch(e){} return this._ac; },
+  v(f,o){ o=o||{}; const to=o.to||null,dur=o.dur||0.15,ty=o.type||"triangle",vol=o.vol||0.14,when=o.when||0; const ac=this.ac(); if(!ac||!this.enabled)return; const t=ac.currentTime+when,os=ac.createOscillator(),g=ac.createGain(); os.type=ty; os.frequency.setValueAtTime(f,t); if(to)os.frequency.exponentialRampToValueAtTime(to,t+dur); g.gain.setValueAtTime(0.0001,t); g.gain.exponentialRampToValueAtTime(vol,t+0.01); g.gain.exponentialRampToValueAtTime(0.0001,t+dur); os.connect(g); g.connect(ac.destination); os.start(t); os.stop(t+dur+0.03); },
+  arp(a,st,ty,vol){ a.forEach((f,i)=>this.v(f,{dur:0.18,type:ty||"triangle",vol:vol||0.14,when:i*(st||0.075)})); },
+  sparkle(w){ [1568,2093,2637,3136].forEach((f,i)=>this.v(f,{dur:0.12,type:"sine",vol:0.06,when:(w||0)+i*0.04})); },
+  coin(){ this.v(988,{dur:0.05,type:"square",vol:0.12}); this.v(1319,{dur:0.14,type:"square",vol:0.12,when:0.05}); },
+  win(){ this.arp([523,659,784,1047]); this.sparkle(0.3); },
+  spin(){ for(let i=0;i<9;i++) this.v(360+i*50,{dur:0.05,type:"sawtooth",vol:0.05,when:i*0.05}); },
+  jackpot(){ this.v(80,{to:48,dur:0.5,type:"sine",vol:0.22}); this.arp([659,784,988,1319,1568,2093],0.06,"square",0.13); this.sparkle(0.38); this.sparkle(0.54); } };
+
+function toast(msg){ const t=document.createElement("div"); t.className="toast"; t.textContent=msg; document.body.appendChild(t); setTimeout(()=>t.remove(),2600); }
+
+async function boot(){
+  const { data:{ session } } = await sb.auth.getSession();
+  if(!session){ location.href="customer-login.html"; return; }
+  await loadAll(); render();
+}
+async function loadAll(){
+  const [r,s,c,d,u]=await Promise.all([
+    sb.rpc("my_rewards"), sb.rpc("my_status"), sb.rpc("my_cards"), sb.rpc("draw_status"), sb.rpc("unread_count")
+  ]);
+  R=r.data||{}; S=s.data||{}; CARDS=c.data||[]; DRAW=d.data||{}; UNREAD=u.data||0;
+}
+
+function ratingLabel(){ return (S.rating||"A"); }
+function render(){
+  tabsEl.style.display="flex";
+  tabsEl.innerHTML=[["home","Home","🏠"],["play","Play","🎰"],["rewards","Rewards","🎁"],["draw","Draw","🎟️"]]
+    .map(([k,l,i])=>`<button class="tab ${TAB===k?'on':''}" onclick="setTab('${k}')"><span class="ic">${i}</span>${l}</button>`).join("");
+
+  const hero=`
+    <div class="top">
+      <h1>My Simtec Rewards</h1>
+      <button class="bell" onclick="openInbox()">🔔${UNREAD>0?`<b>${UNREAD>9?'9+':UNREAD}</b>`:''}</button>
+    </div>
+    <div class="hero">
+      <div class="pts">${nf(R.points)} <span>points</span></div>
+      <div class="chips">
+        <div class="chip"><span class="k">Level</span>${nf(R.level)}</div>
+        <div class="chip rating"><span class="k" style="color:#6a5410">Rating</span>${ratingLabel()}</div>
+        <div class="chip"><span class="k">Spins</span>${nf(R.spins)}</div>
+      </div>
+    </div>`;
+
+  let body="";
+  if(TAB==="home") body=homeView();
+  else if(TAB==="play") body=playView();
+  else if(TAB==="rewards") body=rewardsView();
+  else if(TAB==="draw") body=drawView();
+
+  app.innerHTML=hero+body;
+}
+
+function homeView(){
+  const sb_=(S.streak_badges||[]), rb=(S.referrer_badges||[]);
+  const badges=[...sb_.map(n=>`<span class="badge">🔥 ${n} on-time</span>`), ...rb.map(n=>`<span class="badge">🤝 ${n===25?'Super Referrer':n+' referred'}</span>`)];
+  return `
+    <h2>Your standing</h2>
+    <div class="card">
+      <div class="muted">Payment streak: <b style="color:var(--ink)">${nf(S.current_streak)}</b> in a row · best ever <b style="color:var(--ink)">${nf(S.max_streak)}</b><br>
+      Rating <b style="color:var(--gold)">${ratingLabel()}</b> — keep paying on time to reach AAA.</div>
+      ${badges.length?`<div style="margin-top:12px">${badges.join("")}</div>`:`<div class="muted" style="margin-top:10px">Earn badges by paying on time and referring friends.</div>`}
+    </div>
+    <h2>Sound</h2>
+    <div class="card"><button class="btn ghost sm" onclick="toggleSound(this)">${SFX.enabled?'🔊 Sound on — tap to mute':'🔇 Sound off — tap on'}</button></div>
+    <div class="card"><button class="btn ghost sm" onclick="signOut()">Sign out</button></div>`;
+}
+
+function playView(){
+  return `
+    <h2>Spin to win</h2>
+    <div class="card">
+      <div class="muted" style="margin-bottom:12px">You have <b style="color:var(--ink)">${nf(R.spins)}</b> spin${R.spins==1?'':'s'}. Every payment earns one.</div>
+      <button class="btn gold" id="spinBtn" onclick="doSpin()" ${R.spins>0?'':'disabled'}>${R.spins>0?'🎰 Spin':'No spins yet'}</button>
+      <div id="spinOut"></div>
+    </div>
+    <h2>Daily bonus</h2>
+    <div class="card">
+      <div class="muted" style="margin-bottom:12px">A free bonus, once a day.</div>
+      <button class="btn" id="dailyBtn" onclick="doDaily()" ${R.daily_available?'':'disabled'}>${R.daily_available?'🎁 Claim daily bonus':'✓ Claimed today'}</button>
+      <div id="dailyOut"></div>
+    </div>`;
+}
+
+function rewardsView(){
+  const avail=CARDS.filter(c=>c.status==="available"), used=CARDS.filter(c=>c.status!=="available");
+  let h=`<h2>Your $50 reward cards</h2>`;
+  if(!CARDS.length) h+=`<div class="card"><div class="muted">You haven't earned a reward card yet — you get a $50 card every 50,000 points. Keep going!</div></div>`;
+  avail.forEach(c=>{ h+=`<div class="card">
+      <div style="font-weight:800;font-size:17px;margin-bottom:2px">🎁 $${nf(c.value)} reward card</div>
+      <div class="muted" style="margin-bottom:12px">Choose how to use it:</div>
+      <div class="row" style="margin-bottom:8px">
+        <button class="btn sm" onclick="redeem('${c.id}','giftcard')">Gift card</button>
+        <button class="btn sm gold" onclick="redeem('${c.id}','plan_credit')">$50 off my plan</button>
+      </div>
+      <button class="btn sm ghost" onclick="redeem('${c.id}','donation')">Donate to my group</button>
+    </div>`; });
+  if(used.length){ h+=`<h2>Used</h2><div class="card">${used.map(c=>`<div class="cardrow"><span>$${nf(c.value)} card</span><span class="muted">${c.redeemed_as? c.redeemed_as.replace('_',' '):'redeemed'}</span></div>`).join("")}</div>`; }
+  return h;
+}
+
+function drawView(){
+  const L=DRAW.latest;
+  let h=`<h2>Monthly draw</h2>
+    <div class="card">
+      <div class="muted" style="margin-bottom:12px">Leave us a review to enter this month's free draw for points. One entry per month.</div>
+      <button class="btn" id="drawBtn" onclick="doDraw()" ${DRAW.entered_this_month?'disabled':''}>${DRAW.entered_this_month?'✓ Entered this month':'📝 Review & enter'}</button>
+    </div>`;
+  if(L){ h+=`<h2>Latest winner</h2><div class="card ${L.i_won?'':''}">
+      <div style="font-weight:800;font-size:17px">${L.i_won?'🎉 You won!':'🏆 '+(L.winner_first||'A member')+' won'}</div>
+      <div class="muted" style="margin-top:4px">${nf(L.prize)} points${L.i_won?' — added to your balance':''}.</div>
+    </div>`; }
+  return h;
+}
+
+// ---- actions ----
+function setTab(t){ TAB=t; render(); }
+function toggleSound(btn){ SFX.enabled=!SFX.enabled; btn.textContent=SFX.enabled?'🔊 Sound on — tap to mute':'🔇 Sound off — tap on'; }
+
+async function doSpin(){
+  if(busy||!(R.spins>0)) return; busy=true;
+  const btn=$("spinBtn"); if(btn){btn.disabled=true; btn.textContent='Spinning…';}
+  SFX.spin();
+  try{
+    const { data }=await sb.rpc("play_spin");
+    if(data&&data.ok){
+      (data.points>=250?SFX.jackpot():SFX.win());
+      $("spinOut").innerHTML=`<div class="result">🎉 ${data.label} — +${nf(data.points)} points!</div>`;
+      await loadAll();
+    } else { $("spinOut").innerHTML=`<div class="muted" style="margin-top:10px">${(data&&data.error)||'No spins left.'}</div>`; }
+  }catch(e){ $("spinOut").innerHTML=`<div class="muted" style="margin-top:10px">Something went wrong — try again.</div>`; }
+  busy=false; renderKeepTab("play");
+}
+async function doDaily(){
+  if(busy||!R.daily_available) return; busy=true;
+  const btn=$("dailyBtn"); if(btn){btn.disabled=true; btn.textContent='…';}
+  try{
+    const { data }=await sb.rpc("claim_daily");
+    if(data&&data.ok){ SFX.coin(); $("dailyOut").innerHTML=`<div class="result">🎁 +${nf(data.points)} points!</div>`; await loadAll(); }
+    else { $("dailyOut").innerHTML=`<div class="muted" style="margin-top:10px">${(data&&data.error)||'Already claimed today.'}</div>`; }
+  }catch(e){ $("dailyOut").innerHTML=`<div class="muted" style="margin-top:10px">Try again.</div>`; }
+  busy=false; renderKeepTab("play");
+}
+async function redeem(id,how){
+  if(busy) return; busy=true;
+  const labels={giftcard:'gift card',plan_credit:'$50 off your plan',donation:'donation to your group'};
+  try{
+    const { data }=await sb.rpc("redeem_reward_card",{ p_card:id, p_how:how });
+    if(data&&data.ok){ SFX.win(); toast('✓ Redeemed as '+(labels[how]||how)); await loadAll(); }
+    else { toast((data&&data.error)||'Could not redeem'); }
+  }catch(e){ toast('Try again'); }
+  busy=false; renderKeepTab("rewards");
+}
+async function doDraw(){
+  if(busy||DRAW.entered_this_month) return; busy=true;
+  try{
+    const { data }=await sb.rpc("enter_draw");
+    if(data&&data.ok){ SFX.coin(); toast('✓ Entered the draw'); await loadAll(); }
+    // open the real review page for the customer (entry already recorded regardless)
+    window.open("https://g.page/r/","_blank");
+  }catch(e){ toast('Try again'); }
+  busy=false; renderKeepTab("draw");
+}
+function renderKeepTab(t){ TAB=t; render(); }
+
+async function openInbox(){
+  try{ const { data }=await sb.rpc("my_notifications"); const items=data||[];
+    app.innerHTML=`<div class="top"><h1>Notifications</h1><button class="bell" onclick="render()">✕</button></div>`+
+      (items.length? items.map(n=>`<div class="card"><div style="font-weight:800">${n.title||''}</div>${n.body?`<div class="muted" style="margin-top:3px">${n.body}</div>`:''}</div>`).join("")
+                   : `<div class="card"><div class="muted">No notifications yet.</div></div>`);
+    // mark all read
+    for(const n of items){ if(!n.read) sb.rpc("mark_notification_read",{ p_id:n.id }); }
+    UNREAD=0;
+  }catch(e){ render(); }
+}
+async function signOut(){ await sb.auth.signOut(); location.href="customer-login.html"; }
+
+boot();
+</script>
+</body>
+</html>
