@@ -70,6 +70,8 @@ const $=id=>document.getElementById(id);
 const app=$("app"), tabsEl=$("tabs");
 const nf=n=>Number(n||0).toLocaleString();
 const esc=v=>String(v==null?"":v).replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+const SIMTEC_PHONE="+6498869897"; // Simtec office 09 886 9897
+const SIMTEC_EMAIL="info@simtectp.com";
 
 // ---- state ----
 let R={}, S={}, CARDS=[], DRAW={}, PLAN={}, MS=[], LB={}, UNREAD=0, TAB="home", busy=false;
@@ -159,7 +161,7 @@ function render(){
 function homeView(){
   const sb_=(S.streak_badges||[]), rb=(S.referrer_badges||[]);
   const badges=[...sb_.map(n=>`<span class="badge">🔥 ${n} on-time</span>`), ...rb.map(n=>`<span class="badge">🤝 ${n===25?'Super Referrer':n+' referred'}</span>`)];
-  return raceView()+`
+  return missedBanner()+raceView()+`
     <h2>Your standing</h2>
     <div class="card">
       <div class="muted">Payment streak: <b style="color:var(--ink)">${nf(S.current_streak)}</b> in a row · best ever <b style="color:var(--ink)">${nf(S.max_streak)}</b><br>
@@ -172,6 +174,18 @@ function homeView(){
     <div class="card"><button class="btn ghost sm" onclick="signOut()">Sign out</button></div>`;
 }
 
+function missedBanner(){
+  if(!PLAN||!PLAN.missed) return "";
+  const tel=SIMTEC_PHONE.replace(/[^\d+]/g,"");
+  return `<div class="card" style="background:rgba(255,214,90,.10);border:1px solid rgba(255,214,90,.42)">
+    <div style="font-weight:800;font-size:16px">💛 A payment didn\'t go through</div>
+    <div class="muted" style="margin:6px 0 12px;color:#e7ddc0">No stress — it happens. Quick heads-up: Ezidebit charges an $11.50 fee on a missed payment (that\'s their charge, not ours), and a miss can dent your streak and rating. Let\'s sort it out together — no judgment.</div>
+    <div class="row">
+      <button class="btn sm" onclick="location.href='tel:${tel}'">📞 Call us</button>
+      <button class="btn sm ghost" onclick="location.href='mailto:'+SIMTEC_EMAIL">✉️ Email us</button>
+    </div>
+  </div>`;
+}
 function raceView(){
   if(!PLAN||!PLAN.has_order) return "";
   const delivered=PLAN.delivered, crossed=!delivered && (PLAN.authorised || PLAN.pct_to_delivery>=100);
