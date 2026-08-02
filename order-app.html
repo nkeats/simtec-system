@@ -234,7 +234,11 @@
               </div>
             </label>
           </div>
-          <p class="sub" style="margin:0;">Both applicants share the mobile, email and address below.</p>
+          <div class="grid2">
+            <label class="f"><span class="lab">Applicant 2 Mobile</span><input type="tel" id="a2mobile"></label>
+            <label class="f"><span class="lab">Applicant 2 Email <span style="text-transform:none;font-weight:400;color:var(--muted);">(not verified)</span></span><input type="email" id="a2email"></label>
+          </div>
+          <p class="sub" style="margin:0;">The delivery address below is shared. Applicant 2's email is recorded without verification.</p>
         </div>
       </div>
       <div class="card">
@@ -969,6 +973,8 @@ async function savePayload(P){
     referrer_name:(fl.saleType==='solicited'?(f.refName||null):null),
     joint_purchase:!!fl.a2,
     second_customer_name:(fl.a2?((f.a2first+' '+f.a2last).trim()||null):null),
+    second_mobile:(fl.a2?(String(f.a2mobile||'').trim()||null):null),
+    second_email:(fl.a2?(String(f.a2email||'').trim().toLowerCase()||null):null),
     payment_method:PAY_METHOD[fl.pay],
     contract_value:total, amount_paid_to_date:0,
     deposit_amount:(fl.pay==='deposit50'?Math.round(total*50)/100:0),

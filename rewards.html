@@ -55,6 +55,8 @@
   .tab{flex:1;text-align:center;color:var(--sub);font-size:11px;font-weight:700;padding:6px 2px;cursor:pointer;border:0;background:none}
   .tab.on{color:var(--gold)}
   .tab .ic{font-size:19px;display:block;margin-bottom:2px}
+.inp{width:100%;box-sizing:border-box;background:#0a1830;border:1px solid var(--line);border-radius:12px;color:var(--ink);padding:12px 14px;font-size:15px;margin:0 0 10px}
+.inp::placeholder{color:#5c6c86}
 </style>
 </head>
 <body>
@@ -76,7 +78,7 @@ const SIMTEC_PHONE="+6498869897"; // Simtec office 09 886 9897
 const SIMTEC_EMAIL="info@simtectp.com";
 
 // ---- state ----
-let R={}, S={}, CARDS=[], DRAW={}, PLAN={}, MS=[], LB={}, UNREAD=0, TAB="home", busy=false;
+let R={}, S={}, CARDS=[], DRAW={}, PLAN={}, MS=[], LB={}, REFS=[], UNREAD=0, TAB="home", busy=false;
 
 // ---- sound (Web Audio, no files) ----
 const SFX={ enabled:true, _ac:null, _noise:null,
@@ -156,10 +158,10 @@ async function boot(){
   await loadAll(); render(); checkCelebrations();
 }
 async function loadAll(){
-  const [r,s,c,d,u,pl,ms,lb]=await Promise.all([
-    sb.rpc("my_rewards"), sb.rpc("my_status"), sb.rpc("my_cards"), sb.rpc("draw_status"), sb.rpc("unread_count"), sb.rpc("my_plan"), sb.rpc("my_milestones"), sb.rpc("leaderboard")
+  const [r,s,c,d,u,pl,ms,lb,rf]=await Promise.all([
+    sb.rpc("my_rewards"), sb.rpc("my_status"), sb.rpc("my_cards"), sb.rpc("draw_status"), sb.rpc("unread_count"), sb.rpc("my_plan"), sb.rpc("my_milestones"), sb.rpc("leaderboard"), sb.rpc("my_referrals")
   ]);
-  R=r.data||{}; S=s.data||{}; CARDS=c.data||[]; DRAW=d.data||{}; UNREAD=u.data||0; PLAN=pl.data||{}; MS=ms.data||[]; LB=lb.data||{};
+  R=r.data||{}; S=s.data||{}; CARDS=c.data||[]; DRAW=d.data||{}; UNREAD=u.data||0; PLAN=pl.data||{}; MS=ms.data||[]; LB=lb.data||{}; REFS=rf.data||[];
 }
 
 function ratingLabel(){ return (S.rating||"A"); }
@@ -272,6 +274,32 @@ function sleepTipView(){
     <div class="muted" style="font-size:11px;margin-top:8px">A fresh tip every morning · ${SLEEP_TIPS.length} in rotation</div>
   </div>`;
 }
+function referralView(){
+  const rows=(REFS||[]).map(r=>`<div class="cardrow"><span>${esc(r.name)}${r.suburb?`, ${esc(r.suburb)}`:""}</span><b>${esc(r.status)}</b></div>`).join("");
+  return `<h2>Refer a mate — earn 50,000 points</h2><div class="card">
+    <div class="muted" style="margin-bottom:12px">Know someone who'd love better sleep? Pop their details in and our team will look after them. You get <b style="color:var(--gold)">+50,000 points</b> once they buy and get going.</div>
+    <input id="refName" class="inp" placeholder="Their name" autocomplete="off">
+    <input id="refMobile" class="inp" type="tel" placeholder="Their mobile" autocomplete="off">
+    <input id="refSuburb" class="inp" placeholder="Their suburb" autocomplete="off">
+    <div id="refMsg" class="muted" style="margin:4px 0"></div>
+    <button class="btn gold sm" onclick="doReferral()">Send referral</button>
+    ${rows?`<div style="margin-top:14px"><div class="muted" style="font-size:12px;margin-bottom:6px">Your referrals</div>${rows}</div>`:""}
+  </div>`;
+}
+async function doReferral(){
+  if(busy) return;
+  const n=document.getElementById("refName"), m=document.getElementById("refMobile"), su=document.getElementById("refSuburb"), msg=document.getElementById("refMsg");
+  busy=true; if(msg) msg.textContent="Sending…";
+  try{
+    const { data } = await sb.rpc("submit_referral",{ p_name:(n&&n.value)||"", p_mobile:(m&&m.value)||"", p_suburb:(su&&su.value)||"" });
+    const res=data||{};
+    if(res.ok){ try{SFX.win();}catch(e){} await loadAll(); busy=false; renderKeepTab("loot");
+      const mm=document.getElementById("refMsg"); if(mm){ mm.textContent="Sent! Our team will take it from here. 🙌"; mm.style.color="var(--gold)"; }
+      return; }
+    if(msg){ msg.textContent=res.error||"Hmm, that didn't work — try again."; msg.style.color="#f2b8b8"; }
+  }catch(e){ if(msg){ msg.textContent="Hmm, that didn't work — try again."; msg.style.color="#f2b8b8"; } }
+  busy=false;
+}
 function playView(){
   return `
     <h2>Spin to win</h2>
@@ -322,7 +350,8 @@ function lootView(){
     <div class="cardrow"><span>Make your weekly payment</span><b style="color:var(--gold)">+200 &amp; a spin</b></div>
     <div class="cardrow"><span>Make an extra payment</span><b style="color:var(--gold)">+1,000</b></div>
     <div class="cardrow"><span>Refer a mate who buys</span><b style="color:var(--gold)">+50,000</b></div>
-  </div>`;
+  </div>
+  ${referralView()}`;
   return h;
 }
 function drawView(){
