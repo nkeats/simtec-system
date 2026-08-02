@@ -590,7 +590,24 @@ const EZI_EDDR_BASE  = "https://demo.ezidebit.com.au/webddr/Request.aspx";  // s
 const EZI_PUBLIC_KEY = "3097BB91-C589-44E4-8500-719B70EC3F27";             // sandbox public key
 // eDDR frequency codes: 1=Weekly 2=Fortnightly 4=Monthly 8=4-weekly 16=Qtrly 32=Half-yr 64=Yearly
 const EZI_FREQ = { weekly:1, fortnightly:2, monthly:4 };
-const TEAM={"Kenzie Lam Sam":"Kenzie Lam Sam","Anovale Tovio":"Kenzie Lam Sam","PJ Tonga":"Kenzie Lam Sam","Rita Neli":"Kenzie Lam Sam","Tame Cooper":"Kenzie Lam Sam","Yazan Othman":"Yazan Othman","Brooke Komene":"Yazan Othman","Kono Harris":"Yazan Othman","Stacey Numanga":"Yazan Othman"};
+let TEAM={"Kenzie Lam Sam":"Kenzie Lam Sam","Anovale Tovio":"Kenzie Lam Sam","PJ Tonga":"Kenzie Lam Sam","Rita Neli":"Kenzie Lam Sam","Tame Cooper":"Kenzie Lam Sam","Yazan Othman":"Yazan Othman","Brooke Komene":"Yazan Othman","Kono Harris":"Yazan Othman","Stacey Numanga":"Yazan Othman"};
+// Load the LIVE consultant list (added/edited in consultants.html) into the dropdown +
+// team mapping. Falls back to the hardcoded list above if the fetch fails.
+async function loadConsultants(){
+  try{
+    const { data } = await sb.rpc("list_active_consultants");
+    const list = (typeof data === "string") ? JSON.parse(data) : data;
+    if(!Array.isArray(list) || !list.length) return;
+    const sel = document.getElementById("consultant");
+    if(!sel) return;
+    const cur = sel.value;
+    TEAM = {};
+    sel.innerHTML = '<option value="">Select consultant…</option>' +
+      list.map(c=>{ TEAM[c.name] = c.team_leader || null;
+                    return '<option>'+String(c.name).replace(/[&<>]/g,ch=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[ch]))+'</option>'; }).join("");
+    if(cur && TEAM.hasOwnProperty(cur)) sel.value = cur;
+  }catch(e){ /* keep the fallback list */ }
+}
 // New-app payment options -> your payment_method values. Ezidebit becomes weekly_dd/fortnightly_dd
 // once the Ezidebit callback tells us the frequency; null until then.
 const PAY_METHOD={full:"pay_in_full",deposit50:"deposit_50",ezidebit:null};
@@ -612,6 +629,7 @@ async function loadAffiliations(){
   }catch(e){ /* offline or not yet set up — group stays optional */ }
 }
 if(document.readyState!=='loading') loadAffiliations(); else document.addEventListener('DOMContentLoaded', loadAffiliations);
+if(document.readyState!=='loading') loadConsultants(); else document.addEventListener('DOMContentLoaded', loadConsultants);
 const S = { step:0, saleType:'', pay:'', depositMethod:'ezidebit', a2:false, products:[], referralId:null, emailVerified:false, sentCode:null, tncRead:false, idPhotos:{A1:[],A2:[]} };
 const STEP_LABELS = ['Start','Products','Details','Referees','Terms','ID','Payment','Sign','Ezidebit','Done'];
 
