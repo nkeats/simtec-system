@@ -13,53 +13,98 @@
 <meta name="apple-mobile-web-app-title" content="Simtec">
 
 <style>
-  :root{ --navy:#0e2038; --navy2:#12294a; --gold:#c9a84c; --ink:#eaf0f8; --sub:#9fb2cc;
-         --line:rgba(255,255,255,.10); --card:rgba(255,255,255,.055); --good:#25c97a; --hot:#ff8a3d; }
+  :root{ --gold:#FFD23F; --gold2:#FFB627; --ink:#ffffff; --sub:rgba(255,255,255,.66); --muted:rgba(255,255,255,.66);
+         --line:rgba(255,255,255,.16); --card:linear-gradient(180deg,rgba(255,255,255,.14),rgba(255,255,255,.05));
+         --good:#25C97A; --hot:#FF8A3D; --pink:#FF4E9B; --cyan:#25D6FF; --purple:#B06BFF; }
   *{box-sizing:border-box}
-  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
-       background:radial-gradient(120% 80% at 50% 0%,#16305a 0%,#0b1830 55%,#070f20 100%);color:var(--ink);min-height:100vh}
-  .wrap{max-width:520px;margin:0 auto;padding:18px 16px 90px}
+  body{margin:0;font-family:"SF Pro Rounded","Segoe UI",system-ui,-apple-system,Roboto,sans-serif;color:var(--ink);min-height:100vh;
+       background:radial-gradient(130% 55% at 50% -8%, #6B2AB0 0%, #3A1C82 42%, #1A0E52 100%) fixed #1A0E52}
+  .fx{position:fixed;inset:0;pointer-events:none;z-index:0;overflow:hidden}
+  .fx .blob{position:absolute;border-radius:50%;filter:blur(24px)}
+  .fx .b1{top:-30px;left:-55px;width:200px;height:200px;background:radial-gradient(circle,#FF4E9B,transparent 70%);opacity:.32}
+  .fx .b2{top:150px;right:-70px;width:230px;height:230px;background:radial-gradient(circle,#25D6FF,transparent 70%);opacity:.26}
+  .fx .b3{bottom:30px;left:-50px;width:210px;height:210px;background:radial-gradient(circle,#B06BFF,transparent 70%);opacity:.30}
+  .fx .tw{position:absolute;border-radius:50%;background:#fff;animation:tw 2.6s ease-in-out infinite}
+  @keyframes tw{0%,100%{opacity:.25;transform:scale(.8)}50%{opacity:1;transform:scale(1.15)}}
+  @keyframes bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-5px)}}
+  @keyframes pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.025)}}
+  .wrap{max-width:520px;margin:0 auto;padding:18px 16px 96px;position:relative;z-index:1}
   .center{display:flex;align-items:center;justify-content:center;min-height:70vh;color:var(--sub)}
   .spin{width:26px;height:26px;border:3px solid rgba(255,255,255,.25);border-top-color:var(--gold);border-radius:50%;animation:sp 1s linear infinite;display:inline-block}
   @keyframes sp{to{transform:rotate(360deg)}}
   .top{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
-  .top h1{font-size:18px;margin:0;font-weight:800;letter-spacing:.2px}
-  .bell{position:relative;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:8px 11px;color:var(--ink);font-size:15px;cursor:pointer}
-  .bell b{position:absolute;top:-6px;right:-6px;background:var(--hot);color:#241000;font-size:11px;font-weight:800;border-radius:10px;padding:1px 6px}
-  .hero{background:linear-gradient(135deg,var(--navy2),#0c1c34);border:1px solid var(--line);border-radius:20px;padding:20px;text-align:center;margin-bottom:14px;box-shadow:0 18px 50px rgba(0,0,0,.35)}
-  .pts{font-size:40px;font-weight:900;letter-spacing:-.5px;line-height:1}
-  .pts span{font-size:15px;color:var(--sub);font-weight:600}
+  .top h1{font-size:20px;margin:0;font-weight:900;letter-spacing:.2px;text-shadow:0 2px 10px rgba(0,0,0,.35)}
+  .bell{position:relative;background:linear-gradient(180deg,rgba(255,255,255,.16),rgba(255,255,255,.06));border:1px solid var(--line);border-radius:14px;padding:8px 12px;color:var(--ink);font-size:16px;cursor:pointer}
+  .bell b{position:absolute;top:-7px;right:-7px;background:linear-gradient(120deg,#FF2D78,#FF6A3D);color:#fff;font-size:11px;font-weight:900;border-radius:10px;padding:1px 6px;box-shadow:0 2px 6px rgba(255,45,120,.5)}
+  .hero{background:linear-gradient(120deg,#6B2AB0,#B06BFF);border:1px solid rgba(255,255,255,.22);border-radius:26px;padding:22px 20px;text-align:center;margin-bottom:14px;box-shadow:0 14px 34px rgba(107,42,176,.45), inset 0 1px 0 rgba(255,255,255,.25)}
+  .pts{font-size:44px;font-weight:900;letter-spacing:-.5px;line-height:1;color:var(--gold);text-shadow:0 0 22px rgba(255,210,63,.45), 0 2px 4px rgba(0,0,0,.35)}
+  .pts span{font-size:15px;color:rgba(255,255,255,.85);font-weight:700;text-shadow:none}
   .chips{display:flex;gap:10px;justify-content:center;margin-top:14px;flex-wrap:wrap}
-  .chip{background:var(--card);border:1px solid var(--line);border-radius:999px;padding:7px 14px;font-size:13px;font-weight:700}
-  .chip .k{color:var(--sub);font-weight:600;margin-right:5px}
-  .rating{background:linear-gradient(120deg,var(--gold),#eBD98a);color:#2a2005}
-  h2{font-size:13px;text-transform:uppercase;letter-spacing:1.2px;color:var(--sub);margin:22px 4px 10px}
-  .card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:16px;margin-bottom:12px}
-  .btn{width:100%;border:0;border-radius:13px;padding:15px;font-size:16px;font-weight:800;cursor:pointer;color:#06210f;
-       background:linear-gradient(120deg,var(--good),#25d6ff);box-shadow:0 8px 22px rgba(37,201,122,.25)}
+  .chip{background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.28);border-radius:999px;padding:7px 14px;font-size:13px;font-weight:800}
+  .chip .k{color:rgba(255,255,255,.75);font-weight:700;margin-right:5px}
+  .rating{background:linear-gradient(135deg,#FFE27A,#FF8A3D 60%,#FF2D78);color:#3A2000;border-color:transparent;box-shadow:0 3px 10px rgba(255,45,120,.4)}
+  h2{font-size:11.5px;text-transform:uppercase;letter-spacing:1.6px;color:var(--sub);margin:22px 6px 10px;font-weight:800}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:22px;padding:16px;margin-bottom:12px;box-shadow:inset 0 1px 0 rgba(255,255,255,.18)}
+  .btn{width:100%;border:0;border-radius:16px;padding:15px;font-size:16px;font-weight:900;cursor:pointer;color:#053019;font-family:inherit;
+       background:linear-gradient(120deg,#25C97A,#54EFA0);box-shadow:0 4px 0 #159257, 0 10px 24px rgba(37,201,122,.30);transition:transform .08s, box-shadow .08s}
+  .btn:active{transform:translateY(3px);box-shadow:0 1px 0 #159257}
   .btn:disabled{opacity:.45;box-shadow:none;cursor:default}
-  .btn.gold{background:linear-gradient(120deg,var(--gold),#f0d98a);color:#2a2005}
-  .btn.ghost{background:var(--card);color:var(--ink);border:1px solid var(--line);box-shadow:none;font-weight:700}
+  .btn.gold{background:linear-gradient(120deg,#FFD23F,#FF8A3D);color:#3A2000;box-shadow:0 4px 0 #C88A00, 0 10px 24px rgba(255,182,39,.35)}
+  .btn.gold:active{transform:translateY(3px);box-shadow:0 1px 0 #C88A00}
+  .btn.ghost{background:linear-gradient(180deg,rgba(255,255,255,.16),rgba(255,255,255,.06));color:var(--ink);border:1px solid var(--line);box-shadow:none;font-weight:800}
+  .btn.ghost:active{transform:translateY(2px)}
   .btn.sm{padding:11px;font-size:14px}
   .row{display:flex;gap:10px}
   .muted{color:var(--sub);font-size:13px;line-height:1.5}
-  .result{text-align:center;padding:14px;border-radius:13px;background:rgba(201,168,76,.12);border:1px solid rgba(201,168,76,.4);margin-top:12px;font-weight:800;font-size:17px}
+  .result{text-align:center;padding:14px;border-radius:16px;background:rgba(255,210,63,.14);border:1px solid rgba(255,210,63,.5);margin-top:12px;font-weight:900;font-size:17px;box-shadow:0 0 18px rgba(255,210,63,.18)}
   .cardrow{display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-bottom:1px solid var(--line)}
   .cardrow:last-child{border-bottom:0}
-  .badge{display:inline-block;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:5px 10px;font-size:12.5px;font-weight:700;margin:3px 4px 0 0}
-  .win{background:linear-gradient(120deg,#FFD23F,#FF8A3D);color:#241000;border:0}
-  .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#0b1830;border:1px solid var(--gold);color:var(--ink);
-         padding:13px 18px;border-radius:13px;font-weight:700;box-shadow:0 12px 40px rgba(0,0,0,.5);z-index:50;max-width:90%}
-  .tabs{position:fixed;left:0;right:0;bottom:0;background:rgba(8,16,32,.92);backdrop-filter:blur(8px);border-top:1px solid var(--line);
-        display:flex;justify-content:space-around;padding:8px 6px 14px;max-width:520px;margin:0 auto}
-  .tab{flex:1;text-align:center;color:var(--sub);font-size:11px;font-weight:700;padding:6px 2px;cursor:pointer;border:0;background:none}
-  .tab.on{color:var(--gold)}
-  .tab .ic{font-size:19px;display:block;margin-bottom:2px}
-.inp{width:100%;box-sizing:border-box;background:#0a1830;border:1px solid var(--line);border-radius:12px;color:var(--ink);padding:12px 14px;font-size:15px;margin:0 0 10px}
-.inp::placeholder{color:#5c6c86}
+  .badge{display:inline-block;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.26);border-radius:12px;padding:5px 10px;font-size:12.5px;font-weight:800;margin:3px 4px 0 0}
+  .win{background:linear-gradient(120deg,#FFD23F,#FF8A3D);color:#3A2000;border:0;box-shadow:0 3px 10px rgba(255,138,61,.4)}
+  .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:linear-gradient(180deg,#3A1C82,#241463);border:1px solid var(--gold);color:var(--ink);
+         padding:13px 18px;border-radius:16px;font-weight:800;box-shadow:0 12px 40px rgba(0,0,0,.5);z-index:50;max-width:90%}
+  .tabs{position:fixed;left:0;right:0;bottom:0;background:rgba(20,10,60,.92);backdrop-filter:blur(10px);border-top:1px solid var(--line);
+        display:flex;justify-content:space-around;padding:8px 6px 14px;max-width:520px;margin:0 auto;gap:4px}
+  .tab{flex:1;text-align:center;color:var(--sub);font-size:11px;font-weight:800;padding:7px 2px;cursor:pointer;border:0;background:none;border-radius:14px;font-family:inherit}
+  .tab.on{color:#3A2000;background:linear-gradient(120deg,#FFD23F,#FF8A3D);box-shadow:0 3px 0 #C88A00}
+  .tab .ic{font-size:20px;display:block;margin-bottom:2px}
+  .inp{width:100%;box-sizing:border-box;background:rgba(255,255,255,.10);border:1px solid var(--line);border-radius:14px;color:var(--ink);padding:12px 14px;font-size:15px;margin:0 0 10px;font-family:inherit;font-weight:600}
+  .inp::placeholder{color:rgba(255,255,255,.45)}
+
+  .bob{animation:bob 2.4s ease-in-out infinite}
+  @keyframes popin{from{opacity:0;transform:translateY(10px) scale(.98)}to{opacity:1;transform:none}}
+  .card{animation:popin .35s cubic-bezier(.34,1.3,.5,1) both}
+  .card:nth-of-type(2){animation-delay:.05s}.card:nth-of-type(3){animation-delay:.1s}
+  .card:nth-of-type(4){animation-delay:.15s}.card:nth-of-type(5){animation-delay:.2s}
+  .hero{position:relative;overflow:hidden;animation:popin .35s cubic-bezier(.34,1.3,.5,1) both}
+  .hero::after{content:"";position:absolute;top:-60%;left:-70%;width:55%;height:220%;transform:rotate(22deg);
+    background:linear-gradient(90deg,transparent,rgba(255,255,255,.28),transparent);animation:sweep 4.2s ease-in-out infinite}
+  @keyframes sweep{0%,55%{left:-70%}85%,100%{left:130%}}
+  .pts{animation:ptsglow 2.8s ease-in-out infinite}
+  @keyframes ptsglow{0%,100%{text-shadow:0 0 18px rgba(255,210,63,.35),0 2px 4px rgba(0,0,0,.35)}50%{text-shadow:0 0 30px rgba(255,210,63,.65),0 2px 4px rgba(0,0,0,.35)}}
+  .btn.gold{animation:pulse 2.6s ease-in-out infinite}
+  .btn.gold:disabled{animation:none}
+  .tabs{left:50%;right:auto;transform:translateX(-50%);width:calc(100% - 20px);max-width:520px;bottom:10px;border:1px solid var(--line);
+        border-radius:24px;background:rgba(20,10,60,.9);box-shadow:0 14px 34px rgba(0,0,0,.5)}
+  .tab.on .ic{animation:bob 1.6s ease-in-out infinite}
+
+  .refercta{width:100%;display:flex;align-items:center;gap:14px;padding:16px 18px;margin-bottom:12px;border:0;border-radius:16px;color:#fff;cursor:pointer;font-family:inherit;
+    background:linear-gradient(120deg,#FF2D78,#FF6A3D);box-shadow:0 4px 0 #C41E5E, 0 12px 28px rgba(255,45,120,.35);animation:pulse 2.4s ease-in-out infinite;transition:transform .08s, box-shadow .08s}
+  .refercta:active{transform:translateY(3px);box-shadow:0 1px 0 #C41E5E}
 </style>
 </head>
 <body>
+<div class="fx">
+  <div class="blob b1"></div><div class="blob b2"></div><div class="blob b3"></div>
+  <div class="tw" style="left:8%;top:10%;width:6px;height:6px"></div><div class="tw" style="left:24%;top:26%;width:4px;height:4px;animation-delay:.3s"></div>
+  <div class="tw" style="left:42%;top:7%;width:5px;height:5px;animation-delay:.6s"></div><div class="tw" style="left:62%;top:16%;width:4px;height:4px;animation-delay:.9s"></div>
+  <div class="tw" style="left:82%;top:9%;width:6px;height:6px;animation-delay:1.2s"></div><div class="tw" style="left:91%;top:28%;width:4px;height:4px;animation-delay:1.5s"></div>
+  <div class="tw" style="left:13%;top:48%;width:4px;height:4px;animation-delay:.4s"></div><div class="tw" style="left:72%;top:42%;width:5px;height:5px;animation-delay:1.1s"></div>
+  <div class="tw" style="left:88%;top:58%;width:4px;height:4px;animation-delay:.7s"></div><div class="tw" style="left:9%;top:70%;width:5px;height:5px;animation-delay:1.4s"></div>
+  <div class="tw" style="left:31%;top:82%;width:4px;height:4px;animation-delay:.2s"></div><div class="tw" style="left:52%;top:63%;width:4px;height:4px;animation-delay:1.7s"></div>
+  <div class="tw" style="left:67%;top:74%;width:6px;height:6px;animation-delay:.5s"></div><div class="tw" style="left:87%;top:86%;width:4px;height:4px;animation-delay:1.9s"></div>
+  <div class="tw" style="left:20%;top:60%;width:3px;height:3px;animation-delay:1s"></div>
+</div>
 <div class="wrap"><div id="app"><div class="center"><span class="spin"></span></div></div></div>
 <div class="tabs" id="tabs" style="display:none"></div>
 
@@ -121,7 +166,7 @@ const SFX={ enabled:true, _ac:null, _noise:null,
 function toast(msg){ const t=document.createElement("div"); t.className="toast"; t.textContent=msg; document.body.appendChild(t); setTimeout(()=>t.remove(),2600); }
 
 function runConfetti(cv){
-  const ctx=cv.getContext("2d"), W=cv.width, H=cv.height, cols=["#c9a84c","#f0d98a","#ffffff","#cfd3da","#8fb4e8"], P=[];
+  const ctx=cv.getContext("2d"), W=cv.width, H=cv.height, cols=["#FF4E9B","#25D6FF","#54EFA0","#FFD23F","#B06BFF","#FF8A3D"], P=[];
   for(let i=0;i<130;i++) P.push({x:W/2,y:H*0.42,vx:(Math.random()-0.5)*15,vy:(Math.random()-0.95)*15,g:0.32,s:5+Math.random()*7,c:cols[i%cols.length],r:Math.random()*6,vr:(Math.random()-0.5)*0.4,life:1});
   let t=0;(function anim(){ t++; ctx.clearRect(0,0,W,H); let alive=false;
     P.forEach(p=>{ p.vy+=p.g; p.x+=p.vx; p.y+=p.vy; p.r+=p.vr; p.life-=0.008;
@@ -172,7 +217,7 @@ function render(){
 
   const hero=`
     <div class="top">
-      <h1>My Simtec Rewards</h1>
+      <h1 style="display:flex;align-items:center;gap:10px"><svg width="34" height="34" viewBox="0 0 64 64" class="bob" style="filter:drop-shadow(0 4px 8px rgba(255,180,60,.55));flex-shrink:0"><defs><linearGradient id="mg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFE886"/><stop offset="1" stop-color="#FF9A3D"/></linearGradient></defs><path d="M32 4l7 15 16 2-12 11 3 16-14-8-14 8 3-16L12 21l16-2z" fill="url(#mg)" stroke="#FF7A2D" stroke-width="1.5" stroke-linejoin="round"/><circle cx="26" cy="28" r="2.5" fill="#5A3200"/><circle cx="38" cy="28" r="2.5" fill="#5A3200"/><path d="M25 34 q7 6 14 0" stroke="#5A3200" stroke-width="2.2" fill="none" stroke-linecap="round"/><circle cx="21" cy="32" r="2.1" fill="#FF6A9B" opacity=".55"/><circle cx="43" cy="32" r="2.1" fill="#FF6A9B" opacity=".55"/></svg>My Simtec Rewards</h1>
       <button class="bell" onclick="openInbox()">🔔${UNREAD>0?`<b>${UNREAD>9?'9+':UNREAD}</b>`:''}</button>
     </div>
     <div class="hero">
@@ -197,11 +242,14 @@ function render(){
 function homeView(){
   const sb_=(S.streak_badges||[]), rb=(S.referrer_badges||[]);
   const badges=[...sb_.map(n=>`<span class="badge">🔥 ${n} on-time</span>`), ...rb.map(n=>`<span class="badge">🤝 ${n===25?'Super Referrer':n+' referred'}</span>`)];
-  return missedBanner()+raceView()+`
+  const aaaLine = (S.rating==='AAA')
+    ? `🛡️ You're a <b style="color:var(--gold)">Triple-A client</b> — every Simtec client starts AAA. Every on-time payment <b style="color:var(--ink)">keeps it yours</b>.`
+    : `Rating <b style="color:var(--gold)">${ratingLabel()}</b> — <b style="color:var(--ink)">${nf(S.to_aaa||0)} on-time payment${(S.to_aaa||0)===1?'':'s'}</b> and your Triple-A is back. 💪`;
+  return missedBanner()+referBanner()+raceView()+`
     <h2>Your standing</h2>
     <div class="card">
-      <div class="muted">Payment streak: <b style="color:var(--ink)">${nf(S.current_streak)}</b> in a row · best ever <b style="color:var(--ink)">${nf(S.max_streak)}</b><br>
-      Rating <b style="color:var(--gold)">${ratingLabel()}</b> — keep paying on time to reach AAA.</div>
+      <div class="muted">${aaaLine}<br>
+      Payment streak: <b style="color:var(--ink)">${nf(S.current_streak)}</b> in a row · best ever <b style="color:var(--ink)">${nf(S.max_streak)}</b></div>
       ${badges.length?`<div style="margin-top:12px">${badges.join("")}</div>`:`<div class="muted" style="margin-top:10px">Earn badges by paying on time and referring friends.</div>`}
     </div>
     ${leaderboardView()}
@@ -212,12 +260,19 @@ function homeView(){
     <div style="margin-top:10px"><a href="customer-login.html?account=1" style="color:var(--muted);font-size:12.5px">Manage my community group & account</a></div></div>`;
 }
 
+function referBanner(){
+  return `<button class="refercta" onclick="TAB='loot'; render(); setTimeout(()=>{const el=document.getElementById('refName'); if(el){el.scrollIntoView({behavior:'smooth',block:'center'});}},60)">
+    <div style="font-size:32px">💥</div>
+    <div style="flex:1;text-align:left"><div style="font-size:15px;font-weight:900">Refer a mate</div><div style="font-size:12.5px;opacity:.95">They buy a bed, you bank</div></div>
+    <div style="text-align:right"><div style="font-weight:900;font-size:21px;line-height:1">50,000</div><div style="font-size:10px;font-weight:800;letter-spacing:1px">POINTS</div></div>
+  </button>`;
+}
 function missedBanner(){
   if(!PLAN||!PLAN.missed) return "";
   const tel=SIMTEC_PHONE.replace(/[^\d+]/g,"");
   return `<div class="card" style="background:rgba(255,214,90,.10);border:1px solid rgba(255,214,90,.42)">
     <div style="font-weight:800;font-size:16px">💛 A payment didn\'t go through</div>
-    <div class="muted" style="margin:6px 0 12px;color:#e7ddc0">No stress — it happens. Quick heads-up: Ezidebit charges an $11.50 fee on a missed payment (that\'s their charge, not ours), and a miss can dent your streak and rating. Let\'s sort it out together — no judgment.</div>
+    <div class="muted" style="margin:6px 0 12px;color:#e7ddc0">No stress — it happens. Quick heads-up: Ezidebit charges an $11.50 fee on a missed payment (that\'s their charge, not ours), and a miss puts your Triple-A rating on the line. Let\'s sort it out together — no judgment.</div>
     <div class="row">
       <button class="btn sm" onclick="location.href='tel:${tel}'">📞 Call us</button>
       <button class="btn sm ghost" onclick="location.href='mailto:'+SIMTEC_EMAIL">✉️ Email us</button>
