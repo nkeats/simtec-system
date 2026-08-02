@@ -61,9 +61,10 @@ const sb = supabase.createClient(SUPA_URL, SUPA_KEY, { auth:{ persistSession:tru
 const $=id=>document.getElementById(id);
 const app=$("app"), tabsEl=$("tabs");
 const nf=n=>Number(n||0).toLocaleString();
+const esc=v=>String(v==null?"":v).replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
 
 // ---- state ----
-let R={}, S={}, CARDS=[], DRAW={}, PLAN={}, MS=[], UNREAD=0, TAB="home", busy=false;
+let R={}, S={}, CARDS=[], DRAW={}, PLAN={}, MS=[], LB={}, UNREAD=0, TAB="home", busy=false;
 
 // ---- sound (Web Audio, no files) ----
 const SFX={ enabled:true, _ac:null, _noise:null,
@@ -111,10 +112,10 @@ async function boot(){
   await loadAll(); render();
 }
 async function loadAll(){
-  const [r,s,c,d,u,pl,ms]=await Promise.all([
-    sb.rpc("my_rewards"), sb.rpc("my_status"), sb.rpc("my_cards"), sb.rpc("draw_status"), sb.rpc("unread_count"), sb.rpc("my_plan"), sb.rpc("my_milestones")
+  const [r,s,c,d,u,pl,ms,lb]=await Promise.all([
+    sb.rpc("my_rewards"), sb.rpc("my_status"), sb.rpc("my_cards"), sb.rpc("draw_status"), sb.rpc("unread_count"), sb.rpc("my_plan"), sb.rpc("my_milestones"), sb.rpc("leaderboard")
   ]);
-  R=r.data||{}; S=s.data||{}; CARDS=c.data||[]; DRAW=d.data||{}; UNREAD=u.data||0; PLAN=pl.data||{}; MS=ms.data||[];
+  R=r.data||{}; S=s.data||{}; CARDS=c.data||[]; DRAW=d.data||{}; UNREAD=u.data||0; PLAN=pl.data||{}; MS=ms.data||[]; LB=lb.data||{};
 }
 
 function ratingLabel(){ return (S.rating||"A"); }
@@ -157,6 +158,7 @@ function homeView(){
       Rating <b style="color:var(--gold)">${ratingLabel()}</b> — keep paying on time to reach AAA.</div>
       ${badges.length?`<div style="margin-top:12px">${badges.join("")}</div>`:`<div class="muted" style="margin-top:10px">Earn badges by paying on time and referring friends.</div>`}
     </div>
+    ${leaderboardView()}
     <h2>Sound</h2>
     <div class="card"><button class="btn ghost sm" onclick="toggleSound(this)">${SFX.enabled?'🔊 Sound on — tap to mute':'🔇 Sound off — tap on'}</button></div>
     <div class="card"><button class="btn ghost sm" onclick="signOut()">Sign out</button></div>`;
@@ -191,6 +193,21 @@ async function payExtra(purpose){
   }catch(e){ toast("Card payments are coming soon"); }
   busy=false;
 }
+function leaderboardView(){
+  if(!LB) return "";
+  if(!LB.opted_in){
+    return `<h2>Leaderboard</h2><div class="card">
+      <div class="muted" style="margin-bottom:12px">See how you rank all-time. Opt in and only your first name shows to others.</div>
+      <button class="btn ghost sm" onclick="toggleBoard(true)">Join the leaderboard</button></div>`;
+  }
+  const top=(LB.top||[]).slice(0,5);
+  const rows=top.map(r=>`<div class="cardrow"><span>${r.rank}. ${r.me?'<b style="color:var(--gold)">You</b>':(esc(r.name)||"—")}</span><b>${nf(r.points)}</b></div>`).join("");
+  const inTop=top.some(r=>r.me);
+  const mine=(!inTop && LB.my_rank)?`<div class="cardrow" style="border-top:1px solid var(--line)"><span><b style="color:var(--gold)">You — #${LB.my_rank}</b></span><b>${nf(LB.my_points)}</b></div>`:"";
+  return `<h2>Leaderboard</h2><div class="card">${rows||'<div class="muted">No one on the board yet — you could be first!</div>'}${mine}
+    <button class="btn ghost sm" style="margin-top:12px" onclick="toggleBoard(false)">Leave the leaderboard</button></div>`;
+}
+async function toggleBoard(on){ if(busy) return; busy=true; try{ await sb.rpc("set_leaderboard_optin",{ p_on:on }); await loadAll(); }catch(e){} busy=false; render(); }
 function playView(){
   return `
     <h2>Spin to win</h2>
