@@ -226,7 +226,26 @@ async function boot(){
   if(paid!==null){ history.replaceState(null,"",location.pathname); }
   try{ if(localStorage.getItem("simtec_ver")!==APP_VER){ localStorage.setItem("simtec_ver",APP_VER); setTimeout(()=>toast("✨ App updated — "+APP_VER),600); beacon("update","running "+APP_VER); } }catch(e){}
   crumb('boot');
-  try{ await loadAll(); crumb('loaded'); }catch(e){ crumb('loadfail'); beacon('loadAll', String(e&&e.message||e)); }
+  // FLIGHT RECORDER: report every load unconditionally — version, login validity,
+  // and what the data calls actually returned — so remote diagnosis needs no
+  // guesswork about what this device saw.
+  (async()=>{ try{
+    const { data:gu, error:ge } = await sb.auth.getUser();
+    beacon("load-report","auth="+(ge?("BAD:"+ge.message):("ok:"+((gu&&gu.user&&gu.user.email)||"?"))));
+  }catch(e){ beacon("load-report","auth-check-threw:"+String(e&&e.message||e)); } })();
+  try{ await loadAll(); crumb('loaded');
+    beacon("data-report","points="+(R&&R.points)+" spins="+(R&&R.spins)+" has_order="+(PLAN&&PLAN.has_order)+" pct="+(PLAN&&PLAN.pct_to_delivery)+" rating="+(S&&S.rating)+" name="+NAME);
+  }catch(e){ crumb('loadfail'); beacon('loadAll', String(e&&e.message||e)); }
+  // ZOMBIE-SESSION SELF-HEAL: a locally cached login the server no longer accepts
+  // (e.g. after clearing Safari data) makes every call fail while the app still
+  // opens. If nothing loaded, double-check the login with the server — and if
+  // it's dead, sign out cleanly to the login page instead of sitting frozen.
+  if(R.points===undefined){
+    try{
+      const { error } = await sb.auth.getUser();
+      if(error){ try{ await sb.auth.signOut(); }catch(_){} location.replace("customer-login.html"); return; }
+    }catch(_){}
+  }
   render(); try{ checkCelebrations(); }catch(e){}
   if(paid==="1"){ SFX.win(); toast("💳 Payment received — thank you! Your points land the moment it clears."); }
   else if(paid==="0"){ toast("Payment cancelled — no charge was made."); }
@@ -242,7 +261,7 @@ async function loadAll(){
 }
 
 function ratingLabel(){ return (S.rating||"AAA"); }
-const APP_VER="v6 — 3 Aug";
+const APP_VER="v8 — 3 Aug";
 // Black-box recorder: any error on the device reports itself home, with a
 // breadcrumb trail of the last taps — so "it froze" becomes a readable log.
 let CRUMBS=[];
