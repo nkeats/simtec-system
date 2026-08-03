@@ -537,11 +537,13 @@
           <button class="btn-sm" type="button" onclick="launchEzidebit()">Open secure Ezidebit form</button>
           <div id="eziMsg" class="sub" style="margin-top:10px;color:var(--danger)"></div>
         </div>
-        <div id="eziFrameWrap" class="hidden" style="overflow-x:auto;-webkit-overflow-scrolling:touch;border:1px solid var(--line);border-radius:12px;background:#fff;">
-          <!-- Tall enough that Ezidebit's ENTIRE form — including their Submit button —
-               is on the page (the page itself scrolls; iPads won't scroll inside a
-               cut-off frame). Their Submit now sits directly above the signature box. -->
-          <iframe id="eziFrame" title="Ezidebit direct debit" style="width:900px;max-width:none;height:2100px;border:0;display:block"></iframe>
+        <!-- The Ezidebit form is 900px wide internally, but the frame is SCALED to fit
+             the screen width (transform), so there is nothing to drag sideways and
+             vertical finger-pans pass straight through to the page. Tall enough that
+             their ENTIRE form — including their Submit — is on the page, directly
+             above the signature box. fitEzi() keeps the scale right on rotate. -->
+        <div id="eziFrameWrap" class="hidden" style="overflow:hidden;touch-action:pan-y;border:1px solid var(--line);border-radius:12px;background:#fff;position:relative;">
+          <iframe id="eziFrame" title="Ezidebit direct debit" style="width:900px;max-width:none;height:2100px;border:0;display:block;transform-origin:0 0;"></iframe>
         </div>
         <div id="eziTallerRow" class="hidden" style="text-align:center;margin-top:8px;">
           <button class="btn-sm" type="button" onclick="eziTaller()" style="background:#fff;color:var(--navy);border:1px solid var(--line);">⬇ Can't see Ezidebit's Submit button? Tap to extend the window</button>
@@ -1487,10 +1489,21 @@ function buildEddrUrl(){
   return EZI_EDDR_BASE + '?' + q.toString();
 }
 
-function eziTaller(){
-  const fr=document.getElementById("eziFrame");
-  fr.style.height=(parseInt(fr.style.height,10)+600)+"px";   // each tap adds another 600px of window
+let EZI_H=2100;                                   // the frame's internal height
+function fitEzi(){
+  // Scale the 900px-wide Ezidebit form down to the wrapper's width so it always
+  // fits the screen exactly — no sideways movement, page scrolls freely.
+  const wrap=document.getElementById("eziFrameWrap"), fr=document.getElementById("eziFrame");
+  if(!wrap||!fr||wrap.classList.contains("hidden")) return;
+  const w=wrap.clientWidth||wrap.getBoundingClientRect().width; if(!w) return;
+  const scale=Math.min(1, w/900);
+  fr.style.height=EZI_H+"px";
+  fr.style.transform="scale("+scale+")";
+  wrap.style.height=Math.round(EZI_H*scale)+"px";  // wrapper hugs the scaled frame
 }
+function eziTaller(){ EZI_H+=600; fitEzi(); }      // each tap adds another 600px of window
+window.addEventListener("resize", fitEzi);
+window.addEventListener("orientationchange", ()=>setTimeout(fitEzi,250));
 function launchEzidebit(){
   const msg=document.getElementById('eziMsg'); msg.textContent='';
   if(!S.orderId){ msg.textContent='Save the order first (go back and submit) before setting up the direct debit.'; return; }
@@ -1502,6 +1515,7 @@ function launchEzidebit(){
   document.getElementById('eziLaunch').classList.add('hidden');
   document.getElementById('eziFrameWrap').classList.remove('hidden');
   document.getElementById("eziTallerRow").classList.remove("hidden");
+  setTimeout(fitEzi,50);
 }
 
 // The return page (same-origin) postMessages the eDDR callback params here.
