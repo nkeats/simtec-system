@@ -18,12 +18,12 @@
          --good:#25C97A; --hot:#FF8A3D; --pink:#FF4E9B; --cyan:#25D6FF; --purple:#B06BFF; }
   *{box-sizing:border-box}
   body{margin:0;font-family:"SF Pro Rounded","Segoe UI",system-ui,-apple-system,Roboto,sans-serif;color:var(--ink);min-height:100vh;
-       background:radial-gradient(130% 55% at 50% -8%, #6B2AB0 0%, #3A1C82 42%, #1A0E52 100%) fixed #1A0E52}
+       background:radial-gradient(130% 55% at 50% -8%, #6B2AB0 0%, #3A1C82 42%, #1A0E52 100%) #1A0E52}
   .fx{position:fixed;inset:0;pointer-events:none;z-index:0;overflow:hidden}
-  .fx .blob{position:absolute;border-radius:50%;filter:blur(24px)}
-  .fx .b1{top:-30px;left:-55px;width:200px;height:200px;background:radial-gradient(circle,#FF4E9B,transparent 70%);opacity:.32}
-  .fx .b2{top:150px;right:-70px;width:230px;height:230px;background:radial-gradient(circle,#25D6FF,transparent 70%);opacity:.26}
-  .fx .b3{bottom:30px;left:-50px;width:210px;height:210px;background:radial-gradient(circle,#B06BFF,transparent 70%);opacity:.30}
+  .fx .blob{position:absolute;border-radius:50%} /* soft edge baked into the gradient — live blur() locks up phone GPUs */
+  .fx .b1{top:-30px;left:-55px;width:200px;height:200px;background:radial-gradient(circle,rgba(255,78,155,.8),transparent 60%);opacity:.32}
+  .fx .b2{top:150px;right:-70px;width:230px;height:230px;background:radial-gradient(circle,rgba(37,214,255,.8),transparent 60%);opacity:.26}
+  .fx .b3{bottom:30px;left:-50px;width:210px;height:210px;background:radial-gradient(circle,rgba(176,107,255,.8),transparent 60%);opacity:.30}
   .fx .tw{position:absolute;border-radius:50%;background:#fff;animation:tw 2.6s ease-in-out infinite}
   @keyframes tw{0%,100%{opacity:.25;transform:scale(.8)}50%{opacity:1;transform:scale(1.15)}}
   @keyframes bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-5px)}}
@@ -63,7 +63,7 @@
   .win{background:linear-gradient(120deg,#FFD23F,#FF8A3D);color:#3A2000;border:0;box-shadow:0 3px 10px rgba(255,138,61,.4)}
   .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:linear-gradient(180deg,#3A1C82,#241463);border:1px solid var(--gold);color:var(--ink);
          padding:13px 18px;border-radius:16px;font-weight:800;box-shadow:0 12px 40px rgba(0,0,0,.5);z-index:50;max-width:90%}
-  .tabs{position:fixed;left:0;right:0;bottom:0;background:rgba(20,10,60,.92);backdrop-filter:blur(10px);border-top:1px solid var(--line);
+  .tabs{position:fixed;left:0;right:0;bottom:0;background:rgba(20,10,60,.92);border-top:1px solid var(--line);
         display:flex;justify-content:space-around;padding:8px 6px 14px;max-width:520px;margin:0 auto;gap:4px}
   .tab{flex:1;text-align:center;color:var(--sub);font-size:11px;font-weight:800;padding:7px 2px;cursor:pointer;border:0;background:none;border-radius:14px;font-family:inherit}
   .tab.on{color:#3A2000;background:linear-gradient(120deg,#FFD23F,#FF8A3D);box-shadow:0 3px 0 #C88A00}
@@ -77,23 +77,21 @@
   .card:nth-of-type(2){animation-delay:.05s}.card:nth-of-type(3){animation-delay:.1s}
   .card:nth-of-type(4){animation-delay:.15s}.card:nth-of-type(5){animation-delay:.2s}
   .hero{position:relative;overflow:hidden;animation:popin .35s cubic-bezier(.34,1.3,.5,1) both}
-  .hero::after{content:"";position:absolute;top:-60%;left:-70%;width:55%;height:220%;transform:rotate(22deg);
-    background:linear-gradient(90deg,transparent,rgba(255,255,255,.28),transparent);animation:sweep 4.2s ease-in-out infinite}
-  @keyframes sweep{0%,55%{left:-70%}85%,100%{left:130%}}
-  .pts{animation:ptsglow 2.8s ease-in-out infinite}
-  @keyframes ptsglow{0%,100%{text-shadow:0 0 18px rgba(255,210,63,.35),0 2px 4px rgba(0,0,0,.35)}50%{text-shadow:0 0 30px rgba(255,210,63,.65),0 2px 4px rgba(0,0,0,.35)}}
-  .btn.gold{animation:pulse 2.6s ease-in-out infinite}
-  .btn.gold:disabled{animation:none}
+    85%,100%{left:130%}}
+  
+  }
+  
+  
   .tabs{left:50%;right:auto;transform:translateX(-50%);width:calc(100% - 20px);max-width:520px;bottom:10px;border:1px solid var(--line);
         border-radius:24px;background:rgba(20,10,60,.9);box-shadow:0 14px 34px rgba(0,0,0,.5)}
-  .tab.on .ic{animation:bob 1.6s ease-in-out infinite}
+  
 
   .refercta{width:100%;display:flex;align-items:center;gap:14px;padding:16px 18px;margin-bottom:12px;border:0;border-radius:16px;color:#fff;cursor:pointer;font-family:inherit;
     background:linear-gradient(120deg,#FF2D78,#FF6A3D);box-shadow:0 4px 0 #C41E5E, 0 12px 28px rgba(255,45,120,.35);animation:pulse 2.4s ease-in-out infinite;transition:transform .08s, box-shadow .08s}
   .refercta:active{transform:translateY(3px);box-shadow:0 1px 0 #C41E5E}
 
   .eyeb{font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--sub);font-weight:800}
-  .shine{animation:shn 2.4s ease-in-out infinite}
+  .shine{}
   @keyframes shn{0%,100%{filter:brightness(1)}50%{filter:brightness(1.28)}}
   .float{animation:fl 3s ease-in-out infinite}
   @keyframes fl{0%,100%{transform:translateY(0)}50%{transform:translateY(-4px)}}
@@ -101,11 +99,11 @@
   .pop{animation:pop .6s cubic-bezier(.3,1.6,.5,1) both}
   @keyframes pop{0%{transform:scale(0)}70%{transform:scale(1.18)}100%{transform:scale(1)}}
   @keyframes clap{0%,100%{transform:translateY(0) rotate(-9deg)}50%{transform:translateY(-7px) rotate(9deg)}}
-  @keyframes glow{0%,100%{box-shadow:0 0 12px rgba(255,210,63,.5)}50%{box-shadow:0 0 26px rgba(255,210,63,.9)}}
-  .glow{animation:glow 1.4s ease-in-out infinite}
+  }
+  .glow{box-shadow:0 0 20px rgba(255,210,63,.7)}
   .pulse{animation:pulse 1.8s ease-in-out infinite}
   .toast{background:linear-gradient(120deg,#FF2D78,#FF6A3D)!important;border:none!important;color:#fff!important;box-shadow:0 10px 30px rgba(255,45,120,.5)!important}
-  .tabs{bottom:14px;border-radius:26px;background:rgba(24,14,54,.92)}
+  .tabs{bottom:14px;border-radius:26px;background:rgba(22,12,56,.97)}
   .tab{padding:4px 2px}
   .tab.on{background:none;box-shadow:none;color:inherit}
 </style>
@@ -226,7 +224,7 @@ async function boot(){
   const q=new URLSearchParams(location.search);
   const paid=q.get("paid");
   if(paid!==null){ history.replaceState(null,"",location.pathname); }
-  try{ if(localStorage.getItem("simtec_ver")!==APP_VER){ localStorage.setItem("simtec_ver",APP_VER); setTimeout(()=>toast("✨ App updated — "+APP_VER),600); } }catch(e){}
+  try{ if(localStorage.getItem("simtec_ver")!==APP_VER){ localStorage.setItem("simtec_ver",APP_VER); setTimeout(()=>toast("✨ App updated — "+APP_VER),600); beacon("update","running "+APP_VER); } }catch(e){}
   crumb('boot');
   try{ await loadAll(); crumb('loaded'); }catch(e){ crumb('loadfail'); beacon('loadAll', String(e&&e.message||e)); }
   render(); try{ checkCelebrations(); }catch(e){}
@@ -244,7 +242,7 @@ async function loadAll(){
 }
 
 function ratingLabel(){ return (S.rating||"AAA"); }
-const APP_VER="v5 — 3 Aug";
+const APP_VER="v6 — 3 Aug";
 // Black-box recorder: any error on the device reports itself home, with a
 // breadcrumb trail of the last taps — so "it froze" becomes a readable log.
 let CRUMBS=[];
