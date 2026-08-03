@@ -202,6 +202,13 @@ async function onFile(file){
     // Give every row its dedup key up front (occurrence-aware) so preview and
     // apply use exactly the same key and true in-file repeats stay distinct.
     assignKeys(p.paid,"paid"); assignKeys(p.refunds,"refund"); assignKeys(p.dishonours,"dishonour");
+    // DISHONOURS: an identical in-file repeat (same payer, amount, day) is the same
+    // bounce listed twice in the report, not a second event — a weekly plan can't
+    // dishonour the same debit twice in one day. Drop the repeats so they can't
+    // double-count against streaks/ratings or double-appear on arrears lists.
+    // (Payments/refunds KEEP the "#n" behaviour — two same-amount debits in one
+    // day can be genuine there.)
+    p.dishonours=p.dishonours.filter(r=>!/#\d+$/.test(r._key));
     // match payers to orders
     const {data:orders}=await sb.from("sim_orders").select("id,ezidebit_payer_ref,amount_paid_to_date").not("ezidebit_payer_ref","is",null);
     const norm=r=>String(r||"").replace(/-/g,"").trim();

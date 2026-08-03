@@ -77,7 +77,7 @@ const norm=s=>(s||'').replace(/[^a-z0-9]/gi,'').toLowerCase();
 function auDate(v){if(!v)return'';const m=String(v).match(/^(\d{4})-(\d{2})-(\d{2})/);return m?m[3]+'/'+m[2]+'/'+m[1]:v;}
 // Local (NZ) calendar date, YYYY-MM-DD. No arg = today. Used so the next day's
 // text only becomes due on the following calendar day, never the same day.
-function dayStr(v){const d=v?new Date(v):new Date();return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;}
+function dayStr(v){const d=v?new Date(v):new Date();return d.toLocaleDateString('en-CA',{timeZone:'Pacific/Auckland'});} // NZ calendar day — never the browser/UTC day
 const who=()=> (window.SIMTEC_USER && (window.SIMTEC_USER.full_name||window.SIMTEC_USER.email)) || 'office';
 
 let day=1;                 // which day tab is showing
@@ -229,36 +229,70 @@ async function postOne(mobile,message){
   return data;
 }
 
+let SENDBUSY=false;
 window.sendDay=async function(){
+  if(SENDBUSY) return;                                   // a second tap can never re-run the send
   const list=LISTS[day];
-  const send=selectedIdx().map(i=>list[i]).filter(Boolean);
+  let send=selectedIdx().map(i=>list[i]).filter(Boolean);
   const spoke=unselectedIdx().map(i=>list[i]).filter(Boolean);
   if(!send.length){ alert('No one is ticked.'); return; }
   const names=send.map(r=>r.name).slice(0,8).join(', ')+(send.length>8?`, +${send.length-8} more`:'');
   let msg=`Send the Day ${day} text to ${send.length} customer${send.length===1?'':'s'}?\n\n${names}`;
   if(spoke.length) msg+=`\n\n${spoke.length} unticked will be marked as spoken to and drop out of the sequence.`;
   if(!confirm(msg)) return;
+  SENDBUSY=true;
+  const btn=$('sendBtn'); if(btn){ btn.disabled=true; btn.textContent='Sending…'; }
+
+  // FRESHNESS RE-CHECK (fixes double texts): the lists were built at page load, which
+  // may be stale (long-open tab) or already actioned (double press / a colleague).
+  // Re-read the sequence table NOW and drop anyone already texted today (NZ) or,
+  // for Day 1, anyone who already has an active sequence.
+  let skipped=0;
+  try{
+    const oids=[...new Set(send.map(r=>r.order_id).filter(Boolean))];
+    if(oids.length){
+      const {data:cur}=await sb.from('sim_arrears_sequence').select('order_id,day_sent,last_sent_at,status').in('order_id',oids);
+      const today=dayStr();
+      const activeToday=new Set(), activeAny=new Set();
+      (cur||[]).forEach(q=>{
+        if(q.status==='active'){ activeAny.add(q.order_id);
+          if(q.last_sent_at && dayStr(q.last_sent_at)===today) activeToday.add(q.order_id); }
+      });
+      const before=send.length;
+      send=send.filter(r=> day===1 ? !activeAny.has(r.order_id) : !activeToday.has(r.order_id));
+      skipped=before-send.length;
+    }
+  }catch(e){ /* if the check itself fails we still send — better one text than none */ }
+  if(!send.length){
+    SENDBUSY=false;
+    $('review').innerHTML=`<div class="card"><div class="font-semibold text-amber-300">Nothing to send</div>
+      <div class="text-slate-200 mt-1">${skipped} skipped — already texted today or already in a sequence. The list was out of date.</div>
+      <button class="btn mt-3" onclick="loadAll()" style="font-size:.8rem">Refresh the lists</button></div>`;
+    return;
+  }
 
   const nowIso=new Date().toISOString();
   let sent=0,failed=0;
 
+  try{
   for(const r of send){
     const body=MESSAGES[day](r.firstName);
     let status='sent',resp='';
     try{ await postOne(r.mobile,body); sent++; }
     catch(e){ status='failed'; resp=e.message; failed++; }
     // log the send (technical log: keeps status + provider response)
-    await sb.from('sim_communications').insert({customer_id:r.customer_id,order_id:r.order_id,channel:'sms',
-      direction:'outbound',comm_type:'arrears_reminder',body,status,provider_response:resp,source:'brain',mobile:r.mobile});
+    try{ await sb.from('sim_communications').insert({customer_id:r.customer_id,order_id:r.order_id,channel:'sms',
+      direction:'outbound',comm_type:'arrears_reminder',body,status,provider_response:resp,source:'brain',mobile:r.mobile}); }catch(e){}
     if(status!=='sent') continue;                     // a failed send doesn't advance them
     // also record it in the customer's contact log, so the exact text we sent
     // shows up in the Communications section on their customer page.
-    await sb.from('sim_contacts').insert({
+    try{ await sb.from('sim_contacts').insert({
       customer_id:r.customer_id, order_id:r.order_id,
       channel:'text', direction:'outbound', contacted_at:nowIso,
       staff_name:who(), subject:`Arrears reminder — Day ${day}`, body,
       auto_source:true, auto_ref:`Arrears day ${day}`
-    });
+    }); }catch(e){}
+    try{
     if(day===1){
       await sb.from('sim_arrears_sequence').insert({order_id:r.order_id,customer_id:r.customer_id,
         payer_ref:r.payer_ref,day_sent:1,last_sent_at:nowIso,paid_base:r.paid,status:'active'});
@@ -267,18 +301,21 @@ window.sendDay=async function(){
       if(day===5){ patch.status='completed'; patch.removed_at=nowIso; patch.removed_by='completed day 5'; }
       await sb.from('sim_arrears_sequence').update(patch).eq('id',r.seq_id);
     }
+    }catch(e){}
   }
 
   // unticked = spoken to -> out of the sequence
   for(const r of spoke){
     if(r.seq_id){
-      await sb.from('sim_arrears_sequence').update({status:'spoken',removed_at:nowIso,removed_by:who(),
-        note:'Unticked on the Day '+day+' list — spoken to'}).eq('id',r.seq_id);
+      try{ await sb.from('sim_arrears_sequence').update({status:'spoken',removed_at:nowIso,removed_by:who(),
+        note:'Unticked on the Day '+day+' list — spoken to'}).eq('id',r.seq_id); }catch(e){}
     }
   }
+  }finally{ SENDBUSY=false; }
 
+  LISTS[day]=[];   // this batch is done — a re-press has nothing to resend
   $('review').innerHTML=`<div class="card"><div class="font-semibold text-green-400">Day ${day} done</div>
-    <div class="text-slate-200 mt-1">Sent ${sent}${failed?`, ${failed} failed`:''}.${spoke.length?` ${spoke.length} marked as spoken to.`:''} All logged.</div>
+    <div class="text-slate-200 mt-1">Sent ${sent}${failed?`, ${failed} failed`:''}.${skipped?` ${skipped} skipped (already texted).`:''}${spoke.length?` ${spoke.length} marked as spoken to.`:''} All logged.</div>
     <button class="btn mt-3" onclick="loadAll()" style="font-size:.8rem">Back to the lists</button></div>`;
 };
 

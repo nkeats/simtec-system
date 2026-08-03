@@ -381,7 +381,7 @@
         <div class="ackrow">
           <label class="ack" style="flex:1;border-bottom:none;"><input type="checkbox" id="tncAgree" disabled>
             <span class="txt"><b>I have read and agree to the Terms &amp; Conditions.</b>Scroll to the end of the terms above to enable this.</span></label>
-          <div class="initbox"><div class="ihead"><span>Initials</span><button type="button" class="clr" onclick="clearSig('iTnc')">Clear</button></div><canvas class="sig ini" id="iTnc"></canvas></div>
+          <div class="initbox"><div class="ihead"><span class="ini1head">Initials</span><button type="button" class="clr" onclick="clearSig('iTnc')">Clear</button></div><canvas class="sig ini" id="iTnc"></canvas></div><div class="initbox a2ini hidden"><div class="ihead"><span>Applicant 2</span><button type="button" class="clr" onclick="clearSig('iTnc_2')">Clear</button></div><canvas class="sig ini" id="iTnc_2"></canvas></div>
         </div>
       </div>
       <div class="card">
@@ -390,22 +390,22 @@
         <div class="ackrow">
           <label class="ack" style="flex:1;border-bottom:none;"><input type="checkbox" class="ackbox">
             <span class="txt"><b>Minimum 10% deposit before delivery</b>Delivery is scheduled only after a minimum 10% deposit of the total purchase price is paid.</span></label>
-          <div class="initbox"><div class="ihead"><span>Initials</span><button type="button" class="clr" onclick="clearSig('iAck1')">Clear</button></div><canvas class="sig ini" id="iAck1"></canvas></div>
+          <div class="initbox"><div class="ihead"><span class="ini1head">Initials</span><button type="button" class="clr" onclick="clearSig('iAck1')">Clear</button></div><canvas class="sig ini" id="iAck1"></canvas></div><div class="initbox a2ini hidden"><div class="ihead"><span>Applicant 2</span><button type="button" class="clr" onclick="clearSig('iAck1_2')">Clear</button></div><canvas class="sig ini" id="iAck1_2"></canvas></div>
         </div>
         <div class="ackrow">
           <label class="ack" style="flex:1;border-bottom:none;"><input type="checkbox" class="ackbox">
             <span class="txt"><b>Acceptable payment history before delivery</b>Delivery occurs once an acceptable repayment history is established. Simtec may cancel prior to delivery if the payment history is unacceptable.</span></label>
-          <div class="initbox"><div class="ihead"><span>Initials</span><button type="button" class="clr" onclick="clearSig('iAck2')">Clear</button></div><canvas class="sig ini" id="iAck2"></canvas></div>
+          <div class="initbox"><div class="ihead"><span class="ini1head">Initials</span><button type="button" class="clr" onclick="clearSig('iAck2')">Clear</button></div><canvas class="sig ini" id="iAck2"></canvas></div><div class="initbox a2ini hidden"><div class="ihead"><span>Applicant 2</span><button type="button" class="clr" onclick="clearSig('iAck2_2')">Clear</button></div><canvas class="sig ini" id="iAck2_2"></canvas></div>
         </div>
         <div class="ackrow">
           <label class="ack" style="flex:1;border-bottom:none;"><input type="checkbox" class="ackbox">
             <span class="txt"><b>Collection &amp; use of personal information (Privacy Act 2020)</b>Details are collected only to assess affordability and manage the account, stored securely, and not sold or disclosed except as needed to manage payments.</span></label>
-          <div class="initbox"><div class="ihead"><span>Initials</span><button type="button" class="clr" onclick="clearSig('iAck3')">Clear</button></div><canvas class="sig ini" id="iAck3"></canvas></div>
+          <div class="initbox"><div class="ihead"><span class="ini1head">Initials</span><button type="button" class="clr" onclick="clearSig('iAck3')">Clear</button></div><canvas class="sig ini" id="iAck3"></canvas></div><div class="initbox a2ini hidden"><div class="ihead"><span>Applicant 2</span><button type="button" class="clr" onclick="clearSig('iAck3_2')">Clear</button></div><canvas class="sig ini" id="iAck3_2"></canvas></div>
         </div>
         <div class="ackrow">
           <label class="ack" style="flex:1;border-bottom:none;"><input type="checkbox" class="ackbox">
             <span class="txt"><b>5-day cooling-off period explained</b>The consultant confirms the cooling-off period has been explained to the customer.</span></label>
-          <div class="initbox"><div class="ihead"><span>Initials</span><button type="button" class="clr" onclick="clearSig('iAck4')">Clear</button></div><canvas class="sig ini" id="iAck4"></canvas></div>
+          <div class="initbox"><div class="ihead"><span class="ini1head">Initials</span><button type="button" class="clr" onclick="clearSig('iAck4')">Clear</button></div><canvas class="sig ini" id="iAck4"></canvas></div><div class="initbox a2ini hidden"><div class="ihead"><span>Applicant 2</span><button type="button" class="clr" onclick="clearSig('iAck4_2')">Clear</button></div><canvas class="sig ini" id="iAck4_2"></canvas></div>
         </div>
       </div>
     </section>
@@ -441,7 +441,7 @@
       <p class="sub">How is the customer paying?</p>
       <div class="card">
         <div class="choices three" id="payOption">
-          <div class="choice" data-val="full"><div class="ct">Paid in full</div><div class="cd">Direct deposit; proof shown to consultant.</div></div>
+          <div class="choice" data-val="full"><div class="ct">Paid in full</div><div class="cd">Direct deposit now — or one Ezidebit payment.</div></div>
           <div class="choice" data-val="deposit50"><div class="ct">50% deposit</div><div class="cd">Half now, balance by Ezidebit direct debit.</div></div>
           <div class="choice" data-val="ezidebit"><div class="ct">Ezidebit</div><div class="cd">Direct debit set up after signing.</div></div>
         </div>
@@ -456,6 +456,20 @@
           <div id="depMethodSol" class="choices hidden">
             <div class="choice sel" data-val="ezidebit"><div class="ct">Ezidebit one-off</div><div class="cd">50% taken as a single Ezidebit payment.</div></div>
             <div class="choice" data-val="bank"><div class="ct">Bank transfer</div><div class="cd">50% paid by direct deposit now; proof shown to consultant.</div></div>
+          </div>
+        </div>
+
+        <!-- Full-payment method sub-panel: unsolicited sales can't take money during
+             the cooling-off period, so the FULL amount goes through Ezidebit as a
+             single one-off payment ~7 days out. Solicited sales choose. -->
+        <div id="fullMethodBox" class="hidden" style="margin-top:16px;padding-top:16px;border-top:1px solid var(--line);">
+          <div class="lab" style="margin-bottom:8px;">How is the full amount collected?</div>
+          <div id="fullMethodUnsol" class="note hidden" style="background:#fff8e8;border-color:#f0dca8;color:#7a5b12;">
+            <b>Unsolicited sale.</b> The 5-working-day cooling-off period means no money can be taken upfront, so the full amount is collected by <b>Ezidebit as a single one-off payment</b> scheduled about 7 days out. Set the amount and date on the next step.
+          </div>
+          <div id="fullMethodSol" class="choices hidden">
+            <div class="choice sel" data-val="bank"><div class="ct">Bank transfer</div><div class="cd">Paid in full by direct deposit now; proof shown to consultant.</div></div>
+            <div class="choice" data-val="ezidebit"><div class="ct">Ezidebit one-off</div><div class="cd">Full amount as a single Ezidebit payment.</div></div>
           </div>
         </div>
 
@@ -524,7 +538,13 @@
           <div id="eziMsg" class="sub" style="margin-top:10px;color:var(--danger)"></div>
         </div>
         <div id="eziFrameWrap" class="hidden" style="overflow-x:auto;-webkit-overflow-scrolling:touch;border:1px solid var(--line);border-radius:12px;background:#fff;">
-          <iframe id="eziFrame" title="Ezidebit direct debit" style="width:900px;max-width:none;height:1300px;border:0;display:block"></iframe>
+          <!-- Tall enough that Ezidebit's ENTIRE form — including their Submit button —
+               is on the page (the page itself scrolls; iPads won't scroll inside a
+               cut-off frame). Their Submit now sits directly above the signature box. -->
+          <iframe id="eziFrame" title="Ezidebit direct debit" style="width:900px;max-width:none;height:2100px;border:0;display:block"></iframe>
+        </div>
+        <div id="eziTallerRow" class="hidden" style="text-align:center;margin-top:8px;">
+          <button class="btn-sm" type="button" onclick="eziTaller()" style="background:#fff;color:var(--navy);border:1px solid var(--line);">⬇ Can't see Ezidebit's Submit button? Tap to extend the window</button>
         </div>
         <div id="eziDone" class="hidden" style="text-align:center;padding:20px;border:2px solid var(--ok);border-radius:12px;background:var(--ok-soft);">
           <div style="font-size:34px;">✅</div>
@@ -630,14 +650,14 @@ async function loadAffiliations(){
 }
 if(document.readyState!=='loading') loadAffiliations(); else document.addEventListener('DOMContentLoaded', loadAffiliations);
 if(document.readyState!=='loading') loadConsultants(); else document.addEventListener('DOMContentLoaded', loadConsultants);
-const S = { step:0, saleType:'', pay:'', depositMethod:'ezidebit', a2:false, products:[], referralId:null, emailVerified:false, sentCode:null, tncRead:false, idPhotos:{A1:[],A2:[]} };
+const S = { step:0, saleType:'', pay:'', depositMethod:'ezidebit', fullMethod:'bank', a2:false, products:[], referralId:null, emailVerified:false, sentCode:null, tncRead:false, idPhotos:{A1:[],A2:[]} };
 const STEP_LABELS = ['Start','Products','Details','Referees','Terms','ID','Payment','Sign','Ezidebit','Done'];
 
 function visibleSteps(){
   let arr=[0,1,2,3,4,5,6,7];
   // Ezidebit step is needed both for a full direct-debit AND for a 50% deposit
   // (the remaining 50% is collected by direct debit).
-  if(S.pay==='ezidebit' || S.pay==='deposit50') arr.push(8);
+  if(S.pay==='ezidebit' || S.pay==='deposit50' || (S.pay==='full' && S.fullMethod==='ezidebit')) arr.push(8);
   arr.push(9);
   return arr;
 }
@@ -690,8 +710,12 @@ function validateStep(ds){
     if(!S.emailVerified && !confirm('Email not verified. Continue anyway?')) return false; }
   if(ds===4){ if(!document.getElementById('tncAgree').checked){alert('Customer must read and agree to the Terms & Conditions.');return false;}
     if(![...document.querySelectorAll('.ackbox')].every(a=>a.checked)){alert('All acknowledgements must be confirmed.');return false;}
-    if(isBlank('iTnc')){alert('Customer must initial the Terms & Conditions box.');return false;}
-    for(let i=1;i<=4;i++){ if(isBlank('iAck'+i)){alert('Customer must initial every acknowledgement.');return false;} } }
+    if(isBlank('iTnc')){alert('Applicant 1 must initial the Terms & Conditions box.');return false;}
+    for(let i=1;i<=4;i++){ if(isBlank('iAck'+i)){alert('Applicant 1 must initial every acknowledgement.');return false;} }
+    if(S.a2){
+      if(isBlank('iTnc_2')){alert('Applicant 2 must initial the Terms & Conditions box.');return false;}
+      for(let i=1;i<=4;i++){ if(isBlank('iAck'+i+'_2')){alert('Applicant 2 must initial every acknowledgement.');return false;} }
+    } }
   if(ds===8){ if(isBlank('sigEzi')){alert('Please sign the direct-debit authority — the last box on this page — to finish.');return false;} }
   if(ds===6){ if(!S.pay){alert('Select a payment method.');return false;} }
   if(ds===7){ if(isBlank('sigA1')){alert('Applicant 1 must sign.');return false;} if(S.a2&&isBlank('sigA2')){alert('Applicant 2 must sign.');return false;} }
@@ -705,7 +729,7 @@ function bindChoices(wrapId, cb){
     c.classList.add('sel'); cb(c.dataset.val);
   });
 }
-bindChoices('saleType', v=>{ S.saleType=v; document.getElementById('referrerBox').classList.toggle('hidden', v!=='solicited'); updateDepositMethodUI(); });
+bindChoices('saleType', v=>{ S.saleType=v; document.getElementById('referrerBox').classList.toggle('hidden', v!=='solicited'); updateDepositMethodUI(); updateFullMethodUI(); });
 
 // Referral auto-detect: when the mobile is entered, ask the DB (via a security-definer
 // RPC) whether this number matches a pending referral. Only the single match is returned
@@ -742,7 +766,7 @@ async function checkStanding(m){
     box.classList.remove('hidden');
   }catch(e){ box.classList.add('hidden'); }
 }
-bindChoices('payOption', v=>{ S.pay=v; updateDepositMethodUI(); renderSteps(); });
+bindChoices('payOption', v=>{ S.pay=v; updateDepositMethodUI(); updateFullMethodUI(); renderSteps(); });
 bindChoices('depMethodSol', v=>{ S.depositMethod=v; });
 
 // Show/lock the 50%-deposit collection method. Unsolicited → forced Ezidebit
@@ -762,6 +786,24 @@ function updateDepositMethodUI(){
     document.querySelectorAll('#depMethodSol .choice').forEach(c=>c.classList.toggle('sel', c.dataset.val===S.depositMethod));
   }
 }
+// Paid-in-full method: unsolicited is locked to an Ezidebit one-off (cooling-off —
+// no money can change hands today); solicited picks bank now or Ezidebit one-off.
+function updateFullMethodUI(){
+  const box=document.getElementById('fullMethodBox'); if(!box) return;
+  const isFull = S.pay==='full';
+  box.classList.toggle('hidden', !isFull);
+  if(!isFull) return;
+  const unsol=document.getElementById('fullMethodUnsol'), sol=document.getElementById('fullMethodSol');
+  if(S.saleType==='unsolicited'){
+    S.fullMethod='ezidebit';                  // locked — the whole amount rides on the one-off
+    unsol.classList.remove('hidden'); sol.classList.add('hidden');
+  } else {
+    unsol.classList.add('hidden'); sol.classList.remove('hidden');
+    document.querySelectorAll('#fullMethodSol .choice').forEach(c=>c.classList.toggle('sel', c.dataset.val===S.fullMethod));
+  }
+  renderSteps();
+}
+bindChoices('fullMethodSol', v=>{ S.fullMethod=v; renderSteps(); });
 
 document.querySelectorAll('#a2toggle button').forEach(b=>b.onclick=()=>{
   document.querySelectorAll('#a2toggle button').forEach(x=>x.classList.remove('on')); b.classList.add('on');
@@ -770,6 +812,8 @@ document.querySelectorAll('#a2toggle button').forEach(b=>b.onclick=()=>{
   document.getElementById('emp2card').classList.toggle('hidden',!S.a2);
   document.getElementById('idBlockA2').classList.toggle('hidden',!S.a2);
   document.getElementById('sigA2card').classList.toggle('hidden',!S.a2);
+  document.querySelectorAll('.a2ini').forEach(el=>el.classList.toggle('hidden',!S.a2));   // 2nd initials boxes
+  document.querySelectorAll('.ini1head').forEach(el=>el.textContent=S.a2?'Applicant 1':'Initials');
   document.getElementById('emp1Head').textContent='Employment & income — Applicant '+(S.a2?'1':'1');
 });
 
@@ -932,13 +976,14 @@ function snapshotFields(){
 // Gather the whole order (incl. ID photos + signatures as data URLs) into one object.
 async function collectOrder(){
   const fields=snapshotFields();
-  const flags={ saleType:S.saleType, pay:S.pay, depositMethod:S.depositMethod, a2:S.a2, emailVerified:S.emailVerified,
+  const flags={ saleType:S.saleType, pay:S.pay, depositMethod:S.depositMethod, fullMethod:(S.pay==='full'?S.fullMethod:null), a2:S.a2, emailVerified:S.emailVerified,
     acksAll:[...document.querySelectorAll('.ackbox')].every(a=>a.checked) };
   const products=S.products.filter(p=>p.name).map(p=>({name:p.name,price:p.price,qty:p.qty}));
   const wantDel=document.getElementById('wantDelivery').checked;
   const files={ idA1:(S.idPhotos.A1||[]).slice(), idA2:(S.a2?(S.idPhotos.A2||[]).slice():[]),
     sigA1:canvasDataURL('sigA1'), sigA2:(S.a2?canvasDataURL('sigA2'):null), sigEzi:canvasDataURL('sigEzi'),
-    iTnc:canvasDataURL('iTnc'), iAck1:canvasDataURL('iAck1'), iAck2:canvasDataURL('iAck2'), iAck3:canvasDataURL('iAck3'), iAck4:canvasDataURL('iAck4') };
+    iTnc:canvasDataURL('iTnc'), iAck1:canvasDataURL('iAck1'), iAck2:canvasDataURL('iAck2'), iAck3:canvasDataURL('iAck3'), iAck4:canvasDataURL('iAck4'),
+    iTnc_2:(S.a2?canvasDataURL('iTnc_2'):null), iAck1_2:(S.a2?canvasDataURL('iAck1_2'):null), iAck2_2:(S.a2?canvasDataURL('iAck2_2'):null), iAck3_2:(S.a2?canvasDataURL('iAck3_2'):null), iAck4_2:(S.a2?canvasDataURL('iAck4_2'):null) };
   const customerName=((fields.a1first||'')+' '+(fields.a1last||'')).trim()||'(no name)';
   return { v:1, savedAt:Date.now(), customerName, fields, flags, products, wantDel, files, referralId:S.referralId||null };
 }
@@ -1115,6 +1160,10 @@ async function saveExtrasPayload(orderId,P){
   await put('sig_ezi', files.sigEzi, 'signature-dd.png', 'DD authority signature');
   await put('init_tnc', files.iTnc, 'initials-tnc.png', 'T&C initials');
   for(let i=1;i<=4;i++){ await put('init_ack'+i, files['iAck'+i], 'initials-ack'+i+'.png', 'Acknowledgement '+i+' initials'); }
+  if(fl.a2){
+    await put('init_tnc_a2', files.iTnc_2, 'initials-tnc-applicant2.png', 'T&C initials — Applicant 2');
+    for(let i=1;i<=4;i++){ await put('init_ack'+i+'_a2', files['iAck'+i+'_2'], 'initials-ack'+i+'-applicant2.png', 'Acknowledgement '+i+' initials — Applicant 2'); }
+  }
   const row={
     order_id:orderId,
     a1_id_type:f.a1idtype||null, a1_id_number:f.a1dl||null,
@@ -1318,7 +1367,7 @@ function resetForm(){
   document.querySelectorAll('main select').forEach(s=>s.selectedIndex=0);
   document.querySelectorAll('.choice.sel').forEach(c=>c.classList.remove('sel'));
   ['sigA1','sigA2','sigEzi'].forEach(clearSig);
-  Object.assign(S,{step:0,saleType:'',pay:'',depositMethod:'ezidebit',a2:false,products:[],emailVerified:false,sentCode:null,tncRead:false,orderId:null,finalized:false,lastP:null,idPhotos:{A1:[],A2:[]}});
+  Object.assign(S,{step:0,saleType:'',pay:'',depositMethod:'ezidebit',fullMethod:'bank',a2:false,products:[],emailVerified:false,sentCode:null,tncRead:false,orderId:null,finalized:false,lastP:null,idPhotos:{A1:[],A2:[]}});
   renderIdGallery('A1'); renderIdGallery('A2');
   const dmb=document.getElementById('depositMethodBox'); if(dmb) dmb.classList.add('hidden');
   document.querySelectorAll('#a2toggle button').forEach(x=>x.classList.toggle('on',x.dataset.v==='no'));
@@ -1360,7 +1409,10 @@ function eziBankDeposit(){ return (S.pay==='deposit50' && S.depositMethod==='ban
 // just the balance when the deposit was a bank transfer.
 function eziTotal(){ return eziGross()-eziBankDeposit(); }
 // When the 50% deposit itself is an Ezidebit one-off, this is the suggested one-off.
-function eziOneoffDefault(){ return (S.pay==='deposit50' && S.depositMethod==='ezidebit') ? Math.round(eziGross()*50)/100 : 0; }
+function eziOneoffDefault(){
+  if(S.pay==='full' && S.fullMethod==='ezidebit') return Math.round(eziGross()*100)/100;   // whole amount, one payment
+  return (S.pay==='deposit50' && S.depositMethod==='ezidebit') ? Math.round(eziGross()*50)/100 : 0;
+}
 function computeEziBalance(){
   const hint=document.getElementById('eziBalanceHint');
   const total=eziTotal();
@@ -1396,6 +1448,9 @@ function setEziDefaults(){
     } else if(S.pay==='deposit50'){
       note.classList.remove('hidden');
       note.innerHTML='<b>50% deposit via Ezidebit.</b> The deposit is taken as a one-off Ezidebit payment (pre-filled to '+money(eziOneoffDefault())+', dated after the cooling-off period); the remaining '+money(eziGross()-eziOneoffDefault())+' goes on the ongoing plan.';
+    } else if(S.pay==='full' && S.fullMethod==='ezidebit'){
+      note.classList.remove('hidden');
+      note.innerHTML='<b>Paid in full via Ezidebit one-off.</b> The full '+money(eziGross())+' is taken as a single Ezidebit payment (pre-filled, dated about 7 days out — after the cooling-off period). Leave the ongoing-plan fields empty: there is no ongoing plan.';
     } else { note.classList.add('hidden'); note.innerHTML=''; }
   }
   computeEziBalance();
@@ -1432,6 +1487,10 @@ function buildEddrUrl(){
   return EZI_EDDR_BASE + '?' + q.toString();
 }
 
+function eziTaller(){
+  const fr=document.getElementById("eziFrame");
+  fr.style.height=(parseInt(fr.style.height,10)+600)+"px";   // each tap adds another 600px of window
+}
 function launchEzidebit(){
   const msg=document.getElementById('eziMsg'); msg.textContent='';
   if(!S.orderId){ msg.textContent='Save the order first (go back and submit) before setting up the direct debit.'; return; }
@@ -1442,6 +1501,7 @@ function launchEzidebit(){
   document.getElementById('eziFrame').src=buildEddrUrl();
   document.getElementById('eziLaunch').classList.add('hidden');
   document.getElementById('eziFrameWrap').classList.remove('hidden');
+  document.getElementById("eziTallerRow").classList.remove("hidden");
 }
 
 // The return page (same-origin) postMessages the eDDR callback params here.
