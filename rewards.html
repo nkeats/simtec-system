@@ -103,7 +103,7 @@
   .glow{box-shadow:0 0 20px rgba(255,210,63,.7)}
   .pulse{animation:pulse 1.8s ease-in-out infinite}
   .toast{background:linear-gradient(120deg,#FF2D78,#FF6A3D)!important;border:none!important;color:#fff!important;box-shadow:0 10px 30px rgba(255,45,120,.5)!important}
-  .tabs{bottom:14px;border-radius:26px;background:rgba(22,12,56,.97)}
+  .tabs{bottom:14px;border-radius:26px;background:rgba(22,12,56,.97);z-index:40} /* above the content layer (z1) — without this the content's bottom padding sits on the dock and eats every tap */
   .tab{padding:4px 2px}
   .tab.on{background:none;box-shadow:none;color:inherit}
 </style>
@@ -350,7 +350,7 @@ async function loadAll(){
 }
 
 function ratingLabel(){ return (S.rating||"AAA"); }
-const APP_VER="v10 — 3 Aug";
+const APP_VER="v11 — 3 Aug";
 // Black-box recorder: any error on the device reports itself home, with a
 // breadcrumb trail of the last taps — so "it froze" becomes a readable log.
 let CRUMBS=[];
