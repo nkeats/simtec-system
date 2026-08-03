@@ -215,11 +215,18 @@ async function onFile(file){
     const omap={}; (orders||[]).forEach(o=>{ if(o.ezidebit_payer_ref) omap[norm(o.ezidebit_payer_ref)]=o; });
     // fetch existing dedup keys for this settlement date
     const [pk,dk]=await Promise.all([
-      sb.from("sim_payments").select("dedup_key").eq("settlement_date",p.settle).not("dedup_key","is",null),
-      sb.from("sim_dishonours").select("dedup_key").eq("settlement_date",p.settle).not("dedup_key","is",null),
+      sb.from("sim_payments").select("dedup_key,payer_ref,amount").eq("settlement_date",p.settle).not("dedup_key","is",null),
+      sb.from("sim_dishonours").select("dedup_key,payer_ref,amount").eq("settlement_date",p.settle).not("dedup_key","is",null),
     ]);
     const existPay=new Set((pk.data||[]).map(r=>r.dedup_key));
     const existDis=new Set((dk.data||[]).map(r=>r.dedup_key));
+    // CROSS-SOURCE guard: the nightly API reconcile keys its rows "ezi:<PaymentID>" —
+    // a different shape from this importer's keys — so a payment the API already
+    // recorded wouldn't match existPay/existDis and would import twice (double
+    // points, double paid-to-date). Count how many API rows exist per
+    // payer|amount for this settlement date; the preview then skips that many.
+    const mkCounts=rows=>{const m={};(rows||[]).forEach(r=>{if(String(r.dedup_key||"").startsWith("ezi:")){const k=String(r.payer_ref)+"|"+Number(r.amount).toFixed(2);m[k]=(m[k]||0)+1;}});return m;};
+    const eziPay=mkCounts(pk.data), eziDis=mkCounts(dk.data);
     // names for matched
     const ids=[...new Set(Object.values(omap).map(o=>o.id))];
     const cmap={};
@@ -234,16 +241,22 @@ async function onFile(file){
     const ord2name={}; (ordCust||[]).forEach(o=>ord2name[o.id]=c2name[o.customer_id]||"");
     const nameFor=payer=>{ const o=omap[payer]; return o?(ord2name[o.id]||"(unnamed)"):null; };
 
-    PARSED={...p, omap, existPay, existDis, nameFor};
+    PARSED={...p, omap, existPay, existDis, eziPay, eziDis, nameFor};
     renderPreview();
   }catch(e){ show("Error reading PDF: "+(e.message||e),"err"); }
 }
 
+function crossFilter(list, counts){
+  const c=Object.assign({}, counts||{});   // fresh copy — preview and apply see the same result
+  return list.filter(r=>{ const k=String(r.payer)+"|"+Number(r.payamt).toFixed(2);
+    if((c[k]||0)>0){ c[k]--; return false; }   // the API already recorded this one
+    return true; });
+}
 function renderPreview(){
   const p=PARSED;
-  const newPaid=p.paid.filter(r=>!p.existPay.has(r._key));
+  const newPaid=crossFilter(p.paid.filter(r=>!p.existPay.has(r._key)), p.eziPay);
   const newRef =p.refunds.filter(r=>!p.existPay.has(r._key));
-  const newDis =p.dishonours.filter(r=>!p.existDis.has(r._key));
+  const newDis =crossFilter(p.dishonours.filter(r=>!p.existDis.has(r._key)), p.eziDis);
   const dupe = (p.paid.length-newPaid.length)+(p.refunds.length-newRef.length)+(p.dishonours.length-newDis.length);
 
   const paidTotal=newPaid.reduce((s,r)=>s+r.payamt,0);
