@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>Simtec Rewards</title>
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#0e2038">
@@ -68,7 +68,7 @@
   .tab{flex:1;text-align:center;color:var(--sub);font-size:11px;font-weight:800;padding:7px 2px;cursor:pointer;border:0;background:none;border-radius:14px;font-family:inherit}
   .tab.on{color:#3A2000;background:linear-gradient(120deg,#FFD23F,#FF8A3D);box-shadow:0 3px 0 #C88A00}
   .tab .ic{font-size:20px;display:block;margin-bottom:2px}
-  .inp{width:100%;box-sizing:border-box;background:rgba(255,255,255,.10);border:1px solid var(--line);border-radius:14px;color:var(--ink);padding:12px 14px;font-size:15px;margin:0 0 10px;font-family:inherit;font-weight:600}
+  .inp{width:100%;box-sizing:border-box;background:rgba(255,255,255,.10);border:1px solid var(--line);border-radius:14px;color:var(--ink);padding:12px 14px;font-size:16px;margin:0 0 10px;font-family:inherit;font-weight:600} /* 16px minimum — iPhones auto-zoom (and get stuck zoomed) on any input smaller than 16px */
   .inp::placeholder{color:rgba(255,255,255,.45)}
 
   .bob{animation:bob 2.4s ease-in-out infinite}
@@ -226,6 +226,7 @@ async function boot(){
   const q=new URLSearchParams(location.search);
   const paid=q.get("paid");
   if(paid!==null){ history.replaceState(null,"",location.pathname); }
+  try{ if(localStorage.getItem("simtec_ver")!==APP_VER){ localStorage.setItem("simtec_ver",APP_VER); setTimeout(()=>toast("✨ App updated — "+APP_VER),600); } }catch(e){}
   try{ await loadAll(); }catch(e){ /* render whatever loaded */ }
   render(); try{ checkCelebrations(); }catch(e){}
   if(paid==="1"){ SFX.win(); toast("💳 Payment received — thank you! Your points land the moment it clears."); }
@@ -235,11 +236,14 @@ async function loadAll(){
   const [r,s,c,d,u,pl,ms,lb,rf]=await Promise.all([
     sb.rpc("my_rewards").catch(()=>({data:null})), sb.rpc("my_status").catch(()=>({data:null})), sb.rpc("my_cards").catch(()=>({data:null})), sb.rpc("draw_status").catch(()=>({data:null})), sb.rpc("unread_count").catch(()=>({data:null})), sb.rpc("my_plan").catch(()=>({data:null})), sb.rpc("my_milestones").catch(()=>({data:null})), sb.rpc("leaderboard").catch(()=>({data:null})), sb.rpc("my_referrals").catch(()=>({data:null}))
   ]);
-  R=r.data||{}; S=s.data||{}; CARDS=c.data||[]; DRAW=d.data||{}; UNREAD=u.data||0; PLAN=pl.data||{}; MS=ms.data||[]; LB=lb.data||{}; REFS=rf.data||[];
+  const arr=v=>Array.isArray(v)?v:[];
+  R=r.data||{}; S=s.data||{}; CARDS=arr(c.data); DRAW=d.data||{}; UNREAD=u.data||0; PLAN=pl.data||{}; MS=arr(ms.data); LB=lb.data||{}; REFS=arr(rf.data);
+  LB.top=arr(LB.top);
   if(NAME==="there"){ try{ const { data:me }=await sb.from("sim_customers").select("first_name").limit(1); if(me&&me[0]&&me[0].first_name) NAME=me[0].first_name; }catch(e){} }
 }
 
 function ratingLabel(){ return (S.rating||"AAA"); }
+const APP_VER="v4 — 3 Aug";
 const CLEAN_RUN=5;                       // demo cfg.cleanRun — payments in a row to unlock Fast Track
 const CARD_EVERY=50000;
 const GEM=(sz)=>`<div class="shine" style="width:${sz}px;height:${sz}px;border-radius:16px;transform:rotate(45deg);display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#FFE27A,#FF8A3D 55%,#FF2D78);box-shadow:0 6px 18px rgba(255,45,120,.5)"><span style="transform:rotate(-45deg);font-weight:900;color:#fff;font-size:${Math.round(sz*.3)}px;text-shadow:0 1px 3px rgba(0,0,0,.3)">AAA</span></div>`;
@@ -477,6 +481,7 @@ function lootView(){
     <div style="height:8px"></div>
     <button class="btn ghost sm" onclick="signOut()">Sign out</button>
     <div style="margin-top:10px;text-align:center"><a href="customer-login.html?account=1" style="color:var(--sub);font-size:12.5px">Manage my community group & account</a></div>
+    <div style="margin-top:8px;text-align:center;color:rgba(255,255,255,.35);font-size:10.5px;font-weight:700">Simtec Rewards · ${APP_VER}</div>
   </div>`;
   return drops+miles+utils;
 }
