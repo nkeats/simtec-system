@@ -123,12 +123,71 @@
 <div class="wrap"><div id="app"><div class="center"><span class="spin"></span></div></div></div>
 <div class="tabs" id="tabs" style="display:none"></div>
 
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
 const SUPA_URL="https://jvqjoenaungubpoegyvf.supabase.co";
 const SUPA_KEY="sb_publishable_J4MYTdJJyEaWe-GadpwdYA_upPT2rKw";
-const sb = supabase.createClient(SUPA_URL, SUPA_KEY, { auth:{ persistSession:true, detectSessionInUrl:false } });
+// supabase-js removed in v10 — all calls are direct fetch (see the library-free data layer)
 const $=id=>document.getElementById(id);
+// ============================================================================
+// LIBRARY-FREE DATA LAYER (v10). The supabase-js helper can deadlock on iOS
+// Safari (its auth lock jams after tab/app switches → every call hangs forever,
+// silently — the exact freeze). The app now talks to the server DIRECTLY with
+// plain fetch: same endpoints, same tokens, no locks, nothing to jam.
+// ============================================================================
+const SB_URL="https://jvqjoenaungubpoegyvf.supabase.co";
+const SB_KEY="sb_publishable_J4MYTdJJyEaWe-GadpwdYA_upPT2rKw";
+const SB_LS="sb-jvqjoenaungubpoegyvf-auth-token";        // where the login page stores the session
+function getSess(){
+  try{
+    const raw=localStorage.getItem(SB_LS); if(!raw) return null;
+    const j=JSON.parse(raw);
+    if(j&&j.access_token) return j;
+    if(j&&j.currentSession&&j.currentSession.access_token) return j.currentSession;
+    return null;
+  }catch(e){ return null; }
+}
+function saveSess(j){ try{ localStorage.setItem(SB_LS, JSON.stringify(j)); }catch(e){} }
+let _refreshing=null;
+async function freshToken(){
+  const s=getSess(); if(!s||!s.access_token) return null;
+  const exp=Number(s.expires_at||0);
+  if(exp && (exp - Date.now()/1000) > 90) return s.access_token;   // still fresh
+  if(_refreshing) return _refreshing;                               // one renewal at a time
+  _refreshing=(async()=>{
+    try{
+      const r=await fetch(SB_URL+"/auth/v1/token?grant_type=refresh_token",{
+        method:"POST",headers:{"Content-Type":"application/json","apikey":SB_KEY},
+        body:JSON.stringify({refresh_token:s.refresh_token})});
+      if(r.ok){ const j=await r.json();
+        if(j&&j.access_token){ j.expires_at=j.expires_at||Math.floor(Date.now()/1000)+(j.expires_in||3600); saveSess(j); return j.access_token; } }
+    }catch(e){}
+    return s.access_token;                                          // let the server judge a stale one
+  })();
+  const t=await _refreshing; _refreshing=null; return t;
+}
+async function api(fn,args){
+  const tok=await freshToken();
+  const h={"Content-Type":"application/json","apikey":SB_KEY};
+  if(tok) h["Authorization"]="Bearer "+tok;
+  const r=await fetch(SB_URL+"/rest/v1/rpc/"+fn,{method:"POST",headers:h,body:JSON.stringify(args||{})});
+  if(!r.ok){ let t=""; try{ t=await r.text(); }catch(e){} throw new Error(fn+" HTTP "+r.status+(t?" "+t.slice(0,120):"")); }
+  const t=await r.text(); if(!t) return null;
+  try{ return JSON.parse(t); }catch(e){ return null; }
+}
+async function sbrpc(fn,args){ try{ return { data: await api(fn,args), error:null }; }catch(e){ return { data:null, error:e }; } }
+async function authCheck(){   // is the login accepted by the server right now?
+  try{
+    const tok=await freshToken(); if(!tok) return { ok:false, email:null };
+    const r=await fetch(SB_URL+"/auth/v1/user",{headers:{"apikey":SB_KEY,"Authorization":"Bearer "+tok}});
+    if(!r.ok) return { ok:false, email:null };
+    const j=await r.json(); return { ok:true, email:(j&&j.email)||null };
+  }catch(e){ return { ok:false, email:null }; }
+}
+async function rawSignOut(){
+  try{ const s=getSess(); if(s&&s.access_token) await fetch(SB_URL+"/auth/v1/logout",{method:"POST",headers:{"apikey":SB_KEY,"Authorization":"Bearer "+s.access_token}}); }catch(e){}
+  try{ localStorage.removeItem(SB_LS); }catch(e){}
+}
+
 const app=$("app"), tabsEl=$("tabs");
 const nf=n=>Number(n||0).toLocaleString();
 const SLEEP_TIPS=["Go to bed and wake up at the same time every day — even on weekends. Your body clock loves routine.", "Get 10–15 minutes of morning sunlight to anchor your body clock for the night ahead.", "Keep your bedroom cool — around 18°C is the sweet spot for deep sleep.", "Make your room as dark as possible; even small lights can disrupt your sleep.", "Put screens away an hour before bed — blue light tricks your brain into thinking it's daytime.", "Keep your last coffee to the morning; caffeine can linger in your system for 8+ hours.", "A warm shower before bed helps your body cool down afterwards, which nudges you toward sleep.", "If you can't sleep after 20 minutes, get up and do something calm until you feel drowsy.", "Try to reserve your bed for sleep — your brain will learn that bed means rest.", "Keep a notepad by the bed to jot down worries so your mind can let them go.", "Try slow breathing — in for 4, hold for 7, out for 8 — to settle your nervous system.", "Avoid big meals within three hours of bedtime to prevent restlessness.", "Alcohol might make you drowsy, but it fragments your sleep later in the night.", "Keep naps under 20 minutes and before 3pm so they don't steal from your night.", "Dim the lights in the evening to tell your body it's nearly time to wind down.", "Move your body during the day — even a walk helps you sleep more deeply.", "Finish intense workouts a few hours before bed rather than right before.", "Cold feet can keep you awake — a pair of socks can actually help you drift off.", "White noise or a fan can mask sounds that would otherwise wake you.", "Replace your pillow if it's lumpy or flat — good support means fewer aches.", "A consistent bedtime routine signals your brain to prepare for sleep.", "Reading a few pages of a paper book is a gentle way to wind down.", "Keep your bedroom tidy — a calm space makes for a calm mind.", "Sip water through the day, but ease off close to bedtime to avoid night trips.", "If your mattress is over eight years old, it may be working against your sleep.", "Choose a pillow that keeps your neck level with your spine.", "Sleeping on your side can ease snoring and reduce back strain.", "Breathable, natural bedding helps regulate your temperature overnight.", "A short stretch before bed can release the day's tension from your muscles.", "Write tomorrow's to-do list before bed so it's out of your head.", "Catch some daylight on your lunch break to keep your rhythm strong.", "Keep the hour before bed low-key — no stressful emails or news.", "Lavender scent has a calming effect for many people at bedtime.", "A caffeine-free herbal tea like chamomile can be a soothing evening ritual.", "If worries spin at night, remind yourself they'll feel smaller in the morning.", "Tense then release each muscle group in turn to melt away tension.", "Keep your phone out of reach so you're not tempted to scroll at 2am.", "A cooler room with a warm duvet is the cosiest combination for sleep.", "Blackout curtains can make a big difference, especially in summer.", "Wake with natural light where you can — it makes mornings easier.", "Turn the clock away so you're not counting the minutes you've lost.", "Afternoon sunlight still helps your rhythm if you missed the morning.", "A regular wind-down playlist can become a cue for sleep.", "Leave big decisions for daylight — let your mind rest at night.", "Keep pets off the bed if they disturb your sleep through the night.", "If you share a bed, a larger mattress can stop you waking each other.", "Sugary snacks late at night can cause energy spikes that delay sleep.", "A light snack like a banana or a few nuts can help if you're hungry at bedtime.", "Consistent meal times help keep your body clock steady.", "Morning movement, even light, helps you feel sleepier come night.", "Give yourself permission to switch off — rest is productive too.", "Try journaling three good things from your day before lights out.", "Keep work out of the bedroom so it stays a place of rest.", "If your mind races, count slow breaths instead of sheep.", "A weighted blanket can feel calming and secure for some sleepers.", "Warm your bed with a hot water bottle in winter for a cosy drift-off.", "Fresh air during the day supports better sleep at night.", "Limit late-night liquids to avoid waking for the bathroom.", "Finish all caffeine — including tea and cola — by early afternoon.", "Use a soft night light rather than bright bathroom lights after dark.", "A predictable order to your routine — brush, wash, read — cues sleep.", "Don't force sleep; relaxing is enough, and sleep often follows.", "Change your sheets weekly — fresh bedding simply feels better.", "If you wake in the night, keep the lights low so you can drift back off.", "Morning stretches wake your body gently and set up a better rhythm.", "Try a 10-minute body scan as you lie down, relaxing from head to toe.", "Earplugs are a simple fix if noise wakes you easily.", "A tidy bedside table means fewer distractions at bedtime.", "Warm hands and feet help the rest of you cool into sleep.", "Go easy on heavy or spicy food at dinner if it unsettles your stomach.", "A consistent wake time is even more powerful than a consistent bedtime.", "Let natural light into your home each morning to feel alert.", "Gentle yoga before bed can ease both body and mind.", "If you nap, set an alarm so you don't sleep into the evening.", "Cut back on evening screens gradually if going cold-turkey feels hard.", "A supportive mattress keeps your spine aligned all night long.", "Feeling too warm? A lighter duvet in summer can transform your sleep.", "One bad night won't set you back — keep your routine steady the next day.", "Sunlight tells your brain when to be awake and, later, when to sleep.", "Charge your phone outside the bedroom overnight if you can.", "A calm, clutter-free room helps a busy mind settle.", "Slow, deep belly breaths signal safety to your body and invite sleep.", "If you drink alcohol, keep it to earlier in the evening.", "A short walk after dinner aids digestion and winds you down.", "Replace pillows every year or two — they lose support over time.", "For snoring, side-sleeping and a good pillow can both help.", "Keep your room a comfortable, steady temperature through the night.", "Even shifting your bedtime by 15 minutes helps train your body clock.", "Put tomorrow's clothes out at night so mornings feel calmer.", "Wind down with something you enjoy — a book, soft music, gentle stretches.", "Trust your bed to be comfortable, and let yourself sink into it.", "Long weekend lie-ins can shift your clock and make Monday harder.", "Dark, cool and quiet is the foundation of good sleep.", "Give yourself a proper wind-down window — sleep isn't a light switch.", "Notice what helps you sleep, and make it a nightly habit.", "Be patient — better sleep is built one night at a time.", "Morning light plus evening dimness keeps your body clock in tune.", "A comfortable mattress you look forward to is half the battle won.", "If you must use screens at night, keep them dim and warm-toned.", "Read under soft, warm light rather than bright white before bed.", "A steady Sunday routine sets you up for the week's sleep.", "If your bed sags or dips in the middle, it may be time for an upgrade.", "Fresh pyjamas and clean sheets make bedtime feel like a treat.", "Keep your evenings a little boring — calm is the goal.", "Let go of the day with a few slow breaths as your head hits the pillow.", "Good sleep starts long before bedtime — with light, movement and routine.", "A quick tidy of the bedroom before bed helps your mind feel settled.", "Keep a glass of water handy so a small thirst doesn't wake you fully.", "Aim for seven to nine hours — most adults feel best in that range.", "If your alarm's a shock each morning, you may need an earlier bedtime.", "A good night's sleep is when your body repairs itself — muscle, memory and mood all rebuild while you rest.", "Quality sleep sharpens focus, steadies your mood and strengthens your immune system — it's the best habit you have.", "Sleep isn't wasted time; it's when your brain files the day away and resets you for tomorrow.", "You spend about a third of your life in bed — a top-quality mattress is one of the smartest investments in your health.", "A supportive mattress keeps your spine in its natural alignment all night, so you wake without aches.", "The right mattress relieves pressure on your hips and shoulders, so you settle quickly and toss and turn less.", "When your bed feels just right, falling asleep stops being a struggle and becomes something to look forward to.", "A great mattress cradles you where you need softness and supports you where you need strength.", "Deep, unbroken sleep starts with a bed that holds your body properly — comfort you feel from the very first night.", "A premium mattress absorbs movement, so a restless partner doesn't pull you out of a deep sleep.", "Breathable, quality materials help your bed stay cool, so you sleep straight through the night.", "A worn, sagging bed works against you every night; proper support pays you back with real, restful sleep.", "Good sleep helps your heart, your brain and your body recover — protect it like the medicine it is.", "The nights you sleep well are the days you feel your best — that's no coincidence.", "Invest in where you sleep and you invest in every single day that follows it.", "A mattress built to last keeps its support for years, so every night feels as good as the first.", "Waking up refreshed instead of stiff often comes down to sleeping on the right mattress.", "Great sleep rests on three things: a steady routine, a calm room, and a bed that truly supports you."];
@@ -224,7 +283,7 @@ async function runDiag(){
   const out=[]; const say=t=>{ out.push(t); app.innerHTML='<div class="card" style="font-family:monospace;font-size:12.5px;line-height:1.8;word-break:break-all">'+out.map(esc).join("<br>")+'</div>'; };
   say("SIMTEC SELF-TEST · "+APP_VER);
   try{
-    const { data:{ session } } = await sb.auth.getSession();
+    const session = getSess();
     if(!session){ say("session: NONE (signed out)"); }
     else{
       const secs=Math.round(session.expires_at - Date.now()/1000);
@@ -233,8 +292,9 @@ async function runDiag(){
       const r=await fetch("https://jvqjoenaungubpoegyvf.supabase.co/rest/v1/rpc/my_plan",{method:"POST",headers:{"Content-Type":"application/json","apikey":"sb_publishable_J4MYTdJJyEaWe-GadpwdYA_upPT2rKw","Authorization":"Bearer "+session.access_token},body:"{}"});
       const t=await r.text();
       say("my_plan direct: HTTP "+r.status+" · "+t.slice(0,120));
-      const rf=await sb.auth.refreshSession();
-      say("token renewal: "+(rf.error?("FAILS — "+rf.error.message):"works"));
+      const rr=await fetch(SB_URL+"/auth/v1/token?grant_type=refresh_token",{method:"POST",headers:{"Content-Type":"application/json","apikey":SB_KEY},body:JSON.stringify({refresh_token:session.refresh_token})});
+      if(rr.ok){ const j=await rr.json(); if(j&&j.access_token){ j.expires_at=j.expires_at||Math.floor(Date.now()/1000)+(j.expires_in||3600); saveSess(j); } }
+      say("token renewal: "+(rr.ok?"works":"FAILS — HTTP "+rr.status));
     }
   }catch(e){ say("test error: "+String(e&&e.message||e)); }
   say("— photograph or read this screen to Claude —");
@@ -242,8 +302,8 @@ async function runDiag(){
   tabsEl.style.display="none";
 }
 async function boot(){
-  const { data:{ session } } = await sb.auth.getSession();
-  if(!session){ location.href="customer-login.html"; return; }
+  const session = getSess();
+  if(!session||!session.access_token){ location.href="customer-login.html"; return; }
   const q=new URLSearchParams(location.search);
   const paid=q.get("paid");
   if(paid!==null){ history.replaceState(null,"",location.pathname); }
@@ -253,8 +313,8 @@ async function boot(){
   // and what the data calls actually returned — so remote diagnosis needs no
   // guesswork about what this device saw.
   (async()=>{ try{
-    const { data:gu, error:ge } = await sb.auth.getUser();
-    beacon("load-report","auth="+(ge?("BAD:"+ge.message):("ok:"+((gu&&gu.user&&gu.user.email)||"?"))));
+    const ac = await authCheck();
+    beacon("load-report","auth="+(ac.ok?("ok:"+(ac.email||"?")):"BAD"));
   }catch(e){ beacon("load-report","auth-check-threw:"+String(e&&e.message||e)); } })();
   try{ await loadAll(); crumb('loaded');
     beacon("data-report","points="+(R&&R.points)+" spins="+(R&&R.spins)+" has_order="+(PLAN&&PLAN.has_order)+" pct="+(PLAN&&PLAN.pct_to_delivery)+" rating="+(S&&S.rating)+" name="+NAME);
@@ -265,8 +325,8 @@ async function boot(){
   // it's dead, sign out cleanly to the login page instead of sitting frozen.
   if(R.points===undefined){
     try{
-      const { error } = await sb.auth.getUser();
-      if(error){ try{ await sb.auth.signOut(); }catch(_){} location.replace("customer-login.html"); return; }
+      const ac = await authCheck();
+      if(!ac.ok){ await rawSignOut(); location.replace("customer-login.html"); return; }
     }catch(_){}
     // login says it's fine yet no data arrived — show the self-diagnosis screen
     runDiag(); return;
@@ -277,21 +337,25 @@ async function boot(){
 }
 async function loadAll(){
   const [r,s,c,d,u,pl,ms,lb,rf]=await Promise.all([
-    sb.rpc("my_rewards").catch(()=>({data:null})), sb.rpc("my_status").catch(()=>({data:null})), sb.rpc("my_cards").catch(()=>({data:null})), sb.rpc("draw_status").catch(()=>({data:null})), sb.rpc("unread_count").catch(()=>({data:null})), sb.rpc("my_plan").catch(()=>({data:null})), sb.rpc("my_milestones").catch(()=>({data:null})), sb.rpc("leaderboard").catch(()=>({data:null})), sb.rpc("my_referrals").catch(()=>({data:null}))
+    sbrpc("my_rewards").catch(()=>({data:null})), sbrpc("my_status").catch(()=>({data:null})), sbrpc("my_cards").catch(()=>({data:null})), sbrpc("draw_status").catch(()=>({data:null})), sbrpc("unread_count").catch(()=>({data:null})), sbrpc("my_plan").catch(()=>({data:null})), sbrpc("my_milestones").catch(()=>({data:null})), sbrpc("leaderboard").catch(()=>({data:null})), sbrpc("my_referrals").catch(()=>({data:null}))
   ]);
   const arr=v=>Array.isArray(v)?v:[];
   R=r.data||{}; S=s.data||{}; CARDS=arr(c.data); DRAW=d.data||{}; UNREAD=u.data||0; PLAN=pl.data||{}; MS=arr(ms.data); LB=lb.data||{}; REFS=arr(rf.data);
   LB.top=arr(LB.top);
-  if(NAME==="there"){ try{ const { data:me }=await sb.from("sim_customers").select("first_name").limit(1); if(me&&me[0]&&me[0].first_name) NAME=me[0].first_name; }catch(e){} }
+  if(NAME==="there"){ try{
+    const tok=await freshToken();
+    const r=await fetch(SB_URL+"/rest/v1/sim_customers?select=first_name&limit=1",{headers:{"apikey":SB_KEY,"Authorization":"Bearer "+tok}});
+    const me=r.ok?await r.json():null; if(me&&me[0]&&me[0].first_name) NAME=me[0].first_name;
+  }catch(e){} }
 }
 
 function ratingLabel(){ return (S.rating||"AAA"); }
-const APP_VER="v9 — 3 Aug";
+const APP_VER="v10 — 3 Aug";
 // Black-box recorder: any error on the device reports itself home, with a
 // breadcrumb trail of the last taps — so "it froze" becomes a readable log.
 let CRUMBS=[];
 function crumb(x){ try{ CRUMBS.push(Date.now()%100000+" "+x); if(CRUMBS.length>12) CRUMBS.shift(); }catch(e){} }
-function beacon(kind,msg){ try{ sb.rpc("log_debug",{ p_msg: APP_VER+" | "+kind+" | "+msg+" | tab="+TAB+" | crumbs: "+CRUMBS.join(" → ")+" | "+navigator.userAgent, p_key:"sd-2026" }); }catch(e){} }
+function beacon(kind,msg){ try{ sbrpc("log_debug",{ p_msg: APP_VER+" | "+kind+" | "+msg+" | tab="+TAB+" | crumbs: "+CRUMBS.join(" → ")+" | "+navigator.userAgent, p_key:"sd-2026" }); }catch(e){} }
 window.addEventListener("error", e=>beacon("error", (e.message||"?")+" @ "+(e.filename||"")+":"+(e.lineno||"")));
 window.addEventListener("unhandledrejection", e=>beacon("promise", String(e.reason&&e.reason.message||e.reason)));
 const CLEAN_RUN=5;                       // demo cfg.cleanRun — payments in a row to unlock Fast Track
@@ -611,7 +675,7 @@ function overlaysHtml(){
 }
 function dismissStarburst(){
   const L=DRAW&&DRAW.latest;
-  if(L){ try{ sb.rpc("mark_draw_seen",{ p_month:L.month }); L.congrats_pending=false; }catch(e){} }
+  if(L){ try{ sbrpc("mark_draw_seen",{ p_month:L.month }); L.congrats_pending=false; }catch(e){} }
   OVERLAY=null; render();
 }
 function openSlot(){ SLOT.open=true; SLOT.result=null; render(); }
@@ -632,11 +696,11 @@ async function doStripe(purpose,amount){
     // permits the Authorization + Content-Type headers, and the supabase-js
     // invoke() helper adds extra ones (apikey, x-client-info) that make the
     // browser's CORS pre-check block the whole request. Capital-S slug matters.
-    const { data:{ session } } = await sb.auth.getSession();
-    if(!session){ toast("Please sign in again"); busy=false; return; }
+    const payTok = await freshToken();
+    if(!payTok){ toast("Please sign in again"); busy=false; return; }
     const resp = await fetch("https://jvqjoenaungubpoegyvf.supabase.co/functions/v1/Stripe-create-session",{
       method:"POST",
-      headers:{ "Content-Type":"application/json", "Authorization":"Bearer "+session.access_token },
+      headers:{ "Content-Type":"application/json", "Authorization":"Bearer "+payTok },
       body: JSON.stringify(body)
     });
     const data = await resp.json().catch(()=>({}));
@@ -651,14 +715,14 @@ function payGo(){
   if(!(v>=50)){ toast("Minimum extra payment is $50"); return; }
   PAY.open=false; doStripe('extra', v);
 }
-async function toggleBoard(on){ if(busy) return; busy=true; try{ await sb.rpc("set_leaderboard_optin",{ p_on:on }); await loadAll(); }catch(e){} busy=false; render(); }
+async function toggleBoard(on){ if(busy) return; busy=true; try{ await sbrpc("set_leaderboard_optin",{ p_on:on }); await loadAll(); }catch(e){} busy=false; render(); }
 
 async function doReferral(){
   if(busy) return;
   const n=document.getElementById("refName"), m=document.getElementById("refMobile"), su=document.getElementById("refSuburb"), msg=document.getElementById("refMsg");
   busy=true; if(msg) msg.textContent="Sending…";
   try{
-    const { data } = await sb.rpc("submit_referral",{ p_name:(n&&n.value)||"", p_mobile:(m&&m.value)||"", p_suburb:(su&&su.value)||"" });
+    const { data } = await sbrpc("submit_referral",{ p_name:(n&&n.value)||"", p_mobile:(m&&m.value)||"", p_suburb:(su&&su.value)||"" });
     const res=data||{};
     if(res.ok){ try{SFX.win();}catch(e){} await loadAll(); busy=false; TAB="refer"; render();
       const mm=document.getElementById("refMsg"); if(mm){ mm.textContent="Sent! Our team will take it from here. 🙌"; mm.style.color="var(--gold)"; }
@@ -673,7 +737,7 @@ async function doSpin(){
   SLOT.spinning=true; SLOT.result=null; render(); SFX.spin();
   spinIv=setInterval(()=>{ const reels=document.querySelectorAll(".reel"); reels.forEach(r=>r.textContent=SYM[Math.floor(Math.random()*SYM.length)]); },90);
   try{
-    const { data }=await sb.rpc("play_spin");
+    const { data }=await sbrpc("play_spin");
     setTimeout(async ()=>{
       clearInterval(spinIv);
       if(data&&data.ok){
@@ -690,7 +754,7 @@ async function doSpin(){
 async function doDaily(){
   if(busy||!R.daily_available) return; busy=true;
   try{
-    const { data }=await sb.rpc("claim_daily");
+    const { data }=await sbrpc("claim_daily");
     if(data&&data.ok){ party(`🎁 Daily bonus — +${nf(data.points)} points!`); await loadAll(); }
     else { toast((data&&data.error)||"Already claimed today."); }
   }catch(e){ toast("Try again."); }
@@ -700,7 +764,7 @@ async function redeem(id,how){
   if(busy) return; busy=true;
   const labels={giftcard:'gift card',plan_credit:'$50 off your plan',donation:'donation to your group'};
   try{
-    const { data }=await sb.rpc("redeem_reward_card",{ p_card:id, p_how:how });
+    const { data }=await sbrpc("redeem_reward_card",{ p_card:id, p_how:how });
     if(data&&data.ok){ SFX.win(); toast('✓ Redeemed as '+(labels[how]||how)); await loadAll(); }
     else { toast((data&&data.error)||'Could not redeem'); }
   }catch(e){ toast('Try again'); }
@@ -709,7 +773,7 @@ async function redeem(id,how){
 async function doDraw(){
   if(busy||DRAW.entered_this_month) return; busy=true;
   try{
-    const { data }=await sb.rpc("enter_draw");
+    const { data }=await sbrpc("enter_draw");
     if(data&&data.ok){ SFX.coin(); toast('✓ Entered the draw'); await loadAll(); }
     // open the real review page for the customer (entry already recorded regardless)
     window.open("https://search.google.com/local/writereview?placeid=ChIJJzcUnodJDW0Rf6vgkpuhrWA","_blank");
@@ -719,16 +783,16 @@ async function doDraw(){
 function renderKeepTab(t){ TAB=t; render(); }
 
 async function openInbox(){
-  try{ const { data }=await sb.rpc("my_notifications"); const items=data||[];
+  try{ const { data }=await sbrpc("my_notifications"); const items=data||[];
     app.innerHTML=`<div class="top"><h1>Notifications</h1><button class="bell" onclick="render()">✕</button></div>`+
       (items.length? items.map(n=>`<div class="card"><div style="font-weight:800">${n.title||''}</div>${n.body?`<div class="muted" style="margin-top:3px">${n.body}</div>`:''}</div>`).join("")
                    : `<div class="card"><div class="muted">No notifications yet.</div></div>`);
     // mark all read
-    for(const n of items){ if(!n.read) sb.rpc("mark_notification_read",{ p_id:n.id }); }
+    for(const n of items){ if(!n.read) sbrpc("mark_notification_read",{ p_id:n.id }); }
     UNREAD=0;
   }catch(e){ render(); }
 }
-async function signOut(){ await sb.auth.signOut(); location.href="customer-login.html"; }
+async function signOut(){ await rawSignOut(); location.href="customer-login.html"; }
 
 document.addEventListener("visibilitychange", ()=>{ if(!document.hidden && !busy){ loadAll().then(()=>{render();checkCelebrations();}).catch(()=>{}); } });
 window.addEventListener("pageshow", (e)=>{ if(e.persisted && !busy){ loadAll().then(()=>{render();checkCelebrations();}).catch(()=>{}); } });
