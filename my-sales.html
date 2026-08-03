@@ -10,7 +10,11 @@
   :root{--navy:#122347;--navy2:#1c3363;--gold:#c6a15b;--ink:#1a2334;--line:#d9e0ea;--bg:#eef1f5;--grey:#7a8798;}
   *{box-sizing:border-box}
   body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(--bg);color:var(--ink);margin:0}
-  header{background:var(--navy);color:#fff;padding:18px 22px;display:flex;align-items:center;gap:14px}
+  header{background:var(--navy);color:#fff;padding:18px 22px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+  /* auth.js pins a floating Log out button to the top-right corner (except on
+     phones, where it moves to the bottom). Reserve that corner so the header
+     buttons are never hidden underneath it. */
+  @media(min-width:641px){ header{padding-right:118px} }
   header .back{color:#b9c6de;text-decoration:none;font-size:13px;font-weight:600}
   header .back:hover{color:#fff}
   header .brand{font-weight:700;font-size:19px;letter-spacing:.5px}
@@ -55,7 +59,8 @@
 <header>
   <a href="home.html" id="homeLink" class="back" style="display:none">‹ Home</a>
   <div class="brand">My Sales<small>SIMTEC THERAPEUTIC</small></div>
-  <a href="diary.html" class="diary">📅 My Diary</a>
+  <a href="order-app.html" class="diary">🛒 New Order</a>
+  <a href="diary.html" class="diary" style="margin-left:10px">📅 My Diary</a>
 </header>
 
 <div class="wrap">
