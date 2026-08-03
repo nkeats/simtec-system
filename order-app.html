@@ -407,7 +407,7 @@
             <span class="txt"><b>Collection &amp; use of personal information (Privacy Act 2020)</b>Details are collected only to assess affordability and manage the account, stored securely, and not sold or disclosed except as needed to manage payments.</span></label>
           <div class="initbox"><div class="ihead"><span class="ini1head">Initials</span><button type="button" class="clr" onclick="clearSig('iAck3')">Clear</button></div><canvas class="sig ini" id="iAck3"></canvas></div><div class="initbox a2ini hidden"><div class="ihead"><span>Applicant 2</span><button type="button" class="clr" onclick="clearSig('iAck3_2')">Clear</button></div><canvas class="sig ini" id="iAck3_2"></canvas></div>
         </div>
-        <div class="ackrow">
+        <div class="ackrow" id="ackCoolingRow">
           <label class="ack" style="flex:1;border-bottom:none;"><input type="checkbox" class="ackbox">
             <span class="txt"><b>5-day cooling-off period explained</b>The consultant confirms the cooling-off period has been explained to the customer.</span></label>
           <div class="initbox"><div class="ihead"><span class="ini1head">Initials</span><button type="button" class="clr" onclick="clearSig('iAck4')">Clear</button></div><canvas class="sig ini" id="iAck4"></canvas></div><div class="initbox a2ini hidden"><div class="ihead"><span>Applicant 2</span><button type="button" class="clr" onclick="clearSig('iAck4_2')">Clear</button></div><canvas class="sig ini" id="iAck4_2"></canvas></div>
@@ -576,6 +576,20 @@
         <div style="font-size:56px;" id="doneIcon">✅</div>
         <h2 class="title" style="margin-top:10px;" id="doneTitle">Order complete</h2>
         <p class="sub" id="doneMsg">The order has been recorded.</p>
+
+        <!-- Card payment (Stripe) — active for SOLICITED sales only: unsolicited
+             sales sit in the cooling-off period, so no money may be taken today. -->
+        <div id="cardPayBox" class="hidden" style="max-width:430px;margin:20px auto 0;border:1.5px solid #d8e4f2;border-radius:14px;padding:16px 18px;background:#f7fafd;text-align:center">
+          <div style="font-weight:800;font-size:15px;">💳 Take a card payment now</div>
+          <div id="cardPayInner">
+            <div class="sub" style="margin:6px 0 10px">Opens Stripe's secure payment page in a new tab — this order stays right here, and the payment records itself against the order automatically.</div>
+            <input id="cardPayAmt" type="number" inputmode="decimal" min="10" step="0.01" style="width:160px;text-align:center;font-size:16px;font-weight:700;padding:10px;border:1.5px solid var(--line);border-radius:10px" placeholder="Amount $">
+            <div><button type="button" class="btn next" style="max-width:300px;margin:12px auto 0;display:block" onclick="takeCardPayment()">Open secure card payment</button></div>
+            <div id="cardPayMsg" class="sub" style="margin-top:8px"></div>
+          </div>
+          <div id="cardPayOff" class="sub hidden" style="margin-top:6px;color:#8a6d1a"><b>Not available for this order.</b> Unsolicited sale — the 5-working-day cooling-off period means no payment can be taken today.</div>
+        </div>
+
         <button class="btn next" style="max-width:260px;margin:22px auto 0;display:block;" onclick="newOrder()">Start new order</button>
       </div>
     </section>
@@ -716,12 +730,13 @@ function validateStep(ds){
   if(ds===2){ if(!val('a1first')||!val('a1last')||!val('mobile')||!val('email')||!val('street')){alert('Fill the required customer fields.');return false;}
     if(!S.emailVerified && !confirm('Email not verified. Continue anyway?')) return false; }
   if(ds===4){ if(!document.getElementById('tncAgree').checked){alert('Customer must read and agree to the Terms & Conditions.');return false;}
-    if(![...document.querySelectorAll('.ackbox')].every(a=>a.checked)){alert('All acknowledgements must be confirmed.');return false;}
+    const ackMax = (S.saleType==='solicited') ? 3 : 4;   // cooling-off row hidden for solicited
+    if(![...document.querySelectorAll('.ackrow:not(.hidden) .ackbox')].every(a=>a.checked)){alert('All acknowledgements must be confirmed.');return false;}
     if(isBlank('iTnc')){alert('Applicant 1 must initial the Terms & Conditions box.');return false;}
-    for(let i=1;i<=4;i++){ if(isBlank('iAck'+i)){alert('Applicant 1 must initial every acknowledgement.');return false;} }
+    for(let i=1;i<=ackMax;i++){ if(isBlank('iAck'+i)){alert('Applicant 1 must initial every acknowledgement.');return false;} }
     if(S.a2){
       if(isBlank('iTnc_2')){alert('Applicant 2 must initial the Terms & Conditions box.');return false;}
-      for(let i=1;i<=4;i++){ if(isBlank('iAck'+i+'_2')){alert('Applicant 2 must initial every acknowledgement.');return false;} }
+      for(let i=1;i<=ackMax;i++){ if(isBlank('iAck'+i+'_2')){alert('Applicant 2 must initial every acknowledgement.');return false;} }
     } }
   if(ds===8){ if(isBlank('sigEzi')){alert('Please sign the direct-debit authority — the last box on this page — to finish.');return false;} }
   if(ds===6){ if(!S.pay){alert('Select a payment method.');return false;} }
@@ -736,7 +751,15 @@ function bindChoices(wrapId, cb){
     c.classList.add('sel'); cb(c.dataset.val);
   });
 }
-bindChoices('saleType', v=>{ S.saleType=v; document.getElementById('referrerBox').classList.toggle('hidden', v!=='solicited'); updateDepositMethodUI(); updateFullMethodUI(); });
+bindChoices('saleType', v=>{ S.saleType=v; document.getElementById('referrerBox').classList.toggle('hidden', v!=='solicited'); updateCoolingUI(); updateDepositMethodUI(); updateFullMethodUI(); });
+// Solicited sales have no statutory cooling-off (CCLA 2017 uninvited-sales rules),
+// so the acknowledgement row (tick + initials) only applies to unsolicited sales.
+function updateCoolingUI(){
+  const row=document.getElementById('ackCoolingRow'); if(!row) return;
+  const off = S.saleType==='solicited';
+  row.classList.toggle('hidden', off);
+  const box=row.querySelector('.ackbox'); if(box && off) box.checked=false;
+}
 
 // Referral auto-detect: when the mobile is entered, ask the DB (via a security-definer
 // RPC) whether this number matches a pending referral. Only the single match is returned
@@ -989,8 +1012,10 @@ async function collectOrder(){
   const wantDel=document.getElementById('wantDelivery').checked;
   const files={ idA1:(S.idPhotos.A1||[]).slice(), idA2:(S.a2?(S.idPhotos.A2||[]).slice():[]),
     sigA1:canvasDataURL('sigA1'), sigA2:(S.a2?canvasDataURL('sigA2'):null), sigEzi:canvasDataURL('sigEzi'),
-    iTnc:canvasDataURL('iTnc'), iAck1:canvasDataURL('iAck1'), iAck2:canvasDataURL('iAck2'), iAck3:canvasDataURL('iAck3'), iAck4:canvasDataURL('iAck4'),
-    iTnc_2:(S.a2?canvasDataURL('iTnc_2'):null), iAck1_2:(S.a2?canvasDataURL('iAck1_2'):null), iAck2_2:(S.a2?canvasDataURL('iAck2_2'):null), iAck3_2:(S.a2?canvasDataURL('iAck3_2'):null), iAck4_2:(S.a2?canvasDataURL('iAck4_2'):null) };
+    iTnc:canvasDataURL('iTnc'), iAck1:canvasDataURL('iAck1'), iAck2:canvasDataURL('iAck2'), iAck3:canvasDataURL('iAck3'),
+    iAck4:(S.saleType==='solicited'?null:canvasDataURL('iAck4')),
+    iTnc_2:(S.a2?canvasDataURL('iTnc_2'):null), iAck1_2:(S.a2?canvasDataURL('iAck1_2'):null), iAck2_2:(S.a2?canvasDataURL('iAck2_2'):null), iAck3_2:(S.a2?canvasDataURL('iAck3_2'):null),
+    iAck4_2:((S.a2&&S.saleType!=='solicited')?canvasDataURL('iAck4_2'):null) };
   const customerName=((fields.a1first||'')+' '+(fields.a1last||'')).trim()||'(no name)';
   return { v:1, savedAt:Date.now(), customerName, fields, flags, products, wantDel, files, referralId:S.referralId||null };
 }
@@ -1216,6 +1241,7 @@ async function submitOrder(){
     // schedule — is sent from finalizeOrder() when the order reaches the Done step.
     pushOrderToGhl(id, {contactOnly:true});
     setDoneSaved();
+    renderCardPay();
     setBtn(btnLabel,false);
     done.textContent = S.pay==='ezidebit'
       ? 'Order saved. Complete the Ezidebit direct debit next.'
@@ -1272,6 +1298,39 @@ function pushOrderToGhl(orderId, opts){
 // Runs once when a saved order reaches the Done step. By now the Ezidebit schedule
 // (step 8) is set, so we regenerate the summary PDF to include it BEFORE the push,
 // then fire the GHL contact sync + instant welcome email (which attaches that PDF).
+// ---- card payment at point of sale (solicited only) ----
+function renderCardPay(){
+  const box=document.getElementById('cardPayBox'); if(!box) return;
+  box.classList.remove('hidden');
+  const solicited = S.saleType==='solicited';
+  document.getElementById('cardPayInner').classList.toggle('hidden', !solicited);
+  document.getElementById('cardPayOff').classList.toggle('hidden', solicited);
+  if(!solicited) return;
+  // sensible default: full sale → the lot; 50% deposit → half; Ezidebit plan → the 10% deposit
+  const gross = Number((S.lastP&&(S.lastP.contract_value||S.lastP.total||S.lastP.gross))||0);
+  let suggest = 0;
+  if(S.pay==='full') suggest=gross;
+  else if(S.pay==='deposit50') suggest=gross*0.5;
+  else suggest=gross*0.10;
+  const inp=document.getElementById('cardPayAmt');
+  if(inp && suggest>0) inp.value=suggest.toFixed(2);
+}
+async function takeCardPayment(){
+  const msg=document.getElementById('cardPayMsg');
+  const amt=Math.round(Number((document.getElementById('cardPayAmt')||{}).value||0)*100)/100;
+  if(!(amt>=10)){ msg.textContent='Enter an amount of $10 or more.'; return; }
+  if(!S.orderId){ msg.textContent='Save the order first.'; return; }
+  msg.textContent='Opening the secure payment page…';
+  try{
+    const { data, error } = await sb.functions.invoke('Stripe-staff-session',{ body:{ order_id:S.orderId, amount:amt } });
+    if(data&&data.url){
+      window.open(data.url,'_blank');
+      msg.textContent='Payment page opened in a new tab. Once the customer pays, the payment records against this order automatically.';
+      return;
+    }
+    msg.textContent=(data&&data.error)||(error&&error.message)||'Card payments aren\'t available right now.';
+  }catch(e){ msg.textContent='Couldn\'t reach the payment service — check the connection and try again.'; }
+}
 async function finalizeOrder(){
   if(!sb || !S.orderId || S.finalized) return;
   S.finalized=true;
