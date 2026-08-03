@@ -1,0 +1,757 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Simtec Rewards — Demo</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#0e2038">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Simtec">
+
+<style>
+  :root{ --gold:#FFD23F; --gold2:#FFB627; --ink:#ffffff; --sub:rgba(255,255,255,.66); --muted:rgba(255,255,255,.66);
+         --line:rgba(255,255,255,.16); --card:linear-gradient(180deg,rgba(255,255,255,.14),rgba(255,255,255,.05));
+         --good:#25C97A; --hot:#FF8A3D; --pink:#FF4E9B; --cyan:#25D6FF; --purple:#B06BFF; }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:"SF Pro Rounded","Segoe UI",system-ui,-apple-system,Roboto,sans-serif;color:var(--ink);min-height:100vh;
+       background:radial-gradient(130% 55% at 50% -8%, #6B2AB0 0%, #3A1C82 42%, #1A0E52 100%) #1A0E52}
+  .fx{position:fixed;inset:0;pointer-events:none;z-index:0;overflow:hidden}
+  .fx .blob{position:absolute;border-radius:50%} /* soft edge baked into the gradient — live blur() locks up phone GPUs */
+  .fx .b1{top:-30px;left:-55px;width:200px;height:200px;background:radial-gradient(circle,rgba(255,78,155,.8),transparent 60%);opacity:.32}
+  .fx .b2{top:150px;right:-70px;width:230px;height:230px;background:radial-gradient(circle,rgba(37,214,255,.8),transparent 60%);opacity:.26}
+  .fx .b3{bottom:30px;left:-50px;width:210px;height:210px;background:radial-gradient(circle,rgba(176,107,255,.8),transparent 60%);opacity:.30}
+  .fx .tw{position:absolute;border-radius:50%;background:#fff;animation:tw 2.6s ease-in-out infinite}
+  @keyframes tw{0%,100%{opacity:.25;transform:scale(.8)}50%{opacity:1;transform:scale(1.15)}}
+  @keyframes bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-5px)}}
+  @keyframes pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.025)}}
+  .wrap{max-width:520px;margin:0 auto;padding:18px 16px 96px;position:relative;z-index:1}
+  .center{display:flex;align-items:center;justify-content:center;min-height:70vh;color:var(--sub)}
+  .spin{width:26px;height:26px;border:3px solid rgba(255,255,255,.25);border-top-color:var(--gold);border-radius:50%;animation:sp 1s linear infinite;display:inline-block}
+  @keyframes sp{to{transform:rotate(360deg)}}
+  .top{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
+  .top h1{font-size:20px;margin:0;font-weight:900;letter-spacing:.2px;text-shadow:0 2px 10px rgba(0,0,0,.35)}
+  .bell{position:relative;background:linear-gradient(180deg,rgba(255,255,255,.16),rgba(255,255,255,.06));border:1px solid var(--line);border-radius:14px;padding:8px 12px;color:var(--ink);font-size:16px;cursor:pointer}
+  .bell b{position:absolute;top:-7px;right:-7px;background:linear-gradient(120deg,#FF2D78,#FF6A3D);color:#fff;font-size:11px;font-weight:900;border-radius:10px;padding:1px 6px;box-shadow:0 2px 6px rgba(255,45,120,.5)}
+  .hero{background:linear-gradient(120deg,#6B2AB0,#B06BFF);border:1px solid rgba(255,255,255,.22);border-radius:26px;padding:22px 20px;text-align:center;margin-bottom:14px;box-shadow:0 14px 34px rgba(107,42,176,.45), inset 0 1px 0 rgba(255,255,255,.25)}
+  .pts{font-size:44px;font-weight:900;letter-spacing:-.5px;line-height:1;color:var(--gold);text-shadow:0 0 22px rgba(255,210,63,.45), 0 2px 4px rgba(0,0,0,.35)}
+  .pts span{font-size:15px;color:rgba(255,255,255,.85);font-weight:700;text-shadow:none}
+  .chips{display:flex;gap:10px;justify-content:center;margin-top:14px;flex-wrap:wrap}
+  .chip{background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.28);border-radius:999px;padding:7px 14px;font-size:13px;font-weight:800}
+  .chip .k{color:rgba(255,255,255,.75);font-weight:700;margin-right:5px}
+  .rating{background:linear-gradient(135deg,#FFE27A,#FF8A3D 60%,#FF2D78);color:#3A2000;border-color:transparent;box-shadow:0 3px 10px rgba(255,45,120,.4)}
+  h2{font-size:11.5px;text-transform:uppercase;letter-spacing:1.6px;color:var(--sub);margin:22px 6px 10px;font-weight:800}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:22px;padding:16px;margin-bottom:12px;box-shadow:inset 0 1px 0 rgba(255,255,255,.18)}
+  .btn{width:100%;border:0;border-radius:16px;padding:15px;font-size:16px;font-weight:900;cursor:pointer;color:#053019;font-family:inherit;
+       background:linear-gradient(120deg,#25C97A,#54EFA0);box-shadow:0 4px 0 #159257, 0 10px 24px rgba(37,201,122,.30);transition:transform .08s, box-shadow .08s}
+  .btn:active{transform:translateY(3px);box-shadow:0 1px 0 #159257}
+  .btn:disabled{opacity:.45;box-shadow:none;cursor:default}
+  .btn.gold{background:linear-gradient(120deg,#FFD23F,#FF8A3D);color:#3A2000;box-shadow:0 4px 0 #C88A00, 0 10px 24px rgba(255,182,39,.35)}
+  .btn.gold:active{transform:translateY(3px);box-shadow:0 1px 0 #C88A00}
+  .btn.ghost{background:linear-gradient(180deg,rgba(255,255,255,.16),rgba(255,255,255,.06));color:var(--ink);border:1px solid var(--line);box-shadow:none;font-weight:800}
+  .btn.ghost:active{transform:translateY(2px)}
+  .btn.sm{padding:11px;font-size:14px}
+  .row{display:flex;gap:10px}
+  .muted{color:var(--sub);font-size:13px;line-height:1.5}
+  .result{text-align:center;padding:14px;border-radius:16px;background:rgba(255,210,63,.14);border:1px solid rgba(255,210,63,.5);margin-top:12px;font-weight:900;font-size:17px;box-shadow:0 0 18px rgba(255,210,63,.18)}
+  .cardrow{display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-bottom:1px solid var(--line)}
+  .cardrow:last-child{border-bottom:0}
+  .badge{display:inline-block;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.26);border-radius:12px;padding:5px 10px;font-size:12.5px;font-weight:800;margin:3px 4px 0 0}
+  .win{background:linear-gradient(120deg,#FFD23F,#FF8A3D);color:#3A2000;border:0;box-shadow:0 3px 10px rgba(255,138,61,.4)}
+  .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:linear-gradient(180deg,#3A1C82,#241463);border:1px solid var(--gold);color:var(--ink);
+         padding:13px 18px;border-radius:16px;font-weight:800;box-shadow:0 12px 40px rgba(0,0,0,.5);z-index:50;max-width:90%}
+  .tabs{position:fixed;left:0;right:0;bottom:0;background:rgba(20,10,60,.92);border-top:1px solid var(--line);
+        display:flex;justify-content:space-around;padding:8px 6px 14px;max-width:520px;margin:0 auto;gap:4px}
+  .tab{flex:1;text-align:center;color:var(--sub);font-size:11px;font-weight:800;padding:7px 2px;cursor:pointer;border:0;background:none;border-radius:14px;font-family:inherit}
+  .tab.on{color:#3A2000;background:linear-gradient(120deg,#FFD23F,#FF8A3D);box-shadow:0 3px 0 #C88A00}
+  .tab .ic{font-size:20px;display:block;margin-bottom:2px}
+  .inp{width:100%;box-sizing:border-box;background:rgba(255,255,255,.10);border:1px solid var(--line);border-radius:14px;color:var(--ink);padding:12px 14px;font-size:16px;margin:0 0 10px;font-family:inherit;font-weight:600} /* 16px minimum — iPhones auto-zoom (and get stuck zoomed) on any input smaller than 16px */
+  .inp::placeholder{color:rgba(255,255,255,.45)}
+
+  .bob{animation:bob 2.4s ease-in-out infinite}
+  @keyframes popin{from{opacity:0;transform:translateY(10px) scale(.98)}to{opacity:1;transform:none}}
+  .card{animation:popin .35s cubic-bezier(.34,1.3,.5,1) both}
+  .card:nth-of-type(2){animation-delay:.05s}.card:nth-of-type(3){animation-delay:.1s}
+  .card:nth-of-type(4){animation-delay:.15s}.card:nth-of-type(5){animation-delay:.2s}
+  .hero{position:relative;overflow:hidden;animation:popin .35s cubic-bezier(.34,1.3,.5,1) both}
+    85%,100%{left:130%}}
+  
+  }
+  
+  
+  .tabs{left:50%;right:auto;transform:translateX(-50%);width:calc(100% - 20px);max-width:520px;bottom:10px;border:1px solid var(--line);
+        border-radius:24px;background:rgba(20,10,60,.9);box-shadow:0 14px 34px rgba(0,0,0,.5)}
+  
+
+  .refercta{width:100%;display:flex;align-items:center;gap:14px;padding:16px 18px;margin-bottom:12px;border:0;border-radius:16px;color:#fff;cursor:pointer;font-family:inherit;
+    background:linear-gradient(120deg,#FF2D78,#FF6A3D);box-shadow:0 4px 0 #C41E5E, 0 12px 28px rgba(255,45,120,.35);animation:pulse 2.4s ease-in-out infinite;transition:transform .08s, box-shadow .08s}
+  .refercta:active{transform:translateY(3px);box-shadow:0 1px 0 #C41E5E}
+
+  .eyeb{font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--sub);font-weight:800}
+  .shine{}
+  @keyframes shn{0%,100%{filter:brightness(1)}50%{filter:brightness(1.28)}}
+  .float{animation:fl 3s ease-in-out infinite}
+  @keyframes fl{0%,100%{transform:translateY(0)}50%{transform:translateY(-4px)}}
+  @keyframes spin360{to{transform:rotate(360deg)}}
+  .pop{animation:pop .6s cubic-bezier(.3,1.6,.5,1) both}
+  @keyframes pop{0%{transform:scale(0)}70%{transform:scale(1.18)}100%{transform:scale(1)}}
+  @keyframes clap{0%,100%{transform:translateY(0) rotate(-9deg)}50%{transform:translateY(-7px) rotate(9deg)}}
+  }
+  .glow{box-shadow:0 0 20px rgba(255,210,63,.7)}
+  .pulse{animation:pulse 1.8s ease-in-out infinite}
+  .toast{background:linear-gradient(120deg,#FF2D78,#FF6A3D)!important;border:none!important;color:#fff!important;box-shadow:0 10px 30px rgba(255,45,120,.5)!important}
+  .tabs{bottom:14px;border-radius:26px;background:rgba(22,12,56,.97);z-index:40} /* above the content layer (z1) — without this the content's bottom padding sits on the dock and eats every tap */
+  .tab{padding:4px 2px}
+  .tab.on{background:none;box-shadow:none;color:inherit}
+</style>
+</head>
+<body>
+<div style="position:fixed;top:14px;right:-34px;z-index:70;transform:rotate(35deg);background:linear-gradient(120deg,#FF2D78,#FF6A3D);color:#fff;font-weight:900;font-size:11px;letter-spacing:2px;padding:6px 44px;box-shadow:0 4px 14px rgba(255,45,120,.5);pointer-events:none">DEMO</div>
+<div class="fx">
+  <div class="blob b1"></div><div class="blob b2"></div><div class="blob b3"></div>
+  <div class="tw" style="left:8%;top:10%;width:6px;height:6px"></div><div class="tw" style="left:24%;top:26%;width:4px;height:4px;animation-delay:.3s"></div>
+  <div class="tw" style="left:42%;top:7%;width:5px;height:5px;animation-delay:.6s"></div><div class="tw" style="left:62%;top:16%;width:4px;height:4px;animation-delay:.9s"></div>
+  <div class="tw" style="left:82%;top:9%;width:6px;height:6px;animation-delay:1.2s"></div><div class="tw" style="left:91%;top:28%;width:4px;height:4px;animation-delay:1.5s"></div>
+  <div class="tw" style="left:13%;top:48%;width:4px;height:4px;animation-delay:.4s"></div><div class="tw" style="left:72%;top:42%;width:5px;height:5px;animation-delay:1.1s"></div>
+  <div class="tw" style="left:88%;top:58%;width:4px;height:4px;animation-delay:.7s"></div><div class="tw" style="left:9%;top:70%;width:5px;height:5px;animation-delay:1.4s"></div>
+  <div class="tw" style="left:31%;top:82%;width:4px;height:4px;animation-delay:.2s"></div><div class="tw" style="left:52%;top:63%;width:4px;height:4px;animation-delay:1.7s"></div>
+  <div class="tw" style="left:67%;top:74%;width:6px;height:6px;animation-delay:.5s"></div><div class="tw" style="left:87%;top:86%;width:4px;height:4px;animation-delay:1.9s"></div>
+  <div class="tw" style="left:20%;top:60%;width:3px;height:3px;animation-delay:1s"></div>
+</div>
+<div class="wrap"><div id="app"><div class="center"><span class="spin"></span></div></div></div>
+<div class="tabs" id="tabs" style="display:none"></div>
+
+<script>
+const SUPA_URL="https://jvqjoenaungubpoegyvf.supabase.co";
+const SUPA_KEY="sb_publishable_J4MYTdJJyEaWe-GadpwdYA_upPT2rKw";
+// supabase-js removed in v10 — all calls are direct fetch (see the library-free data layer)
+const $=id=>document.getElementById(id);
+// ============================================================================
+// LIBRARY-FREE DATA LAYER (v10). The supabase-js helper can deadlock on iOS
+// Safari (its auth lock jams after tab/app switches → every call hangs forever,
+// silently — the exact freeze). The app now talks to the server DIRECTLY with
+// plain fetch: same endpoints, same tokens, no locks, nothing to jam.
+// ============================================================================
+const SB_URL="https://jvqjoenaungubpoegyvf.supabase.co";
+const SB_KEY="sb_publishable_J4MYTdJJyEaWe-GadpwdYA_upPT2rKw";
+const SB_LS="sb-jvqjoenaungubpoegyvf-auth-token";        // where the login page stores the session
+function getSess(){
+  try{
+    const raw=localStorage.getItem(SB_LS); if(!raw) return null;
+    const j=JSON.parse(raw);
+    if(j&&j.access_token) return j;
+    if(j&&j.currentSession&&j.currentSession.access_token) return j.currentSession;
+    return null;
+  }catch(e){ return null; }
+}
+function saveSess(j){ try{ localStorage.setItem(SB_LS, JSON.stringify(j)); }catch(e){} }
+let _refreshing=null;
+async function freshToken(){
+  const s=getSess(); if(!s||!s.access_token) return null;
+  const exp=Number(s.expires_at||0);
+  if(exp && (exp - Date.now()/1000) > 90) return s.access_token;   // still fresh
+  if(_refreshing) return _refreshing;                               // one renewal at a time
+  _refreshing=(async()=>{
+    try{
+      const r=await fetch(SB_URL+"/auth/v1/token?grant_type=refresh_token",{
+        method:"POST",headers:{"Content-Type":"application/json","apikey":SB_KEY},
+        body:JSON.stringify({refresh_token:s.refresh_token})});
+      if(r.ok){ const j=await r.json();
+        if(j&&j.access_token){ j.expires_at=j.expires_at||Math.floor(Date.now()/1000)+(j.expires_in||3600); saveSess(j); return j.access_token; } }
+    }catch(e){}
+    return s.access_token;                                          // let the server judge a stale one
+  })();
+  const t=await _refreshing; _refreshing=null; return t;
+}
+async function api(fn,args){
+  const tok=await freshToken();
+  const h={"Content-Type":"application/json","apikey":SB_KEY};
+  if(tok) h["Authorization"]="Bearer "+tok;
+  const r=await fetch(SB_URL+"/rest/v1/rpc/"+fn,{method:"POST",headers:h,body:JSON.stringify(args||{})});
+  if(!r.ok){ let t=""; try{ t=await r.text(); }catch(e){} throw new Error(fn+" HTTP "+r.status+(t?" "+t.slice(0,120):"")); }
+  const t=await r.text(); if(!t) return null;
+  try{ return JSON.parse(t); }catch(e){ return null; }
+}
+const DEMO_PRIZES=[[10,40],[25,25],[50,18],[100,10],[250,5],[1000,2]];
+function demoPrize(){ const tot=DEMO_PRIZES.reduce((a,p)=>a+p[1],0); let r=Math.random()*tot;
+  for(const [v,w] of DEMO_PRIZES){ if((r-=w)<0) return v; } return 10; }
+async function sbrpc(fn,args){
+  args=args||{};
+  if(fn==="play_spin"){ if(!(R.spins>0)) return { data:{ ok:false, error:"No spins left." } };
+    const p=demoPrize(); R.spins--; R.points+=p; return { data:{ ok:true, points:p } }; }
+  if(fn==="claim_daily"){ if(!R.daily_available) return { data:{ ok:false, error:"Already claimed today." } };
+    const p=demoPrize(); R.daily_available=false; R.points+=p; return { data:{ ok:true, points:p } }; }
+  if(fn==="submit_referral"){ const n=(args.p_name||"").trim(); if(!n) return { data:{ ok:false, error:"Who should we look after? Add their name." } };
+    REFS.unshift({ name:n, suburb:(args.p_suburb||"").trim(), status:"With our team" }); return { data:{ ok:true } }; }
+  if(fn==="redeem_reward_card"){ CARDS=CARDS.map(c=>({ ...c, status:"redeemed" }));
+    toast(args.p_choice==="donation"?"❤️ $50 donated — legend!":args.p_choice==="plan_credit"?"💸 $50 credited to your plan!":"🎁 Gift card on its way!"); return { data:{ ok:true } }; }
+  if(fn==="enter_draw"){ DRAW.entered_this_month=true; return { data:{ ok:true } }; }
+  if(fn==="set_leaderboard_optin"){ LB.opted_in=!!args.p_on; return { data:{ ok:true } }; }
+  if(fn==="mark_draw_seen"){ return { data:{ ok:true } }; }
+  if(fn==="my_notifications"){ return { data:[
+    { id:1, title:"Payment cleared 💪", body:"+200 points and a free spin — nice one!", created_at:new Date().toISOString(), read_at:null },
+    { id:2, title:"You unlocked a $50 card 🎁", body:"Head to Points to choose how to take it.", created_at:new Date(Date.now()-86400000).toISOString(), read_at:null } ] }; }
+  if(fn==="mark_notification_read"){ UNREAD=Math.max(0,UNREAD-1); return { data:{ ok:true } }; }
+  return { data:null };
+}
+async function rawSignOut(){
+  try{ const s=getSess(); if(s&&s.access_token) await fetch(SB_URL+"/auth/v1/logout",{method:"POST",headers:{"apikey":SB_KEY,"Authorization":"Bearer "+s.access_token}}); }catch(e){}
+  try{ localStorage.removeItem(SB_LS); }catch(e){}
+}
+
+const app=$("app"), tabsEl=$("tabs");
+const nf=n=>Number(n||0).toLocaleString();
+const SLEEP_TIPS=["Go to bed and wake up at the same time every day — even on weekends. Your body clock loves routine.", "Get 10–15 minutes of morning sunlight to anchor your body clock for the night ahead.", "Keep your bedroom cool — around 18°C is the sweet spot for deep sleep.", "Make your room as dark as possible; even small lights can disrupt your sleep.", "Put screens away an hour before bed — blue light tricks your brain into thinking it's daytime.", "Keep your last coffee to the morning; caffeine can linger in your system for 8+ hours.", "A warm shower before bed helps your body cool down afterwards, which nudges you toward sleep.", "If you can't sleep after 20 minutes, get up and do something calm until you feel drowsy.", "Try to reserve your bed for sleep — your brain will learn that bed means rest.", "Keep a notepad by the bed to jot down worries so your mind can let them go.", "Try slow breathing — in for 4, hold for 7, out for 8 — to settle your nervous system.", "Avoid big meals within three hours of bedtime to prevent restlessness.", "Alcohol might make you drowsy, but it fragments your sleep later in the night.", "Keep naps under 20 minutes and before 3pm so they don't steal from your night.", "Dim the lights in the evening to tell your body it's nearly time to wind down.", "Move your body during the day — even a walk helps you sleep more deeply.", "Finish intense workouts a few hours before bed rather than right before.", "Cold feet can keep you awake — a pair of socks can actually help you drift off.", "White noise or a fan can mask sounds that would otherwise wake you.", "Replace your pillow if it's lumpy or flat — good support means fewer aches.", "A consistent bedtime routine signals your brain to prepare for sleep.", "Reading a few pages of a paper book is a gentle way to wind down.", "Keep your bedroom tidy — a calm space makes for a calm mind.", "Sip water through the day, but ease off close to bedtime to avoid night trips.", "If your mattress is over eight years old, it may be working against your sleep.", "Choose a pillow that keeps your neck level with your spine.", "Sleeping on your side can ease snoring and reduce back strain.", "Breathable, natural bedding helps regulate your temperature overnight.", "A short stretch before bed can release the day's tension from your muscles.", "Write tomorrow's to-do list before bed so it's out of your head.", "Catch some daylight on your lunch break to keep your rhythm strong.", "Keep the hour before bed low-key — no stressful emails or news.", "Lavender scent has a calming effect for many people at bedtime.", "A caffeine-free herbal tea like chamomile can be a soothing evening ritual.", "If worries spin at night, remind yourself they'll feel smaller in the morning.", "Tense then release each muscle group in turn to melt away tension.", "Keep your phone out of reach so you're not tempted to scroll at 2am.", "A cooler room with a warm duvet is the cosiest combination for sleep.", "Blackout curtains can make a big difference, especially in summer.", "Wake with natural light where you can — it makes mornings easier.", "Turn the clock away so you're not counting the minutes you've lost.", "Afternoon sunlight still helps your rhythm if you missed the morning.", "A regular wind-down playlist can become a cue for sleep.", "Leave big decisions for daylight — let your mind rest at night.", "Keep pets off the bed if they disturb your sleep through the night.", "If you share a bed, a larger mattress can stop you waking each other.", "Sugary snacks late at night can cause energy spikes that delay sleep.", "A light snack like a banana or a few nuts can help if you're hungry at bedtime.", "Consistent meal times help keep your body clock steady.", "Morning movement, even light, helps you feel sleepier come night.", "Give yourself permission to switch off — rest is productive too.", "Try journaling three good things from your day before lights out.", "Keep work out of the bedroom so it stays a place of rest.", "If your mind races, count slow breaths instead of sheep.", "A weighted blanket can feel calming and secure for some sleepers.", "Warm your bed with a hot water bottle in winter for a cosy drift-off.", "Fresh air during the day supports better sleep at night.", "Limit late-night liquids to avoid waking for the bathroom.", "Finish all caffeine — including tea and cola — by early afternoon.", "Use a soft night light rather than bright bathroom lights after dark.", "A predictable order to your routine — brush, wash, read — cues sleep.", "Don't force sleep; relaxing is enough, and sleep often follows.", "Change your sheets weekly — fresh bedding simply feels better.", "If you wake in the night, keep the lights low so you can drift back off.", "Morning stretches wake your body gently and set up a better rhythm.", "Try a 10-minute body scan as you lie down, relaxing from head to toe.", "Earplugs are a simple fix if noise wakes you easily.", "A tidy bedside table means fewer distractions at bedtime.", "Warm hands and feet help the rest of you cool into sleep.", "Go easy on heavy or spicy food at dinner if it unsettles your stomach.", "A consistent wake time is even more powerful than a consistent bedtime.", "Let natural light into your home each morning to feel alert.", "Gentle yoga before bed can ease both body and mind.", "If you nap, set an alarm so you don't sleep into the evening.", "Cut back on evening screens gradually if going cold-turkey feels hard.", "A supportive mattress keeps your spine aligned all night long.", "Feeling too warm? A lighter duvet in summer can transform your sleep.", "One bad night won't set you back — keep your routine steady the next day.", "Sunlight tells your brain when to be awake and, later, when to sleep.", "Charge your phone outside the bedroom overnight if you can.", "A calm, clutter-free room helps a busy mind settle.", "Slow, deep belly breaths signal safety to your body and invite sleep.", "If you drink alcohol, keep it to earlier in the evening.", "A short walk after dinner aids digestion and winds you down.", "Replace pillows every year or two — they lose support over time.", "For snoring, side-sleeping and a good pillow can both help.", "Keep your room a comfortable, steady temperature through the night.", "Even shifting your bedtime by 15 minutes helps train your body clock.", "Put tomorrow's clothes out at night so mornings feel calmer.", "Wind down with something you enjoy — a book, soft music, gentle stretches.", "Trust your bed to be comfortable, and let yourself sink into it.", "Long weekend lie-ins can shift your clock and make Monday harder.", "Dark, cool and quiet is the foundation of good sleep.", "Give yourself a proper wind-down window — sleep isn't a light switch.", "Notice what helps you sleep, and make it a nightly habit.", "Be patient — better sleep is built one night at a time.", "Morning light plus evening dimness keeps your body clock in tune.", "A comfortable mattress you look forward to is half the battle won.", "If you must use screens at night, keep them dim and warm-toned.", "Read under soft, warm light rather than bright white before bed.", "A steady Sunday routine sets you up for the week's sleep.", "If your bed sags or dips in the middle, it may be time for an upgrade.", "Fresh pyjamas and clean sheets make bedtime feel like a treat.", "Keep your evenings a little boring — calm is the goal.", "Let go of the day with a few slow breaths as your head hits the pillow.", "Good sleep starts long before bedtime — with light, movement and routine.", "A quick tidy of the bedroom before bed helps your mind feel settled.", "Keep a glass of water handy so a small thirst doesn't wake you fully.", "Aim for seven to nine hours — most adults feel best in that range.", "If your alarm's a shock each morning, you may need an earlier bedtime.", "A good night's sleep is when your body repairs itself — muscle, memory and mood all rebuild while you rest.", "Quality sleep sharpens focus, steadies your mood and strengthens your immune system — it's the best habit you have.", "Sleep isn't wasted time; it's when your brain files the day away and resets you for tomorrow.", "You spend about a third of your life in bed — a top-quality mattress is one of the smartest investments in your health.", "A supportive mattress keeps your spine in its natural alignment all night, so you wake without aches.", "The right mattress relieves pressure on your hips and shoulders, so you settle quickly and toss and turn less.", "When your bed feels just right, falling asleep stops being a struggle and becomes something to look forward to.", "A great mattress cradles you where you need softness and supports you where you need strength.", "Deep, unbroken sleep starts with a bed that holds your body properly — comfort you feel from the very first night.", "A premium mattress absorbs movement, so a restless partner doesn't pull you out of a deep sleep.", "Breathable, quality materials help your bed stay cool, so you sleep straight through the night.", "A worn, sagging bed works against you every night; proper support pays you back with real, restful sleep.", "Good sleep helps your heart, your brain and your body recover — protect it like the medicine it is.", "The nights you sleep well are the days you feel your best — that's no coincidence.", "Invest in where you sleep and you invest in every single day that follows it.", "A mattress built to last keeps its support for years, so every night feels as good as the first.", "Waking up refreshed instead of stiff often comes down to sleeping on the right mattress.", "Great sleep rests on three things: a steady routine, a calm room, and a bed that truly supports you."];
+let TIP_I=Math.floor(Date.now()/86400000)%SLEEP_TIPS.length;
+const esc=v=>String(v==null?"":v).replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+const SIMTEC_PHONE="+6498869897"; // Simtec office 09 886 9897
+const SIMTEC_EMAIL="info@simtectp.com";
+
+// ---- state ----
+let R={}, S={}, CARDS=[], DRAW={}, PLAN={}, MS=[], LB={}, REFS=[], UNREAD=0, TAB="home", busy=false, NAME="there";
+
+// ---- sound (Web Audio, no files) ----
+const SFX={ enabled:true, _ac:null, _noise:null,
+  ac(){ try{ if(!this._ac) this._ac=new (window.AudioContext||window.webkitAudioContext)(); if(this._ac.state==="suspended") this._ac.resume(); }catch(e){} return this._ac; },
+  nb(){ const ac=this.ac(); if(!ac) return null; if(this._noise) return this._noise; const n=Math.floor(ac.sampleRate*2), b=ac.createBuffer(1,n,ac.sampleRate), d=b.getChannelData(0); for(let i=0;i<n;i++) d[i]=Math.random()*2-1; this._noise=b; return b; },
+  _tone(fr,dur,ty,vol,t,to){ const ac=this.ac(); if(!ac)return; const o=ac.createOscillator(),g=ac.createGain(); o.type=ty; o.frequency.setValueAtTime(fr,t); if(to)o.frequency.exponentialRampToValueAtTime(to,t+dur); g.gain.setValueAtTime(0.0001,t); g.gain.exponentialRampToValueAtTime(vol,t+0.008); g.gain.exponentialRampToValueAtTime(0.0001,t+dur); o.connect(g); g.connect(ac.destination); o.start(t); o.stop(t+dur+0.03); },
+  // a bright brass note (detuned saws -> lowpass, vibrato, punchy attack)
+  brass(fr,t0,dur,vol){ const ac=this.ac(); if(!ac)return; const o1=ac.createOscillator(),o2=ac.createOscillator(),g=ac.createGain(),lp=ac.createBiquadFilter(),lfo=ac.createOscillator(),lg=ac.createGain();
+    o1.type="sawtooth"; o2.type="sawtooth"; o1.frequency.value=fr; o2.frequency.value=fr*1.006;
+    lp.type="lowpass"; lp.Q.value=1; lp.frequency.setValueAtTime(fr*2,t0); lp.frequency.exponentialRampToValueAtTime(fr*5,t0+0.05); lp.frequency.exponentialRampToValueAtTime(fr*3,t0+dur);
+    lfo.type="sine"; lfo.frequency.value=5.5; lg.gain.value=fr*0.007; lfo.connect(lg); lg.connect(o1.frequency); lg.connect(o2.frequency);
+    g.gain.setValueAtTime(0.0001,t0); g.gain.exponentialRampToValueAtTime(vol,t0+0.03); g.gain.setValueAtTime(vol*0.85,t0+dur*0.7); g.gain.exponentialRampToValueAtTime(0.0001,t0+dur);
+    o1.connect(lp); o2.connect(lp); lp.connect(g); g.connect(ac.destination);
+    o1.start(t0); o2.start(t0); lfo.start(t0); o1.stop(t0+dur+0.05); o2.stop(t0+dur+0.05); lfo.stop(t0+dur+0.05); },
+  fanfare(when){ const ac=this.ac(); if(!ac||!this.enabled)return; const t=ac.currentTime+(when||0), g=392,c=523.25,e=659.25,G=783.99;
+    this.brass(g,t,0.13,0.17); this.brass(g,t+0.15,0.13,0.17); this.brass(g,t+0.30,0.13,0.17);
+    this.brass(c,t+0.48,0.75,0.19); this.brass(e,t+0.48,0.75,0.13); this.brass(G,t+0.48,0.75,0.10); },
+  applause(when,dur){ const ac=this.ac(); if(!ac||!this.enabled)return; dur=dur||2.2; const t0=ac.currentTime+(when||0);
+    const src=ac.createBufferSource(); src.buffer=this.nb(); src.loop=true;
+    const bp=ac.createBiquadFilter(); bp.type="bandpass"; bp.frequency.value=1900; bp.Q.value=0.6;
+    const g=ac.createGain(); src.connect(bp); bp.connect(g); g.connect(ac.destination);
+    let tt=t0; g.gain.setValueAtTime(0.0001,t0);
+    while(tt<t0+dur){ const p=(tt-t0)/dur, env=p<0.15?p/0.15:(p>0.7?Math.max(0,(1-p)/0.3):1), amp=(0.05+Math.random()*0.13)*env; g.gain.setValueAtTime(Math.max(0.0001,amp),tt); tt+=0.017+Math.random()*0.022; }
+    g.gain.exponentialRampToValueAtTime(0.0001,t0+dur+0.05); src.start(t0); src.stop(t0+dur+0.1); },
+  cheer(when,dur){ const ac=this.ac(); if(!ac||!this.enabled)return; dur=dur||2.0; const t0=ac.currentTime+(when||0);
+    const src=ac.createBufferSource(); src.buffer=this.nb(); src.loop=true;
+    const lp=ac.createBiquadFilter(); lp.type="lowpass"; lp.Q.value=3; lp.frequency.setValueAtTime(450,t0); lp.frequency.linearRampToValueAtTime(1700,t0+dur*0.5); lp.frequency.linearRampToValueAtTime(650,t0+dur);
+    const g=ac.createGain(); g.gain.setValueAtTime(0.0001,t0); g.gain.linearRampToValueAtTime(0.11,t0+0.4); g.gain.setValueAtTime(0.11,t0+dur*0.6); g.gain.exponentialRampToValueAtTime(0.0001,t0+dur);
+    src.playbackRate.setValueAtTime(0.9,t0); src.playbackRate.linearRampToValueAtTime(1.18,t0+dur*0.55);
+    src.connect(lp); lp.connect(g); g.connect(ac.destination); src.start(t0); src.stop(t0+dur+0.1); },
+  boom(when){ const ac=this.ac(); if(!ac||!this.enabled)return; const t=ac.currentTime+(when||0);
+    const o=ac.createOscillator(),g=ac.createGain(); o.type="triangle"; o.frequency.setValueAtTime(190,t); o.frequency.exponentialRampToValueAtTime(50,t+0.35); g.gain.setValueAtTime(0.0001,t); g.gain.exponentialRampToValueAtTime(0.6,t+0.01); g.gain.exponentialRampToValueAtTime(0.0001,t+0.5); o.connect(g); g.connect(ac.destination); o.start(t); o.stop(t+0.55);
+    const src=ac.createBufferSource(); src.buffer=this.nb(); const lp=ac.createBiquadFilter(); lp.type="lowpass"; lp.frequency.value=1100; const ng=ac.createGain(); ng.gain.setValueAtTime(0.5,t); ng.gain.exponentialRampToValueAtTime(0.0001,t+0.13); src.connect(lp); lp.connect(ng); ng.connect(ac.destination); src.start(t); src.stop(t+0.16); },
+  coin(){ const ac=this.ac(); if(!ac||!this.enabled)return; const t=ac.currentTime; this._tone(988,0.05,"square",0.12,t); this._tone(1319,0.14,"square",0.12,t+0.05); this._tone(2637,0.10,"sine",0.05,t+0.05); },
+  spin(){ const ac=this.ac(); if(!ac||!this.enabled)return; const t=ac.currentTime,o=ac.createOscillator(),g=ac.createGain(); o.type="sawtooth"; o.frequency.setValueAtTime(170,t); o.frequency.exponentialRampToValueAtTime(540,t+1.4); g.gain.setValueAtTime(0.0001,t); g.gain.exponentialRampToValueAtTime(0.05,t+0.06); g.gain.exponentialRampToValueAtTime(0.0001,t+1.5); o.connect(g); g.connect(ac.destination); o.start(t); o.stop(t+1.55); for(let i=0;i<11;i++) this._tone(1250,0.028,"square",0.05,t+i*0.115); },
+  win(){ this.coin(); this.fanfare(0.05); this.applause(0.2,1.7); },
+  jackpot(){ this.boom(0); this.fanfare(0.05); this.applause(0.25,2.8); this.cheer(0.2,2.6); },
+  levelup(){ this.fanfare(0); this.applause(0.2,1.4); } };
+
+function toast(msg){ const t=document.createElement("div"); t.className="toast"; t.textContent=msg; document.body.appendChild(t); setTimeout(()=>t.remove(),2600); }
+
+function runConfetti(cv){
+  const ctx=cv.getContext("2d"), W=cv.width, H=cv.height, cols=["#FF4E9B","#25D6FF","#54EFA0","#FFD23F","#B06BFF","#FF8A3D"], P=[];
+  for(let i=0;i<130;i++) P.push({x:W/2,y:H*0.42,vx:(Math.random()-0.5)*15,vy:(Math.random()-0.95)*15,g:0.32,s:5+Math.random()*7,c:cols[i%cols.length],r:Math.random()*6,vr:(Math.random()-0.5)*0.4,life:1});
+  let t=0;(function anim(){ t++; ctx.clearRect(0,0,W,H); let alive=false;
+    P.forEach(p=>{ p.vy+=p.g; p.x+=p.vx; p.y+=p.vy; p.r+=p.vr; p.life-=0.008;
+      if(p.life>0&&p.y<H+30){ alive=true; ctx.save(); ctx.globalAlpha=Math.max(0,p.life); ctx.translate(p.x,p.y); ctx.rotate(p.r); ctx.fillStyle=p.c; ctx.fillRect(-p.s/2,-p.s/2,p.s,p.s*0.6); ctx.restore(); } });
+    if(alive&&t<240) requestAnimationFrame(anim); })();
+}
+function celebrate(icon,title,sub){
+  const old=document.getElementById("celebOv"); if(old) old.remove();
+  const ov=document.createElement("div"); ov.id="celebOv";
+  ov.style.cssText="position:fixed;inset:0;z-index:100;display:flex;align-items:center;justify-content:center;background:rgba(7,15,32,.88)";
+  ov.innerHTML=`<canvas id="confCv" style="position:absolute;inset:0"></canvas>
+    <div style="position:relative;text-align:center;padding:30px;max-width:340px">
+      <div style="font-size:62px">${icon}</div>
+      <div style="font-size:25px;font-weight:900;margin:8px 0 4px;color:var(--gold)">${title}</div>
+      <div class="muted" style="font-size:15px">${sub||""}</div>
+      <button class="btn gold sm" style="margin-top:22px" onclick="document.getElementById('celebOv').remove()">Awesome!</button>
+    </div>`;
+  document.body.appendChild(ov);
+  const cv=ov.querySelector("#confCv"); cv.width=window.innerWidth; cv.height=window.innerHeight;
+  runConfetti(cv); try{SFX.jackpot();}catch(e){}
+  ov.addEventListener("click",e=>{ if(e.target===ov) ov.remove(); });
+}
+function checkCelebrations(){
+  const L=DRAW&&DRAW.latest;
+  if(L&&L.congrats_pending){ OVERLAY='starburst'; SFX.jackpot(); render(); return; }
+  // the BIG congratulations when they cross the 10%-deposit finish line
+  try{
+    if(PLAN&&PLAN.has_order&&!PLAN.delivered&&(PLAN.authorised||PLAN.pct_to_delivery>=100)){
+      if(localStorage.getItem("demo_crossed")!=="1"){ localStorage.setItem("demo_crossed","1"); OVERLAY='congrats'; SFX.jackpot(); render(); return; }
+    } else if(PLAN&&PLAN.has_order&&!PLAN.delivered){ localStorage.removeItem("demo_crossed"); }
+  }catch(e){}
+  try{ const cur=Math.max(1,Math.floor(Math.sqrt((R.points||0)/650))), last=Number(localStorage.getItem("demo_lvl")||"-1");
+    if(last>=0 && cur>last){ SFX.levelup(); party((cur%5===0)?`⭐ LEVEL ${cur}! Bonus spin unlocked 🎰`:`⭐ Level up! You're now Level ${cur}`); }
+    localStorage.setItem("demo_lvl",String(cur));
+  }catch(e){}
+}
+
+// ============ SELF-TEST: the app diagnoses itself on its own screen ============
+async function runDiag(){ toast("Demo build — sample data only"); }
+async function boot(){
+  await loadAll(); render();
+}
+let DEMO_INIT=false;
+async function loadAll(){
+  if(DEMO_INIT) return;              // demo state lives in memory — actions mutate it
+  DEMO_INIT=true;
+  NAME="Aroha";
+  R={ points:61250, spins:3, daily_available:true };
+  S={ rating:"AAA", current_streak:6, max_streak:11, to_aaa:0, dishonours:0,
+      referrals_converted:1, referrer_tier:"Referrer", streak_badges:[10], referrer_badges:[1] };
+  PLAN={ has_order:true, delivered:false, authorised:false, missed:false,
+         contract:5990, paid:492, owing:5498, pct_paid:8.2, pct_to_delivery:82, deposit_shortfall:107 };
+  CARDS=[{ id:"demo-card-1", status:"available", value:50 }];
+  DRAW={ entered_this_month:false, latest:{ winner_first:"Mele, Papatoetoe", prize:10000, i_won:false, congrats_pending:false, month:"2026-08" } };
+  MS=[]; UNREAD=2;
+  LB={ opted_in:true, my_rank:4, my_points:61250, top:[
+    { name:"Sina, Ōtāhuhu", points:112400 },{ name:"Dave, Papakura", points:98750 },
+    { name:"Losa, Māngere", points:77300 },{ name:"You", points:61250, me:true },
+    { name:"Tere, Manurewa", points:54100 },{ name:"Jess, Henderson", points:41800 },
+    { name:"Peni, Ōtara", points:33500 },{ name:"Mere, Glen Innes", points:27900 } ] };
+  REFS=[ { name:"Sione", suburb:"Māngere", status:"Bought! 🎉" },
+         { name:"Kelly", suburb:"Henderson", status:"Appointment booked" } ];
+}
+
+function ratingLabel(){ return (S.rating||"AAA"); }
+const APP_VER="demo";
+// Black-box recorder: any error on the device reports itself home, with a
+// breadcrumb trail of the last taps — so "it froze" becomes a readable log.
+let CRUMBS=[];
+function crumb(x){ try{ CRUMBS.push(Date.now()%100000+" "+x); if(CRUMBS.length>12) CRUMBS.shift(); }catch(e){} }
+function beacon(kind,msg){}
+window.addEventListener("error", e=>beacon("error", (e.message||"?")+" @ "+(e.filename||"")+":"+(e.lineno||"")));
+window.addEventListener("unhandledrejection", e=>beacon("promise", String(e.reason&&e.reason.message||e.reason)));
+const CLEAN_RUN=5;                       // demo cfg.cleanRun — payments in a row to unlock Fast Track
+const CARD_EVERY=50000;
+const GEM=(sz)=>`<div class="shine" style="width:${sz}px;height:${sz}px;border-radius:16px;transform:rotate(45deg);display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#FFE27A,#FF8A3D 55%,#FF2D78);box-shadow:0 6px 18px rgba(255,45,120,.5)"><span style="transform:rotate(-45deg);font-weight:900;color:#fff;font-size:${Math.round(sz*.3)}px;text-shadow:0 1px 3px rgba(0,0,0,.3)">AAA</span></div>`;
+const MASCOT=(sz)=>`<svg width="${sz}" height="${sz}" viewBox="0 0 64 64" class="bob" style="filter:drop-shadow(0 4px 8px rgba(255,180,60,.55));flex-shrink:0"><defs><linearGradient id="mg${sz}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFE886"/><stop offset="1" stop-color="#FF9A3D"/></linearGradient></defs><path d="M32 4l7 15 16 2-12 11 3 16-14-8-14 8 3-16L12 21l16-2z" fill="url(#mg${sz})" stroke="#FF7A2D" stroke-width="1.5" stroke-linejoin="round"/><circle cx="26" cy="28" r="2.5" fill="#5A3200"/><circle cx="38" cy="28" r="2.5" fill="#5A3200"/><path d="M25 34 q7 6 14 0" stroke="#5A3200" stroke-width="2.2" fill="none" stroke-linecap="round"/><circle cx="21" cy="32" r="2.1" fill="#FF6A9B" opacity=".55"/><circle cx="43" cy="32" r="2.1" fill="#FF6A9B" opacity=".55"/></svg>`;
+const b3=(bg,sh)=>`background:${bg};box-shadow:0 4px 0 ${sh};border:none;border-radius:16px;color:#fff;font-family:inherit;font-weight:800;cursor:pointer`;
+const barH=(v,from,to)=>`<div style="height:14px;background:rgba(255,255,255,.14);border-radius:10px;margin-top:10px;overflow:hidden;box-shadow:inset 0 1px 3px rgba(0,0,0,.25)"><div style="height:100%;width:${Math.min(v,1)*100}%;background:linear-gradient(90deg,${from},${to});border-radius:10px;transition:width 1.2s cubic-bezier(.34,1.2,.5,1);box-shadow:0 0 10px ${to}"></div></div>`;
+let SLOT={open:false,spinning:false,reels:["⭐","💎","🔥"],result:null}, TIPOPEN=false, OVERLAY=null, PAY={open:false};
+const SYM=["⭐","💎","🔥","🎁","💰","7️⃣"];
+const PSYM={10:"⭐",25:"🍒",50:"🎁",100:"🔔",250:"🔥",1000:"💎"};
+let spinIv=null;
+function party(m){ toast(m); SFX.coin(); }
+
+// ---- the demo's curved race track (truck heads RIGHT to the 🏁) ----
+function raceTrackHtml(progress,title,endLabel,goLabel,hintHtml){
+  const D="M18,100 C58,100 64,46 116,52 C158,57 166,100 212,80 C250,63 266,52 302,46";
+  return `<div class="card" style="padding:12px 14px 8px;margin-bottom:0">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:2px">
+      <span style="color:#fff;font-weight:900;font-size:15px">${title}</span>
+      <span style="color:#7FE3FF;font-weight:900;font-size:13px">${goLabel||""}</span>
+    </div>
+    <svg viewBox="0 0 320 120" style="width:100%;display:block;overflow:visible">
+      <defs><linearGradient id="road" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#54EFA0"/><stop offset="1" stop-color="#FFD23F"/></linearGradient></defs>
+      <path id="rtBase" d="${D}" fill="none" stroke="rgba(255,255,255,.16)" stroke-width="15" stroke-linecap="round"/>
+      <path id="rtFill" d="${D}" fill="none" stroke="url(#road)" stroke-width="15" stroke-linecap="round" data-prog="${Math.min(Math.max(progress,0),1)}"/>
+      <path d="${D}" fill="none" stroke="rgba(255,255,255,.6)" stroke-width="2.5" stroke-dasharray="1 12" stroke-linecap="round"/>
+      <circle cx="18" cy="100" r="7" fill="#fff"/><circle cx="18" cy="100" r="3.5" fill="#54EFA0"/>
+      <text x="304" y="34" font-size="24" text-anchor="middle">🏁</text>
+      <g id="rtTruck" style="transition:transform .9s cubic-bezier(.4,1.2,.5,1)"><text x="0" y="9" font-size="27" text-anchor="middle" transform="scale(-1,1)">🚚</text></g>
+    </svg>
+    <div style="display:flex;justify-content:space-between;margin-top:2px"><span style="color:var(--sub);font-size:9.5px;font-weight:800;letter-spacing:1px">START</span><span style="color:var(--sub);font-size:9.5px;font-weight:800;letter-spacing:1px">${endLabel}</span></div>
+    ${hintHtml||""}
+  </div>`;
+}
+function positionTruck(){
+  const base=$("rtBase"), fill=$("rtFill"), truck=$("rtTruck");
+  if(!base||!fill||!truck) return;
+  try{
+    const L=base.getTotalLength(), prog=parseFloat(fill.getAttribute("data-prog")||"0");
+    fill.setAttribute("stroke-dasharray",L);
+    fill.style.transition="stroke-dashoffset 1s ease";
+    fill.setAttribute("stroke-dashoffset",L);
+    requestAnimationFrame(()=>fill.setAttribute("stroke-dashoffset",L*(1-Math.min(prog,1))));
+    const pt=base.getPointAtLength(L*Math.min(Math.max(prog,0.03),0.97));
+    truck.style.transform=`translate(${pt.x}px,${pt.y}px)`;
+  }catch(e){}
+}
+
+function render(){
+  try{ renderInner(); crumb('rendered:'+TAB); }
+  catch(e){
+    beacon("render-crash", String(e&&e.message||e)+" | "+String(e&&e.stack||"").slice(0,300));
+    try{ app.innerHTML='<div class="card" style="border-color:#FF6A9B"><b>Hmm, this screen hit a snag.</b><div class="muted" style="margin-top:6px">'+esc(String(e&&e.message||e))+'</div><button class="btn sm" style="margin-top:10px" onclick="TAB=\'home\';render()">Back to Home</button></div>'; }catch(_){}
+    try{ toast("⚠️ "+String(e&&e.message||e)); }catch(_){}
+  }
+}
+function renderInner(){
+  tabsEl.style.display="flex";
+  tabsEl.innerHTML=[["home","Home","🏠"],["points","Points","⭐"],["refer","Refer","⚡"],["rating","Rating","🏅"],["loot","Loot","🎁"]]
+    .map(([k,l,i])=>`<button class="tab" onclick="setTab('${k}')" style="display:flex;flex-direction:column;align-items:center;gap:3px;padding:4px 2px">
+      <span style="width:34px;height:34px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:17px;${TAB===k?'background:linear-gradient(135deg,#FFD23F,#FF8A3D);box-shadow:0 4px 12px rgba(255,138,61,.55)':''}">${i}</span>
+      <span style="font-size:9.5px;font-weight:${TAB===k?900:600};color:${TAB===k?'#FFD23F':'var(--sub)'}">${l}</span></button>`).join("");
+
+  const lvl=Math.max(1,Math.floor(Math.sqrt((R.points||0)/650)));
+  const header=`
+    <div style="margin:-18px -16px 12px;position:relative;z-index:2;padding:16px 18px 20px;display:flex;align-items:center;justify-content:space-between;background:linear-gradient(120deg,#6B2AB0,#B06BFF);border-bottom-left-radius:28px;border-bottom-right-radius:28px;box-shadow:0 10px 24px rgba(107,42,176,.45)">
+      <div style="display:flex;align-items:center;gap:8px">
+        <div><div style="color:var(--sub);font-size:12px;font-weight:700">Kia ora,</div><div style="color:#fff;font-size:22px;font-weight:900">${esc(NAME)} 👋</div></div>
+        <div style="background:rgba(176,107,255,.3);border:1px solid rgba(176,107,255,.5);border-radius:20px;padding:3px 9px;font-size:10.5px;font-weight:900;color:#E4D4FF">LVL ${lvl}</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:9px">
+        <div style="display:flex;align-items:center;gap:5px;background:linear-gradient(135deg,#FFE27A,#FFB627);border-radius:20px;padding:5px 11px 5px 8px;box-shadow:0 4px 12px rgba(255,182,39,.5)"><span style="font-size:16px">🪙</span><span style="color:#5A3200;font-weight:900;font-size:15px">${((R.points||0)/1000).toFixed(1)}k</span></div>
+        <div class="float">${GEM(40)}</div>
+        <button class="bell" onclick="openInbox()">🔔${UNREAD>0?`<b>${UNREAD>9?'9+':UNREAD}</b>`:''}</button>
+      </div>
+    </div>`;
+
+  let body="";
+  if(TAB==="home") body=homeView();
+  else if(TAB==="points") body=pointsView();
+  else if(TAB==="refer") body=referView();
+  else if(TAB==="rating") body=ratingView();
+  else if(TAB==="loot") body=lootView();
+
+  app.innerHTML=header+`<div style="display:flex;flex-direction:column;gap:12px">`+body+`</div>`+overlaysHtml();
+  requestAnimationFrame(positionTruck);
+}
+
+// ================= HOME =================
+function missedCard(){
+  if(!PLAN||!PLAN.missed) return "";
+  const tel=SIMTEC_PHONE.replace(/[^\d+]/g,"");
+  return `<div style="border-radius:20px;padding:16px;background:linear-gradient(135deg,#FF9A5A,#FF6A9B);box-shadow:0 8px 22px rgba(255,120,90,.4)">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:7px"><div style="font-size:26px">💛</div><div style="color:#fff;font-weight:900;font-size:15.5px">A payment didn't go through</div></div>
+    <div style="color:rgba(255,255,255,.96);font-size:12.8px;font-weight:600;line-height:1.55;margin-bottom:11px">No stress — these things happen. Quick heads-up though: when a direct debit bounces, Ezidebit adds an <b>$11.50</b> fee (that's their charge, not ours), and a missed payment puts your Triple-A rating on the line. We'd love to help you avoid that — get in touch and we'll sort it out together, no judgment. 💛</div>
+    <div class="row">
+      <button onclick="location.href='tel:${tel}'" style="${b3('#fff','#C4D2DC')};color:#B23A00;flex:1;padding:12px;font-size:14px;font-weight:900">📞 Call us</button>
+      <button onclick="location.href='mailto:'+SIMTEC_EMAIL" style="${b3('#fff','#C4D2DC')};color:#B23A00;flex:1;padding:12px;font-size:14px;font-weight:900">✉️ Email us</button>
+    </div>
+  </div>`;
+}
+function homeView(){
+  const consec=Number(S.current_streak||0);
+  const greeting=`<div style="display:flex;align-items:center;gap:11px;background:linear-gradient(120deg,rgba(84,239,160,.2),rgba(84,239,160,.08));border:1px solid rgba(84,239,160,.4);border-radius:18px;padding:11px 14px">${MASCOT(40)}<div><div style="color:#fff;font-weight:900;font-size:15px">You're smashing it, ${esc(NAME)}!</div><div style="color:var(--sub);font-size:12px;font-weight:600">🔥 ${consec}-payment streak — keep it rolling</div></div></div>`;
+
+  let race="";
+  if(PLAN&&PLAN.has_order){
+    const delivered=PLAN.delivered, crossed=!delivered&&(PLAN.authorised||PLAN.pct_to_delivery>=100);
+    if(delivered){
+      const pctPaid=(PLAN.pct_paid||0)/100, owing=PLAN.owing||0;
+      race=raceTrackHtml(pctPaid,"🏁 Race to the final payment","PAID OFF 🎉",`${Math.max(0,Math.round((1-pctPaid)*100))}% to go!`)
+        +`<button onclick="payExtra('extra')" style="${b3('linear-gradient(120deg,#25C97A,#54EFA0)','#159257')};padding:13px 15px;font-size:15px;color:#053019;display:flex;flex-direction:column;gap:1px;width:100%;align-items:center"><span>Make an extra payment 💳</span><span style="font-size:11px;font-weight:700;opacity:.82">Moves the truck toward payoff · +1,000 pts on $50+ · earns a spin</span></button>`
+        +`<div class="card" style="padding:12px 16px;margin-bottom:0"><div style="display:flex;align-items:center;justify-content:space-between"><div style="display:flex;align-items:center;gap:10px"><div style="font-size:19px">💰</div><div><div style="color:#fff;font-weight:800;font-size:14px">Balance owing</div><div style="color:var(--sub);font-size:11.5px;font-weight:600">Delivered ✓ · ${Math.round(PLAN.pct_paid||0)}% paid off</div></div></div><div style="color:#fff;font-weight:900;font-size:22px">$${nf(owing)}</div></div>${barH(pctPaid,'#25D6FF','#4D7CFF')}</div>`
+        +`<button onclick="setTab('points')" style="border-radius:24px;padding:18px;text-align:center;cursor:pointer;border:none;width:100%;background:linear-gradient(135deg,#FF9A3D,#FFD23F);box-shadow:0 8px 24px rgba(255,154,61,.45), inset 0 1px 0 rgba(255,255,255,.4);font-family:inherit"><div style="font-size:12px;font-weight:900;letter-spacing:1px;color:#5A3200">YOUR POINTS ⭐</div><div style="color:#3A2000;font-weight:900;font-size:46px;line-height:1.05">${nf(R.points)}</div><div style="height:12px;background:rgba(90,50,0,.22);border-radius:8px;margin-top:8px;overflow:hidden"><div style="height:100%;width:${(((R.points||0)%CARD_EVERY)/CARD_EVERY)*100}%;background:#5A3200;border-radius:8px"></div></div><div style="color:#5A3200;font-size:12.5px;font-weight:800;margin-top:7px">Only ${nf(CARD_EVERY-((R.points||0)%CARD_EVERY))} to your next $50 card!</div></button>`;
+    } else if(crossed){
+      race=raceTrackHtml(1,"🏁 Race to delivery","DELIVERY 🚚","Finish line!")
+        +`<div style="border-radius:20px;padding:16px;background:linear-gradient(120deg,#FF8A3D,#B06BFF);box-shadow:0 8px 22px rgba(176,107,255,.4), inset 0 1px 0 rgba(255,255,255,.3)"><div style="display:flex;align-items:center;gap:11px"><div style="font-size:30px">🏁</div><div><div style="color:#fff;font-weight:900;font-size:15.5px">You crossed the finish line!</div><div style="color:rgba(255,255,255,.94);font-size:12.5px;font-weight:600;line-height:1.4">Our team will contact you shortly to arrange your delivery time. 📞</div></div></div></div>`;
+    } else {
+      const prog=(PLAN.pct_to_delivery||0)/100, togo=Math.max(0,100-Math.round(PLAN.pct_to_delivery||0));
+      const ftReady=consec>=CLEAN_RUN, shortfall=PLAN.deposit_shortfall||0;
+      const hint=`<div style="margin-top:7px;text-align:center;font-size:11px;font-weight:800;color:${ftReady?'#54EFA0':'var(--sub)'}">${ftReady?'⚡ Fast Track ready — jump to the finish below!':`⚡ Fast Track unlocks at ${CLEAN_RUN} in a row · you're at ${consec}/${CLEAN_RUN}`}</div>`;
+      race=raceTrackHtml(prog,"🏁 Race to delivery","DELIVERY 🚚",togo>0?`${togo}% to go!`:"Finish line!",hint);
+      if(ftReady){
+        race+=`<div style="border-radius:20px;padding:15px;background:linear-gradient(120deg,#25C97A,#25D6FF);box-shadow:0 8px 22px rgba(37,201,122,.4), inset 0 1px 0 rgba(255,255,255,.35)"><div style="display:flex;align-items:center;gap:11px"><div style="font-size:30px">⚡</div><div><div style="color:#fff;font-weight:900;font-size:15.5px">Fast Track to the finish!</div><div style="color:rgba(255,255,255,.94);font-size:12.5px;font-weight:600;line-height:1.4">You've made ${CLEAN_RUN} in a row. ${shortfall>0?`Pay $${nf(shortfall)} to top up your 10% deposit`:'Your 10% deposit is paid'} and cross the line now! 🏁</div></div></div><button onclick="payExtra('deposit')" style="${b3('#fff','#C4D2DC')};color:#0B5A38;width:100%;padding:12px;font-size:14.5px;font-weight:900;margin-top:11px">${shortfall>0?`⚡ Fast-track — pay $${nf(shortfall)} & finish →`:'⚡ Fast-track to the finish →'}</button></div>`;
+      } else {
+        race+=`<div style="border-radius:20px;padding:15px;background:rgba(255,255,255,.06);border:1px dashed rgba(255,255,255,.28)"><div style="display:flex;align-items:center;gap:11px"><div style="font-size:30px;opacity:.7">🔒</div><div><div style="color:#fff;font-weight:900;font-size:15.5px">Fast Track — locked</div><div style="color:var(--sub);font-size:12.5px;font-weight:600;line-height:1.4">Make ${CLEAN_RUN} payments in a row to unlock a shortcut to the finish. You're at ${consec}/${CLEAN_RUN} — just ${CLEAN_RUN-consec} more to go!</div></div></div><div style="margin-top:11px;height:9px;background:rgba(255,255,255,.12);border-radius:6px;overflow:hidden"><div style="height:100%;width:${Math.min(consec/CLEAN_RUN,1)*100}%;background:linear-gradient(90deg,#25C97A,#54EFA0);border-radius:6px;transition:width .8s ease"></div></div></div>`;
+      }
+    }
+  }
+
+  const circles=`<div style="display:flex;gap:14px;justify-content:center;padding:2px 0">
+    <div style="text-align:center"><button ${R.daily_available?'onclick="doDaily()" class="bob"':'disabled'} style="width:72px;height:72px;border-radius:50%;border:3px solid rgba(255,255,255,.3);cursor:${R.daily_available?'pointer':'default'};font-size:31px;display:flex;align-items:center;justify-content:center;background:${R.daily_available?'radial-gradient(circle at 35% 28%, #9AEBFF, #4D7CFF)':'rgba(255,255,255,.08)'};box-shadow:${R.daily_available?'0 7px 18px rgba(77,124,255,.5)':'none'};opacity:${R.daily_available?1:.6}">${R.daily_available?'🎁':'✅'}</button><div style="color:#fff;font-weight:900;font-size:12px;margin-top:6px">Daily bonus</div><div style="color:var(--sub);font-size:9.5px;font-weight:700">${R.daily_available?'Tap to claim!':'Tomorrow'}</div></div>
+    <div style="text-align:center"><button onclick="openSlot()" class="bob" style="width:72px;height:72px;border-radius:50%;border:3px solid rgba(255,255,255,.3);cursor:pointer;font-size:31px;display:flex;align-items:center;justify-content:center;position:relative;background:radial-gradient(circle at 35% 28%, #EDB6FF, #FF4E9B);box-shadow:0 7px 18px rgba(255,78,155,.5)">🎰${(R.spins>0)?`<span style="position:absolute;top:-4px;right:-4px;background:#FFD23F;color:#3A2000;border-radius:50%;width:23px;height:23px;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:12px;border:2px solid #fff">${R.spins}</span>`:''}</button><div style="color:#fff;font-weight:900;font-size:12px;margin-top:6px">Spin to Win</div><div style="color:var(--sub);font-size:9.5px;font-weight:700">${R.spins>0?`${R.spins} free!`:'Pay to earn'}</div></div>
+    <div style="text-align:center"><button onclick="TIPOPEN=true;render()" class="bob" style="width:72px;height:72px;border-radius:50%;border:3px solid rgba(255,255,255,.3);cursor:pointer;font-size:30px;display:flex;align-items:center;justify-content:center;background:radial-gradient(circle at 35% 28%, #C3B2FF, #6B4BD6);box-shadow:0 7px 18px rgba(107,75,214,.5)">🌙</button><div style="color:#fff;font-weight:900;font-size:12px;margin-top:6px">Sleep tip</div><div style="color:var(--sub);font-size:9.5px;font-weight:700">New daily</div></div>
+  </div>`;
+
+  const referBtn=`<button onclick="setTab('refer')" class="pulse" style="${b3('linear-gradient(120deg,#FF2D78,#FF6A3D)','#C41E5E')};padding:13px 16px;display:flex;align-items:center;gap:10px;width:100%"><span style="font-size:22px">💥</span><span style="flex:1;text-align:left;font-size:14.5px;font-weight:900">Refer a mate</span><span style="font-weight:900;font-size:15px">+50k ⭐</span></button>`;
+  const extraBtn=(PLAN&&PLAN.has_order&&!PLAN.delivered)?`<button onclick="payExtra('extra')" style="${b3('linear-gradient(120deg,#25C97A,#54EFA0)','#159257')};padding:13px 15px;font-size:15px;color:#053019;display:flex;flex-direction:column;gap:1px;width:100%;align-items:center"><span>Make an extra payment 💳</span><span style="font-size:11px;font-weight:700;opacity:.82">Moves the truck · +1,000 pts on $50+ · earns a spin</span></button>`:"";
+  return greeting+missedCard()+race+circles+referBtn+extraBtn;
+}
+
+// ================= POINTS =================
+function pointsView(){
+  const pts=R.points||0, cardProg=(pts%CARD_EVERY)/CARD_EVERY, toNext=CARD_EVERY-(pts%CARD_EVERY);
+  const coin=`<div style="display:flex;flex-direction:column;align-items:center;padding:4px 0 2px">
+    <div class="shine" style="width:186px;height:186px;border-radius:50%;background:radial-gradient(circle at 38% 30%, #FFF3C4, #FFB627 58%, #DD8A1C);border:6px solid #FFD668;box-shadow:0 12px 30px rgba(255,154,61,.55), inset 0 3px 10px rgba(255,255,255,.55);display:flex;flex-direction:column;align-items:center;justify-content:center">
+      <div style="font-size:11.5px;font-weight:900;letter-spacing:1.5px;color:#7A4A00">POINTS ⭐</div>
+      <div style="color:#4A2A00;font-weight:900;font-size:42px;line-height:1">${nf(pts)}</div>
+    </div>
+    <div style="width:100%;margin-top:14px">${barH(cardProg,'#FF9A3D','#FFD23F')}</div>
+    <div style="color:#FFD23F;font-size:12.5px;font-weight:800;margin-top:7px">Only ${nf(toNext)} to your next $50 card!</div>
+  </div>`;
+
+  const avail=CARDS.filter(c=>c.status==="available");
+  const cardBox=avail.length?`<div style="border-radius:22px;padding:16px;background:linear-gradient(135deg,#B06BFF,#4D7CFF);box-shadow:0 8px 22px rgba(120,90,255,.4), inset 0 1px 0 rgba(255,255,255,.3)"><div style="display:flex;align-items:center;gap:8px;margin-bottom:4px"><div style="font-size:20px">🎁</div><span style="color:#fff;font-weight:900;font-size:15px">You've unlocked a $${nf(avail[0].value)} card!</span></div><div style="color:rgba(255,255,255,.9);font-size:12.5px;margin-bottom:12px;font-weight:600">Your call — how do you want it?${avail.length>1?` (${avail.length} waiting)`:''}</div><div style="display:flex;flex-direction:column;gap:8px">
+      <button onclick="redeem('${avail[0].id}','giftcard')" style="${b3('rgba(255,255,255,.22)','rgba(0,0,0,.2)')};padding:12px 14px;font-size:13.5px;text-align:left">🎁&nbsp;&nbsp;Use as a gift card</button>
+      <button onclick="redeem('${avail[0].id}','plan_credit')" style="${b3('#FFD23F','#C88A00')};padding:12px 14px;font-size:13.5px;color:#3A2000;text-align:left">💸&nbsp;&nbsp;Take $50 off my plan</button>
+      <button onclick="redeem('${avail[0].id}','donation')" style="${b3('linear-gradient(120deg,#FF4E9B,#B06BFF)','#8A2E8F')};padding:12px 14px;font-size:13.5px;text-align:left">❤️&nbsp;&nbsp;Donate to your group…</button>
+    </div></div>`:"";
+
+  const entered=DRAW.entered_this_month;
+  const rack=`<div class="card" style="margin-bottom:0"><div class="eyeb" style="margin-bottom:4px">Rack up points</div>
+    ${[["💳","Direct-debit payment","+200 · automatic + a free spin",false],["⚡","Extra payment of $50+","+1,000 · pay ahead by card",false],["🎉","Leave us a review","Into the 10,000-pt monthly draw",true]].map(([e,t,d,r])=>`<div style="display:flex;align-items:center;gap:12px;padding:11px 0;border-top:1px solid var(--line)"><div style="font-size:24px">${e}</div><div style="flex:1"><div style="color:#fff;font-size:14px;font-weight:800">${t}</div><div style="color:var(--sub);font-size:12px;font-weight:600">${d}</div></div>${r?`<button onclick="doDraw()" style="${b3(entered?'rgba(255,255,255,.15)':'#FF4E9B',entered?'rgba(0,0,0,.2)':'#C41E5E')};padding:7px 12px;font-size:12px;color:${entered?'var(--sub)':'#fff'}">${entered?'Entered ✓':'Review'}</button>`:''}</div>`).join("")}
+    <div onclick="setTab('refer')" style="display:flex;align-items:center;gap:12px;padding:12px 10px;margin:8px -6px 0;border-radius:14px;background:linear-gradient(120deg,rgba(255,45,120,.24),rgba(255,138,61,.2));border:1px solid rgba(255,45,120,.4);cursor:pointer"><div style="font-size:26px">💥</div><div style="flex:1"><div style="color:#fff;font-size:14.5px;font-weight:900">Refer a mate who buys</div><div style="color:var(--sub);font-size:12px;font-weight:700">The big one</div></div><div style="color:#FF4E9B;font-weight:900;font-size:18px">+50k</div></div>
+  </div>`;
+
+  const L=DRAW.latest;
+  const draw=`<div class="card" style="margin-bottom:0;${L?'background:linear-gradient(135deg,rgba(255,210,63,.22),rgba(176,107,255,.18));border:1px solid rgba(255,210,63,.55);box-shadow:0 0 24px rgba(255,210,63,.35)':''}"><div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><div style="font-size:20px">🎟️</div><span style="color:#fff;font-weight:900;font-size:15px">Monthly 10,000-pt draw</span></div>
+    ${L?`<div style="border-radius:14px;padding:12px 14px;background:linear-gradient(120deg,#FFD23F,#FF8A3D);color:#3A2000;text-align:center"><div style="font-size:11px;font-weight:900;letter-spacing:1px">🏆 THIS MONTH'S WINNER</div><div style="font-size:17px;font-weight:900;margin-top:2px">${L.i_won?'You':esc(L.winner_first||'A member')}</div><div style="font-size:12.5px;font-weight:800;margin-top:2px">won ${nf(L.prize)} points 🎉</div></div>`
+       :`<div style="color:var(--sub);font-size:12.5px;font-weight:600;line-height:1.5;margin-bottom:10px">One winner is drawn automatically on the 1st of each month. Leave a review to get in the hat — free entry, every month.</div>`}
+    <div style="border-radius:12px;padding:10px 12px;text-align:center;font-weight:800;font-size:13px;margin-top:10px;background:${entered?'rgba(37,201,122,.18)':'rgba(255,255,255,.08)'};color:${entered?'#54EFA0':'var(--sub)'};border:1px solid ${entered?'rgba(37,201,122,.4)':'var(--line)'}">${entered?"✓ You're in this month's draw":"Not entered yet — leave a review above"}</div>
+  </div>`;
+
+  const optIn=!!LB.opted_in, rows=(LB.top||[]);
+  const fame=`<div class="card" style="margin-bottom:0"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px"><div style="display:flex;align-items:center;gap:8px"><div style="font-size:20px">🏆</div><span style="color:#fff;font-weight:900;font-size:15px">Hall of Fame</span></div><button onclick="toggleBoard(${!optIn})" style="background:none;border:none;cursor:pointer;display:flex;align-items:center;gap:6px"><span style="font-size:10.5px;color:var(--sub);font-weight:700">Show me</span><div style="width:36px;height:21px;border-radius:20px;background:${optIn?'#54EFA0':'rgba(255,255,255,.2)'};position:relative;transition:background .2s"><div style="position:absolute;top:2px;left:${optIn?'17px':'2px'};width:17px;height:17px;border-radius:50%;background:#fff;transition:left .2s"></div></div></button></div>
+    ${rows.map((r,i)=>`<div style="display:flex;align-items:center;gap:11px;padding:10px 8px;margin:3px -8px 0;border-radius:12px;background:${r.me?'rgba(255,210,63,.16)':'transparent'};border:1px solid ${r.me?'rgba(255,210,63,.4)':'transparent'}"><div style="width:26px;text-align:center;font-weight:900;font-size:${i<3?18:13}px;color:${i<3?['#FFD23F','#D9E4F0','#FF9A55'][i]:'var(--sub)'}">${i<3?['🥇','🥈','🥉'][i]:i+1}</div><div style="flex:1;color:${r.me?'#FFD23F':'#fff'};font-size:14px;font-weight:${r.me?900:700}">${r.me?'You':esc(r.name)}</div><div style="color:${r.me?'#FFD23F':'#fff'};font-size:13.5px;font-weight:800">${(Number(r.points||0)/1000).toFixed(0)}k</div></div>`).join("")||`<div style="color:var(--sub);font-size:12.5px;padding:8px 0">Be the first on the board — flick the switch!</div>`}
+    <div style="color:var(--sub);font-size:11.5px;margin-top:10px;text-align:center;font-weight:600">${optIn?"All-time · never resets · climb while you're with us 🚀":"You're hidden — flick the switch to join the board"}</div>
+  </div>`;
+  return coin+cardBox+rack+draw+fame;
+}
+
+// ================= REFER =================
+function referView(){
+  const hero=`<div style="border-radius:26px;padding:26px 18px;text-align:center;background:linear-gradient(135deg,#FF2D78,#FF6A3D);box-shadow:0 10px 30px rgba(255,45,120,.5), inset 0 1px 0 rgba(255,255,255,.35)"><div class="bob" style="font-size:40px">💥</div><div style="color:#fff;font-weight:900;font-size:15px;letter-spacing:1px">REFER A MATE, BANK</div><div style="color:#fff;font-weight:900;font-size:60px;line-height:1;text-shadow:0 3px 8px rgba(0,0,0,.25)">50k</div><div style="color:#fff;font-weight:900;font-size:18px;letter-spacing:3px">POINTS</div><div style="color:rgba(255,255,255,.92);font-size:13px;margin-top:8px;font-weight:700">every time they buy a bed · that's a $50 card, instantly</div></div>`;
+  const form=`<div class="card" style="margin-bottom:0"><div class="eyeb" style="margin-bottom:10px">Who should we look after?</div>
+    <input id="refName" class="inp" placeholder="Their name" autocomplete="off">
+    <input id="refMobile" class="inp" type="tel" placeholder="Their mobile" autocomplete="off">
+    <input id="refSuburb" class="inp" placeholder="Their suburb" autocomplete="off">
+    <div id="refMsg" class="muted" style="margin:2px 0 8px"></div>
+    <button onclick="doReferral()" class="pulse" style="${b3('linear-gradient(120deg,#FF2D78,#FF6A3D)','#C41E5E')};width:100%;padding:16px;font-size:16px;font-weight:900">Send it 🚀</button>
+  </div>`;
+  const mates=`<div class="card" style="margin-bottom:0"><div class="eyeb" style="margin-bottom:4px">Your mates</div>
+    ${(REFS||[]).map(r=>{const bought=/Bought/.test(r.status||"");return `<div style="display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-top:1px solid var(--line)"><div><div style="color:#fff;font-size:14.5px;font-weight:800">${esc(r.name)}${r.suburb?` <span style="color:var(--sub);font-weight:600">· ${esc(r.suburb)}</span>`:''}</div><div style="color:${bought?'#54EFA0':'var(--sub)'};font-size:12px;font-weight:700">${esc(r.status)}</div></div><div style="color:${bought?'#FFD23F':'var(--sub)'};font-weight:900;font-size:${bought?16:14}px">${bought?'+50k ⭐':'—'}</div></div>`;}).join("")||`<div style="color:var(--sub);font-size:12.5px;padding:8px 0">No referrals yet — your first one could be 50,000 points 👀</div>`}
+  </div>`;
+  return hero+form+mates;
+}
+
+// ================= RATING =================
+function ratingView(){
+  const isAAA=(S.rating==='AAA'), consec=Number(S.current_streak||0), refBuys=Number(S.referrals_converted||0);
+  const center=`<div class="card" style="text-align:center;padding-top:22px;padding-bottom:22px;margin-bottom:0"><div class="float" style="display:inline-block;margin-bottom:12px">${GEM(78)}</div>
+    <div style="color:#fff;font-weight:900;font-size:26px">${isAAA?"You're Triple-A! 💎":`You're ${esc(S.rating||'AA')} right now`}</div>
+    <div style="color:var(--sub);font-size:13px;margin-top:4px;font-weight:600">${isAAA?"Top-tier legend — every Simtec client starts here. Keep it yours.":`${nf(S.to_aaa||0)} on-time payment${(S.to_aaa||0)===1?'':'s'} and your Triple-A is back 💪`}</div></div>`;
+  const ladder=`<div class="card" style="margin-bottom:0"><div class="eyeb">Your rating</div>
+    ${[["A","Rookie","🌱"],["AA","Regular","⭐"],["AAA","Legend","💎"]].map(([t,d,e])=>{const on=(S.rating||'AAA')===t;return `<div style="display:flex;align-items:center;gap:12px;padding:11px 0;border-top:1px solid var(--line)"><div style="font-size:22px">${e}</div><div style="width:42px;font-weight:900;font-size:18px;color:${on?'#FFD23F':'var(--sub)'}">${t}</div><div style="flex:1;color:${on?'#fff':'var(--sub)'};font-size:13.5px;font-weight:${on?800:600}">${d}${on?" — you're here!":""}</div>${on?`<div style="background:#FFD23F;color:#3A2000;font-size:11px;font-weight:900;padding:3px 10px;border-radius:20px">YOU</div>`:''}</div>`;}).join("")}
+  </div>`;
+  const perks=`<div class="card" style="margin-bottom:0"><div class="eyeb" style="margin-bottom:4px">Triple-A perks 🎁</div>
+    ${["Best prices on everything 💰","First dibs on new ranges 🛏️","Top referral reward — 50k pts 💥","Priority delivery & free set-up 🚚","Birthday & milestone gifts 🎉"].map(p=>`<div style="display:flex;gap:10px;align-items:center;padding:8px 0"><span style="color:#54EFA0;font-weight:900">✓</span><span style="color:#fff;font-size:13.5px;font-weight:700">${p}</span></div>`).join("")}
+  </div>`;
+  const STK=[10,25,50,100];
+  const streaks=`<div class="card" style="margin-bottom:0"><div class="eyeb" style="margin-bottom:6px">Payment streak badges 🔥</div>
+    <div style="display:flex;justify-content:space-between;margin-top:4px">${STK.map((v,i)=>{const earned=consec>=v,next=!earned&&consec>=(i===0?0:STK[i-1]);return `<div style="text-align:center"><div style="width:60px;height:60px;border-radius:50%;display:flex;flex-direction:column;align-items:center;justify-content:center;background:${earned?'radial-gradient(circle at 36% 28%, #FFF0B8, #FF8A3D)':(next?'rgba(255,210,63,.14)':'rgba(255,255,255,.06)')};border:${next?'2px dashed #FFD23F':(earned?'2px solid #FFE27A':'1px solid rgba(255,255,255,.12)')};box-shadow:${earned?'0 5px 14px rgba(255,138,61,.5)':'none'};opacity:${(!earned&&!next)?.5:1}"><div style="font-size:15px">${(earned||next)?'🔥':'🔒'}</div><div style="color:${earned?'#3A2000':'#fff'};font-weight:900;font-size:14px;margin-top:-2px">${v}</div></div><div style="font-size:9px;color:var(--sub);font-weight:700;margin-top:3px">in a row</div></div>`;}).join("")}</div>
+    <div style="color:#FFD23F;font-size:12px;font-weight:800;margin-top:10px;text-align:center">${consec>=10?`🔥 ${consec} in a row — legend!`:`Just ${10-consec} more payment${10-consec===1?'':'s'} for your 10-in-a-row badge!`}</div>
+  </div>`;
+  const RT=[{n:1,label:"Referrer",ic:"🤝",reward:"Badge + 50k pts"},{n:5,label:"5 buyers",ic:"🥉",reward:"$100 voucher"},{n:10,label:"10 buyers",ic:"🥈",reward:"Free bedding bundle"},{n:25,label:"Super Referrer",ic:"🏝️",big:true,reward:"A holiday on us"}];
+  const nx=RT.find(t=>refBuys<t.n);
+  const reftiers=`<div class="card" style="margin-bottom:0"><div class="eyeb" style="margin-bottom:6px">Referrer rewards 💥</div>
+    <div style="display:flex;justify-content:space-between;margin-top:4px">${RT.map((t,i)=>{const earned=refBuys>=t.n,next=!earned&&refBuys>=(i===0?0:RT[i-1].n),big=t.big;return `<div style="text-align:center;flex:1"><div style="width:${big?64:56}px;height:${big?64:56}px;margin:0 auto;border-radius:50%;display:flex;align-items:center;justify-content:center;background:${earned?(big?'radial-gradient(circle at 36% 28%, #7FE3FF, #B06BFF 60%, #FF4E9B)':'radial-gradient(circle at 36% 28%, #FFF0B8, #FF8A3D)'):(next?'rgba(255,78,155,.14)':'rgba(255,255,255,.06)')};border:${next?'2px dashed #FF4E9B':(earned?(big?'2px solid #fff':'2px solid #FFE27A'):'1px solid rgba(255,255,255,.12)')};box-shadow:${earned?(big?'0 6px 18px rgba(176,107,255,.6)':'0 5px 14px rgba(255,138,61,.5)'):'none'};opacity:${(!earned&&!next)?.5:1}"><div style="font-size:${big?24:19}px">${(earned||next)?t.ic:'🔒'}</div></div><div style="font-size:9px;color:${big?'#FF4E9B':'var(--sub)'};font-weight:${big?900:700};margin-top:3px;line-height:1.1">${t.label}</div><div style="font-size:8px;color:${big?'#E4B4FF':'rgba(255,255,255,.5)'};font-weight:600;margin-top:1px;line-height:1.05">${t.reward}</div></div>`;}).join("")}</div>
+    <div style="color:#FF4E9B;font-size:12px;font-weight:800;margin-top:10px;text-align:center">${refBuys>=1?"You're a Referrer! ":""}${nx?`${refBuys}/${nx.n} towards ${nx.reward} ${nx.ic}`:"Ladder maxed — legend!"}</div>
+    <div style="margin-top:8px;background:linear-gradient(120deg,rgba(176,107,255,.22),rgba(255,78,155,.16));border:1px solid rgba(176,107,255,.4);border-radius:12px;padding:9px 12px;text-align:center"><div style="color:#fff;font-size:12.5px;font-weight:900">🏝️ Super Referrer</div><div style="color:var(--sub);font-size:11.5px;font-weight:600">Refer 25 buyers and we'll send you somewhere special.</div></div>
+  </div>`;
+  const crown=`<div style="background:rgba(255,210,63,.14);border:1px solid rgba(255,210,63,.4);border-radius:18px;padding:14px"><div style="color:#FFD23F;font-weight:900;font-size:14px">Keep your crown 👑</div><div style="color:#fff;font-size:13px;margin-top:5px;line-height:1.5;font-weight:600">Every payment on time keeps you Triple-A. Slip and you drop — but a quick run of on-time payments brings it right back.</div></div>`;
+  return center+ladder+perks+streaks+reftiers+crown;
+}
+
+// ================= LOOT =================
+function lootView(){
+  const pct=(PLAN&&PLAN.has_order)?(PLAN.pct_paid||0):0, has=k=>MS.indexOf(k)>=0;
+  const drops=`<div class="card" style="margin-bottom:0"><div class="eyeb" style="margin-bottom:8px">Surprise drops 🎊</div><div style="color:var(--sub);font-size:11.5px;font-weight:600;line-height:1.5;margin-bottom:4px">Do the right thing and the points roll in — the more it helps us, the bigger the drop.</div>
+    ${[["💚","Make a payment on time","A little thanks for staying on track · + a free spin","+200","#25C97A"],["💳","Make an extra payment","Get ahead — grab a bigger drop","+1,000","#4D7CFF"],["💥","Refer a mate who buys","The biggest drop of all","+50,000","#FF2D78"]].map(([e,t,d,p,col])=>`<div style="display:flex;align-items:center;gap:12px;padding:11px 0;border-top:1px solid var(--line)"><div style="font-size:23px">${e}</div><div style="flex:1"><div style="color:#fff;font-size:14px;font-weight:800">${t}</div><div style="color:var(--sub);font-size:11.5px;font-weight:600">${d}</div></div><div style="color:${col};font-weight:900;font-size:15px;white-space:nowrap">${p}</div></div>`).join("")}
+  </div>`;
+  const miles=`<div class="card" style="margin-bottom:0"><div class="eyeb" style="margin-bottom:8px">Milestone loot</div>
+    ${[[25,"25% paid off","10,000 bonus points","🎁","pct25"],[50,"50% paid off","A free pillow","🛏️","pct50"],[100,"Paid in full","Lifetime Triple-A + 10% off your next order","👑","paidfull"]].map(([thr,m,r,e,k])=>{const done=has(k)||pct>=thr;return `<div style="display:flex;align-items:center;gap:12px;padding:11px 0;border-top:1px solid var(--line)"><div style="width:34px;height:34px;border-radius:11px;background:${done?'linear-gradient(135deg,#54EFA0,#25C97A)':'rgba(255,255,255,.09)'};display:flex;align-items:center;justify-content:center;font-size:17px">${done?'✓':'🔒'}</div><div style="flex:1"><div style="color:${done?'#fff':'var(--sub)'};font-size:14px;font-weight:800">${e} ${r}</div><div style="color:var(--sub);font-size:11.5px;font-weight:600">${m}${done?'':` · you're at ${Math.round(pct)}%`}</div></div>${done?'<span style="color:#54EFA0;font-size:11.5px;font-weight:900">GOT IT!</span>':''}</div>`;}).join("")}
+  </div>`;
+  const utils=`<div class="card" style="margin-bottom:0">
+    <button class="btn ghost sm" onclick="toggleSound(this)">${SFX.enabled?'🔊 Sound on — tap to mute':'🔇 Sound off — tap on'}</button>
+    <div style="height:8px"></div>
+    <button class="btn ghost sm" onclick="signOut()">Sign out</button>
+    <div style="margin-top:10px;text-align:center"><a href="customer-login.html?account=1" style="color:var(--sub);font-size:12.5px">Manage my community group & account</a></div>
+    <div onclick="runDiag()" style="margin-top:8px;text-align:center;color:rgba(255,255,255,.35);font-size:10.5px;font-weight:700;cursor:pointer">Simtec Rewards · interactive demo · sample data</div>
+  </div>`;
+  return drops+miles+utils;
+}
+
+// ================= OVERLAYS =================
+function overlaysHtml(){
+  let h="";
+  if(SLOT.open){
+    h+=`<div style="position:fixed;inset:0;z-index:50;background:radial-gradient(120% 70% at 50% 0%, #4A1E9E, #150A3E);display:flex;flex-direction:column;align-items:center;padding:22px 18px">
+      <button onclick="SLOT.open=false;SLOT.result=null;render()" style="align-self:flex-end;background:rgba(255,255,255,.12);border:none;border-radius:12px;width:34px;height:34px;cursor:pointer;color:#fff;font-size:16px;font-weight:900">✕</button>
+      <div style="font-size:40px;margin-top:6px">🎰</div>
+      <div style="color:#fff;font-weight:900;font-size:26px">Spin to Win</div>
+      <div style="color:var(--sub);font-size:12.5px;font-weight:700;margin-bottom:18px">You only ever win — never lose a point</div>
+      <div style="display:flex;gap:10px;background:rgba(0,0,0,.35);padding:16px;border-radius:20px;border:2px solid rgba(255,210,63,.5);box-shadow:0 0 30px rgba(255,210,63,.3)">
+        ${SLOT.reels.map(x=>`<div class="reel" style="width:72px;height:88px;border-radius:14px;background:linear-gradient(180deg,#fff,#E8ECF5);display:flex;align-items:center;justify-content:center;font-size:42px;box-shadow:inset 0 3px 8px rgba(0,0,0,.2)">${x}</div>`).join("")}
+      </div>
+      <div style="height:58px;display:flex;align-items:center;margin-top:8px">${(SLOT.result&&!SLOT.spinning)?`<div class="glow" style="background:linear-gradient(120deg,#FFD23F,#FF8A3D);color:#3A2000;font-weight:900;font-size:18px;padding:10px 20px;border-radius:16px">🎉 +${nf(SLOT.result)} points!</div>`:""}</div>
+      <button onclick="doSpin()" ${(SLOT.spinning||!(R.spins>0))?'disabled':''} style="${b3((R.spins>0)?'linear-gradient(120deg,#54EFA0,#25C97A)':'rgba(255,255,255,.15)','#159257')};padding:16px 44px;font-size:19px;font-weight:900;color:${(R.spins>0)?'#053019':'var(--sub)'};margin-top:8px;opacity:${SLOT.spinning?.7:1}">${SLOT.spinning?'Spinning…':(R.spins>0?'SPIN!':'No spins left')}</button>
+      <div style="color:#fff;font-size:13px;font-weight:800;margin-top:16px">🎟️ ${nf(R.spins)} free ${R.spins==1?'spin':'spins'} left</div>
+      <div style="color:var(--sub);font-size:11.5px;font-weight:600;margin-top:4px;text-align:center;max-width:240px">Earn a spin with every payment you make</div>
+    </div>`;
+  }
+  if(PAY.open){
+    h+=`<div style="position:fixed;inset:0;z-index:54;background:radial-gradient(120% 70% at 50% 0%, #1E7A4E, #0A2E4E 60%, #150A3E);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:26px;text-align:center">
+      <button onclick="PAY.open=false;render()" style="position:absolute;top:18px;right:18px;background:rgba(255,255,255,.12);border:none;border-radius:12px;width:34px;height:34px;cursor:pointer;color:#fff;font-size:16px;font-weight:900">✕</button>
+      <div class="bob" style="font-size:52px">💳</div>
+      <div style="color:#fff;font-weight:900;font-size:26px;margin-top:4px">Extra payment</div>
+      <div style="color:var(--sub);font-size:13px;font-weight:700;margin-top:4px;max-width:280px">Moves the truck 🚚 · <b style="color:#54EFA0">+1,000 points</b> &amp; a free spin on $50 or more</div>
+      <div style="display:flex;gap:10px;margin-top:22px">
+        ${[50,100,200].map(v=>`<button onclick="payChip(${v})" style="${b3('linear-gradient(120deg,#25C97A,#54EFA0)','#159257')};color:#053019;padding:13px 20px;font-size:16px;font-weight:900">$${v}</button>`).join("")}
+      </div>
+      <input id="payAmt" class="inp" type="number" inputmode="numeric" min="50" placeholder="Or type an amount — $50 minimum" style="max-width:280px;text-align:center;margin-top:14px;font-size:16px;font-weight:800">
+      <button onclick="payGo()" class="pulse" style="${b3('linear-gradient(120deg,#FFD23F,#FF8A3D)','#C88A00')};color:#3A2000;padding:15px 40px;font-size:16.5px;font-weight:900;margin-top:14px">Pay securely with Stripe →</button>
+      <div style="color:var(--sub);font-size:11px;font-weight:600;margin-top:14px;max-width:270px">Card details go straight to Stripe's secure page — Simtec never sees them. Points land as soon as the payment clears.</div>
+    </div>`;
+  }
+  if(TIPOPEN){
+    h+=`<div style="position:fixed;inset:0;z-index:53;background:radial-gradient(120% 70% at 50% 0%, #3A2C7A, #150A3E);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:30px 26px;text-align:center">
+      <button onclick="TIPOPEN=false;render()" style="position:absolute;top:18px;right:18px;background:rgba(255,255,255,.12);border:none;border-radius:12px;width:34px;height:34px;cursor:pointer;color:#fff;font-size:16px;font-weight:900">✕</button>
+      <div class="float" style="font-size:58px">🌙</div>
+      <div style="color:#C9B8FF;font-weight:900;font-size:13px;letter-spacing:2px;margin-top:6px">TONIGHT'S SLEEP TIP</div>
+      <div style="color:#fff;font-weight:800;font-size:20px;line-height:1.45;margin-top:16px;max-width:300px">${SLEEP_TIPS[TIP_I%SLEEP_TIPS.length]}</div>
+      <button onclick="TIP_I=(TIP_I+1)%SLEEP_TIPS.length;render()" style="${b3('linear-gradient(120deg,#B06BFF,#6B4BD6)','#4A2E9E')};padding:12px 28px;font-size:14.5px;margin-top:26px">🔀 Another tip</button>
+      <div style="color:var(--sub);font-size:11.5px;font-weight:600;margin-top:16px">A fresh tip lands every morning 🌙 · ${SLEEP_TIPS.length} in rotation</div>
+    </div>`;
+  }
+  if(OVERLAY==='congrats'){
+    h+=`<div style="position:fixed;inset:0;z-index:52;background:radial-gradient(120% 70% at 50% 0%, #FF6A3D, #B06BFF 58%, #1A0E52);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;text-align:center;overflow:hidden">
+      <div style="position:relative;width:200px;height:200px;display:flex;align-items:center;justify-content:center">
+        <svg width="200" height="200" viewBox="0 0 200 200" style="position:absolute;animation:spin360 14s linear infinite">${Array.from({length:16},(_,i)=>`<rect x="96" y="4" width="8" height="42" rx="4" fill="${i%2?'rgba(255,210,63,.6)':'rgba(255,255,255,.35)'}" transform="rotate(${i*22.5} 100 100)"/>`).join("")}</svg>
+        <div class="pop" style="font-size:98px;filter:drop-shadow(0 8px 22px rgba(255,180,0,.6))">🏆</div>
+      </div>
+      <div class="pop" style="color:#FFD23F;font-weight:900;font-size:14px;letter-spacing:4px;margin-top:2px">CHAMPION</div>
+      <div style="color:#fff;font-weight:900;font-size:33px;line-height:1.05;margin-top:4px">You did it, ${esc(NAME)}!</div>
+      <div style="display:flex;gap:6px;margin-top:12px">${[0,1,2,3,4].map(i=>`<span style="font-size:28px;display:inline-block;animation:clap 1s ease-in-out ${i*0.12}s infinite">👏</span>`).join("")}</div>
+      <div style="color:#FFD23F;font-weight:900;font-size:15px;margin-top:8px">A round of applause! 🎉</div>
+      <div style="color:rgba(255,255,255,.95);font-size:14.5px;font-weight:600;line-height:1.5;margin-top:14px;max-width:295px">Your bed's across the finish line. Our team will contact you shortly to arrange a delivery time that suits you — keep an eye on your phone! 📞</div>
+      <button onclick="OVERLAY=null;render()" class="pulse" style="${b3('#fff','#C9A100')};color:#3A2000;padding:14px 44px;font-size:17px;font-weight:900;margin-top:22px">Awesome! 🎉</button>
+    </div>`;
+  }
+  if(OVERLAY==='starburst'){
+    const L=DRAW.latest||{};
+    h+=`<div style="position:fixed;inset:0;z-index:56;background:radial-gradient(120% 70% at 50% 0%, #FFB43D, #FF4E9B 55%, #2A0E52);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;text-align:center;overflow:hidden">
+      <div style="position:relative;width:200px;height:200px;display:flex;align-items:center;justify-content:center">
+        <svg width="200" height="200" viewBox="0 0 200 200" style="position:absolute;animation:spin360 12s linear infinite">${Array.from({length:16},(_,i)=>`<rect x="96" y="4" width="8" height="42" rx="4" fill="${i%2?'rgba(255,210,63,.7)':'rgba(255,255,255,.4)'}" transform="rotate(${i*22.5} 100 100)"/>`).join("")}</svg>
+        <div class="pop" style="font-size:96px;filter:drop-shadow(0 8px 22px rgba(255,180,0,.6))">🎉</div>
+      </div>
+      <div class="pop" style="color:#FFD23F;font-weight:900;font-size:14px;letter-spacing:3px;margin-top:2px">MONTHLY DRAW WINNER</div>
+      <div style="color:#fff;font-weight:900;font-size:30px;line-height:1.1;margin-top:6px">You won, ${esc(NAME)}! 🏆</div>
+      <div style="color:#FFD23F;font-weight:900;font-size:22px;margin-top:10px">+${nf(L.prize||10000)} points</div>
+      <div style="color:rgba(255,255,255,.95);font-size:14px;font-weight:600;line-height:1.5;margin-top:14px;max-width:290px">Your name came out of this month's draw — the points are already in your account. Ka pai! 🎉</div>
+      <button onclick="dismissStarburst()" class="pulse" style="${b3('#fff','#C9A100')};color:#3A2000;padding:14px 44px;font-size:17px;font-weight:900;margin-top:22px">Claim & celebrate! 🎉</button>
+    </div>`;
+  }
+  return h;
+}
+function dismissStarburst(){
+  const L=DRAW&&DRAW.latest;
+  if(L){ try{ sbrpc("mark_draw_seen",{ p_month:L.month }); L.congrats_pending=false; }catch(e){} }
+  OVERLAY=null; render();
+}
+function openSlot(){ SLOT.open=true; SLOT.result=null; render(); }
+
+// ---- actions ----
+function setTab(t){ crumb('tab:'+t); TAB=t; TIPOPEN=false; render(); }
+function toggleSound(btn){ SFX.enabled=!SFX.enabled; btn.textContent=SFX.enabled?'🔊 Sound on — tap to mute':'🔇 Sound off — tap on'; }
+
+function payExtra(purpose){
+  if(purpose==='extra'){ PAY.open=true; render(); return; }   // ask how much first
+  doStripe('deposit');                                        // server works out the shortfall
+}
+async function doStripe(purpose,amount){
+  PAY.open=false;
+  toast(purpose==="deposit" ? "⚡ In the real app this takes a secure card payment for the $107 deposit top-up." :
+        "💳 In the real app this takes a secure card payment via Stripe.");
+  render();
+}
+function payChip(v){ const i=$("payAmt"); if(i) i.value=v; }
+function payGo(){
+  const v=Math.floor(Number(($("payAmt")||{}).value||0));
+  if(!(v>=50)){ toast("Minimum extra payment is $50"); return; }
+  PAY.open=false; doStripe('extra', v);
+}
+async function toggleBoard(on){ if(busy) return; busy=true; try{ await sbrpc("set_leaderboard_optin",{ p_on:on }); await loadAll(); }catch(e){} busy=false; render(); }
+
+async function doReferral(){
+  if(busy) return;
+  const n=document.getElementById("refName"), m=document.getElementById("refMobile"), su=document.getElementById("refSuburb"), msg=document.getElementById("refMsg");
+  busy=true; if(msg) msg.textContent="Sending…";
+  try{
+    const { data } = await sbrpc("submit_referral",{ p_name:(n&&n.value)||"", p_mobile:(m&&m.value)||"", p_suburb:(su&&su.value)||"" });
+    const res=data||{};
+    if(res.ok){ try{SFX.win();}catch(e){} await loadAll(); busy=false; TAB="refer"; render();
+      const mm=document.getElementById("refMsg"); if(mm){ mm.textContent="Sent! Our team will take it from here. 🙌"; mm.style.color="var(--gold)"; }
+      return; }
+    if(msg){ msg.textContent=res.error||"Hmm, that didn't work — try again."; msg.style.color="#f2b8b8"; }
+  }catch(e){ if(msg){ msg.textContent="Hmm, that didn't work — try again."; msg.style.color="#f2b8b8"; } }
+  busy=false;
+}
+
+async function doSpin(){
+  if(busy||SLOT.spinning||!(R.spins>0)) return; busy=true;
+  SLOT.spinning=true; SLOT.result=null; render(); SFX.spin();
+  spinIv=setInterval(()=>{ const reels=document.querySelectorAll(".reel"); reels.forEach(r=>r.textContent=SYM[Math.floor(Math.random()*SYM.length)]); },90);
+  try{
+    const { data }=await sbrpc("play_spin");
+    setTimeout(async ()=>{
+      clearInterval(spinIv);
+      if(data&&data.ok){
+        const sym=PSYM[data.points]||"⭐";
+        SLOT.reels=[sym,sym,sym]; SLOT.result=data.points; SLOT.spinning=false;
+        (data.points>=250?SFX.jackpot():SFX.win());
+        await loadAll(); busy=false; render();
+      } else {
+        SLOT.spinning=false; busy=false; render(); toast((data&&data.error)||"No spins left.");
+      }
+    },1650);
+  }catch(e){ clearInterval(spinIv); SLOT.spinning=false; busy=false; render(); toast("Something went wrong — try again."); }
+}
+async function doDaily(){
+  if(busy||!R.daily_available) return; busy=true;
+  try{
+    const { data }=await sbrpc("claim_daily");
+    if(data&&data.ok){ party(`🎁 Daily bonus — +${nf(data.points)} points!`); await loadAll(); }
+    else { toast((data&&data.error)||"Already claimed today."); }
+  }catch(e){ toast("Try again."); }
+  busy=false; render(); checkCelebrations();
+}
+async function redeem(id,how){
+  if(busy) return; busy=true;
+  const labels={giftcard:'gift card',plan_credit:'$50 off your plan',donation:'donation to your group'};
+  try{
+    const { data }=await sbrpc("redeem_reward_card",{ p_card:id, p_how:how });
+    if(data&&data.ok){ SFX.win(); toast('✓ Redeemed as '+(labels[how]||how)); await loadAll(); }
+    else { toast((data&&data.error)||'Could not redeem'); }
+  }catch(e){ toast('Try again'); }
+  busy=false; renderKeepTab("points");
+}
+async function doDraw(){
+  if(busy||DRAW.entered_this_month) return; busy=true;
+  try{
+    const { data }=await sbrpc("enter_draw");
+    if(data&&data.ok){ SFX.coin(); toast('✓ Entered the draw'); await loadAll(); }
+    // open the real review page for the customer (entry already recorded regardless)
+    window.open("https://search.google.com/local/writereview?placeid=ChIJJzcUnodJDW0Rf6vgkpuhrWA","_blank");
+  }catch(e){ toast('Try again'); }
+  busy=false; renderKeepTab("points");
+}
+function renderKeepTab(t){ TAB=t; render(); }
+
+async function openInbox(){
+  try{ const { data }=await sbrpc("my_notifications"); const items=data||[];
+    app.innerHTML=`<div class="top"><h1>Notifications</h1><button class="bell" onclick="render()">✕</button></div>`+
+      (items.length? items.map(n=>`<div class="card"><div style="font-weight:800">${n.title||''}</div>${n.body?`<div class="muted" style="margin-top:3px">${n.body}</div>`:''}</div>`).join("")
+                   : `<div class="card"><div class="muted">No notifications yet.</div></div>`);
+    // mark all read
+    for(const n of items){ if(!n.read) sbrpc("mark_notification_read",{ p_id:n.id }); }
+    UNREAD=0;
+  }catch(e){ render(); }
+}
+async function signOut(){ toast("This is the demo — nothing to sign out of 🙂"); }
+
+document.addEventListener("visibilitychange", ()=>{ if(!document.hidden && !busy){ loadAll().then(()=>{render();checkCelebrations();}).catch(()=>{}); } });
+window.addEventListener("pageshow", (e)=>{ if(e.persisted && !busy){ loadAll().then(()=>{render();checkCelebrations();}).catch(()=>{}); } });
+boot();
+</script>
+</body>
+</html>
