@@ -223,7 +223,12 @@ function checkCelebrations(){
 async function boot(){
   const { data:{ session } } = await sb.auth.getSession();
   if(!session){ location.href="customer-login.html"; return; }
+  const q=new URLSearchParams(location.search);
+  const paid=q.get("paid");
+  if(paid!==null){ history.replaceState(null,"",location.pathname); }
   await loadAll(); render(); checkCelebrations();
+  if(paid==="1"){ SFX.win(); toast("💳 Payment received — thank you! Your points land the moment it clears."); }
+  else if(paid==="0"){ toast("Payment cancelled — no charge was made."); }
 }
 async function loadAll(){
   const [r,s,c,d,u,pl,ms,lb,rf]=await Promise.all([
@@ -240,7 +245,7 @@ const GEM=(sz)=>`<div class="shine" style="width:${sz}px;height:${sz}px;border-r
 const MASCOT=(sz)=>`<svg width="${sz}" height="${sz}" viewBox="0 0 64 64" class="bob" style="filter:drop-shadow(0 4px 8px rgba(255,180,60,.55));flex-shrink:0"><defs><linearGradient id="mg${sz}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFE886"/><stop offset="1" stop-color="#FF9A3D"/></linearGradient></defs><path d="M32 4l7 15 16 2-12 11 3 16-14-8-14 8 3-16L12 21l16-2z" fill="url(#mg${sz})" stroke="#FF7A2D" stroke-width="1.5" stroke-linejoin="round"/><circle cx="26" cy="28" r="2.5" fill="#5A3200"/><circle cx="38" cy="28" r="2.5" fill="#5A3200"/><path d="M25 34 q7 6 14 0" stroke="#5A3200" stroke-width="2.2" fill="none" stroke-linecap="round"/><circle cx="21" cy="32" r="2.1" fill="#FF6A9B" opacity=".55"/><circle cx="43" cy="32" r="2.1" fill="#FF6A9B" opacity=".55"/></svg>`;
 const b3=(bg,sh)=>`background:${bg};box-shadow:0 4px 0 ${sh};border:none;border-radius:16px;color:#fff;font-family:inherit;font-weight:800;cursor:pointer`;
 const barH=(v,from,to)=>`<div style="height:14px;background:rgba(255,255,255,.14);border-radius:10px;margin-top:10px;overflow:hidden;box-shadow:inset 0 1px 3px rgba(0,0,0,.25)"><div style="height:100%;width:${Math.min(v,1)*100}%;background:linear-gradient(90deg,${from},${to});border-radius:10px;transition:width 1.2s cubic-bezier(.34,1.2,.5,1);box-shadow:0 0 10px ${to}"></div></div>`;
-let SLOT={open:false,spinning:false,reels:["⭐","💎","🔥"],result:null}, TIPOPEN=false, OVERLAY=null;
+let SLOT={open:false,spinning:false,reels:["⭐","💎","🔥"],result:null}, TIPOPEN=false, OVERLAY=null, PAY={open:false};
 const SYM=["⭐","💎","🔥","🎁","💰","7️⃣"];
 const PSYM={10:"⭐",25:"🍒",50:"🎁",100:"🔔",250:"🔥",1000:"💎"};
 let spinIv=null;
@@ -486,6 +491,20 @@ function overlaysHtml(){
       <div style="color:var(--sub);font-size:11.5px;font-weight:600;margin-top:4px;text-align:center;max-width:240px">Earn a spin with every payment you make</div>
     </div>`;
   }
+  if(PAY.open){
+    h+=`<div style="position:fixed;inset:0;z-index:54;background:radial-gradient(120% 70% at 50% 0%, #1E7A4E, #0A2E4E 60%, #150A3E);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:26px;text-align:center">
+      <button onclick="PAY.open=false;render()" style="position:absolute;top:18px;right:18px;background:rgba(255,255,255,.12);border:none;border-radius:12px;width:34px;height:34px;cursor:pointer;color:#fff;font-size:16px;font-weight:900">✕</button>
+      <div class="bob" style="font-size:52px">💳</div>
+      <div style="color:#fff;font-weight:900;font-size:26px;margin-top:4px">Extra payment</div>
+      <div style="color:var(--sub);font-size:13px;font-weight:700;margin-top:4px;max-width:280px">Moves the truck 🚚 · <b style="color:#54EFA0">+1,000 points</b> &amp; a free spin on $50 or more</div>
+      <div style="display:flex;gap:10px;margin-top:22px">
+        ${[50,100,200].map(v=>`<button onclick="payChip(${v})" style="${b3('linear-gradient(120deg,#25C97A,#54EFA0)','#159257')};color:#053019;padding:13px 20px;font-size:16px;font-weight:900">$${v}</button>`).join("")}
+      </div>
+      <input id="payAmt" class="inp" type="number" inputmode="numeric" min="50" placeholder="Or type an amount — $50 minimum" style="max-width:280px;text-align:center;margin-top:14px;font-size:16px;font-weight:800">
+      <button onclick="payGo()" class="pulse" style="${b3('linear-gradient(120deg,#FFD23F,#FF8A3D)','#C88A00')};color:#3A2000;padding:15px 40px;font-size:16.5px;font-weight:900;margin-top:14px">Pay securely with Stripe →</button>
+      <div style="color:var(--sub);font-size:11px;font-weight:600;margin-top:14px;max-width:270px">Card details go straight to Stripe's secure page — Simtec never sees them. Points land as soon as the payment clears.</div>
+    </div>`;
+  }
   if(TIPOPEN){
     h+=`<div style="position:fixed;inset:0;z-index:53;background:radial-gradient(120% 70% at 50% 0%, #3A2C7A, #150A3E);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:30px 26px;text-align:center">
       <button onclick="TIPOPEN=false;render()" style="position:absolute;top:18px;right:18px;background:rgba(255,255,255,.12);border:none;border-radius:12px;width:34px;height:34px;cursor:pointer;color:#fff;font-size:16px;font-weight:900">✕</button>
@@ -537,13 +556,26 @@ function openSlot(){ SLOT.open=true; SLOT.result=null; render(); }
 function setTab(t){ TAB=t; TIPOPEN=false; render(); }
 function toggleSound(btn){ SFX.enabled=!SFX.enabled; btn.textContent=SFX.enabled?'🔊 Sound on — tap to mute':'🔇 Sound off — tap on'; }
 
-async function payExtra(purpose){
+function payExtra(purpose){
+  if(purpose==='extra'){ PAY.open=true; render(); return; }   // ask how much first
+  doStripe('deposit');                                        // server works out the shortfall
+}
+async function doStripe(purpose,amount){
   if(busy) return; busy=true;
-  try{ const { data }=await sb.functions.invoke("stripe-create-session",{ body:{ purpose } });
-    if(data&&data.url){ location.href=data.url; return; }
-    toast("Card payments are coming soon");
-  }catch(e){ toast("Card payments are coming soon"); }
-  busy=false;
+  try{
+    const body={ purpose }; if(amount) body.amount=amount;
+    // NOTE: the deployed slug is capital-S "Stripe-create-session" — casing matters.
+    const { data, error }=await sb.functions.invoke("Stripe-create-session",{ body });
+    if(data&&data.url){ location.href=data.url; return; }     // off to Stripe's secure page
+    toast((data&&data.error)||(error&&error.message)||"Card payments aren't available right now");
+  }catch(e){ toast("Card payments aren't available right now"); }
+  busy=false; render();
+}
+function payChip(v){ const i=$("payAmt"); if(i) i.value=v; }
+function payGo(){
+  const v=Math.floor(Number(($("payAmt")||{}).value||0));
+  if(!(v>=50)){ toast("Minimum extra payment is $50"); return; }
+  PAY.open=false; doStripe('extra', v);
 }
 async function toggleBoard(on){ if(busy) return; busy=true; try{ await sb.rpc("set_leaderboard_optin",{ p_on:on }); await loadAll(); }catch(e){} busy=false; render(); }
 
