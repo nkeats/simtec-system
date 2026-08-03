@@ -227,7 +227,8 @@ async function boot(){
   const paid=q.get("paid");
   if(paid!==null){ history.replaceState(null,"",location.pathname); }
   try{ if(localStorage.getItem("simtec_ver")!==APP_VER){ localStorage.setItem("simtec_ver",APP_VER); setTimeout(()=>toast("✨ App updated — "+APP_VER),600); } }catch(e){}
-  try{ await loadAll(); }catch(e){ /* render whatever loaded */ }
+  crumb('boot');
+  try{ await loadAll(); crumb('loaded'); }catch(e){ crumb('loadfail'); beacon('loadAll', String(e&&e.message||e)); }
   render(); try{ checkCelebrations(); }catch(e){}
   if(paid==="1"){ SFX.win(); toast("💳 Payment received — thank you! Your points land the moment it clears."); }
   else if(paid==="0"){ toast("Payment cancelled — no charge was made."); }
@@ -243,7 +244,14 @@ async function loadAll(){
 }
 
 function ratingLabel(){ return (S.rating||"AAA"); }
-const APP_VER="v4 — 3 Aug";
+const APP_VER="v5 — 3 Aug";
+// Black-box recorder: any error on the device reports itself home, with a
+// breadcrumb trail of the last taps — so "it froze" becomes a readable log.
+let CRUMBS=[];
+function crumb(x){ try{ CRUMBS.push(Date.now()%100000+" "+x); if(CRUMBS.length>12) CRUMBS.shift(); }catch(e){} }
+function beacon(kind,msg){ try{ sb.rpc("log_debug",{ p_msg: APP_VER+" | "+kind+" | "+msg+" | tab="+TAB+" | crumbs: "+CRUMBS.join(" → ")+" | "+navigator.userAgent }); }catch(e){} }
+window.addEventListener("error", e=>beacon("error", (e.message||"?")+" @ "+(e.filename||"")+":"+(e.lineno||"")));
+window.addEventListener("unhandledrejection", e=>beacon("promise", String(e.reason&&e.reason.message||e.reason)));
 const CLEAN_RUN=5;                       // demo cfg.cleanRun — payments in a row to unlock Fast Track
 const CARD_EVERY=50000;
 const GEM=(sz)=>`<div class="shine" style="width:${sz}px;height:${sz}px;border-radius:16px;transform:rotate(45deg);display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#FFE27A,#FF8A3D 55%,#FF2D78);box-shadow:0 6px 18px rgba(255,45,120,.5)"><span style="transform:rotate(-45deg);font-weight:900;color:#fff;font-size:${Math.round(sz*.3)}px;text-shadow:0 1px 3px rgba(0,0,0,.3)">AAA</span></div>`;
@@ -292,8 +300,9 @@ function positionTruck(){
 }
 
 function render(){
-  try{ renderInner(); }
+  try{ renderInner(); crumb('rendered:'+TAB); }
   catch(e){
+    beacon("render-crash", String(e&&e.message||e)+" | "+String(e&&e.stack||"").slice(0,300));
     try{ app.innerHTML='<div class="card" style="border-color:#FF6A9B"><b>Hmm, this screen hit a snag.</b><div class="muted" style="margin-top:6px">'+esc(String(e&&e.message||e))+'</div><button class="btn sm" style="margin-top:10px" onclick="TAB=\'home\';render()">Back to Home</button></div>'; }catch(_){}
     try{ toast("⚠️ "+String(e&&e.message||e)); }catch(_){}
   }
@@ -566,7 +575,7 @@ function dismissStarburst(){
 function openSlot(){ SLOT.open=true; SLOT.result=null; render(); }
 
 // ---- actions ----
-function setTab(t){ TAB=t; TIPOPEN=false; render(); }
+function setTab(t){ crumb('tab:'+t); TAB=t; TIPOPEN=false; render(); }
 function toggleSound(btn){ SFX.enabled=!SFX.enabled; btn.textContent=SFX.enabled?'🔊 Sound on — tap to mute':'🔇 Sound off — tap on'; }
 
 function payExtra(purpose){
