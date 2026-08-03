@@ -226,13 +226,14 @@ async function boot(){
   const q=new URLSearchParams(location.search);
   const paid=q.get("paid");
   if(paid!==null){ history.replaceState(null,"",location.pathname); }
-  await loadAll(); render(); checkCelebrations();
+  try{ await loadAll(); }catch(e){ /* render whatever loaded */ }
+  render(); try{ checkCelebrations(); }catch(e){}
   if(paid==="1"){ SFX.win(); toast("💳 Payment received — thank you! Your points land the moment it clears."); }
   else if(paid==="0"){ toast("Payment cancelled — no charge was made."); }
 }
 async function loadAll(){
   const [r,s,c,d,u,pl,ms,lb,rf]=await Promise.all([
-    sb.rpc("my_rewards"), sb.rpc("my_status"), sb.rpc("my_cards"), sb.rpc("draw_status"), sb.rpc("unread_count"), sb.rpc("my_plan"), sb.rpc("my_milestones"), sb.rpc("leaderboard"), sb.rpc("my_referrals")
+    sb.rpc("my_rewards").catch(()=>({data:null})), sb.rpc("my_status").catch(()=>({data:null})), sb.rpc("my_cards").catch(()=>({data:null})), sb.rpc("draw_status").catch(()=>({data:null})), sb.rpc("unread_count").catch(()=>({data:null})), sb.rpc("my_plan").catch(()=>({data:null})), sb.rpc("my_milestones").catch(()=>({data:null})), sb.rpc("leaderboard").catch(()=>({data:null})), sb.rpc("my_referrals").catch(()=>({data:null}))
   ]);
   R=r.data||{}; S=s.data||{}; CARDS=c.data||[]; DRAW=d.data||{}; UNREAD=u.data||0; PLAN=pl.data||{}; MS=ms.data||[]; LB=lb.data||{}; REFS=rf.data||[];
   if(NAME==="there"){ try{ const { data:me }=await sb.from("sim_customers").select("first_name").limit(1); if(me&&me[0]&&me[0].first_name) NAME=me[0].first_name; }catch(e){} }
@@ -287,6 +288,13 @@ function positionTruck(){
 }
 
 function render(){
+  try{ renderInner(); }
+  catch(e){
+    try{ app.innerHTML='<div class="card" style="border-color:#FF6A9B"><b>Hmm, this screen hit a snag.</b><div class="muted" style="margin-top:6px">'+esc(String(e&&e.message||e))+'</div><button class="btn sm" style="margin-top:10px" onclick="TAB=\'home\';render()">Back to Home</button></div>'; }catch(_){}
+    try{ toast("⚠️ "+String(e&&e.message||e)); }catch(_){}
+  }
+}
+function renderInner(){
   tabsEl.style.display="flex";
   tabsEl.innerHTML=[["home","Home","🏠"],["points","Points","⭐"],["refer","Refer","⚡"],["rating","Rating","🏅"],["loot","Loot","🎁"]]
     .map(([k,l,i])=>`<button class="tab" onclick="setTab('${k}')" style="display:flex;flex-direction:column;align-items:center;gap:3px;padding:4px 2px">
@@ -564,11 +572,21 @@ async function doStripe(purpose,amount){
   if(busy) return; busy=true;
   try{
     const body={ purpose }; if(amount) body.amount=amount;
-    // NOTE: the deployed slug is capital-S "Stripe-create-session" — casing matters.
-    const { data, error }=await sb.functions.invoke("Stripe-create-session",{ body });
+    // Plain fetch on purpose: the payment function's browser allow-list only
+    // permits the Authorization + Content-Type headers, and the supabase-js
+    // invoke() helper adds extra ones (apikey, x-client-info) that make the
+    // browser's CORS pre-check block the whole request. Capital-S slug matters.
+    const { data:{ session } } = await sb.auth.getSession();
+    if(!session){ toast("Please sign in again"); busy=false; return; }
+    const resp = await fetch("https://jvqjoenaungubpoegyvf.supabase.co/functions/v1/Stripe-create-session",{
+      method:"POST",
+      headers:{ "Content-Type":"application/json", "Authorization":"Bearer "+session.access_token },
+      body: JSON.stringify(body)
+    });
+    const data = await resp.json().catch(()=>({}));
     if(data&&data.url){ location.href=data.url; return; }     // off to Stripe's secure page
-    toast((data&&data.error)||(error&&error.message)||"Card payments aren't available right now");
-  }catch(e){ toast("Card payments aren't available right now"); }
+    toast((data&&data.error)||"Card payments aren't available right now");
+  }catch(e){ toast("Payment didn't start: "+(e&&e.message?e.message:"network problem")); }
   busy=false; render();
 }
 function payChip(v){ const i=$("payAmt"); if(i) i.value=v; }
