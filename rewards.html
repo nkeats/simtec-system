@@ -91,6 +91,23 @@
   .refercta{width:100%;display:flex;align-items:center;gap:14px;padding:16px 18px;margin-bottom:12px;border:0;border-radius:16px;color:#fff;cursor:pointer;font-family:inherit;
     background:linear-gradient(120deg,#FF2D78,#FF6A3D);box-shadow:0 4px 0 #C41E5E, 0 12px 28px rgba(255,45,120,.35);animation:pulse 2.4s ease-in-out infinite;transition:transform .08s, box-shadow .08s}
   .refercta:active{transform:translateY(3px);box-shadow:0 1px 0 #C41E5E}
+
+  .eyeb{font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--sub);font-weight:800}
+  .shine{animation:shn 2.4s ease-in-out infinite}
+  @keyframes shn{0%,100%{filter:brightness(1)}50%{filter:brightness(1.28)}}
+  .float{animation:fl 3s ease-in-out infinite}
+  @keyframes fl{0%,100%{transform:translateY(0)}50%{transform:translateY(-4px)}}
+  @keyframes spin360{to{transform:rotate(360deg)}}
+  .pop{animation:pop .6s cubic-bezier(.3,1.6,.5,1) both}
+  @keyframes pop{0%{transform:scale(0)}70%{transform:scale(1.18)}100%{transform:scale(1)}}
+  @keyframes clap{0%,100%{transform:translateY(0) rotate(-9deg)}50%{transform:translateY(-7px) rotate(9deg)}}
+  @keyframes glow{0%,100%{box-shadow:0 0 12px rgba(255,210,63,.5)}50%{box-shadow:0 0 26px rgba(255,210,63,.9)}}
+  .glow{animation:glow 1.4s ease-in-out infinite}
+  .pulse{animation:pulse 1.8s ease-in-out infinite}
+  .toast{background:linear-gradient(120deg,#FF2D78,#FF6A3D)!important;border:none!important;color:#fff!important;box-shadow:0 10px 30px rgba(255,45,120,.5)!important}
+  .tabs{bottom:14px;border-radius:26px;background:rgba(24,14,54,.92)}
+  .tab{padding:4px 2px}
+  .tab.on{background:none;box-shadow:none;color:inherit}
 </style>
 </head>
 <body>
@@ -123,7 +140,7 @@ const SIMTEC_PHONE="+6498869897"; // Simtec office 09 886 9897
 const SIMTEC_EMAIL="info@simtectp.com";
 
 // ---- state ----
-let R={}, S={}, CARDS=[], DRAW={}, PLAN={}, MS=[], LB={}, REFS=[], UNREAD=0, TAB="home", busy=false;
+let R={}, S={}, CARDS=[], DRAW={}, PLAN={}, MS=[], LB={}, REFS=[], UNREAD=0, TAB="home", busy=false, NAME="there";
 
 // ---- sound (Web Audio, no files) ----
 const SFX={ enabled:true, _ac:null, _noise:null,
@@ -191,9 +208,15 @@ function celebrate(icon,title,sub){
 }
 function checkCelebrations(){
   const L=DRAW&&DRAW.latest;
-  if(L&&L.congrats_pending){ DRAW.latest.congrats_pending=false; celebrate("🎉","You won the draw!","+"+nf(L.prize)+" points added to your balance"); try{sb.rpc("mark_draw_seen",{p_month:L.month});}catch(e){} return; }
-  try{ const cur=Number(R.level||0), last=Number(localStorage.getItem("simtec_lvl")||"-1");
-    if(last>=0 && cur>last) celebrate("⬆️","Level Up!","You reached Level "+cur);
+  if(L&&L.congrats_pending){ OVERLAY='starburst'; SFX.jackpot(); render(); return; }
+  // the BIG congratulations when they cross the 10%-deposit finish line
+  try{
+    if(PLAN&&PLAN.has_order&&!PLAN.delivered&&(PLAN.authorised||PLAN.pct_to_delivery>=100)){
+      if(localStorage.getItem("simtec_crossed")!=="1"){ localStorage.setItem("simtec_crossed","1"); OVERLAY='congrats'; SFX.jackpot(); render(); return; }
+    } else if(PLAN&&PLAN.has_order&&!PLAN.delivered){ localStorage.removeItem("simtec_crossed"); }
+  }catch(e){}
+  try{ const cur=Math.max(1,Math.floor(Math.sqrt((R.points||0)/650))), last=Number(localStorage.getItem("simtec_lvl")||"-1");
+    if(last>=0 && cur>last){ SFX.levelup(); party((cur%5===0)?`⭐ LEVEL ${cur}! Bonus spin unlocked 🎰`:`⭐ Level up! You're now Level ${cur}`); }
     localStorage.setItem("simtec_lvl",String(cur));
   }catch(e){}
 }
@@ -207,99 +230,313 @@ async function loadAll(){
     sb.rpc("my_rewards"), sb.rpc("my_status"), sb.rpc("my_cards"), sb.rpc("draw_status"), sb.rpc("unread_count"), sb.rpc("my_plan"), sb.rpc("my_milestones"), sb.rpc("leaderboard"), sb.rpc("my_referrals")
   ]);
   R=r.data||{}; S=s.data||{}; CARDS=c.data||[]; DRAW=d.data||{}; UNREAD=u.data||0; PLAN=pl.data||{}; MS=ms.data||[]; LB=lb.data||{}; REFS=rf.data||[];
+  if(NAME==="there"){ try{ const { data:me }=await sb.from("sim_customers").select("first_name").limit(1); if(me&&me[0]&&me[0].first_name) NAME=me[0].first_name; }catch(e){} }
 }
 
-function ratingLabel(){ return (S.rating||"A"); }
+function ratingLabel(){ return (S.rating||"AAA"); }
+const CLEAN_RUN=5;                       // demo cfg.cleanRun — payments in a row to unlock Fast Track
+const CARD_EVERY=50000;
+const GEM=(sz)=>`<div class="shine" style="width:${sz}px;height:${sz}px;border-radius:16px;transform:rotate(45deg);display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#FFE27A,#FF8A3D 55%,#FF2D78);box-shadow:0 6px 18px rgba(255,45,120,.5)"><span style="transform:rotate(-45deg);font-weight:900;color:#fff;font-size:${Math.round(sz*.3)}px;text-shadow:0 1px 3px rgba(0,0,0,.3)">AAA</span></div>`;
+const MASCOT=(sz)=>`<svg width="${sz}" height="${sz}" viewBox="0 0 64 64" class="bob" style="filter:drop-shadow(0 4px 8px rgba(255,180,60,.55));flex-shrink:0"><defs><linearGradient id="mg${sz}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFE886"/><stop offset="1" stop-color="#FF9A3D"/></linearGradient></defs><path d="M32 4l7 15 16 2-12 11 3 16-14-8-14 8 3-16L12 21l16-2z" fill="url(#mg${sz})" stroke="#FF7A2D" stroke-width="1.5" stroke-linejoin="round"/><circle cx="26" cy="28" r="2.5" fill="#5A3200"/><circle cx="38" cy="28" r="2.5" fill="#5A3200"/><path d="M25 34 q7 6 14 0" stroke="#5A3200" stroke-width="2.2" fill="none" stroke-linecap="round"/><circle cx="21" cy="32" r="2.1" fill="#FF6A9B" opacity=".55"/><circle cx="43" cy="32" r="2.1" fill="#FF6A9B" opacity=".55"/></svg>`;
+const b3=(bg,sh)=>`background:${bg};box-shadow:0 4px 0 ${sh};border:none;border-radius:16px;color:#fff;font-family:inherit;font-weight:800;cursor:pointer`;
+const barH=(v,from,to)=>`<div style="height:14px;background:rgba(255,255,255,.14);border-radius:10px;margin-top:10px;overflow:hidden;box-shadow:inset 0 1px 3px rgba(0,0,0,.25)"><div style="height:100%;width:${Math.min(v,1)*100}%;background:linear-gradient(90deg,${from},${to});border-radius:10px;transition:width 1.2s cubic-bezier(.34,1.2,.5,1);box-shadow:0 0 10px ${to}"></div></div>`;
+let SLOT={open:false,spinning:false,reels:["⭐","💎","🔥"],result:null}, TIPOPEN=false, OVERLAY=null;
+const SYM=["⭐","💎","🔥","🎁","💰","7️⃣"];
+const PSYM={10:"⭐",25:"🍒",50:"🎁",100:"🔔",250:"🔥",1000:"💎"};
+let spinIv=null;
+function party(m){ toast(m); SFX.coin(); }
+
+// ---- the demo's curved race track (truck heads RIGHT to the 🏁) ----
+function raceTrackHtml(progress,title,endLabel,goLabel,hintHtml){
+  const D="M18,100 C58,100 64,46 116,52 C158,57 166,100 212,80 C250,63 266,52 302,46";
+  return `<div class="card" style="padding:12px 14px 8px;margin-bottom:0">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:2px">
+      <span style="color:#fff;font-weight:900;font-size:15px">${title}</span>
+      <span style="color:#7FE3FF;font-weight:900;font-size:13px">${goLabel||""}</span>
+    </div>
+    <svg viewBox="0 0 320 120" style="width:100%;display:block;overflow:visible">
+      <defs><linearGradient id="road" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#54EFA0"/><stop offset="1" stop-color="#FFD23F"/></linearGradient></defs>
+      <path id="rtBase" d="${D}" fill="none" stroke="rgba(255,255,255,.16)" stroke-width="15" stroke-linecap="round"/>
+      <path id="rtFill" d="${D}" fill="none" stroke="url(#road)" stroke-width="15" stroke-linecap="round" data-prog="${Math.min(Math.max(progress,0),1)}"/>
+      <path d="${D}" fill="none" stroke="rgba(255,255,255,.6)" stroke-width="2.5" stroke-dasharray="1 12" stroke-linecap="round"/>
+      <circle cx="18" cy="100" r="7" fill="#fff"/><circle cx="18" cy="100" r="3.5" fill="#54EFA0"/>
+      <text x="304" y="34" font-size="24" text-anchor="middle">🏁</text>
+      <g id="rtTruck" style="transition:transform .9s cubic-bezier(.4,1.2,.5,1)"><text x="0" y="9" font-size="27" text-anchor="middle" transform="scale(-1,1)">🚚</text></g>
+    </svg>
+    <div style="display:flex;justify-content:space-between;margin-top:2px"><span style="color:var(--sub);font-size:9.5px;font-weight:800;letter-spacing:1px">START</span><span style="color:var(--sub);font-size:9.5px;font-weight:800;letter-spacing:1px">${endLabel}</span></div>
+    ${hintHtml||""}
+  </div>`;
+}
+function positionTruck(){
+  const base=$("rtBase"), fill=$("rtFill"), truck=$("rtTruck");
+  if(!base||!fill||!truck) return;
+  try{
+    const L=base.getTotalLength(), prog=parseFloat(fill.getAttribute("data-prog")||"0");
+    fill.setAttribute("stroke-dasharray",L);
+    fill.style.transition="stroke-dashoffset 1s ease";
+    fill.setAttribute("stroke-dashoffset",L);
+    requestAnimationFrame(()=>fill.setAttribute("stroke-dashoffset",L*(1-Math.min(prog,1))));
+    const pt=base.getPointAtLength(L*Math.min(Math.max(prog,0.03),0.97));
+    truck.style.transform=`translate(${pt.x}px,${pt.y}px)`;
+  }catch(e){}
+}
+
 function render(){
   tabsEl.style.display="flex";
-  tabsEl.innerHTML=[["home","Home","🏠"],["play","Play","🎰"],["rewards","Rewards","🎁"],["loot","Loot","🎯"],["draw","Draw","🎟️"]]
-    .map(([k,l,i])=>`<button class="tab ${TAB===k?'on':''}" onclick="setTab('${k}')"><span class="ic">${i}</span>${l}</button>`).join("");
+  tabsEl.innerHTML=[["home","Home","🏠"],["points","Points","⭐"],["refer","Refer","⚡"],["rating","Rating","🏅"],["loot","Loot","🎁"]]
+    .map(([k,l,i])=>`<button class="tab" onclick="setTab('${k}')" style="display:flex;flex-direction:column;align-items:center;gap:3px;padding:4px 2px">
+      <span style="width:34px;height:34px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:17px;${TAB===k?'background:linear-gradient(135deg,#FFD23F,#FF8A3D);box-shadow:0 4px 12px rgba(255,138,61,.55)':''}">${i}</span>
+      <span style="font-size:9.5px;font-weight:${TAB===k?900:600};color:${TAB===k?'#FFD23F':'var(--sub)'}">${l}</span></button>`).join("");
 
-  const hero=`
-    <div class="top">
-      <h1 style="display:flex;align-items:center;gap:10px"><svg width="34" height="34" viewBox="0 0 64 64" class="bob" style="filter:drop-shadow(0 4px 8px rgba(255,180,60,.55));flex-shrink:0"><defs><linearGradient id="mg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFE886"/><stop offset="1" stop-color="#FF9A3D"/></linearGradient></defs><path d="M32 4l7 15 16 2-12 11 3 16-14-8-14 8 3-16L12 21l16-2z" fill="url(#mg)" stroke="#FF7A2D" stroke-width="1.5" stroke-linejoin="round"/><circle cx="26" cy="28" r="2.5" fill="#5A3200"/><circle cx="38" cy="28" r="2.5" fill="#5A3200"/><path d="M25 34 q7 6 14 0" stroke="#5A3200" stroke-width="2.2" fill="none" stroke-linecap="round"/><circle cx="21" cy="32" r="2.1" fill="#FF6A9B" opacity=".55"/><circle cx="43" cy="32" r="2.1" fill="#FF6A9B" opacity=".55"/></svg>My Simtec Rewards</h1>
-      <button class="bell" onclick="openInbox()">🔔${UNREAD>0?`<b>${UNREAD>9?'9+':UNREAD}</b>`:''}</button>
-    </div>
-    <div class="hero">
-      <div class="pts">${nf(R.points)} <span>points</span></div>
-      <div class="chips">
-        <div class="chip"><span class="k">Level</span>${nf(R.level)}</div>
-        <div class="chip rating"><span class="k" style="color:#6a5410">Rating</span>${ratingLabel()}</div>
-        <div class="chip"><span class="k">Spins</span>${nf(R.spins)}</div>
+  const lvl=Math.max(1,Math.floor(Math.sqrt((R.points||0)/650)));
+  const header=`
+    <div style="margin:-18px -16px 12px;position:relative;z-index:2;padding:16px 18px 20px;display:flex;align-items:center;justify-content:space-between;background:linear-gradient(120deg,#6B2AB0,#B06BFF);border-bottom-left-radius:28px;border-bottom-right-radius:28px;box-shadow:0 10px 24px rgba(107,42,176,.45)">
+      <div style="display:flex;align-items:center;gap:8px">
+        <div><div style="color:var(--sub);font-size:12px;font-weight:700">Kia ora,</div><div style="color:#fff;font-size:22px;font-weight:900">${esc(NAME)} 👋</div></div>
+        <div style="background:rgba(176,107,255,.3);border:1px solid rgba(176,107,255,.5);border-radius:20px;padding:3px 9px;font-size:10.5px;font-weight:900;color:#E4D4FF">LVL ${lvl}</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:9px">
+        <div style="display:flex;align-items:center;gap:5px;background:linear-gradient(135deg,#FFE27A,#FFB627);border-radius:20px;padding:5px 11px 5px 8px;box-shadow:0 4px 12px rgba(255,182,39,.5)"><span style="font-size:16px">🪙</span><span style="color:#5A3200;font-weight:900;font-size:15px">${((R.points||0)/1000).toFixed(1)}k</span></div>
+        <div class="float">${GEM(40)}</div>
+        <button class="bell" onclick="openInbox()">🔔${UNREAD>0?`<b>${UNREAD>9?'9+':UNREAD}</b>`:''}</button>
       </div>
     </div>`;
 
   let body="";
   if(TAB==="home") body=homeView();
-  else if(TAB==="play") body=playView();
-  else if(TAB==="rewards") body=rewardsView();
+  else if(TAB==="points") body=pointsView();
+  else if(TAB==="refer") body=referView();
+  else if(TAB==="rating") body=ratingView();
   else if(TAB==="loot") body=lootView();
-  else if(TAB==="draw") body=drawView();
 
-  app.innerHTML=hero+body;
+  app.innerHTML=header+`<div style="display:flex;flex-direction:column;gap:12px">`+body+`</div>`+overlaysHtml();
+  requestAnimationFrame(positionTruck);
 }
 
-function homeView(){
-  const sb_=(S.streak_badges||[]), rb=(S.referrer_badges||[]);
-  const badges=[...sb_.map(n=>`<span class="badge">🔥 ${n} on-time</span>`), ...rb.map(n=>`<span class="badge">🤝 ${n===25?'Super Referrer':n+' referred'}</span>`)];
-  const aaaLine = (S.rating==='AAA')
-    ? `🛡️ You're a <b style="color:var(--gold)">Triple-A client</b> — every Simtec client starts AAA. Every on-time payment <b style="color:var(--ink)">keeps it yours</b>.`
-    : `Rating <b style="color:var(--gold)">${ratingLabel()}</b> — <b style="color:var(--ink)">${nf(S.to_aaa||0)} on-time payment${(S.to_aaa||0)===1?'':'s'}</b> and your Triple-A is back. 💪`;
-  return missedBanner()+referBanner()+raceView()+`
-    <h2>Your standing</h2>
-    <div class="card">
-      <div class="muted">${aaaLine}<br>
-      Payment streak: <b style="color:var(--ink)">${nf(S.current_streak)}</b> in a row · best ever <b style="color:var(--ink)">${nf(S.max_streak)}</b></div>
-      ${badges.length?`<div style="margin-top:12px">${badges.join("")}</div>`:`<div class="muted" style="margin-top:10px">Earn badges by paying on time and referring friends.</div>`}
-    </div>
-    ${leaderboardView()}
-    ${sleepTipView()}
-    <h2>Sound</h2>
-    <div class="card"><button class="btn ghost sm" onclick="toggleSound(this)">${SFX.enabled?'🔊 Sound on — tap to mute':'🔇 Sound off — tap on'}</button></div>
-    <div class="card"><button class="btn ghost sm" onclick="signOut()">Sign out</button>
-    <div style="margin-top:10px"><a href="customer-login.html?account=1" style="color:var(--muted);font-size:12.5px">Manage my community group & account</a></div></div>`;
-}
-
-function referBanner(){
-  return `<button class="refercta" onclick="TAB='loot'; render(); setTimeout(()=>{const el=document.getElementById('refName'); if(el){el.scrollIntoView({behavior:'smooth',block:'center'});}},60)">
-    <div style="font-size:32px">💥</div>
-    <div style="flex:1;text-align:left"><div style="font-size:15px;font-weight:900">Refer a mate</div><div style="font-size:12.5px;opacity:.95">They buy a bed, you bank</div></div>
-    <div style="text-align:right"><div style="font-weight:900;font-size:21px;line-height:1">50,000</div><div style="font-size:10px;font-weight:800;letter-spacing:1px">POINTS</div></div>
-  </button>`;
-}
-function missedBanner(){
+// ================= HOME =================
+function missedCard(){
   if(!PLAN||!PLAN.missed) return "";
   const tel=SIMTEC_PHONE.replace(/[^\d+]/g,"");
-  return `<div class="card" style="background:rgba(255,214,90,.10);border:1px solid rgba(255,214,90,.42)">
-    <div style="font-weight:800;font-size:16px">💛 A payment didn\'t go through</div>
-    <div class="muted" style="margin:6px 0 12px;color:#e7ddc0">No stress — it happens. Quick heads-up: Ezidebit charges an $11.50 fee on a missed payment (that\'s their charge, not ours), and a miss puts your Triple-A rating on the line. Let\'s sort it out together — no judgment.</div>
+  return `<div style="border-radius:20px;padding:16px;background:linear-gradient(135deg,#FF9A5A,#FF6A9B);box-shadow:0 8px 22px rgba(255,120,90,.4)">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:7px"><div style="font-size:26px">💛</div><div style="color:#fff;font-weight:900;font-size:15.5px">A payment didn't go through</div></div>
+    <div style="color:rgba(255,255,255,.96);font-size:12.8px;font-weight:600;line-height:1.55;margin-bottom:11px">No stress — these things happen. Quick heads-up though: when a direct debit bounces, Ezidebit adds an <b>$11.50</b> fee (that's their charge, not ours), and a missed payment puts your Triple-A rating on the line. We'd love to help you avoid that — get in touch and we'll sort it out together, no judgment. 💛</div>
     <div class="row">
-      <button class="btn sm" onclick="location.href='tel:${tel}'">📞 Call us</button>
-      <button class="btn sm ghost" onclick="location.href='mailto:'+SIMTEC_EMAIL">✉️ Email us</button>
+      <button onclick="location.href='tel:${tel}'" style="${b3('#fff','#C4D2DC')};color:#B23A00;flex:1;padding:12px;font-size:14px;font-weight:900">📞 Call us</button>
+      <button onclick="location.href='mailto:'+SIMTEC_EMAIL" style="${b3('#fff','#C4D2DC')};color:#B23A00;flex:1;padding:12px;font-size:14px;font-weight:900">✉️ Email us</button>
     </div>
   </div>`;
 }
-function raceView(){
-  if(!PLAN||!PLAN.has_order) return "";
-  const delivered=PLAN.delivered, crossed=!delivered && (PLAN.authorised || PLAN.pct_to_delivery>=100);
-  let title,pct,hint;
-  if(delivered){ title="🏁 Race to paying it off"; pct=PLAN.pct_paid; hint=`$${nf(PLAN.owing)} to go`; }
-  else if(crossed){ title="🎉 Cleared for delivery!"; pct=100; hint="We'll be in touch to arrange your delivery"; }
-  else { title="🚚 Race to delivery"; pct=PLAN.pct_to_delivery; hint=`${pct}% of the way there`; }
-  const track=`<div style="position:relative;height:44px;margin:12px 0 4px">
-      <div style="position:absolute;top:22px;left:0;right:0;height:6px;background:rgba(255,255,255,.1);border-radius:3px"></div>
-      <div style="position:absolute;top:22px;left:0;height:6px;width:${pct}%;background:linear-gradient(90deg,var(--good),var(--gold));border-radius:3px;transition:width .7s"></div>
-      <div style="position:absolute;top:2px;left:calc(${pct}% - 13px);font-size:24px;transition:left .7s">🚚</div>
-      <div style="position:absolute;top:14px;right:-2px;font-size:20px">🏁</div>
-    </div><div class="muted" style="text-align:center">${hint}</div>`;
-  let extra="";
-  if(delivered){ extra=`<button class="btn gold sm" style="margin-top:14px" onclick="payExtra('extra')">💳 Make an extra payment</button>`; }
-  else if(!crossed && PLAN.deposit_shortfall>0){ extra=`<div style="margin-top:14px;padding:14px;border-radius:12px;background:rgba(201,168,76,.1);border:1px solid rgba(201,168,76,.4)">
-      <div style="font-weight:800">⚡ Fast Track your delivery</div>
-      <div class="muted" style="margin:4px 0 10px">Pay $${nf(PLAN.deposit_shortfall)} now to reach your deposit and get delivered sooner.</div>
-      <button class="btn gold sm" onclick="payExtra('deposit')">Fast Track — $${nf(PLAN.deposit_shortfall)}</button></div>`; }
-  return `<div class="card"><div style="font-weight:800;font-size:17px">${title}</div>${track}${extra}</div>`;
+function homeView(){
+  const consec=Number(S.current_streak||0);
+  const greeting=`<div style="display:flex;align-items:center;gap:11px;background:linear-gradient(120deg,rgba(84,239,160,.2),rgba(84,239,160,.08));border:1px solid rgba(84,239,160,.4);border-radius:18px;padding:11px 14px">${MASCOT(40)}<div><div style="color:#fff;font-weight:900;font-size:15px">You're smashing it, ${esc(NAME)}!</div><div style="color:var(--sub);font-size:12px;font-weight:600">🔥 ${consec}-payment streak — keep it rolling</div></div></div>`;
+
+  let race="";
+  if(PLAN&&PLAN.has_order){
+    const delivered=PLAN.delivered, crossed=!delivered&&(PLAN.authorised||PLAN.pct_to_delivery>=100);
+    if(delivered){
+      const pctPaid=(PLAN.pct_paid||0)/100, owing=PLAN.owing||0;
+      race=raceTrackHtml(pctPaid,"🏁 Race to the final payment","PAID OFF 🎉",`${Math.max(0,Math.round((1-pctPaid)*100))}% to go!`)
+        +`<button onclick="payExtra('extra')" style="${b3('linear-gradient(120deg,#25C97A,#54EFA0)','#159257')};padding:13px 15px;font-size:15px;color:#053019;display:flex;flex-direction:column;gap:1px;width:100%;align-items:center"><span>Make an extra payment 💳</span><span style="font-size:11px;font-weight:700;opacity:.82">Moves the truck toward payoff · +1,000 pts on $50+ · earns a spin</span></button>`
+        +`<div class="card" style="padding:12px 16px;margin-bottom:0"><div style="display:flex;align-items:center;justify-content:space-between"><div style="display:flex;align-items:center;gap:10px"><div style="font-size:19px">💰</div><div><div style="color:#fff;font-weight:800;font-size:14px">Balance owing</div><div style="color:var(--sub);font-size:11.5px;font-weight:600">Delivered ✓ · ${Math.round(PLAN.pct_paid||0)}% paid off</div></div></div><div style="color:#fff;font-weight:900;font-size:22px">$${nf(owing)}</div></div>${barH(pctPaid,'#25D6FF','#4D7CFF')}</div>`
+        +`<button onclick="setTab('points')" style="border-radius:24px;padding:18px;text-align:center;cursor:pointer;border:none;width:100%;background:linear-gradient(135deg,#FF9A3D,#FFD23F);box-shadow:0 8px 24px rgba(255,154,61,.45), inset 0 1px 0 rgba(255,255,255,.4);font-family:inherit"><div style="font-size:12px;font-weight:900;letter-spacing:1px;color:#5A3200">YOUR POINTS ⭐</div><div style="color:#3A2000;font-weight:900;font-size:46px;line-height:1.05">${nf(R.points)}</div><div style="height:12px;background:rgba(90,50,0,.22);border-radius:8px;margin-top:8px;overflow:hidden"><div style="height:100%;width:${(((R.points||0)%CARD_EVERY)/CARD_EVERY)*100}%;background:#5A3200;border-radius:8px"></div></div><div style="color:#5A3200;font-size:12.5px;font-weight:800;margin-top:7px">Only ${nf(CARD_EVERY-((R.points||0)%CARD_EVERY))} to your next $50 card!</div></button>`;
+    } else if(crossed){
+      race=raceTrackHtml(1,"🏁 Race to delivery","DELIVERY 🚚","Finish line!")
+        +`<div style="border-radius:20px;padding:16px;background:linear-gradient(120deg,#FF8A3D,#B06BFF);box-shadow:0 8px 22px rgba(176,107,255,.4), inset 0 1px 0 rgba(255,255,255,.3)"><div style="display:flex;align-items:center;gap:11px"><div style="font-size:30px">🏁</div><div><div style="color:#fff;font-weight:900;font-size:15.5px">You crossed the finish line!</div><div style="color:rgba(255,255,255,.94);font-size:12.5px;font-weight:600;line-height:1.4">Our team will contact you shortly to arrange your delivery time. 📞</div></div></div></div>`;
+    } else {
+      const prog=(PLAN.pct_to_delivery||0)/100, togo=Math.max(0,100-Math.round(PLAN.pct_to_delivery||0));
+      const ftReady=consec>=CLEAN_RUN, shortfall=PLAN.deposit_shortfall||0;
+      const hint=`<div style="margin-top:7px;text-align:center;font-size:11px;font-weight:800;color:${ftReady?'#54EFA0':'var(--sub)'}">${ftReady?'⚡ Fast Track ready — jump to the finish below!':`⚡ Fast Track unlocks at ${CLEAN_RUN} in a row · you're at ${consec}/${CLEAN_RUN}`}</div>`;
+      race=raceTrackHtml(prog,"🏁 Race to delivery","DELIVERY 🚚",togo>0?`${togo}% to go!`:"Finish line!",hint);
+      if(ftReady){
+        race+=`<div style="border-radius:20px;padding:15px;background:linear-gradient(120deg,#25C97A,#25D6FF);box-shadow:0 8px 22px rgba(37,201,122,.4), inset 0 1px 0 rgba(255,255,255,.35)"><div style="display:flex;align-items:center;gap:11px"><div style="font-size:30px">⚡</div><div><div style="color:#fff;font-weight:900;font-size:15.5px">Fast Track to the finish!</div><div style="color:rgba(255,255,255,.94);font-size:12.5px;font-weight:600;line-height:1.4">You've made ${CLEAN_RUN} in a row. ${shortfall>0?`Pay $${nf(shortfall)} to top up your 10% deposit`:'Your 10% deposit is paid'} and cross the line now! 🏁</div></div></div><button onclick="payExtra('deposit')" style="${b3('#fff','#C4D2DC')};color:#0B5A38;width:100%;padding:12px;font-size:14.5px;font-weight:900;margin-top:11px">${shortfall>0?`⚡ Fast-track — pay $${nf(shortfall)} & finish →`:'⚡ Fast-track to the finish →'}</button></div>`;
+      } else {
+        race+=`<div style="border-radius:20px;padding:15px;background:rgba(255,255,255,.06);border:1px dashed rgba(255,255,255,.28)"><div style="display:flex;align-items:center;gap:11px"><div style="font-size:30px;opacity:.7">🔒</div><div><div style="color:#fff;font-weight:900;font-size:15.5px">Fast Track — locked</div><div style="color:var(--sub);font-size:12.5px;font-weight:600;line-height:1.4">Make ${CLEAN_RUN} payments in a row to unlock a shortcut to the finish. You're at ${consec}/${CLEAN_RUN} — just ${CLEAN_RUN-consec} more to go!</div></div></div><div style="margin-top:11px;height:9px;background:rgba(255,255,255,.12);border-radius:6px;overflow:hidden"><div style="height:100%;width:${Math.min(consec/CLEAN_RUN,1)*100}%;background:linear-gradient(90deg,#25C97A,#54EFA0);border-radius:6px;transition:width .8s ease"></div></div></div>`;
+      }
+    }
+  }
+
+  const circles=`<div style="display:flex;gap:14px;justify-content:center;padding:2px 0">
+    <div style="text-align:center"><button ${R.daily_available?'onclick="doDaily()" class="bob"':'disabled'} style="width:72px;height:72px;border-radius:50%;border:3px solid rgba(255,255,255,.3);cursor:${R.daily_available?'pointer':'default'};font-size:31px;display:flex;align-items:center;justify-content:center;background:${R.daily_available?'radial-gradient(circle at 35% 28%, #9AEBFF, #4D7CFF)':'rgba(255,255,255,.08)'};box-shadow:${R.daily_available?'0 7px 18px rgba(77,124,255,.5)':'none'};opacity:${R.daily_available?1:.6}">${R.daily_available?'🎁':'✅'}</button><div style="color:#fff;font-weight:900;font-size:12px;margin-top:6px">Daily bonus</div><div style="color:var(--sub);font-size:9.5px;font-weight:700">${R.daily_available?'Tap to claim!':'Tomorrow'}</div></div>
+    <div style="text-align:center"><button onclick="openSlot()" class="bob" style="width:72px;height:72px;border-radius:50%;border:3px solid rgba(255,255,255,.3);cursor:pointer;font-size:31px;display:flex;align-items:center;justify-content:center;position:relative;background:radial-gradient(circle at 35% 28%, #EDB6FF, #FF4E9B);box-shadow:0 7px 18px rgba(255,78,155,.5)">🎰${(R.spins>0)?`<span style="position:absolute;top:-4px;right:-4px;background:#FFD23F;color:#3A2000;border-radius:50%;width:23px;height:23px;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:12px;border:2px solid #fff">${R.spins}</span>`:''}</button><div style="color:#fff;font-weight:900;font-size:12px;margin-top:6px">Spin to Win</div><div style="color:var(--sub);font-size:9.5px;font-weight:700">${R.spins>0?`${R.spins} free!`:'Pay to earn'}</div></div>
+    <div style="text-align:center"><button onclick="TIPOPEN=true;render()" class="bob" style="width:72px;height:72px;border-radius:50%;border:3px solid rgba(255,255,255,.3);cursor:pointer;font-size:30px;display:flex;align-items:center;justify-content:center;background:radial-gradient(circle at 35% 28%, #C3B2FF, #6B4BD6);box-shadow:0 7px 18px rgba(107,75,214,.5)">🌙</button><div style="color:#fff;font-weight:900;font-size:12px;margin-top:6px">Sleep tip</div><div style="color:var(--sub);font-size:9.5px;font-weight:700">New daily</div></div>
+  </div>`;
+
+  const referBtn=`<button onclick="setTab('refer')" class="pulse" style="${b3('linear-gradient(120deg,#FF2D78,#FF6A3D)','#C41E5E')};padding:13px 16px;display:flex;align-items:center;gap:10px;width:100%"><span style="font-size:22px">💥</span><span style="flex:1;text-align:left;font-size:14.5px;font-weight:900">Refer a mate</span><span style="font-weight:900;font-size:15px">+50k ⭐</span></button>`;
+  const extraBtn=(PLAN&&PLAN.has_order&&!PLAN.delivered)?`<button onclick="payExtra('extra')" style="${b3('linear-gradient(120deg,#25C97A,#54EFA0)','#159257')};padding:13px 15px;font-size:15px;color:#053019;display:flex;flex-direction:column;gap:1px;width:100%;align-items:center"><span>Make an extra payment 💳</span><span style="font-size:11px;font-weight:700;opacity:.82">Moves the truck · +1,000 pts on $50+ · earns a spin</span></button>`:"";
+  return greeting+missedCard()+race+circles+referBtn+extraBtn;
 }
+
+// ================= POINTS =================
+function pointsView(){
+  const pts=R.points||0, cardProg=(pts%CARD_EVERY)/CARD_EVERY, toNext=CARD_EVERY-(pts%CARD_EVERY);
+  const coin=`<div style="display:flex;flex-direction:column;align-items:center;padding:4px 0 2px">
+    <div class="shine" style="width:186px;height:186px;border-radius:50%;background:radial-gradient(circle at 38% 30%, #FFF3C4, #FFB627 58%, #DD8A1C);border:6px solid #FFD668;box-shadow:0 12px 30px rgba(255,154,61,.55), inset 0 3px 10px rgba(255,255,255,.55);display:flex;flex-direction:column;align-items:center;justify-content:center">
+      <div style="font-size:11.5px;font-weight:900;letter-spacing:1.5px;color:#7A4A00">POINTS ⭐</div>
+      <div style="color:#4A2A00;font-weight:900;font-size:42px;line-height:1">${nf(pts)}</div>
+    </div>
+    <div style="width:100%;margin-top:14px">${barH(cardProg,'#FF9A3D','#FFD23F')}</div>
+    <div style="color:#FFD23F;font-size:12.5px;font-weight:800;margin-top:7px">Only ${nf(toNext)} to your next $50 card!</div>
+  </div>`;
+
+  const avail=CARDS.filter(c=>c.status==="available");
+  const cardBox=avail.length?`<div style="border-radius:22px;padding:16px;background:linear-gradient(135deg,#B06BFF,#4D7CFF);box-shadow:0 8px 22px rgba(120,90,255,.4), inset 0 1px 0 rgba(255,255,255,.3)"><div style="display:flex;align-items:center;gap:8px;margin-bottom:4px"><div style="font-size:20px">🎁</div><span style="color:#fff;font-weight:900;font-size:15px">You've unlocked a $${nf(avail[0].value)} card!</span></div><div style="color:rgba(255,255,255,.9);font-size:12.5px;margin-bottom:12px;font-weight:600">Your call — how do you want it?${avail.length>1?` (${avail.length} waiting)`:''}</div><div style="display:flex;flex-direction:column;gap:8px">
+      <button onclick="redeem('${avail[0].id}','giftcard')" style="${b3('rgba(255,255,255,.22)','rgba(0,0,0,.2)')};padding:12px 14px;font-size:13.5px;text-align:left">🎁&nbsp;&nbsp;Use as a gift card</button>
+      <button onclick="redeem('${avail[0].id}','plan_credit')" style="${b3('#FFD23F','#C88A00')};padding:12px 14px;font-size:13.5px;color:#3A2000;text-align:left">💸&nbsp;&nbsp;Take $50 off my plan</button>
+      <button onclick="redeem('${avail[0].id}','donation')" style="${b3('linear-gradient(120deg,#FF4E9B,#B06BFF)','#8A2E8F')};padding:12px 14px;font-size:13.5px;text-align:left">❤️&nbsp;&nbsp;Donate to your group…</button>
+    </div></div>`:"";
+
+  const entered=DRAW.entered_this_month;
+  const rack=`<div class="card" style="margin-bottom:0"><div class="eyeb" style="margin-bottom:4px">Rack up points</div>
+    ${[["💳","Direct-debit payment","+200 · automatic + a free spin",false],["⚡","Extra payment of $50+","+1,000 · pay ahead by card",false],["🎉","Leave us a review","Into the 10,000-pt monthly draw",true]].map(([e,t,d,r])=>`<div style="display:flex;align-items:center;gap:12px;padding:11px 0;border-top:1px solid var(--line)"><div style="font-size:24px">${e}</div><div style="flex:1"><div style="color:#fff;font-size:14px;font-weight:800">${t}</div><div style="color:var(--sub);font-size:12px;font-weight:600">${d}</div></div>${r?`<button onclick="doDraw()" style="${b3(entered?'rgba(255,255,255,.15)':'#FF4E9B',entered?'rgba(0,0,0,.2)':'#C41E5E')};padding:7px 12px;font-size:12px;color:${entered?'var(--sub)':'#fff'}">${entered?'Entered ✓':'Review'}</button>`:''}</div>`).join("")}
+    <div onclick="setTab('refer')" style="display:flex;align-items:center;gap:12px;padding:12px 10px;margin:8px -6px 0;border-radius:14px;background:linear-gradient(120deg,rgba(255,45,120,.24),rgba(255,138,61,.2));border:1px solid rgba(255,45,120,.4);cursor:pointer"><div style="font-size:26px">💥</div><div style="flex:1"><div style="color:#fff;font-size:14.5px;font-weight:900">Refer a mate who buys</div><div style="color:var(--sub);font-size:12px;font-weight:700">The big one</div></div><div style="color:#FF4E9B;font-weight:900;font-size:18px">+50k</div></div>
+  </div>`;
+
+  const L=DRAW.latest;
+  const draw=`<div class="card" style="margin-bottom:0;${L?'background:linear-gradient(135deg,rgba(255,210,63,.22),rgba(176,107,255,.18));border:1px solid rgba(255,210,63,.55);box-shadow:0 0 24px rgba(255,210,63,.35)':''}"><div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><div style="font-size:20px">🎟️</div><span style="color:#fff;font-weight:900;font-size:15px">Monthly 10,000-pt draw</span></div>
+    ${L?`<div style="border-radius:14px;padding:12px 14px;background:linear-gradient(120deg,#FFD23F,#FF8A3D);color:#3A2000;text-align:center"><div style="font-size:11px;font-weight:900;letter-spacing:1px">🏆 THIS MONTH'S WINNER</div><div style="font-size:17px;font-weight:900;margin-top:2px">${L.i_won?'You':esc(L.winner_first||'A member')}</div><div style="font-size:12.5px;font-weight:800;margin-top:2px">won ${nf(L.prize)} points 🎉</div></div>`
+       :`<div style="color:var(--sub);font-size:12.5px;font-weight:600;line-height:1.5;margin-bottom:10px">One winner is drawn automatically on the 1st of each month. Leave a review to get in the hat — free entry, every month.</div>`}
+    <div style="border-radius:12px;padding:10px 12px;text-align:center;font-weight:800;font-size:13px;margin-top:10px;background:${entered?'rgba(37,201,122,.18)':'rgba(255,255,255,.08)'};color:${entered?'#54EFA0':'var(--sub)'};border:1px solid ${entered?'rgba(37,201,122,.4)':'var(--line)'}">${entered?"✓ You're in this month's draw":"Not entered yet — leave a review above"}</div>
+  </div>`;
+
+  const optIn=!!LB.opted_in, rows=(LB.top||[]);
+  const fame=`<div class="card" style="margin-bottom:0"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px"><div style="display:flex;align-items:center;gap:8px"><div style="font-size:20px">🏆</div><span style="color:#fff;font-weight:900;font-size:15px">Hall of Fame</span></div><button onclick="toggleBoard(${!optIn})" style="background:none;border:none;cursor:pointer;display:flex;align-items:center;gap:6px"><span style="font-size:10.5px;color:var(--sub);font-weight:700">Show me</span><div style="width:36px;height:21px;border-radius:20px;background:${optIn?'#54EFA0':'rgba(255,255,255,.2)'};position:relative;transition:background .2s"><div style="position:absolute;top:2px;left:${optIn?'17px':'2px'};width:17px;height:17px;border-radius:50%;background:#fff;transition:left .2s"></div></div></button></div>
+    ${rows.map((r,i)=>`<div style="display:flex;align-items:center;gap:11px;padding:10px 8px;margin:3px -8px 0;border-radius:12px;background:${r.me?'rgba(255,210,63,.16)':'transparent'};border:1px solid ${r.me?'rgba(255,210,63,.4)':'transparent'}"><div style="width:26px;text-align:center;font-weight:900;font-size:${i<3?18:13}px;color:${i<3?['#FFD23F','#D9E4F0','#FF9A55'][i]:'var(--sub)'}">${i<3?['🥇','🥈','🥉'][i]:i+1}</div><div style="flex:1;color:${r.me?'#FFD23F':'#fff'};font-size:14px;font-weight:${r.me?900:700}">${r.me?'You':esc(r.name)}</div><div style="color:${r.me?'#FFD23F':'#fff'};font-size:13.5px;font-weight:800">${(Number(r.points||0)/1000).toFixed(0)}k</div></div>`).join("")||`<div style="color:var(--sub);font-size:12.5px;padding:8px 0">Be the first on the board — flick the switch!</div>`}
+    <div style="color:var(--sub);font-size:11.5px;margin-top:10px;text-align:center;font-weight:600">${optIn?"All-time · never resets · climb while you're with us 🚀":"You're hidden — flick the switch to join the board"}</div>
+  </div>`;
+  return coin+cardBox+rack+draw+fame;
+}
+
+// ================= REFER =================
+function referView(){
+  const hero=`<div style="border-radius:26px;padding:26px 18px;text-align:center;background:linear-gradient(135deg,#FF2D78,#FF6A3D);box-shadow:0 10px 30px rgba(255,45,120,.5), inset 0 1px 0 rgba(255,255,255,.35)"><div class="bob" style="font-size:40px">💥</div><div style="color:#fff;font-weight:900;font-size:15px;letter-spacing:1px">REFER A MATE, BANK</div><div style="color:#fff;font-weight:900;font-size:60px;line-height:1;text-shadow:0 3px 8px rgba(0,0,0,.25)">50k</div><div style="color:#fff;font-weight:900;font-size:18px;letter-spacing:3px">POINTS</div><div style="color:rgba(255,255,255,.92);font-size:13px;margin-top:8px;font-weight:700">every time they buy a bed · that's a $50 card, instantly</div></div>`;
+  const form=`<div class="card" style="margin-bottom:0"><div class="eyeb" style="margin-bottom:10px">Who should we look after?</div>
+    <input id="refName" class="inp" placeholder="Their name" autocomplete="off">
+    <input id="refMobile" class="inp" type="tel" placeholder="Their mobile" autocomplete="off">
+    <input id="refSuburb" class="inp" placeholder="Their suburb" autocomplete="off">
+    <div id="refMsg" class="muted" style="margin:2px 0 8px"></div>
+    <button onclick="doReferral()" class="pulse" style="${b3('linear-gradient(120deg,#FF2D78,#FF6A3D)','#C41E5E')};width:100%;padding:16px;font-size:16px;font-weight:900">Send it 🚀</button>
+  </div>`;
+  const mates=`<div class="card" style="margin-bottom:0"><div class="eyeb" style="margin-bottom:4px">Your mates</div>
+    ${(REFS||[]).map(r=>{const bought=/Bought/.test(r.status||"");return `<div style="display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-top:1px solid var(--line)"><div><div style="color:#fff;font-size:14.5px;font-weight:800">${esc(r.name)}${r.suburb?` <span style="color:var(--sub);font-weight:600">· ${esc(r.suburb)}</span>`:''}</div><div style="color:${bought?'#54EFA0':'var(--sub)'};font-size:12px;font-weight:700">${esc(r.status)}</div></div><div style="color:${bought?'#FFD23F':'var(--sub)'};font-weight:900;font-size:${bought?16:14}px">${bought?'+50k ⭐':'—'}</div></div>`;}).join("")||`<div style="color:var(--sub);font-size:12.5px;padding:8px 0">No referrals yet — your first one could be 50,000 points 👀</div>`}
+  </div>`;
+  return hero+form+mates;
+}
+
+// ================= RATING =================
+function ratingView(){
+  const isAAA=(S.rating==='AAA'), consec=Number(S.current_streak||0), refBuys=Number(S.referrals_converted||0);
+  const center=`<div class="card" style="text-align:center;padding-top:22px;padding-bottom:22px;margin-bottom:0"><div class="float" style="display:inline-block;margin-bottom:12px">${GEM(78)}</div>
+    <div style="color:#fff;font-weight:900;font-size:26px">${isAAA?"You're Triple-A! 💎":`You're ${esc(S.rating||'AA')} right now`}</div>
+    <div style="color:var(--sub);font-size:13px;margin-top:4px;font-weight:600">${isAAA?"Top-tier legend — every Simtec client starts here. Keep it yours.":`${nf(S.to_aaa||0)} on-time payment${(S.to_aaa||0)===1?'':'s'} and your Triple-A is back 💪`}</div></div>`;
+  const ladder=`<div class="card" style="margin-bottom:0"><div class="eyeb">Your rating</div>
+    ${[["A","Rookie","🌱"],["AA","Regular","⭐"],["AAA","Legend","💎"]].map(([t,d,e])=>{const on=(S.rating||'AAA')===t;return `<div style="display:flex;align-items:center;gap:12px;padding:11px 0;border-top:1px solid var(--line)"><div style="font-size:22px">${e}</div><div style="width:42px;font-weight:900;font-size:18px;color:${on?'#FFD23F':'var(--sub)'}">${t}</div><div style="flex:1;color:${on?'#fff':'var(--sub)'};font-size:13.5px;font-weight:${on?800:600}">${d}${on?" — you're here!":""}</div>${on?`<div style="background:#FFD23F;color:#3A2000;font-size:11px;font-weight:900;padding:3px 10px;border-radius:20px">YOU</div>`:''}</div>`;}).join("")}
+  </div>`;
+  const perks=`<div class="card" style="margin-bottom:0"><div class="eyeb" style="margin-bottom:4px">Triple-A perks 🎁</div>
+    ${["Best prices on everything 💰","First dibs on new ranges 🛏️","Top referral reward — 50k pts 💥","Priority delivery & free set-up 🚚","Birthday & milestone gifts 🎉"].map(p=>`<div style="display:flex;gap:10px;align-items:center;padding:8px 0"><span style="color:#54EFA0;font-weight:900">✓</span><span style="color:#fff;font-size:13.5px;font-weight:700">${p}</span></div>`).join("")}
+  </div>`;
+  const STK=[10,25,50,100];
+  const streaks=`<div class="card" style="margin-bottom:0"><div class="eyeb" style="margin-bottom:6px">Payment streak badges 🔥</div>
+    <div style="display:flex;justify-content:space-between;margin-top:4px">${STK.map((v,i)=>{const earned=consec>=v,next=!earned&&consec>=(i===0?0:STK[i-1]);return `<div style="text-align:center"><div style="width:60px;height:60px;border-radius:50%;display:flex;flex-direction:column;align-items:center;justify-content:center;background:${earned?'radial-gradient(circle at 36% 28%, #FFF0B8, #FF8A3D)':(next?'rgba(255,210,63,.14)':'rgba(255,255,255,.06)')};border:${next?'2px dashed #FFD23F':(earned?'2px solid #FFE27A':'1px solid rgba(255,255,255,.12)')};box-shadow:${earned?'0 5px 14px rgba(255,138,61,.5)':'none'};opacity:${(!earned&&!next)?.5:1}"><div style="font-size:15px">${(earned||next)?'🔥':'🔒'}</div><div style="color:${earned?'#3A2000':'#fff'};font-weight:900;font-size:14px;margin-top:-2px">${v}</div></div><div style="font-size:9px;color:var(--sub);font-weight:700;margin-top:3px">in a row</div></div>`;}).join("")}</div>
+    <div style="color:#FFD23F;font-size:12px;font-weight:800;margin-top:10px;text-align:center">${consec>=10?`🔥 ${consec} in a row — legend!`:`Just ${10-consec} more payment${10-consec===1?'':'s'} for your 10-in-a-row badge!`}</div>
+  </div>`;
+  const RT=[{n:1,label:"Referrer",ic:"🤝",reward:"Badge + 50k pts"},{n:5,label:"5 buyers",ic:"🥉",reward:"$100 voucher"},{n:10,label:"10 buyers",ic:"🥈",reward:"Free bedding bundle"},{n:25,label:"Super Referrer",ic:"🏝️",big:true,reward:"A holiday on us"}];
+  const nx=RT.find(t=>refBuys<t.n);
+  const reftiers=`<div class="card" style="margin-bottom:0"><div class="eyeb" style="margin-bottom:6px">Referrer rewards 💥</div>
+    <div style="display:flex;justify-content:space-between;margin-top:4px">${RT.map((t,i)=>{const earned=refBuys>=t.n,next=!earned&&refBuys>=(i===0?0:RT[i-1].n),big=t.big;return `<div style="text-align:center;flex:1"><div style="width:${big?64:56}px;height:${big?64:56}px;margin:0 auto;border-radius:50%;display:flex;align-items:center;justify-content:center;background:${earned?(big?'radial-gradient(circle at 36% 28%, #7FE3FF, #B06BFF 60%, #FF4E9B)':'radial-gradient(circle at 36% 28%, #FFF0B8, #FF8A3D)'):(next?'rgba(255,78,155,.14)':'rgba(255,255,255,.06)')};border:${next?'2px dashed #FF4E9B':(earned?(big?'2px solid #fff':'2px solid #FFE27A'):'1px solid rgba(255,255,255,.12)')};box-shadow:${earned?(big?'0 6px 18px rgba(176,107,255,.6)':'0 5px 14px rgba(255,138,61,.5)'):'none'};opacity:${(!earned&&!next)?.5:1}"><div style="font-size:${big?24:19}px">${(earned||next)?t.ic:'🔒'}</div></div><div style="font-size:9px;color:${big?'#FF4E9B':'var(--sub)'};font-weight:${big?900:700};margin-top:3px;line-height:1.1">${t.label}</div><div style="font-size:8px;color:${big?'#E4B4FF':'rgba(255,255,255,.5)'};font-weight:600;margin-top:1px;line-height:1.05">${t.reward}</div></div>`;}).join("")}</div>
+    <div style="color:#FF4E9B;font-size:12px;font-weight:800;margin-top:10px;text-align:center">${refBuys>=1?"You're a Referrer! ":""}${nx?`${refBuys}/${nx.n} towards ${nx.reward} ${nx.ic}`:"Ladder maxed — legend!"}</div>
+    <div style="margin-top:8px;background:linear-gradient(120deg,rgba(176,107,255,.22),rgba(255,78,155,.16));border:1px solid rgba(176,107,255,.4);border-radius:12px;padding:9px 12px;text-align:center"><div style="color:#fff;font-size:12.5px;font-weight:900">🏝️ Super Referrer</div><div style="color:var(--sub);font-size:11.5px;font-weight:600">Refer 25 buyers and we'll send you somewhere special.</div></div>
+  </div>`;
+  const crown=`<div style="background:rgba(255,210,63,.14);border:1px solid rgba(255,210,63,.4);border-radius:18px;padding:14px"><div style="color:#FFD23F;font-weight:900;font-size:14px">Keep your crown 👑</div><div style="color:#fff;font-size:13px;margin-top:5px;line-height:1.5;font-weight:600">Every payment on time keeps you Triple-A. Slip and you drop — but a quick run of on-time payments brings it right back.</div></div>`;
+  return center+ladder+perks+streaks+reftiers+crown;
+}
+
+// ================= LOOT =================
+function lootView(){
+  const pct=(PLAN&&PLAN.has_order)?(PLAN.pct_paid||0):0, has=k=>MS.indexOf(k)>=0;
+  const drops=`<div class="card" style="margin-bottom:0"><div class="eyeb" style="margin-bottom:8px">Surprise drops 🎊</div><div style="color:var(--sub);font-size:11.5px;font-weight:600;line-height:1.5;margin-bottom:4px">Do the right thing and the points roll in — the more it helps us, the bigger the drop.</div>
+    ${[["💚","Make a payment on time","A little thanks for staying on track · + a free spin","+200","#25C97A"],["💳","Make an extra payment","Get ahead — grab a bigger drop","+1,000","#4D7CFF"],["💥","Refer a mate who buys","The biggest drop of all","+50,000","#FF2D78"]].map(([e,t,d,p,col])=>`<div style="display:flex;align-items:center;gap:12px;padding:11px 0;border-top:1px solid var(--line)"><div style="font-size:23px">${e}</div><div style="flex:1"><div style="color:#fff;font-size:14px;font-weight:800">${t}</div><div style="color:var(--sub);font-size:11.5px;font-weight:600">${d}</div></div><div style="color:${col};font-weight:900;font-size:15px;white-space:nowrap">${p}</div></div>`).join("")}
+  </div>`;
+  const miles=`<div class="card" style="margin-bottom:0"><div class="eyeb" style="margin-bottom:8px">Milestone loot</div>
+    ${[[25,"25% paid off","10,000 bonus points","🎁","pct25"],[50,"50% paid off","A free pillow","🛏️","pct50"],[100,"Paid in full","Lifetime Triple-A + 10% off your next order","👑","paidfull"]].map(([thr,m,r,e,k])=>{const done=has(k)||pct>=thr;return `<div style="display:flex;align-items:center;gap:12px;padding:11px 0;border-top:1px solid var(--line)"><div style="width:34px;height:34px;border-radius:11px;background:${done?'linear-gradient(135deg,#54EFA0,#25C97A)':'rgba(255,255,255,.09)'};display:flex;align-items:center;justify-content:center;font-size:17px">${done?'✓':'🔒'}</div><div style="flex:1"><div style="color:${done?'#fff':'var(--sub)'};font-size:14px;font-weight:800">${e} ${r}</div><div style="color:var(--sub);font-size:11.5px;font-weight:600">${m}${done?'':` · you're at ${Math.round(pct)}%`}</div></div>${done?'<span style="color:#54EFA0;font-size:11.5px;font-weight:900">GOT IT!</span>':''}</div>`;}).join("")}
+  </div>`;
+  const utils=`<div class="card" style="margin-bottom:0">
+    <button class="btn ghost sm" onclick="toggleSound(this)">${SFX.enabled?'🔊 Sound on — tap to mute':'🔇 Sound off — tap on'}</button>
+    <div style="height:8px"></div>
+    <button class="btn ghost sm" onclick="signOut()">Sign out</button>
+    <div style="margin-top:10px;text-align:center"><a href="customer-login.html?account=1" style="color:var(--sub);font-size:12.5px">Manage my community group & account</a></div>
+  </div>`;
+  return drops+miles+utils;
+}
+
+// ================= OVERLAYS =================
+function overlaysHtml(){
+  let h="";
+  if(SLOT.open){
+    h+=`<div style="position:fixed;inset:0;z-index:50;background:radial-gradient(120% 70% at 50% 0%, #4A1E9E, #150A3E);display:flex;flex-direction:column;align-items:center;padding:22px 18px">
+      <button onclick="SLOT.open=false;SLOT.result=null;render()" style="align-self:flex-end;background:rgba(255,255,255,.12);border:none;border-radius:12px;width:34px;height:34px;cursor:pointer;color:#fff;font-size:16px;font-weight:900">✕</button>
+      <div style="font-size:40px;margin-top:6px">🎰</div>
+      <div style="color:#fff;font-weight:900;font-size:26px">Spin to Win</div>
+      <div style="color:var(--sub);font-size:12.5px;font-weight:700;margin-bottom:18px">You only ever win — never lose a point</div>
+      <div style="display:flex;gap:10px;background:rgba(0,0,0,.35);padding:16px;border-radius:20px;border:2px solid rgba(255,210,63,.5);box-shadow:0 0 30px rgba(255,210,63,.3)">
+        ${SLOT.reels.map(x=>`<div class="reel" style="width:72px;height:88px;border-radius:14px;background:linear-gradient(180deg,#fff,#E8ECF5);display:flex;align-items:center;justify-content:center;font-size:42px;box-shadow:inset 0 3px 8px rgba(0,0,0,.2)">${x}</div>`).join("")}
+      </div>
+      <div style="height:58px;display:flex;align-items:center;margin-top:8px">${(SLOT.result&&!SLOT.spinning)?`<div class="glow" style="background:linear-gradient(120deg,#FFD23F,#FF8A3D);color:#3A2000;font-weight:900;font-size:18px;padding:10px 20px;border-radius:16px">🎉 +${nf(SLOT.result)} points!</div>`:""}</div>
+      <button onclick="doSpin()" ${(SLOT.spinning||!(R.spins>0))?'disabled':''} style="${b3((R.spins>0)?'linear-gradient(120deg,#54EFA0,#25C97A)':'rgba(255,255,255,.15)','#159257')};padding:16px 44px;font-size:19px;font-weight:900;color:${(R.spins>0)?'#053019':'var(--sub)'};margin-top:8px;opacity:${SLOT.spinning?.7:1}">${SLOT.spinning?'Spinning…':(R.spins>0?'SPIN!':'No spins left')}</button>
+      <div style="color:#fff;font-size:13px;font-weight:800;margin-top:16px">🎟️ ${nf(R.spins)} free ${R.spins==1?'spin':'spins'} left</div>
+      <div style="color:var(--sub);font-size:11.5px;font-weight:600;margin-top:4px;text-align:center;max-width:240px">Earn a spin with every payment you make</div>
+    </div>`;
+  }
+  if(TIPOPEN){
+    h+=`<div style="position:fixed;inset:0;z-index:53;background:radial-gradient(120% 70% at 50% 0%, #3A2C7A, #150A3E);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:30px 26px;text-align:center">
+      <button onclick="TIPOPEN=false;render()" style="position:absolute;top:18px;right:18px;background:rgba(255,255,255,.12);border:none;border-radius:12px;width:34px;height:34px;cursor:pointer;color:#fff;font-size:16px;font-weight:900">✕</button>
+      <div class="float" style="font-size:58px">🌙</div>
+      <div style="color:#C9B8FF;font-weight:900;font-size:13px;letter-spacing:2px;margin-top:6px">TONIGHT'S SLEEP TIP</div>
+      <div style="color:#fff;font-weight:800;font-size:20px;line-height:1.45;margin-top:16px;max-width:300px">${SLEEP_TIPS[TIP_I%SLEEP_TIPS.length]}</div>
+      <button onclick="TIP_I=(TIP_I+1)%SLEEP_TIPS.length;render()" style="${b3('linear-gradient(120deg,#B06BFF,#6B4BD6)','#4A2E9E')};padding:12px 28px;font-size:14.5px;margin-top:26px">🔀 Another tip</button>
+      <div style="color:var(--sub);font-size:11.5px;font-weight:600;margin-top:16px">A fresh tip lands every morning 🌙 · ${SLEEP_TIPS.length} in rotation</div>
+    </div>`;
+  }
+  if(OVERLAY==='congrats'){
+    h+=`<div style="position:fixed;inset:0;z-index:52;background:radial-gradient(120% 70% at 50% 0%, #FF6A3D, #B06BFF 58%, #1A0E52);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;text-align:center;overflow:hidden">
+      <div style="position:relative;width:200px;height:200px;display:flex;align-items:center;justify-content:center">
+        <svg width="200" height="200" viewBox="0 0 200 200" style="position:absolute;animation:spin360 14s linear infinite">${Array.from({length:16},(_,i)=>`<rect x="96" y="4" width="8" height="42" rx="4" fill="${i%2?'rgba(255,210,63,.6)':'rgba(255,255,255,.35)'}" transform="rotate(${i*22.5} 100 100)"/>`).join("")}</svg>
+        <div class="pop" style="font-size:98px;filter:drop-shadow(0 8px 22px rgba(255,180,0,.6))">🏆</div>
+      </div>
+      <div class="pop" style="color:#FFD23F;font-weight:900;font-size:14px;letter-spacing:4px;margin-top:2px">CHAMPION</div>
+      <div style="color:#fff;font-weight:900;font-size:33px;line-height:1.05;margin-top:4px">You did it, ${esc(NAME)}!</div>
+      <div style="display:flex;gap:6px;margin-top:12px">${[0,1,2,3,4].map(i=>`<span style="font-size:28px;display:inline-block;animation:clap 1s ease-in-out ${i*0.12}s infinite">👏</span>`).join("")}</div>
+      <div style="color:#FFD23F;font-weight:900;font-size:15px;margin-top:8px">A round of applause! 🎉</div>
+      <div style="color:rgba(255,255,255,.95);font-size:14.5px;font-weight:600;line-height:1.5;margin-top:14px;max-width:295px">Your bed's across the finish line. Our team will contact you shortly to arrange a delivery time that suits you — keep an eye on your phone! 📞</div>
+      <button onclick="OVERLAY=null;render()" class="pulse" style="${b3('#fff','#C9A100')};color:#3A2000;padding:14px 44px;font-size:17px;font-weight:900;margin-top:22px">Awesome! 🎉</button>
+    </div>`;
+  }
+  if(OVERLAY==='starburst'){
+    const L=DRAW.latest||{};
+    h+=`<div style="position:fixed;inset:0;z-index:56;background:radial-gradient(120% 70% at 50% 0%, #FFB43D, #FF4E9B 55%, #2A0E52);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;text-align:center;overflow:hidden">
+      <div style="position:relative;width:200px;height:200px;display:flex;align-items:center;justify-content:center">
+        <svg width="200" height="200" viewBox="0 0 200 200" style="position:absolute;animation:spin360 12s linear infinite">${Array.from({length:16},(_,i)=>`<rect x="96" y="4" width="8" height="42" rx="4" fill="${i%2?'rgba(255,210,63,.7)':'rgba(255,255,255,.4)'}" transform="rotate(${i*22.5} 100 100)"/>`).join("")}</svg>
+        <div class="pop" style="font-size:96px;filter:drop-shadow(0 8px 22px rgba(255,180,0,.6))">🎉</div>
+      </div>
+      <div class="pop" style="color:#FFD23F;font-weight:900;font-size:14px;letter-spacing:3px;margin-top:2px">MONTHLY DRAW WINNER</div>
+      <div style="color:#fff;font-weight:900;font-size:30px;line-height:1.1;margin-top:6px">You won, ${esc(NAME)}! 🏆</div>
+      <div style="color:#FFD23F;font-weight:900;font-size:22px;margin-top:10px">+${nf(L.prize||10000)} points</div>
+      <div style="color:rgba(255,255,255,.95);font-size:14px;font-weight:600;line-height:1.5;margin-top:14px;max-width:290px">Your name came out of this month's draw — the points are already in your account. Ka pai! 🎉</div>
+      <button onclick="dismissStarburst()" class="pulse" style="${b3('#fff','#C9A100')};color:#3A2000;padding:14px 44px;font-size:17px;font-weight:900;margin-top:22px">Claim & celebrate! 🎉</button>
+    </div>`;
+  }
+  return h;
+}
+function dismissStarburst(){
+  const L=DRAW&&DRAW.latest;
+  if(L){ try{ sb.rpc("mark_draw_seen",{ p_month:L.month }); L.congrats_pending=false; }catch(e){} }
+  OVERLAY=null; render();
+}
+function openSlot(){ SLOT.open=true; SLOT.result=null; render(); }
+
+// ---- actions ----
+function setTab(t){ TAB=t; TIPOPEN=false; render(); }
+function toggleSound(btn){ SFX.enabled=!SFX.enabled; btn.textContent=SFX.enabled?'🔊 Sound on — tap to mute':'🔇 Sound off — tap on'; }
+
 async function payExtra(purpose){
   if(busy) return; busy=true;
   try{ const { data }=await sb.functions.invoke("stripe-create-session",{ body:{ purpose } });
@@ -308,40 +545,8 @@ async function payExtra(purpose){
   }catch(e){ toast("Card payments are coming soon"); }
   busy=false;
 }
-function leaderboardView(){
-  if(!LB) return "";
-  if(!LB.opted_in){
-    return `<h2>Leaderboard</h2><div class="card">
-      <div class="muted" style="margin-bottom:12px">See how you rank all-time. Opt in and only your first name shows to others.</div>
-      <button class="btn ghost sm" onclick="toggleBoard(true)">Join the leaderboard</button></div>`;
-  }
-  const top=(LB.top||[]).slice(0,5);
-  const rows=top.map(r=>`<div class="cardrow"><span>${r.rank}. ${r.me?'<b style="color:var(--gold)">You</b>':(esc(r.name)||"—")}</span><b>${nf(r.points)}</b></div>`).join("");
-  const inTop=top.some(r=>r.me);
-  const mine=(!inTop && LB.my_rank)?`<div class="cardrow" style="border-top:1px solid var(--line)"><span><b style="color:var(--gold)">You — #${LB.my_rank}</b></span><b>${nf(LB.my_points)}</b></div>`:"";
-  return `<h2>Leaderboard</h2><div class="card">${rows||'<div class="muted">No one on the board yet — you could be first!</div>'}${mine}
-    <button class="btn ghost sm" style="margin-top:12px" onclick="toggleBoard(false)">Leave the leaderboard</button></div>`;
-}
 async function toggleBoard(on){ if(busy) return; busy=true; try{ await sb.rpc("set_leaderboard_optin",{ p_on:on }); await loadAll(); }catch(e){} busy=false; render(); }
-function sleepTipView(){
-  return `<h2>Tonight's sleep tip</h2><div class="card">
-    <div style="font-size:15px;line-height:1.55">🌙 ${esc(SLEEP_TIPS[TIP_I])}</div>
-    <button class="btn ghost sm" style="margin-top:12px" onclick="TIP_I=(TIP_I+1)%SLEEP_TIPS.length; render();">Another tip</button>
-    <div class="muted" style="font-size:11px;margin-top:8px">A fresh tip every morning · ${SLEEP_TIPS.length} in rotation</div>
-  </div>`;
-}
-function referralView(){
-  const rows=(REFS||[]).map(r=>`<div class="cardrow"><span>${esc(r.name)}${r.suburb?`, ${esc(r.suburb)}`:""}</span><b>${esc(r.status)}</b></div>`).join("");
-  return `<h2>Refer a mate — earn 50,000 points</h2><div class="card">
-    <div class="muted" style="margin-bottom:12px">Know someone who'd love better sleep? Pop their details in and our team will look after them. You get <b style="color:var(--gold)">+50,000 points</b> once they buy and get going.</div>
-    <input id="refName" class="inp" placeholder="Their name" autocomplete="off">
-    <input id="refMobile" class="inp" type="tel" placeholder="Their mobile" autocomplete="off">
-    <input id="refSuburb" class="inp" placeholder="Their suburb" autocomplete="off">
-    <div id="refMsg" class="muted" style="margin:4px 0"></div>
-    <button class="btn gold sm" onclick="doReferral()">Send referral</button>
-    ${rows?`<div style="margin-top:14px"><div class="muted" style="font-size:12px;margin-bottom:6px">Your referrals</div>${rows}</div>`:""}
-  </div>`;
-}
+
 async function doReferral(){
   if(busy) return;
   const n=document.getElementById("refName"), m=document.getElementById("refMobile"), su=document.getElementById("refSuburb"), msg=document.getElementById("refMsg");
@@ -349,108 +554,41 @@ async function doReferral(){
   try{
     const { data } = await sb.rpc("submit_referral",{ p_name:(n&&n.value)||"", p_mobile:(m&&m.value)||"", p_suburb:(su&&su.value)||"" });
     const res=data||{};
-    if(res.ok){ try{SFX.win();}catch(e){} await loadAll(); busy=false; renderKeepTab("loot");
+    if(res.ok){ try{SFX.win();}catch(e){} await loadAll(); busy=false; TAB="refer"; render();
       const mm=document.getElementById("refMsg"); if(mm){ mm.textContent="Sent! Our team will take it from here. 🙌"; mm.style.color="var(--gold)"; }
       return; }
     if(msg){ msg.textContent=res.error||"Hmm, that didn't work — try again."; msg.style.color="#f2b8b8"; }
   }catch(e){ if(msg){ msg.textContent="Hmm, that didn't work — try again."; msg.style.color="#f2b8b8"; } }
   busy=false;
 }
-function playView(){
-  return `
-    <h2>Spin to win</h2>
-    <div class="card">
-      <div class="muted" style="margin-bottom:12px">You have <b style="color:var(--ink)">${nf(R.spins)}</b> spin${R.spins==1?'':'s'}. Every payment earns one.</div>
-      <button class="btn gold" id="spinBtn" onclick="doSpin()" ${R.spins>0?'':'disabled'}>${R.spins>0?'🎰 Spin':'No spins yet'}</button>
-      <div id="spinOut"></div>
-    </div>
-    <h2>Daily bonus</h2>
-    <div class="card">
-      <div class="muted" style="margin-bottom:12px">A free bonus, once a day.</div>
-      <button class="btn" id="dailyBtn" onclick="doDaily()" ${R.daily_available?'':'disabled'}>${R.daily_available?'🎁 Claim daily bonus':'✓ Claimed today'}</button>
-      <div id="dailyOut"></div>
-    </div>`;
-}
-
-function rewardsView(){
-  const avail=CARDS.filter(c=>c.status==="available"), used=CARDS.filter(c=>c.status!=="available");
-  let h=`<h2>Your $50 reward cards</h2>`;
-  if(!CARDS.length) h+=`<div class="card"><div class="muted">You haven't earned a reward card yet — you get a $50 card every 50,000 points. Keep going!</div></div>`;
-  avail.forEach(c=>{ h+=`<div class="card">
-      <div style="font-weight:800;font-size:17px;margin-bottom:2px">🎁 $${nf(c.value)} reward card</div>
-      <div class="muted" style="margin-bottom:12px">Choose how to use it:</div>
-      <div class="row" style="margin-bottom:8px">
-        <button class="btn sm" onclick="redeem('${c.id}','giftcard')">Gift card</button>
-        <button class="btn sm gold" onclick="redeem('${c.id}','plan_credit')">$50 off my plan</button>
-      </div>
-      <button class="btn sm ghost" onclick="redeem('${c.id}','donation')">Donate to my group</button>
-    </div>`; });
-  if(used.length){ h+=`<h2>Used</h2><div class="card">${used.map(c=>`<div class="cardrow"><span>$${nf(c.value)} card</span><span class="muted">${c.redeemed_as? c.redeemed_as.replace('_',' '):'redeemed'}</span></div>`).join("")}</div>`; }
-  return h;
-}
-
-function lootView(){
-  const pct=(PLAN&&PLAN.has_order)?PLAN.pct_paid:0, has=k=>MS.indexOf(k)>=0;
-  const miles=[{k:"pct25",at:25,t:"25% paid off",r:"10,000 bonus points"},
-               {k:"pct50",at:50,t:"Halfway there — 50% paid",r:"A free pillow"},
-               {k:"paidfull",at:100,t:"Paid in full",r:"Lifetime Triple-A + 10% off your next order"}];
-  let h=`<h2>Milestones</h2>`;
-  miles.forEach(m=>{ const done=has(m.k)||pct>=m.at, prog=Math.min(100,Math.round(pct/m.at*100));
-    h+=`<div class="card"><div style="display:flex;justify-content:space-between;align-items:center">
-        <div style="font-weight:800">${done?"✅ ":"🔒 "}${m.t}</div>
-        <div class="muted" style="font-size:12px">${done?"Unlocked":pct+"% / "+m.at+"%"}</div></div>
-      <div class="muted" style="margin:4px 0 ${done?"0":"10px"}">${m.r}</div>
-      ${done?"":`<div style="height:6px;background:rgba(255,255,255,.1);border-radius:3px"><div style="height:6px;width:${prog}%;background:linear-gradient(90deg,var(--good),var(--gold));border-radius:3px"></div></div>`}
-    </div>`; });
-  h+=`<h2>Ways to earn</h2><div class="card">
-    <div class="cardrow"><span>Make your weekly payment</span><b style="color:var(--gold)">+200 &amp; a spin</b></div>
-    <div class="cardrow"><span>Make an extra payment</span><b style="color:var(--gold)">+1,000</b></div>
-    <div class="cardrow"><span>Refer a mate who buys</span><b style="color:var(--gold)">+50,000</b></div>
-  </div>
-  ${referralView()}`;
-  return h;
-}
-function drawView(){
-  const L=DRAW.latest;
-  let h=`<h2>Monthly draw</h2>
-    <div class="card">
-      <div class="muted" style="margin-bottom:12px">Leave us a review to enter this month's free draw for points. One entry per month.</div>
-      <button class="btn" id="drawBtn" onclick="doDraw()" ${DRAW.entered_this_month?'disabled':''}>${DRAW.entered_this_month?'✓ Entered this month':'📝 Review & enter'}</button>
-    </div>`;
-  if(L){ h+=`<h2>Latest winner</h2><div class="card ${L.i_won?'':''}">
-      <div style="font-weight:800;font-size:17px">${L.i_won?'🎉 You won!':'🏆 '+(L.winner_first||'A member')+' won'}</div>
-      <div class="muted" style="margin-top:4px">${nf(L.prize)} points${L.i_won?' — added to your balance':''}.</div>
-    </div>`; }
-  return h;
-}
-
-// ---- actions ----
-function setTab(t){ TAB=t; render(); }
-function toggleSound(btn){ SFX.enabled=!SFX.enabled; btn.textContent=SFX.enabled?'🔊 Sound on — tap to mute':'🔇 Sound off — tap on'; }
 
 async function doSpin(){
-  if(busy||!(R.spins>0)) return; busy=true;
-  const btn=$("spinBtn"); if(btn){btn.disabled=true; btn.textContent='Spinning…';}
-  SFX.spin();
+  if(busy||SLOT.spinning||!(R.spins>0)) return; busy=true;
+  SLOT.spinning=true; SLOT.result=null; render(); SFX.spin();
+  spinIv=setInterval(()=>{ const reels=document.querySelectorAll(".reel"); reels.forEach(r=>r.textContent=SYM[Math.floor(Math.random()*SYM.length)]); },90);
   try{
     const { data }=await sb.rpc("play_spin");
-    if(data&&data.ok){
-      (data.points>=250?SFX.jackpot():SFX.win());
-      $("spinOut").innerHTML=`<div class="result">🎉 ${data.label} — +${nf(data.points)} points!</div>`;
-      await loadAll();
-    } else { $("spinOut").innerHTML=`<div class="muted" style="margin-top:10px">${(data&&data.error)||'No spins left.'}</div>`; }
-  }catch(e){ $("spinOut").innerHTML=`<div class="muted" style="margin-top:10px">Something went wrong — try again.</div>`; }
-  busy=false; renderKeepTab("play"); checkCelebrations();
+    setTimeout(async ()=>{
+      clearInterval(spinIv);
+      if(data&&data.ok){
+        const sym=PSYM[data.points]||"⭐";
+        SLOT.reels=[sym,sym,sym]; SLOT.result=data.points; SLOT.spinning=false;
+        (data.points>=250?SFX.jackpot():SFX.win());
+        await loadAll(); busy=false; render();
+      } else {
+        SLOT.spinning=false; busy=false; render(); toast((data&&data.error)||"No spins left.");
+      }
+    },1650);
+  }catch(e){ clearInterval(spinIv); SLOT.spinning=false; busy=false; render(); toast("Something went wrong — try again."); }
 }
 async function doDaily(){
   if(busy||!R.daily_available) return; busy=true;
-  const btn=$("dailyBtn"); if(btn){btn.disabled=true; btn.textContent='…';}
   try{
     const { data }=await sb.rpc("claim_daily");
-    if(data&&data.ok){ SFX.coin(); $("dailyOut").innerHTML=`<div class="result">🎁 +${nf(data.points)} points!</div>`; await loadAll(); }
-    else { $("dailyOut").innerHTML=`<div class="muted" style="margin-top:10px">${(data&&data.error)||'Already claimed today.'}</div>`; }
-  }catch(e){ $("dailyOut").innerHTML=`<div class="muted" style="margin-top:10px">Try again.</div>`; }
-  busy=false; renderKeepTab("play"); checkCelebrations();
+    if(data&&data.ok){ party(`🎁 Daily bonus — +${nf(data.points)} points!`); await loadAll(); }
+    else { toast((data&&data.error)||"Already claimed today."); }
+  }catch(e){ toast("Try again."); }
+  busy=false; render(); checkCelebrations();
 }
 async function redeem(id,how){
   if(busy) return; busy=true;
@@ -460,7 +598,7 @@ async function redeem(id,how){
     if(data&&data.ok){ SFX.win(); toast('✓ Redeemed as '+(labels[how]||how)); await loadAll(); }
     else { toast((data&&data.error)||'Could not redeem'); }
   }catch(e){ toast('Try again'); }
-  busy=false; renderKeepTab("rewards");
+  busy=false; renderKeepTab("points");
 }
 async function doDraw(){
   if(busy||DRAW.entered_this_month) return; busy=true;
@@ -470,7 +608,7 @@ async function doDraw(){
     // open the real review page for the customer (entry already recorded regardless)
     window.open("https://search.google.com/local/writereview?placeid=ChIJJzcUnodJDW0Rf6vgkpuhrWA","_blank");
   }catch(e){ toast('Try again'); }
-  busy=false; renderKeepTab("draw");
+  busy=false; renderKeepTab("points");
 }
 function renderKeepTab(t){ TAB=t; render(); }
 
