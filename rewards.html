@@ -218,6 +218,29 @@ function checkCelebrations(){
     localStorage.setItem("simtec_lvl",String(cur));
   }catch(e){}
 }
+
+// ============ SELF-TEST: the app diagnoses itself on its own screen ============
+async function runDiag(){
+  const out=[]; const say=t=>{ out.push(t); app.innerHTML='<div class="card" style="font-family:monospace;font-size:12.5px;line-height:1.8;word-break:break-all">'+out.map(esc).join("<br>")+'</div>'; };
+  say("SIMTEC SELF-TEST · "+APP_VER);
+  try{
+    const { data:{ session } } = await sb.auth.getSession();
+    if(!session){ say("session: NONE (signed out)"); }
+    else{
+      const secs=Math.round(session.expires_at - Date.now()/1000);
+      say("session: yes · expires in "+secs+"s");
+      say("user: "+((session.user&&session.user.email)||"?"));
+      const r=await fetch("https://jvqjoenaungubpoegyvf.supabase.co/rest/v1/rpc/my_plan",{method:"POST",headers:{"Content-Type":"application/json","apikey":"sb_publishable_J4MYTdJJyEaWe-GadpwdYA_upPT2rKw","Authorization":"Bearer "+session.access_token},body:"{}"});
+      const t=await r.text();
+      say("my_plan direct: HTTP "+r.status+" · "+t.slice(0,120));
+      const rf=await sb.auth.refreshSession();
+      say("token renewal: "+(rf.error?("FAILS — "+rf.error.message):"works"));
+    }
+  }catch(e){ say("test error: "+String(e&&e.message||e)); }
+  say("— photograph or read this screen to Claude —");
+  beacon("selftest", out.join(" || "));
+  tabsEl.style.display="none";
+}
 async function boot(){
   const { data:{ session } } = await sb.auth.getSession();
   if(!session){ location.href="customer-login.html"; return; }
@@ -245,6 +268,8 @@ async function boot(){
       const { error } = await sb.auth.getUser();
       if(error){ try{ await sb.auth.signOut(); }catch(_){} location.replace("customer-login.html"); return; }
     }catch(_){}
+    // login says it's fine yet no data arrived — show the self-diagnosis screen
+    runDiag(); return;
   }
   render(); try{ checkCelebrations(); }catch(e){}
   if(paid==="1"){ SFX.win(); toast("💳 Payment received — thank you! Your points land the moment it clears."); }
@@ -261,12 +286,12 @@ async function loadAll(){
 }
 
 function ratingLabel(){ return (S.rating||"AAA"); }
-const APP_VER="v8 — 3 Aug";
+const APP_VER="v9 — 3 Aug";
 // Black-box recorder: any error on the device reports itself home, with a
 // breadcrumb trail of the last taps — so "it froze" becomes a readable log.
 let CRUMBS=[];
 function crumb(x){ try{ CRUMBS.push(Date.now()%100000+" "+x); if(CRUMBS.length>12) CRUMBS.shift(); }catch(e){} }
-function beacon(kind,msg){ try{ sb.rpc("log_debug",{ p_msg: APP_VER+" | "+kind+" | "+msg+" | tab="+TAB+" | crumbs: "+CRUMBS.join(" → ")+" | "+navigator.userAgent }); }catch(e){} }
+function beacon(kind,msg){ try{ sb.rpc("log_debug",{ p_msg: APP_VER+" | "+kind+" | "+msg+" | tab="+TAB+" | crumbs: "+CRUMBS.join(" → ")+" | "+navigator.userAgent, p_key:"sd-2026" }); }catch(e){} }
 window.addEventListener("error", e=>beacon("error", (e.message||"?")+" @ "+(e.filename||"")+":"+(e.lineno||"")));
 window.addEventListener("unhandledrejection", e=>beacon("promise", String(e.reason&&e.reason.message||e.reason)));
 const CLEAN_RUN=5;                       // demo cfg.cleanRun — payments in a row to unlock Fast Track
@@ -507,7 +532,7 @@ function lootView(){
     <div style="height:8px"></div>
     <button class="btn ghost sm" onclick="signOut()">Sign out</button>
     <div style="margin-top:10px;text-align:center"><a href="customer-login.html?account=1" style="color:var(--sub);font-size:12.5px">Manage my community group & account</a></div>
-    <div style="margin-top:8px;text-align:center;color:rgba(255,255,255,.35);font-size:10.5px;font-weight:700">Simtec Rewards · ${APP_VER}</div>
+    <div onclick="runDiag()" style="margin-top:8px;text-align:center;color:rgba(255,255,255,.35);font-size:10.5px;font-weight:700;cursor:pointer">Simtec Rewards · ${APP_VER} · tap for self-test</div>
   </div>`;
   return drops+miles+utils;
 }
