@@ -336,11 +336,12 @@ async function boot(){
   else if(paid==="0"){ toast("Payment cancelled — no charge was made."); }
 }
 async function loadAll(){
-  const [r,s,c,d,u,pl,ms,lb,rf]=await Promise.all([
-    sbrpc("my_rewards").catch(()=>({data:null})), sbrpc("my_status").catch(()=>({data:null})), sbrpc("my_cards").catch(()=>({data:null})), sbrpc("draw_status").catch(()=>({data:null})), sbrpc("unread_count").catch(()=>({data:null})), sbrpc("my_plan").catch(()=>({data:null})), sbrpc("my_milestones").catch(()=>({data:null})), sbrpc("leaderboard").catch(()=>({data:null})), sbrpc("my_referrals").catch(()=>({data:null}))
+  const [r,s,c,d,u,pl,ms,lb,rf,np]=await Promise.all([
+    sbrpc("my_rewards").catch(()=>({data:null})), sbrpc("my_status").catch(()=>({data:null})), sbrpc("my_cards").catch(()=>({data:null})), sbrpc("draw_status").catch(()=>({data:null})), sbrpc("unread_count").catch(()=>({data:null})), sbrpc("my_plan").catch(()=>({data:null})), sbrpc("my_milestones").catch(()=>({data:null})), sbrpc("leaderboard").catch(()=>({data:null})), sbrpc("my_referrals").catch(()=>({data:null})), sbrpc("get_notif_prefs").catch(()=>({data:null}))
   ]);
   const arr=v=>Array.isArray(v)?v:[];
   R=r.data||{}; S=s.data||{}; CARDS=arr(c.data); DRAW=d.data||{}; UNREAD=u.data||0; PLAN=pl.data||{}; MS=arr(ms.data); LB=lb.data||{}; REFS=arr(rf.data);
+  NP=(np.data&&np.data.ok)?np.data:{sms:true};   // notification prefs (default: texts on)
   LB.top=arr(LB.top);
   if(NAME==="there"){ try{
     const tok=await freshToken();
@@ -350,7 +351,8 @@ async function loadAll(){
 }
 
 function ratingLabel(){ return (S.rating||"AAA"); }
-const APP_VER="v11 — 3 Aug";
+const APP_VER="v12 — 4 Aug";
+let NP={sms:true};                                // notification prefs (sms reminder texts)
 // Black-box recorder: any error on the device reports itself home, with a
 // breadcrumb trail of the last taps — so "it froze" becomes a readable log.
 let CRUMBS=[];
@@ -592,6 +594,13 @@ function lootView(){
     ${[[25,"25% paid off","10,000 bonus points","🎁","pct25"],[50,"50% paid off","A free pillow","🛏️","pct50"],[100,"Paid in full","Lifetime Triple-A + 10% off your next order","👑","paidfull"]].map(([thr,m,r,e,k])=>{const done=has(k)||pct>=thr;return `<div style="display:flex;align-items:center;gap:12px;padding:11px 0;border-top:1px solid var(--line)"><div style="width:34px;height:34px;border-radius:11px;background:${done?'linear-gradient(135deg,#54EFA0,#25C97A)':'rgba(255,255,255,.09)'};display:flex;align-items:center;justify-content:center;font-size:17px">${done?'✓':'🔒'}</div><div style="flex:1"><div style="color:${done?'#fff':'var(--sub)'};font-size:14px;font-weight:800">${e} ${r}</div><div style="color:var(--sub);font-size:11.5px;font-weight:600">${m}${done?'':` · you're at ${Math.round(pct)}%`}</div></div>${done?'<span style="color:#54EFA0;font-size:11.5px;font-weight:900">GOT IT!</span>':''}</div>`;}).join("")}
   </div>`;
   const utils=`<div class="card" style="margin-bottom:0">
+    <div style="display:flex;align-items:center;gap:12px;padding:2px 2px 12px">
+      <div style="font-size:21px">💬</div>
+      <div style="flex:1"><div style="color:#fff;font-size:13.5px;font-weight:800">Payment reminder texts</div><div style="color:var(--sub);font-size:11.5px;font-weight:600;line-height:1.35">A friendly heads-up the evening before each payment comes out.</div></div>
+      <div onclick="toggleSmsReminders()" role="switch" aria-checked="${NP.sms?'true':'false'}" style="width:52px;height:30px;border-radius:15px;flex:none;cursor:pointer;position:relative;transition:background .18s;background:${NP.sms?'linear-gradient(135deg,#54EFA0,#25C97A)':'rgba(255,255,255,.14)'};border:1px solid ${NP.sms?'rgba(84,239,160,.6)':'rgba(255,255,255,.18)'}">
+        <div style="position:absolute;top:2px;left:2px;width:24px;height:24px;border-radius:50%;background:#fff;box-shadow:0 1px 4px rgba(0,0,0,.35);transition:transform .18s;transform:translateX(${NP.sms?'22px':'0'})"></div>
+      </div>
+    </div>
     <button class="btn ghost sm" onclick="toggleSound(this)">${SFX.enabled?'🔊 Sound on — tap to mute':'🔇 Sound off — tap on'}</button>
     <div style="height:8px"></div>
     <button class="btn ghost sm" onclick="signOut()">Sign out</button>
@@ -683,6 +692,17 @@ function openSlot(){ SLOT.open=true; SLOT.result=null; render(); }
 // ---- actions ----
 function setTab(t){ crumb('tab:'+t); TAB=t; TIPOPEN=false; render(); }
 function toggleSound(btn){ SFX.enabled=!SFX.enabled; btn.textContent=SFX.enabled?'🔊 Sound on — tap to mute':'🔇 Sound off — tap on'; }
+async function toggleSmsReminders(){
+  if(busy) return; busy=true;
+  const want=!NP.sms;
+  NP.sms=want; render();                            // optimistic — instant flip
+  try{
+    const {data}=await sbrpc("set_notif_channel",{ p_channel:"sms", p_enabled:want });
+    if(!(data&&data.ok)) throw new Error((data&&data.error)||"save failed");
+    toast(want?"💬 Reminder texts on":"🔕 Reminder texts off — you can turn them back on any time");
+  }catch(e){ NP.sms=!want; render(); toast("Couldn\u2019t save that — give it another go"); }
+  busy=false;
+}
 
 function payExtra(purpose){
   if(purpose==='extra'){ PAY.open=true; render(); return; }   // ask how much first
