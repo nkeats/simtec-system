@@ -627,8 +627,8 @@ let sb = window.supabase ? supabase.createClient(SUPABASE_URL,SUPABASE_KEY) : nu
 // server-side secret used only for reconciliation later. The eDDR hosted form
 // captures the customer's bank/card details directly (nothing sensitive touches
 // Simtec), sets up a once-off payment + a recurring plan, and redirects back.
-const EZI_EDDR_BASE  = "https://demo.ezidebit.com.au/webddr/Request.aspx";  // sandbox — live is https://secure.ezidebit.com.au/webddr/Request.aspx
-const EZI_PUBLIC_KEY = "3097BB91-C589-44E4-8500-719B70EC3F27";             // sandbox public key
+const EZI_EDDR_BASE  = "https://secure.ezidebit.com.au/webddr/Request.aspx"; // LIVE (flipped 4 Aug 2026 — sandbox was demo.ezidebit.com.au)
+const EZI_PUBLIC_KEY = "745DA227B547633D89A603CB3DCC309D";                   // LIVE eDDR form key from Ezidebit's go-live email (sandbox was 3097BB91-C589-44E4-8500-719B70EC3F27)
 // eDDR frequency codes: 1=Weekly 2=Fortnightly 4=Monthly 8=4-weekly 16=Qtrly 32=Half-yr 64=Yearly
 const EZI_FREQ = { weekly:1, fortnightly:2, monthly:4 };
 let TEAM={"Kenzie Lam Sam":"Kenzie Lam Sam","Anovale Tovio":"Kenzie Lam Sam","PJ Tonga":"Kenzie Lam Sam","Rita Neli":"Kenzie Lam Sam","Tame Cooper":"Kenzie Lam Sam","Yazan Othman":"Yazan Othman","Brooke Komene":"Yazan Othman","Kono Harris":"Yazan Othman","Stacey Numanga":"Yazan Othman"};
