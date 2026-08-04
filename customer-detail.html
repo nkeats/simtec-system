@@ -2202,6 +2202,7 @@ async function rebuildPaid(o){
         <input id="cpUrl" readonly onclick="this.select()" style="width:100%;padding:8px 10px;border:1px solid #cbd4df;border-radius:7px;font-size:12px;background:#fff">
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button onclick="openCardLink()" style="background:#1c6b34;color:#fff;border:none;border-radius:8px;padding:8px 14px;font-size:13.5px;font-weight:700;cursor:pointer">Open it here &amp; type the card</button>
         <button onclick="copyCardLink()" style="background:#fff;color:var(--navy);border:1px solid #cbd4df;border-radius:8px;padding:8px 14px;font-size:13.5px;font-weight:600;cursor:pointer">Copy link</button>
         <button id="cpTxt" onclick="textCardLink()" style="background:#122347;color:#fff;border:none;border-radius:8px;padding:8px 14px;font-size:13.5px;font-weight:700;cursor:pointer">\u{1F4AC} Text it to the customer</button>
         <button onclick="closeCardPay()" style="margin-left:auto;background:#fff;color:var(--navy);border:1px solid #cbd4df;border-radius:8px;padding:8px 14px;font-size:13.5px;font-weight:600;cursor:pointer">Done</button>
@@ -2505,6 +2506,10 @@ async function makeCardLink(){
     cpShow("cpDone");
   }catch(e){ cpErr((e.message||e)+""); }
   finally{ btn.disabled=false; btn.textContent=t; }
+}
+function openCardLink(){
+  if(!CP_URL) return;
+  window.open(CP_URL,"_blank");     // Stripe's own hosted page — nothing typed here
 }
 function copyCardLink(){
   const el=document.getElementById("cpUrl"); el.select();
