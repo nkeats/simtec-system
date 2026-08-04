@@ -720,11 +720,11 @@ async function showCon(){
               <th class="text-left pb-2">Products</th><th class="text-right pb-2">Commission</th><th class="w-8"></th>
             </tr></thead>
             <tbody class="divide-y divide-slate-700/50">
-              ${sales.map(sale=>`<tr>
+              ${sales.map(sale=>`<tr${sale.status==='cancelled'?' class="opacity-60"':''}>
                 <td class="py-2 pr-3 text-slate-400 whitespace-nowrap">${fmtD(sale.sale_date)}</td>
-                <td class="py-2 pr-3 font-medium">${esc(sale.customer_name)}</td>
+                <td class="py-2 pr-3 font-medium${sale.status==='cancelled'?' line-through text-slate-400':''}">${esc(sale.customer_name)}</td>
                 <td class="py-2 pr-3 text-slate-400 text-xs">${sale.items.map(it=>`${it.product?.name||''}${it.quantity>1?` ×${it.quantity}`:''}`).join(', ')}</td>
-                <td class="py-2 text-right text-yellow-400 font-medium">${fmt(saleComm(sale))}</td>
+                <td class="py-2 text-right font-medium ${sale.status==='cancelled'?'text-slate-500':'text-yellow-400'}">${sale.status==='cancelled'?'CNX':fmt(saleComm(sale))}</td>
                 <td class="py-2 pl-2"><button onclick="delSale('${sale.id}')" class="text-slate-600 hover:text-red-400 text-xs">✕</button></td>
               </tr>`).join('')}
             </tbody>
@@ -1006,12 +1006,12 @@ async function showInv(){
             <th style="padding:2mm 3mm;text-align:right;font-weight:600;color:#333;font-size:7.5pt">Commission</th>
           </tr></thead>
           <tbody>
-            ${sales.map((sale,i)=>`<tr style="border-bottom:.5pt solid #eee;background:${i%2?'#fafafa':'white'}">
+            ${sales.map((sale,i)=>{const cnx=sale.status==='cancelled';return `<tr style="border-bottom:.5pt solid #eee;background:${i%2?'#fafafa':'white'}${cnx?';color:#888':''}">
               <td style="padding:2mm 3mm;color:#555;white-space:nowrap">${fmtD(sale.sale_date)}</td>
-              <td style="padding:2mm 3mm;font-weight:500">${esc(sale.customer_name)}</td>
+              <td style="padding:2mm 3mm;font-weight:500${cnx?';text-decoration:line-through':''}">${esc(sale.customer_name)}</td>
               <td style="padding:2mm 3mm;color:#555">${sale.items.map(it=>`${it.product?.name||''}${it.quantity>1?` ×${it.quantity}`:''}`).join(', ')}</td>
-              <td style="padding:2mm 3mm;text-align:right;font-weight:600;color:#1a3a6b">${fmt(saleC(sale))}</td>
-            </tr>`).join('')}
+              <td style="padding:2mm 3mm;text-align:right;font-weight:600;color:${cnx?'#999':'#1a3a6b'}">${cnx?'CNX':fmt(saleC(sale))}</td>
+            </tr>`;}).join('')}
             <tr style="background:#f0f0f0;font-weight:bold">
               <td colspan="3" style="padding:2mm 3mm">Sales Commission Subtotal</td>
               <td style="padding:2mm 3mm;text-align:right">${fmt(cv.sc)}</td>
