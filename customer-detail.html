@@ -109,6 +109,30 @@ const esc=s=>String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",
 const PM={weekly_dd:"Weekly direct debit",fortnightly_dd:"Fortnightly direct debit",deposit_50:"50% deposit",pay_in_full:"Pay in full",cash:"Cash"};
 const DS={pending:"Pending",scheduled:"Scheduled",partial:"Part-delivered",delivered:"Delivered",on_hold:"On hold",cancelled:"Cancelled"};
 const PERIODS={weekly:{per:7,total:156,word:"wk"},fortnightly:{per:14,total:78,word:"fn"},monthly:{per:30.44,total:36,word:"mo"}};
+// Payment-reminder opt-out (the evening-before Ezidebit texts).
+// Writes notif_optout directly — office role has full rights under RLS; the
+// sending engine (queue_notification) suppresses SMS for any customer listed.
+async function toggleReminderTexts(turnOn){
+  const c=CUST||{};
+  const who=[c.first_name,c.last_name].filter(Boolean).join(" ")||"this customer";
+  const q=turnOn
+    ? `Turn payment reminder texts back ON for ${who}?`
+    : `Opt ${who} OUT of payment reminder texts?\n\nThey will no longer get the evening-before text about their upcoming payment.`;
+  if(!confirm(q)) return;
+  try{
+    if(turnOn){
+      const {error}=await sb.from("notif_optout").delete()
+        .eq("customer_id",customerId).eq("channel","sms");
+      if(error) throw error;
+    }else{
+      const {error}=await sb.from("notif_optout")
+        .insert({customer_id:customerId,channel:"sms"});
+      if(error && error.code!=="23505") throw error;   // already opted out = fine
+    }
+    await run(true);
+  }catch(e){ alert("Couldn't save that: "+(e.message||e)); }
+}
+
 function kv(k,v){ return `<div class="kv"><span class="k">${k}</span><span class="v">${v}</span></div>`; }
 const isStaff = () => (window.SIMTEC_USER && ['admin','manager','office'].includes(window.SIMTEC_USER.role));
 const isMgr   = () => (window.SIMTEC_USER && ['admin','manager'].includes(window.SIMTEC_USER.role));
@@ -347,6 +371,10 @@ async function run(quiet){
     let comms=[];
     { const {data}=await sb.from("sim_contacts").select("*").eq("customer_id",customerId).order("contacted_at",{ascending:false});
       comms=data||[]; }
+
+    // reminder-text opt-out state (notif_optout is office-full under RLS)
+    { const {data}=await sb.from("notif_optout").select("channel").eq("customer_id",customerId).eq("channel","sms");
+      window.__OPT_SMS__=!!(data&&data.length); }   // true = OPTED OUT
     window.__CUST_ID__=customerId;
     window.__ORDER_ID__=(orders&&orders[0])?orders[0].id:null;
 
@@ -375,6 +403,11 @@ function renderAll(c, orders, paysByRef, comms){
     ${kv("Mobile",esc(c.mobile)||"—")}
     ${kv("Email",esc(c.email)||"—")}
     ${kv("Address",esc(c.address)||"—")}
+    <div class="kv"><span class="k">Reminder texts</span><span class="v">
+      ${window.__OPT_SMS__
+        ? `<b style="color:#c02626">Off — opted out</b> <button onclick="toggleReminderTexts(true)" style="margin-left:10px;background:#fff;color:var(--navy);border:1px solid #cbd4df;border-radius:7px;padding:3px 10px;font-size:12px;font-weight:600;cursor:pointer">Turn back on</button>`
+        : `<b style="color:#2a7a4b">On</b> <button onclick="toggleReminderTexts(false)" style="margin-left:10px;background:#fff;color:#c02626;border:1px solid #f3c0c0;border-radius:7px;padding:3px 10px;font-size:12px;font-weight:600;cursor:pointer">Opt out</button>`}
+    </span></div>
   </div>`;
 
   const ICON={phone:"\u{1F4DE}",text:"\u{1F4AC}",email:"\u2709\uFE0F",letter:"\u{1F4EE}",in_person:"\u{1F91D}"};

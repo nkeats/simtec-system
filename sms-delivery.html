@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Simtec — Text Delivery</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/@supabase/supabase-js@2.38.4/dist/umd/supabase.js"></script>
+<script src="auth.js?v=3" data-roles="admin,manager,office"></script>
+<style>
+body{font-family:system-ui,sans-serif}
+.card{background:#1e293b;border:1px solid #334155;border-radius:.75rem;padding:1.1rem 1.25rem}
+.lbl{font-size:.7rem;letter-spacing:.06em;text-transform:uppercase;color:#c9a84c;font-weight:700}
+.k{color:#7c8aa0;font-size:.78rem}
+.btn{padding:.55rem 1rem;border-radius:.6rem;font-size:.85rem;font-weight:700;cursor:pointer;border:1px solid #334155;background:#1e293b;color:#cbd5e1}
+.btn.on{background:#c9a84c;color:#1a2438;border-color:#c9a84c}
+.chip{display:inline-block;font-size:11px;font-weight:700;padding:2px 9px;border-radius:999px}
+.chip.fail{background:#3a1420;color:#f87171;border:1px solid #7f1d2e}
+.chip.ok{background:#14361f;color:#4ade80;border:1px solid #1e5a34}
+.chip.wait{background:#2a2410;color:#fbbf24;border:1px solid #6b5a1a}
+.chip.done{background:#1a2b45;color:#93c5fd;border:1px solid #2c4a75}
+table{width:100%;border-collapse:collapse;font-size:.85rem}
+th{color:#7c8aa0;text-align:left;font-size:.72rem;text-transform:uppercase;letter-spacing:.05em;padding:.45rem .5rem;border-bottom:1px solid #334155}
+td{padding:.55rem .5rem;border-bottom:1px solid #24314a;vertical-align:top}
+tr:hover td{background:rgba(255,255,255,.02)}
+a.cust{color:#93c5fd;text-decoration:none;font-weight:600}
+a.cust:hover{text-decoration:underline}
+</style>
+</head>
+<body class="bg-slate-950 text-white min-h-screen">
+
+<nav class="bg-slate-900 border-b border-slate-800 px-6 py-3 flex items-center gap-3">
+  <a href="home.html" class="text-slate-400 text-sm hover:text-white">‹ Home</a>
+  <span class="font-bold tracking-wide text-lg ml-2">SIMTEC</span>
+  <span class="text-slate-400 text-sm">Text delivery</span>
+</nav>
+
+<div class="max-w-5xl mx-auto p-6">
+
+  <div class="card mb-4">
+    <div class="lbl mb-1">Failed text messages</div>
+    <div class="k">Texts our System sent (arrears sequence, reminders, notifications) that couldn't be delivered — usually a wrong or disconnected number.
+    Fix the number on the customer's page, get in touch another way, then tick <b>Handled</b>.
+    Delivered texts are tracked too but hidden by default. Reports arrive from TNZ shortly after each send.</div>
+    <div class="flex flex-wrap gap-2 mt-3" id="filters">
+      <button class="btn on" data-f="open"  onclick="setFilter('open',this)">Needs attention <span id="cOpen"></span></button>
+      <button class="btn"    data-f="fail"  onclick="setFilter('fail',this)">All failures (30 days)</button>
+      <button class="btn"    data-f="all"   onclick="setFilter('all',this)">Everything (30 days)</button>
+      <button class="btn" style="margin-left:auto" onclick="load()">Refresh</button>
+    </div>
+  </div>
+
+  <div id="list" class="card"><div class="k">Loading…</div></div>
+
+  <div class="card mt-4">
+    <div class="lbl mb-1">Texts refused at send time</div>
+    <div class="k mb-2">Separate from delivery failures: these never left our System (TNZ rejected them on the spot — usually a badly formatted number). Last 14 days, from the arrears sequence log.</div>
+    <div id="refused" class="k">Loading…</div>
+  </div>
+
+</div>
+
+<script>
+const sb=supabase.createClient("https://jvqjoenaungubpoegyvf.supabase.co","sb_publishable_J4MYTdJJyEaWe-GadpwdYA_upPT2rKw");
+const esc=s=>String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+let FILTER="open", ROWS=[], NAMES={};
+
+function setFilter(f,btn){ FILTER=f;
+  document.querySelectorAll('#filters .btn[data-f]').forEach(b=>b.classList.toggle('on',b===btn));
+  render(); }
+
+async function load(){
+  const since=new Date(Date.now()-30*864e5).toISOString();
+  const {data,error}=await sb.from("sim_sms_delivery")
+    .select("id,received_at,reference,mobile,status,result,reason,failed,handled,customer_id")
+    .gte("received_at",since).order("received_at",{ascending:false}).limit(500);
+  if(error){ document.getElementById('list').innerHTML=`<div class="k">Couldn't load: ${esc(error.message)}</div>`; return; }
+  ROWS=data||[];
+  // one name lookup for all matched customers
+  const ids=[...new Set(ROWS.map(r=>r.customer_id).filter(Boolean))];
+  NAMES={};
+  if(ids.length){
+    const {data:cs}=await sb.from("sim_customers").select("id,first_name,last_name").in("id",ids);
+    (cs||[]).forEach(c=>NAMES[c.id]=[c.first_name,c.last_name].filter(Boolean).join(" "));
+  }
+  const open=ROWS.filter(r=>r.failed&&!r.handled).length;
+  document.getElementById('cOpen').textContent=open?` (${open})`:"";
+  render();
+  loadRefused();
+}
+
+function render(){
+  let rows=ROWS;
+  if(FILTER==="open") rows=ROWS.filter(r=>r.failed&&!r.handled);
+  else if(FILTER==="fail") rows=ROWS.filter(r=>r.failed);
+  const el=document.getElementById('list');
+  if(!rows.length){
+    el.innerHTML=`<div class="k">${FILTER==="open"?"Nothing needs attention — every recent text was delivered or has been handled. 🎉":"No reports in the last 30 days. Reports start arriving once TNZ's webhook is switched on."}</div>`;
+    return;
+  }
+  el.innerHTML=`<table><thead><tr>
+      <th style="width:120px">When</th><th style="width:130px">Sent by</th><th>Customer</th>
+      <th style="width:130px">Mobile</th><th>Why it failed</th><th style="width:110px">Status</th><th style="width:90px"></th>
+    </tr></thead><tbody>`+
+    rows.map(r=>{
+      const when=new Date(r.received_at);
+      const name=r.customer_id
+        ? `<a class="cust" href="customer-detail.html?cust=${r.customer_id}">${esc(NAMES[r.customer_id]||"View customer")}</a>`
+        : `<span class="k">No match in the book</span>`;
+      const chip=r.failed
+        ? (r.handled?`<span class="chip done">Handled</span>`:`<span class="chip fail">Failed</span>`)
+        : `<span class="chip ok">Delivered</span>`;
+      const why=esc([r.reason,r.result,r.status].filter(Boolean).find(x=>x)||"—");
+      const act=r.failed
+        ? (r.handled
+            ? `<button class="btn" style="padding:.3rem .6rem;font-size:.72rem" onclick="setHandled('${r.id}',false)">Re-open</button>`
+            : `<button class="btn on" style="padding:.3rem .6rem;font-size:.72rem" onclick="setHandled('${r.id}',true)">Handled ✓</button>`)
+        : "";
+      return `<tr>
+        <td>${when.toLocaleDateString('en-NZ')}<div class="k">${when.toLocaleTimeString('en-NZ',{hour:'2-digit',minute:'2-digit'})}</div></td>
+        <td class="k">${esc(r.reference||"—")}</td>
+        <td>${name}</td>
+        <td class="k">${esc(r.mobile||"—")}</td>
+        <td class="k">${why}</td>
+        <td>${chip}</td><td>${act}</td></tr>`;
+    }).join("")+`</tbody></table>`;
+}
+
+async function setHandled(id,on){
+  try{
+    const who=(window.SIMTEC_USER&&(window.SIMTEC_USER.full_name||window.SIMTEC_USER.email))||"office";
+    const {error}=await sb.from("sim_sms_delivery")
+      .update({handled:on,handled_by:on?who:null,handled_at:on?new Date().toISOString():null}).eq("id",id);
+    if(error) throw error;
+    const r=ROWS.find(x=>x.id===id); if(r) r.handled=on;
+    const open=ROWS.filter(x=>x.failed&&!x.handled).length;
+    document.getElementById('cOpen').textContent=open?` (${open})`:"";
+    render();
+  }catch(e){ alert("Couldn't save that: "+(e.message||e)); }
+}
+
+async function loadRefused(){
+  const since=new Date(Date.now()-14*864e5).toISOString();
+  const el=document.getElementById('refused');
+  try{
+    const {data,error}=await sb.from("sim_communications")
+      .select("customer_id,mobile,provider_response,created_at")
+      .eq("status","failed").gte("created_at",since).order("created_at",{ascending:false}).limit(100);
+    if(error) throw error;
+    if(!(data&&data.length)){ el.textContent="None in the last 14 days."; return; }
+    const ids=[...new Set(data.map(r=>r.customer_id).filter(Boolean))];
+    let names={};
+    if(ids.length){
+      const {data:cs}=await sb.from("sim_customers").select("id,first_name,last_name").in("id",ids);
+      (cs||[]).forEach(c=>names[c.id]=[c.first_name,c.last_name].filter(Boolean).join(" "));
+    }
+    el.innerHTML=data.map(r=>{
+      const nm=r.customer_id?`<a class="cust" href="customer-detail.html?cust=${r.customer_id}">${esc(names[r.customer_id]||"customer")}</a>`:esc(r.mobile||"unknown");
+      return `<div style="padding:.3rem 0;border-bottom:1px solid #24314a">${new Date(r.created_at).toLocaleDateString('en-NZ')} — ${nm} <span class="k">(${esc(r.mobile||"")})</span> — <span class="k">${esc(r.provider_response||"refused")}</span></div>`;
+    }).join("");
+  }catch(e){ el.textContent="Couldn't load the refused list: "+(e.message||e); }
+}
+
+document.addEventListener("DOMContentLoaded",()=>{ setTimeout(load,300); });
+</script>
+</body>
+</html>
