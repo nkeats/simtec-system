@@ -2164,8 +2164,8 @@ async function rebuildPaid(o){
       Stripe and is never stored by Simtec. <b>Don't write card numbers down.</b>
     </p>
     <div style="display:flex;gap:6px;margin-bottom:14px">
-      <button id="cpTabCard" onclick="cpMode('card')" style="flex:1;padding:8px;border-radius:8px;border:1px solid #cbd4df;background:#122347;color:#fff;font-size:13px;font-weight:700;cursor:pointer">Type card details</button>
-      <button id="cpTabLink" onclick="cpMode('link')" style="flex:1;padding:8px;border-radius:8px;border:1px solid #cbd4df;background:#fff;color:var(--navy);font-size:13px;font-weight:600;cursor:pointer">Send them a link</button>
+      <button id="cpTabLink" onclick="cpMode('link')" style="flex:1;padding:8px;border-radius:8px;border:1px solid #cbd4df;background:#122347;color:#fff;font-size:13px;font-weight:700;cursor:pointer">Stripe page (key it in or send it)</button>
+      <button id="cpTabCard" onclick="cpMode('card')" style="flex:1;padding:8px;border-radius:8px;border:1px solid #cbd4df;background:#fff;color:var(--navy);font-size:13px;font-weight:600;cursor:pointer">Card boxes here</button>
     </div>
     <div id="cpErr" style="display:none;background:#fdecec;border:1px solid #e0b4b0;color:#b4342e;border-radius:9px;padding:11px 13px;font-size:13.5px;margin-bottom:12px"></div>
 
@@ -2183,6 +2183,7 @@ async function rebuildPaid(o){
     <!-- keyed card entry -->
     <div id="cpCardStep" style="display:none">
       <div class="kv"><span class="k">Charging</span><span class="v" id="cpCharge" style="font-weight:700">—</span></div>
+      <p class="muted" style="font-size:12px;margin:0 0 10px">Needs the Stripe publishable key set up. If this errors, use the Stripe page tab instead.</p>
       <label class="muted" style="display:block;font-size:12px;margin:14px 0 6px">Card details (read them out, type them here)</label>
       <div id="cpCard" style="padding:12px;border:1px solid #cbd4df;border-radius:8px;background:#fff"></div>
       <label style="display:flex;gap:8px;align-items:flex-start;margin:14px 0 0;font-size:12.5px;cursor:pointer">
@@ -2383,8 +2384,17 @@ async function saveReassign(){
 // ===== Card payment: keyed by the office, or sent as a link ================
 // The card fields are Stripe Elements (Stripe's own iframes) — the card number
 // goes browser -> Stripe directly and never reaches this page or our database.
-let CP_ORDER=null, CP_URL="", CP_MODE="card", CP_STRIPE=null, CP_CARDEL=null, CP_SECRET="", CP_AMT=0;
+let CP_ORDER=null, CP_URL="", CP_MODE="link", CP_STRIPE=null, CP_CARDEL=null, CP_SECRET="", CP_AMT=0;
 
+// supabase-js hides the function's own message behind a generic error — dig it out
+async function fnError(error, data){
+  if(data && data.error) return data.error;
+  try{
+    const body = error && error.context ? await error.context.json() : null;
+    if(body && body.error) return body.error;
+  }catch(_){}
+  return (error && error.message) || "That didn't work";
+}
 function cpErr(m){ const e=document.getElementById("cpErr"); if(!e) return;
   e.style.display=m?"block":"none"; e.textContent=m||""; }
 
@@ -2413,7 +2423,7 @@ function openCardPay(oid){
   const suggest=Math.min(owing, +o.instalment_amount||0);
   document.getElementById("cpAmt").value = suggest>=10 ? suggest.toFixed(2) : "";
   document.getElementById("cardPayModal").style.display="flex";
-  cpMode("card");
+  cpMode("link");   // Stripe's own page: nothing to configure
 }
 function closeCardPay(){
   document.getElementById("cardPayModal").style.display="none";
@@ -2443,8 +2453,7 @@ async function startKeyedPayment(){
   cpErr("");
   try{
     const {data,error}=await sb.functions.invoke("Stripe-terminal-intent",{body:{order_id:CP_ORDER.id, amount:amt}});
-    if(error) throw new Error(error.message||"Couldn't start the payment");
-    if(data&&data.error) throw new Error(data.error);
+    if(error||(data&&data.error)) throw new Error(await fnError(error,data));
     if(!data||!data.client_secret) throw new Error("No payment could be started");
     CP_SECRET=data.client_secret; CP_AMT=data.amount||amt;
     await loadStripeJs();
@@ -2497,8 +2506,7 @@ async function makeCardLink(){
   cpErr("");
   try{
     const {data,error}=await sb.functions.invoke("Stripe-staff-session",{body:{order_id:CP_ORDER.id, amount:amt}});
-    if(error) throw new Error(error.message||"Couldn't create the link");
-    if(data&&data.error) throw new Error(data.error);
+    if(error||(data&&data.error)) throw new Error(await fnError(error,data));
     if(!data||!data.url) throw new Error("No link came back");
     CP_URL=data.url;
     document.getElementById("cpUrl").value=CP_URL;

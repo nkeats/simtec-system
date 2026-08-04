@@ -392,20 +392,12 @@ async function loadUrgent(){
 // Ready-to-book + weekly sales for the strip (light queries)
 async function loadStrip(){
   try{
-    // Ready to book: cleared, not booked, not delivered — approximate with the delivery flags.
-    // (Definitive clearance lives on delivery.html; here we show a useful count.)
-    const {data:rb}=await sb.from("sim_orders")
-      .select("id,delivery_status,delivery_date,delivery_authorised,amount_paid_to_date,contract_value,order_status")
-      .eq("order_status","active");
-    let ready=0;
-    (rb||[]).forEach(o=>{
-      if(o.delivery_status==="delivered") return;
-      if(o.delivery_date) return;                    // already booked
-      const c=Number(o.contract_value||0), p=Number(o.amount_paid_to_date||0);
-      if(o.delivery_authorised===true || (c>0 && p/c>=0.10)) ready++;   // rough: authorised or 10%+
-    });
-    document.getElementById("sReady").textContent=ready;
-    document.getElementById("sReadySub").textContent = ready? "meeting the delivery threshold" : "none right now";
+    // Ready to book comes from v_delivery_clearance — the SAME rule the delivery
+    // page uses, so the two screens can never disagree. One cheap counting query.
+    const {count:ready}=await sb.from("v_delivery_clearance")
+      .select("order_id",{count:"exact",head:true}).eq("ready_to_book",true);
+    document.getElementById("sReady").textContent=ready ?? 0;
+    document.getElementById("sReadySub").textContent = ready ? "cleared for delivery" : "none right now";
   }catch(e){ document.getElementById("sReadySub").textContent=""; }
 
   try{
