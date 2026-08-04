@@ -464,6 +464,7 @@ function orderSection(o, items, pays, open){
   const behindTxt = p.behindBy>1 ? `${fmt(p.behindBy)} behind (${p.periodsBehind.toFixed(0)} ${p.freq.word})` : (p.cls==="green"?"On track":"—");
 
   const actions = isStaff() ? `
+    ${!isCancelled?`<button onclick="openCardPay('${o.id}')" style="background:#1c6b34;color:#fff;border:none;border-radius:8px;padding:8px 14px;font-size:13.5px;font-weight:700;cursor:pointer;margin-right:6px">\u{1F4B3} Take payment</button>`:``}
     ${!isCancelled?`<button onclick="openAmend('${o.id}')" style="background:#c6a15b;color:#122347;border:none;border-radius:8px;padding:8px 14px;font-size:13.5px;font-weight:700;cursor:pointer;margin-right:6px">✎ Amend order</button>`:""}
     ${(isCancelled||isHold)?`<button onclick="reinstate('${o.id}')" style="background:#1c6b34;color:#fff;border:none;border-radius:8px;padding:8px 14px;font-size:13.5px;font-weight:600;cursor:pointer;margin-right:6px">↩ Reinstate</button>`:""}
     <label class="muted" style="font-size:12px;margin-right:5px">Status</label>
@@ -2155,6 +2156,68 @@ async function rebuildPaid(o){
 </div>
 
 <!-- ============ EDIT CUSTOMER DETAILS ============ -->
+<div id="cardPayModal" class="modalbg">
+  <div class="modal" style="max-width:540px">
+    <h3 style="margin:0 0 4px">Take a card payment</h3>
+    <p class="muted" style="font-size:12.5px;margin:0 0 12px">
+      For a customer paying over the phone. The card boxes below are Stripe's own — the number goes straight to
+      Stripe and is never stored by Simtec. <b>Don't write card numbers down.</b>
+    </p>
+    <div style="display:flex;gap:6px;margin-bottom:14px">
+      <button id="cpTabCard" onclick="cpMode('card')" style="flex:1;padding:8px;border-radius:8px;border:1px solid #cbd4df;background:#122347;color:#fff;font-size:13px;font-weight:700;cursor:pointer">Type card details</button>
+      <button id="cpTabLink" onclick="cpMode('link')" style="flex:1;padding:8px;border-radius:8px;border:1px solid #cbd4df;background:#fff;color:var(--navy);font-size:13px;font-weight:600;cursor:pointer">Send them a link</button>
+    </div>
+    <div id="cpErr" style="display:none;background:#fdecec;border:1px solid #e0b4b0;color:#b4342e;border-radius:9px;padding:11px 13px;font-size:13.5px;margin-bottom:12px"></div>
+
+    <div id="cpForm">
+      <div class="kv"><span class="k">Owing on this order</span><span class="v" id="cpOwing">—</span></div>
+      <label class="muted" style="display:block;font-size:12px;margin:12px 0 5px">Amount to charge (NZD)</label>
+      <input id="cpAmt" type="number" min="10" step="0.01" style="width:100%;padding:9px 11px;border:1px solid #cbd4df;border-radius:8px;font-size:15px">
+      <p class="muted" style="font-size:12px;margin:7px 0 0">Minimum $10. Can't exceed what's owing.</p>
+      <div style="margin-top:16px;text-align:right">
+        <button onclick="closeCardPay()" style="background:#fff;color:var(--navy);border:1px solid #cbd4df;border-radius:8px;padding:8px 14px;font-size:13.5px;font-weight:600;cursor:pointer;margin-right:6px">Cancel</button>
+        <button id="cpGo" onclick="cpContinue()" style="background:#1c6b34;color:#fff;border:none;border-radius:8px;padding:8px 16px;font-size:13.5px;font-weight:700;cursor:pointer">Continue</button>
+      </div>
+    </div>
+
+    <!-- keyed card entry -->
+    <div id="cpCardStep" style="display:none">
+      <div class="kv"><span class="k">Charging</span><span class="v" id="cpCharge" style="font-weight:700">—</span></div>
+      <label class="muted" style="display:block;font-size:12px;margin:14px 0 6px">Card details (read them out, type them here)</label>
+      <div id="cpCard" style="padding:12px;border:1px solid #cbd4df;border-radius:8px;background:#fff"></div>
+      <label style="display:flex;gap:8px;align-items:flex-start;margin:14px 0 0;font-size:12.5px;cursor:pointer">
+        <input type="checkbox" id="cpConsent" style="margin-top:2px">
+        <span>The customer is on the phone and has authorised this payment.</span>
+      </label>
+      <div style="margin-top:16px;text-align:right">
+        <button onclick="closeCardPay()" style="background:#fff;color:var(--navy);border:1px solid #cbd4df;border-radius:8px;padding:8px 14px;font-size:13.5px;font-weight:600;cursor:pointer;margin-right:6px">Cancel</button>
+        <button id="cpChargeBtn" onclick="chargeCard()" style="background:#1c6b34;color:#fff;border:none;border-radius:8px;padding:8px 16px;font-size:13.5px;font-weight:700;cursor:pointer">Charge card</button>
+      </div>
+    </div>
+
+    <!-- payment link -->
+    <div id="cpDone" style="display:none">
+      <div style="background:#eef6f0;border:1px solid #bcdcc6;border-radius:9px;padding:12px 13px;margin-bottom:12px">
+        <div style="font-weight:700;color:#1c6b34;margin-bottom:6px">Link ready — <span id="cpAmtOut"></span></div>
+        <input id="cpUrl" readonly onclick="this.select()" style="width:100%;padding:8px 10px;border:1px solid #cbd4df;border-radius:7px;font-size:12px;background:#fff">
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button onclick="copyCardLink()" style="background:#fff;color:var(--navy);border:1px solid #cbd4df;border-radius:8px;padding:8px 14px;font-size:13.5px;font-weight:600;cursor:pointer">Copy link</button>
+        <button id="cpTxt" onclick="textCardLink()" style="background:#122347;color:#fff;border:none;border-radius:8px;padding:8px 14px;font-size:13.5px;font-weight:700;cursor:pointer">\u{1F4AC} Text it to the customer</button>
+        <button onclick="closeCardPay()" style="margin-left:auto;background:#fff;color:var(--navy);border:1px solid #cbd4df;border-radius:8px;padding:8px 14px;font-size:13.5px;font-weight:600;cursor:pointer">Done</button>
+      </div>
+    </div>
+
+    <!-- success -->
+    <div id="cpPaid" style="display:none;text-align:center;padding:8px 0 4px">
+      <div style="font-size:38px">\u2705</div>
+      <div style="font-weight:800;font-size:17px;margin:6px 0 4px" id="cpPaidAmt"></div>
+      <p class="muted" style="font-size:13px;margin:0 0 16px">Recorded against this order automatically.</p>
+      <button onclick="closeCardPay();run(true)" style="background:#1c6b34;color:#fff;border:none;border-radius:8px;padding:9px 18px;font-size:13.5px;font-weight:700;cursor:pointer">Done</button>
+    </div>
+  </div>
+</div>
+
 <div id="editCustModal" class="modalbg">
   <div class="modal" style="max-width:480px">
     <h3 style="margin:0 0 4px">Edit customer details</h3>
@@ -2314,6 +2377,164 @@ async function saveReassign(){
     reErr("<b>The sale was not moved.</b><br>"+(e.message||e));
     btn.disabled=false; btn.textContent="Move sale";
   }
+}
+
+// ===== Card payment: keyed by the office, or sent as a link ================
+// The card fields are Stripe Elements (Stripe's own iframes) — the card number
+// goes browser -> Stripe directly and never reaches this page or our database.
+let CP_ORDER=null, CP_URL="", CP_MODE="card", CP_STRIPE=null, CP_CARDEL=null, CP_SECRET="", CP_AMT=0;
+
+function cpErr(m){ const e=document.getElementById("cpErr"); if(!e) return;
+  e.style.display=m?"block":"none"; e.textContent=m||""; }
+
+function cpShow(id){
+  ["cpForm","cpCardStep","cpDone","cpPaid"].forEach(x=>{
+    const el=document.getElementById(x); if(el) el.style.display=(x===id)?"block":"none";
+  });
+}
+function cpMode(m){
+  CP_MODE=m;
+  const a=document.getElementById("cpTabCard"), b=document.getElementById("cpTabLink");
+  const on ="background:#122347;color:#fff;font-weight:700";
+  const off="background:#fff;color:var(--navy);font-weight:600";
+  a.style.cssText="flex:1;padding:8px;border-radius:8px;border:1px solid #cbd4df;font-size:13px;cursor:pointer;"+(m==="card"?on:off);
+  b.style.cssText="flex:1;padding:8px;border-radius:8px;border:1px solid #cbd4df;font-size:13px;cursor:pointer;"+(m==="link"?on:off);
+  cpErr(""); cpShow("cpForm");
+  document.getElementById("cpGo").textContent = (m==="card") ? "Continue" : "Create payment link";
+}
+
+function openCardPay(oid){
+  const o=ORDERS[oid]; if(!o) return;          // ORDERS is keyed by id, not an array
+  CP_ORDER=o; CP_URL=""; CP_SECRET=""; CP_CARDEL=null;
+  cpErr("");
+  const owing=Math.max(0,(+o.contract_value||0)-(+o.amount_paid_to_date||0));
+  document.getElementById("cpOwing").textContent=fmt(owing);
+  const suggest=Math.min(owing, +o.instalment_amount||0);
+  document.getElementById("cpAmt").value = suggest>=10 ? suggest.toFixed(2) : "";
+  document.getElementById("cardPayModal").style.display="flex";
+  cpMode("card");
+}
+function closeCardPay(){
+  document.getElementById("cardPayModal").style.display="none";
+  if(CP_CARDEL){ try{ CP_CARDEL.unmount(); }catch(_){} CP_CARDEL=null; }
+  CP_SECRET="";
+}
+
+function cpContinue(){ return CP_MODE==="card" ? startKeyedPayment() : makeCardLink(); }
+
+// --- load Stripe.js on demand ---------------------------------------------
+function loadStripeJs(){
+  return new Promise((res,rej)=>{
+    if(window.Stripe) return res();
+    const sc=document.createElement("script");
+    sc.src="https://js.stripe.com/v3/";
+    sc.onload=()=>res(); sc.onerror=()=>rej(new Error("Couldn't load Stripe"));
+    document.head.appendChild(sc);
+  });
+}
+
+// --- keyed card entry ------------------------------------------------------
+async function startKeyedPayment(){
+  if(!CP_ORDER) return;
+  const amt=+document.getElementById("cpAmt").value;
+  if(!(amt>=10)) return cpErr("Enter an amount of $10 or more.");
+  const btn=document.getElementById("cpGo"); btn.disabled=true; const t=btn.textContent; btn.textContent="Preparing…";
+  cpErr("");
+  try{
+    const {data,error}=await sb.functions.invoke("Stripe-terminal-intent",{body:{order_id:CP_ORDER.id, amount:amt}});
+    if(error) throw new Error(error.message||"Couldn't start the payment");
+    if(data&&data.error) throw new Error(data.error);
+    if(!data||!data.client_secret) throw new Error("No payment could be started");
+    CP_SECRET=data.client_secret; CP_AMT=data.amount||amt;
+    await loadStripeJs();
+    CP_STRIPE=window.Stripe(data.publishable_key);
+    const elements=CP_STRIPE.elements();
+    CP_CARDEL=elements.create("card",{hidePostalCode:true,style:{base:{fontSize:"16px",color:"#122347"}}});
+    document.getElementById("cpCharge").textContent=fmt(CP_AMT);
+    cpShow("cpCardStep");
+    CP_CARDEL.mount("#cpCard");
+    document.getElementById("cpConsent").checked=false;
+  }catch(e){ cpErr((e.message||e)+""); }
+  finally{ btn.disabled=false; btn.textContent=t; }
+}
+
+async function chargeCard(){
+  if(!CP_SECRET||!CP_CARDEL) return;
+  if(!document.getElementById("cpConsent").checked)
+    return cpErr("Tick the box to confirm the customer authorised this payment.");
+  const btn=document.getElementById("cpChargeBtn"); btn.disabled=true; const t=btn.textContent; btn.textContent="Charging…";
+  cpErr("");
+  try{
+    const res=await CP_STRIPE.confirmCardPayment(CP_SECRET,{payment_method:{card:CP_CARDEL}});
+    if(res.error) throw new Error(res.error.message||"The card was declined");
+    if(!res.paymentIntent||res.paymentIntent.status!=="succeeded") throw new Error("Payment didn't complete");
+    document.getElementById("cpPaidAmt").textContent=fmt(CP_AMT)+" paid";
+    cpShow("cpPaid");
+    // log that the customer authorised it (useful if the payment is ever disputed)
+    try{
+      await sb.from("sim_contacts").insert({
+        customer_id: CUST.id, order_id: CP_ORDER?CP_ORDER.id:null,
+        channel:"phone", direction:"inbound", contacted_at:new Date().toISOString(),
+        staff_name:(window.SIMTEC_USER&&window.SIMTEC_USER.email)||null,
+        subject:"Card payment taken over the phone",
+        body:"Customer authorised a card payment of "+fmt(CP_AMT)+" by phone.",
+        outcome:"paid by card"
+      });
+    }catch(_){}
+    if(CP_CARDEL){ try{ CP_CARDEL.unmount(); }catch(_){} CP_CARDEL=null; }
+    CP_SECRET="";
+  }catch(e){ cpErr((e.message||e)+""); btn.disabled=false; btn.textContent=t; return; }
+  btn.disabled=false; btn.textContent=t;
+}
+
+// --- payment link ----------------------------------------------------------
+async function makeCardLink(){
+  if(!CP_ORDER) return;
+  const amt=+document.getElementById("cpAmt").value;
+  if(!(amt>=10)) return cpErr("Enter an amount of $10 or more.");
+  const btn=document.getElementById("cpGo"); btn.disabled=true; const t=btn.textContent; btn.textContent="Creating…";
+  cpErr("");
+  try{
+    const {data,error}=await sb.functions.invoke("Stripe-staff-session",{body:{order_id:CP_ORDER.id, amount:amt}});
+    if(error) throw new Error(error.message||"Couldn't create the link");
+    if(data&&data.error) throw new Error(data.error);
+    if(!data||!data.url) throw new Error("No link came back");
+    CP_URL=data.url;
+    document.getElementById("cpUrl").value=CP_URL;
+    document.getElementById("cpAmtOut").textContent=fmt(data.amount||amt);
+    cpShow("cpDone");
+  }catch(e){ cpErr((e.message||e)+""); }
+  finally{ btn.disabled=false; btn.textContent=t; }
+}
+function copyCardLink(){
+  const el=document.getElementById("cpUrl"); el.select();
+  try{ document.execCommand("copy"); }catch(_){}
+  if(navigator.clipboard) navigator.clipboard.writeText(CP_URL).catch(()=>{});
+}
+async function textCardLink(){
+  if(!CP_URL||!CUST) return;
+  const mob=(CUST.mobile||"").trim();
+  if(!mob) return cpErr("No mobile number on this customer — copy the link and email it instead.");
+  const amt=document.getElementById("cpAmtOut").textContent||"";
+  const msg=`Kia ora ${CUST.first_name||""}, here's your secure Simtec payment link for ${amt}: ${CP_URL}`.replace(/\s+/g," ").trim();
+  if(!confirm("Text this link to "+mob+"?\n\n"+msg)) return;
+  const b=document.getElementById("cpTxt"); b.disabled=true; const t=b.textContent; b.textContent="Sending…";
+  try{
+    const {data,error}=await sb.functions.invoke("hyper-handler",{body:{mobile:mob, message:msg}});
+    if(error) throw new Error(error.message||"Send failed");
+    if(data&&data.error) throw new Error(data.error);
+    try{
+      await sb.from("sim_contacts").insert({
+        customer_id: CUST.id, order_id: CP_ORDER?CP_ORDER.id:null,
+        channel:"text", direction:"outbound", contacted_at:new Date().toISOString(),
+        staff_name:(window.SIMTEC_USER&&window.SIMTEC_USER.email)||null,
+        subject:"Card payment link sent", body:msg, outcome:"link texted"
+      });
+    }catch(_){}
+    b.textContent="Sent \u2713";
+    setTimeout(()=>{ b.disabled=false; b.textContent=t; },2500);
+    run(true);
+  }catch(e){ cpErr("Couldn't send the text: "+(e.message||e)); b.disabled=false; b.textContent=t; }
 }
 </script>
 
