@@ -22,6 +22,7 @@ select.asgnsel{background:#0f172a;border:1px solid #334155;color:#e2e8f0;border-
 .asgn{padding:.3rem .7rem;border-radius:.45rem;font-size:.75rem;font-weight:600;cursor:pointer;border:1px solid #1d4ed8;background:#172554;color:#93c5fd;margin-left:.4rem}
 .asgn:hover{background:#1e3a8a}
 .warn{color:#fbbf24;font-weight:700}
+.clock{font-size:.72rem;font-weight:700;white-space:nowrap}
 </style>
 </head>
 <body class="bg-slate-950 text-white min-h-screen">
@@ -33,19 +34,23 @@ select.asgnsel{background:#0f172a;border:1px solid #334155;color:#e2e8f0;border-
   <button class="ml-auto text-xs text-slate-400 border border-slate-700 rounded px-3 py-1" onclick="load()">↻ Refresh</button>
 </nav>
 
-<div class="max-w-5xl mx-auto p-6">
+<div class="max-w-6xl mx-auto p-6">
 
-  <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
-    <div class="stat" style="border-color:#b45309" onclick="setFilter('need')" id="fNeed">
-      <div class="lbl" style="color:#fbbf24">Needs assigning</div>
-      <div class="big" style="color:#fbbf24" id="cNeed">—</div>
+  <div class="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-6">
+    <div class="stat" style="border-color:#b45309" onclick="setFilter('office')" id="fOffice">
+      <div class="lbl" style="color:#fbbf24">With office</div>
+      <div class="big" style="color:#fbbf24" id="cOffice">—</div>
     </div>
-    <div class="stat" onclick="setFilter('active')" id="fActive">
-      <div class="lbl">In progress</div>
-      <div class="big text-slate-200" id="cActive">—</div>
+    <div class="stat" onclick="setFilter('consultant')" id="fCons">
+      <div class="lbl">With consultant</div>
+      <div class="big text-slate-200" id="cCons">—</div>
+    </div>
+    <div class="stat" style="border-color:#4c3f86" onclick="setFilter('booked')" id="fBooked">
+      <div class="lbl" style="color:#c4b5fd">Appointment booked</div>
+      <div class="big" style="color:#c4b5fd" id="cBooked">—</div>
     </div>
     <div class="stat" style="border-color:#15803d;background:#10241a" onclick="setFilter('converted')" id="fConverted">
-      <div class="lbl" style="color:#86efac">Converted</div>
+      <div class="lbl" style="color:#86efac">Bought</div>
       <div class="big" style="color:#4ade80" id="cConv">—</div>
     </div>
     <div class="stat" onclick="setFilter('all')" id="fAll">
@@ -55,24 +60,27 @@ select.asgnsel{background:#0f172a;border:1px solid #334155;color:#e2e8f0;border-
   </div>
 
   <div class="flex items-center justify-between mb-2">
-    <h2 class="text-sm font-semibold text-slate-300" id="listTitle">Needs assigning</h2>
+    <h2 class="text-sm font-semibold text-slate-300" id="listTitle">With office</h2>
     <span class="text-xs text-slate-500" id="asOf"></span>
   </div>
 
   <div class="overflow-x-auto rounded-lg border border-slate-800">
     <table class="w-full">
       <thead><tr>
-        <th>Referred customer</th><th>Referred by</th><th>Assigned to</th><th>Status</th><th>When</th><th></th>
+        <th>Referred customer</th><th>Referred by</th><th>With</th><th>Follow-up</th>
+        <th>Stage</th><th>Reward</th><th>When</th><th></th>
       </tr></thead>
       <tbody id="rows"></tbody>
     </table>
   </div>
   <div id="state" class="text-center text-slate-500 py-16">Loading…</div>
 
-  <p class="text-xs text-slate-500 mt-5 max-w-2xl">
-    Referrals arrive from the apps and auto-route to the consultant who sold the referrer. If that consultant has
-    left, the referral lands here flagged <span class="warn">Needs assigning</span> — pick another consultant and it
-    appears in their diary to book. Rewards are recorded but <b>held</b> until the loyalty programme launches.
+  <p class="text-xs text-slate-500 mt-5 max-w-3xl leading-relaxed">
+    Referrals arrive from the rewards app and route straight to the consultant who sold the person doing the
+    referring. Booking an appointment against the same mobile number marks it <b>Appointment booked</b> on its own.
+    If nothing is booked within 14 days it comes back here flagged <span class="warn">With office</span> — reassign
+    it and that consultant gets a fresh 14 days. The <b>50,000-point reward pays itself</b> once the referred
+    customer has bought and either put down a 20% deposit, paid in full, or made 5 consecutive payments.
   </p>
 </div>
 
@@ -81,12 +89,13 @@ const sb = supabase.createClient("https://jvqjoenaungubpoegyvf.supabase.co","sb_
 const $=id=>document.getElementById(id);
 const esc=s=>(s||"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const fmtDate=d=>d?new Date(d).toLocaleDateString("en-NZ",{day:"numeric",month:"short",year:"2-digit"}):"—";
+const nf=n=>Number(n||0).toLocaleString("en-NZ");
 
-let CONS=[], REFS=[], filter='need';
+let CONS=[], REFS=[], filter='office';
 const BADGES={
-  new:['New','#78350f','#fbbf24'], assigned:['Assigned','#1e3a5f','#93c5fd'],
-  booked:['Booked','#3b2f66','#c4b5fd'], converted:['Converted','#14532d','#86efac'],
-  lost:['Lost','#3a1414','#fca5a5']
+  new:['New','#78350f','#fbbf24'], assigned:['With consultant','#1e3a5f','#93c5fd'],
+  booked:['Booked','#3b2f66','#c4b5fd'], converted:['Bought','#14532d','#86efac'],
+  rewarded:['Rewarded','#14532d','#4ade80'], lost:['Lost','#3a1414','#fca5a5']
 };
 function badge(s){ const b=BADGES[s]||['—','#334155','#cbd5e1']; return `<span class="badge" style="background:${b[1]};color:${b[2]}">${b[0]}</span>`; }
 
@@ -94,7 +103,7 @@ async function load(){
   $("state").style.display="block"; $("state").textContent="Loading…";
   const [consRes, refsRes] = await Promise.all([
     sb.from("commission_consultants").select("id,name").eq("active",true).order("name"),
-    sb.from("referrals").select("*").order("created_at",{ascending:false})
+    sb.from("v_referrals_office").select("*")
   ]);
   if(refsRes.error){ $("state").textContent="Couldn't load: "+refsRes.error.message; return; }
   CONS = consRes.data||[];
@@ -103,27 +112,50 @@ async function load(){
   render();
 }
 
+function done(r){ return r.reward_status==='paid' || !!r.converted_order_id; }
+
 function subsets(){
-  const need = REFS.filter(r=>r.needs_office_assignment && r.status!=='converted' && r.status!=='lost');
-  const active = REFS.filter(r=>['new','assigned','booked'].includes(r.status) && !r.needs_office_assignment);
-  const conv = REFS.filter(r=>r.status==='converted');
-  return {need,active,conv};
+  const office = REFS.filter(r=>!done(r) && r.status!=='lost' && !r.assigned_consultant_id);
+  const cons   = REFS.filter(r=>!done(r) && r.status==='assigned' && r.assigned_consultant_id);
+  const booked = REFS.filter(r=>!done(r) && r.status==='booked');
+  const conv   = REFS.filter(r=>done(r));
+  return {office,cons,booked,conv};
 }
 
 function setFilter(f){ filter=f; render(); }
 
+function clockCell(r){
+  if(done(r)) return '<span class="text-slate-600">—</span>';
+  if(r.status==='booked') return '<span class="clock" style="color:#c4b5fd">booked ✓</span>';
+  if(!r.assigned_at) return '<span class="clock warn">waiting on office</span>';
+  const d = r.days_left_with_consultant;
+  if(d==null) return '<span class="text-slate-600">—</span>';
+  const col = d<=3 ? '#f87171' : (d<=7 ? '#fbbf24' : '#94a3b8');
+  return `<span class="clock" style="color:${col}">${d} day${d==1?'':'s'} left</span>`;
+}
+
+function rewardCell(r){
+  if(r.reward_status==='paid')
+    return `<span style="color:#4ade80;font-weight:700">${nf(r.reward_points)} pts</span>
+            <div class="text-xs text-slate-500">${esc(r.reward_reason||'')}</div>`;
+  if(r.converted_order_id)
+    return '<span class="text-xs" style="color:#fbbf24">bought — awaiting deposit / payments</span>';
+  return '<span class="text-xs text-slate-600">not yet</span>';
+}
+
 function render(){
-  const {need,active,conv}=subsets();
-  $("cNeed").textContent=need.length; $("cActive").textContent=active.length;
-  $("cConv").textContent=conv.length; $("cAll").textContent=REFS.length;
-  ['need','active','converted','all'].forEach(f=>{
-    const el=$({need:'fNeed',active:'fActive',converted:'fConverted',all:'fAll'}[f]);
+  const {office,cons,booked,conv}=subsets();
+  $("cOffice").textContent=office.length; $("cCons").textContent=cons.length;
+  $("cBooked").textContent=booked.length; $("cConv").textContent=conv.length; $("cAll").textContent=REFS.length;
+  ['office','consultant','booked','converted','all'].forEach(f=>{
+    const el=$({office:'fOffice',consultant:'fCons',booked:'fBooked',converted:'fConverted',all:'fAll'}[f]);
     el.classList.toggle('sel', filter===f);
   });
   let list, title;
-  if(filter==='need'){ list=need; title='Needs assigning'; }
-  else if(filter==='active'){ list=active; title='In progress'; }
-  else if(filter==='converted'){ list=conv; title='Converted'; }
+  if(filter==='office'){ list=office; title='With office — needs a consultant'; }
+  else if(filter==='consultant'){ list=cons; title='With consultant'; }
+  else if(filter==='booked'){ list=booked; title='Appointment booked'; }
+  else if(filter==='converted'){ list=conv; title='Bought'; }
   else { list=REFS; title='All referrals'; }
   $("listTitle").textContent=title;
 
@@ -131,25 +163,27 @@ function render(){
   $("state").style.display="none";
 
   $("rows").innerHTML = list.map(r=>{
-    const canAssign = r.status!=='converted' && r.status!=='lost';
+    const settled = r.reward_status==='paid' || r.status==='lost';
     const chosen = r.assigned_consultant_id||"";
-    const assignedCell = r.assigned_consultant_name
+    const withCell = r.assigned_consultant_name
       ? esc(r.assigned_consultant_name)
       : '<span class="warn">⚠ Needs assigning</span>';
     let action="";
-    if(canAssign){
+    if(!settled){
       const opts = '<option value="">— choose —</option>' +
         CONS.map(c=>`<option value="${c.id}"${c.id===chosen?' selected':''}>${esc(c.name)}</option>`).join("");
       action = `<select class="asgnsel">${opts}</select>`+
                `<button class="asgn" onclick="assign('${r.id}', this.previousElementSibling)">${chosen?'Reassign':'Assign'}</button>`;
-    } else if(r.status==='converted'){
-      action = '<span class="text-xs text-slate-500">reward held</span>';
     }
+    const returned = !!r.returned_to_office_at;
     return `<tr>
-      <td class="font-medium text-slate-200">${esc(r.referee_name||'—')}<div class="text-xs text-slate-500">${esc(r.referee_mobile||'')}</div></td>
+      <td class="font-medium text-slate-200">${esc(r.referee_name||'—')}
+        <div class="text-xs text-slate-500">${esc(r.referee_mobile||'')}${r.referee_suburb?' · '+esc(r.referee_suburb):''}</div></td>
       <td class="text-slate-400">${esc(r.referrer_name||'—')}</td>
-      <td class="text-slate-300">${assignedCell}</td>
+      <td class="text-slate-300">${withCell}${returned?`<div class="text-xs text-slate-600" title="${esc((r.notes||'').trim())}">↩ came back from a consultant</div>`:''}</td>
+      <td>${clockCell(r)}</td>
       <td>${badge(r.status)}</td>
+      <td>${rewardCell(r)}</td>
       <td class="text-slate-500">${fmtDate(r.created_at)}</td>
       <td>${action}</td>
     </tr>`;
@@ -160,8 +194,10 @@ async function assign(id, sel){
   const cid=sel.value;
   if(!cid){ alert("Choose a consultant first."); return; }
   const cname=sel.options[sel.selectedIndex].textContent;
+  // assigned_at / needs_office_assignment are stamped by a database trigger,
+  // which also restarts the 14-day clock on every reassignment.
   const { error } = await sb.from("referrals")
-    .update({ assigned_consultant_id:cid, assigned_consultant_name:cname, status:'assigned', needs_office_assignment:false })
+    .update({ assigned_consultant_id:cid, assigned_consultant_name:cname })
     .eq("id",id);
   if(error){ alert("Couldn't assign: "+error.message); return; }
   await load();
