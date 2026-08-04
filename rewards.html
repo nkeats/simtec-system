@@ -335,13 +335,15 @@ async function boot(){
   if(paid==="1"){ SFX.win(); toast("💳 Payment received — thank you! Your points land the moment it clears."); }
   else if(paid==="0"){ toast("Payment cancelled — no charge was made."); }
 }
+let APPST={state:"active",earning:true};   // plan state — cancelled / paid-in-full stops the game
 async function loadAll(){
-  const [r,s,c,d,u,pl,ms,lb,rf,np]=await Promise.all([
-    sbrpc("my_rewards").catch(()=>({data:null})), sbrpc("my_status").catch(()=>({data:null})), sbrpc("my_cards").catch(()=>({data:null})), sbrpc("draw_status").catch(()=>({data:null})), sbrpc("unread_count").catch(()=>({data:null})), sbrpc("my_plan").catch(()=>({data:null})), sbrpc("my_milestones").catch(()=>({data:null})), sbrpc("leaderboard").catch(()=>({data:null})), sbrpc("my_referrals").catch(()=>({data:null})), sbrpc("get_notif_prefs").catch(()=>({data:null}))
+  const [r,s,c,d,u,pl,ms,lb,rf,np,ap]=await Promise.all([
+    sbrpc("my_rewards").catch(()=>({data:null})), sbrpc("my_status").catch(()=>({data:null})), sbrpc("my_cards").catch(()=>({data:null})), sbrpc("draw_status").catch(()=>({data:null})), sbrpc("unread_count").catch(()=>({data:null})), sbrpc("my_plan").catch(()=>({data:null})), sbrpc("my_milestones").catch(()=>({data:null})), sbrpc("leaderboard").catch(()=>({data:null})), sbrpc("my_referrals").catch(()=>({data:null})), sbrpc("get_notif_prefs").catch(()=>({data:null})), sbrpc("my_app_state").catch(()=>({data:null}))
   ]);
   const arr=v=>Array.isArray(v)?v:[];
   R=r.data||{}; S=s.data||{}; CARDS=arr(c.data); DRAW=d.data||{}; UNREAD=u.data||0; PLAN=pl.data||{}; MS=arr(ms.data); LB=lb.data||{}; REFS=arr(rf.data);
   NP=(np.data&&np.data.ok)?np.data:{sms:true};   // notification prefs (default: texts on)
+  APPST=(ap.data&&ap.data.ok)?ap.data:{state:"active",earning:true};
   LB.top=arr(LB.top);
   if(NAME==="there"){ try{
     const tok=await freshToken();
@@ -351,7 +353,7 @@ async function loadAll(){
 }
 
 function ratingLabel(){ return (S.rating||"AAA"); }
-const APP_VER="v12 — 4 Aug";
+const APP_VER="v14 — 4 Aug";
 let NP={sms:true};                                // notification prefs (sms reminder texts)
 // Black-box recorder: any error on the device reports itself home, with a
 // breadcrumb trail of the last taps — so "it froze" becomes a readable log.
@@ -489,6 +491,13 @@ function homeView(){
     }
   }
 
+  const closedCard=`<div class="card" style="margin-bottom:0;text-align:center;padding:22px 18px">
+    <div style="font-size:34px;margin-bottom:6px">${APPST.state==="paidfull"?"🏆":"💛"}</div>
+    <div style="font-weight:900;font-size:17px;margin-bottom:6px">${APPST.state==="paidfull"?"Your plan is paid off!":"Your plan is closed"}</div>
+    <div style="color:var(--sub);font-size:13px;line-height:1.5">${APPST.state==="paidfull"
+      ? "You're a Lifetime Triple-A client. Daily bonuses and spins have finished, but everything you earned stays yours \u2014 and so does 10% off your next order."
+      : "Daily bonuses and spins have finished on this account. Give us a call on 09 886 9897 if that\u2019s not right."}</div>
+  </div>`;
   const circles=`<div style="display:flex;gap:14px;justify-content:center;padding:2px 0">
     <div style="text-align:center"><button ${R.daily_available?'onclick="doDaily()" class="bob"':'disabled'} style="width:72px;height:72px;border-radius:50%;border:3px solid rgba(255,255,255,.3);cursor:${R.daily_available?'pointer':'default'};font-size:31px;display:flex;align-items:center;justify-content:center;background:${R.daily_available?'radial-gradient(circle at 35% 28%, #9AEBFF, #4D7CFF)':'rgba(255,255,255,.08)'};box-shadow:${R.daily_available?'0 7px 18px rgba(77,124,255,.5)':'none'};opacity:${R.daily_available?1:.6}">${R.daily_available?'🎁':'✅'}</button><div style="color:#fff;font-weight:900;font-size:12px;margin-top:6px">Daily bonus</div><div style="color:var(--sub);font-size:9.5px;font-weight:700">${R.daily_available?'Tap to claim!':'Tomorrow'}</div></div>
     <div style="text-align:center"><button onclick="openSlot()" class="bob" style="width:72px;height:72px;border-radius:50%;border:3px solid rgba(255,255,255,.3);cursor:pointer;font-size:31px;display:flex;align-items:center;justify-content:center;position:relative;background:radial-gradient(circle at 35% 28%, #EDB6FF, #FF4E9B);box-shadow:0 7px 18px rgba(255,78,155,.5)">🎰${(R.spins>0)?`<span style="position:absolute;top:-4px;right:-4px;background:#FFD23F;color:#3A2000;border-radius:50%;width:23px;height:23px;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:12px;border:2px solid #fff">${R.spins}</span>`:''}</button><div style="color:#fff;font-weight:900;font-size:12px;margin-top:6px">Spin to Win</div><div style="color:var(--sub);font-size:9.5px;font-weight:700">${R.spins>0?`${R.spins} free!`:'Pay to earn'}</div></div>
@@ -497,6 +506,7 @@ function homeView(){
 
   const referBtn=`<button onclick="setTab('refer')" class="pulse" style="${b3('linear-gradient(120deg,#FF2D78,#FF6A3D)','#C41E5E')};padding:13px 16px;display:flex;align-items:center;gap:10px;width:100%"><span style="font-size:22px">💥</span><span style="flex:1;text-align:left;font-size:14.5px;font-weight:900">Refer a mate</span><span style="font-weight:900;font-size:15px">+50k ⭐</span></button>`;
   const extraBtn=(PLAN&&PLAN.has_order&&!PLAN.delivered)?`<button onclick="payExtra('extra')" style="${b3('linear-gradient(120deg,#25C97A,#54EFA0)','#159257')};padding:13px 15px;font-size:15px;color:#053019;display:flex;flex-direction:column;gap:1px;width:100%;align-items:center"><span>Make an extra payment 💳</span><span style="font-size:11px;font-weight:700;opacity:.82">Moves the truck · +1,000 pts on $50+ · earns a spin</span></button>`:"";
+  if(!APPST.earning) return greeting+race+closedCard+referBtn;   // plan closed: no daily/spin/extra payment
   return greeting+missedCard()+race+circles+referBtn+extraBtn;
 }
 
@@ -591,7 +601,7 @@ function lootView(){
     ${[["💚","Make a payment on time","A little thanks for staying on track · + a free spin","+200","#25C97A"],["💳","Make an extra payment","Get ahead — grab a bigger drop","+1,000","#4D7CFF"],["💥","Refer a mate who buys","The biggest drop of all","+50,000","#FF2D78"]].map(([e,t,d,p,col])=>`<div style="display:flex;align-items:center;gap:12px;padding:11px 0;border-top:1px solid var(--line)"><div style="font-size:23px">${e}</div><div style="flex:1"><div style="color:#fff;font-size:14px;font-weight:800">${t}</div><div style="color:var(--sub);font-size:11.5px;font-weight:600">${d}</div></div><div style="color:${col};font-weight:900;font-size:15px;white-space:nowrap">${p}</div></div>`).join("")}
   </div>`;
   const miles=`<div class="card" style="margin-bottom:0"><div class="eyeb" style="margin-bottom:8px">Milestone loot</div>
-    ${[[25,"25% paid off","10,000 bonus points","🎁","pct25"],[50,"50% paid off","A free pillow","🛏️","pct50"],[100,"Paid in full","Lifetime Triple-A + 10% off your next order","👑","paidfull"]].map(([thr,m,r,e,k])=>{const done=has(k)||pct>=thr;return `<div style="display:flex;align-items:center;gap:12px;padding:11px 0;border-top:1px solid var(--line)"><div style="width:34px;height:34px;border-radius:11px;background:${done?'linear-gradient(135deg,#54EFA0,#25C97A)':'rgba(255,255,255,.09)'};display:flex;align-items:center;justify-content:center;font-size:17px">${done?'✓':'🔒'}</div><div style="flex:1"><div style="color:${done?'#fff':'var(--sub)'};font-size:14px;font-weight:800">${e} ${r}</div><div style="color:var(--sub);font-size:11.5px;font-weight:600">${m}${done?'':` · you're at ${Math.round(pct)}%`}</div></div>${done?'<span style="color:#54EFA0;font-size:11.5px;font-weight:900">GOT IT!</span>':''}</div>`;}).join("")}
+    ${[[25,"25% paid off","10,000 bonus points","🎁","pct25"],[50,"50% paid off","20,000 bonus points","🎉","pct50"],[100,"Paid in full","Lifetime Triple-A + 10% off your next order","👑","paidfull"]].map(([thr,m,r,e,k])=>{const done=has(k)||pct>=thr;return `<div style="display:flex;align-items:center;gap:12px;padding:11px 0;border-top:1px solid var(--line)"><div style="width:34px;height:34px;border-radius:11px;background:${done?'linear-gradient(135deg,#54EFA0,#25C97A)':'rgba(255,255,255,.09)'};display:flex;align-items:center;justify-content:center;font-size:17px">${done?'✓':'🔒'}</div><div style="flex:1"><div style="color:${done?'#fff':'var(--sub)'};font-size:14px;font-weight:800">${e} ${r}</div><div style="color:var(--sub);font-size:11.5px;font-weight:600">${m}${done?'':` · you're at ${Math.round(pct)}%`}</div></div>${done?'<span style="color:#54EFA0;font-size:11.5px;font-weight:900">GOT IT!</span>':''}</div>`;}).join("")}
   </div>`;
   const utils=`<div class="card" style="margin-bottom:0">
     <div style="display:flex;align-items:center;gap:12px;padding:2px 2px 12px">
@@ -753,6 +763,7 @@ async function doReferral(){
 }
 
 async function doSpin(){
+  if(!APPST.earning){ toast("Your plan is complete \u2014 spins have finished."); return; }
   if(busy||SLOT.spinning||!(R.spins>0)) return; busy=true;
   SLOT.spinning=true; SLOT.result=null; render(); SFX.spin();
   spinIv=setInterval(()=>{ const reels=document.querySelectorAll(".reel"); reels.forEach(r=>r.textContent=SYM[Math.floor(Math.random()*SYM.length)]); },90);
@@ -772,6 +783,7 @@ async function doSpin(){
   }catch(e){ clearInterval(spinIv); SLOT.spinning=false; busy=false; render(); toast("Something went wrong — try again."); }
 }
 async function doDaily(){
+  if(!APPST.earning){ toast("Your plan is complete \u2014 the daily bonus has finished."); return; }
   if(busy||!R.daily_available) return; busy=true;
   try{
     const { data }=await sbrpc("claim_daily");
