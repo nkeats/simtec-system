@@ -97,7 +97,8 @@
         'font:700 12.5px -apple-system,Segoe UI,Roboto,Arial,sans-serif;cursor:pointer;' +
         'box-shadow:0 2px 8px rgba(0,0,0,.28)}' +
         '@media(max-width:640px){#simtec-logout{top:auto;bottom:14px;right:14px;' +
-        'border-radius:22px;padding:9px 16px;box-shadow:0 3px 12px rgba(0,0,0,.35)}}';
+        'border-radius:22px;padding:9px 16px;box-shadow:0 3px 12px rgba(0,0,0,.35)}}' +
+        '@media print{#simtec-logout{display:none!important}}';
       document.head.appendChild(st);
     }
     var b = document.createElement('button');
