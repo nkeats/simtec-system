@@ -82,6 +82,17 @@ async function all(table,select,tweak){
 
 const CHECKS=[
   {
+    id:"testdata",
+    title:"Test data or orphan rows left behind",
+    why:"Practice orders leave traces in places the delete never reached — commission rows, appointments, ledger entries — and they resurface in reports and pay runs months later.",
+    fix:"Tell Claude which one to clear, or run purge_test_customer(<customer id>) — it sweeps every related table at once. Storage files still need removing by hand.",
+    cols:["Area","Detail","Reference"],
+    run:async()=>{
+      const {data}=await sb.from("v_test_residue").select("*");
+      return (data||[]).map(r=>[r.area, r.detail||"—", String(r.ref||"").slice(0,8)+"\u2026"]);
+    }
+  },
+  {
     id:"unlinked",
     title:"Commission sales with no order",
     why:"These came from the spreadsheet import and were never tied to an order. Cancellations and clawbacks cannot cascade to them, and they are invisible to Reports.",
