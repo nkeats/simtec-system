@@ -46,6 +46,8 @@
 <div class="wrap">
   <div class="err" id="err"></div>
 
+  <div id="alerts"></div>
+
   <div class="card">
     <h2>Plan a run</h2>
     <div class="muted">Builds a run from every delivery booked for that date, in time-slot then suburb order.
@@ -56,6 +58,20 @@
       <div><div class="muted">Vehicle</div><input id="pVehicle" placeholder="Truck 1" style="width:130px"></div>
       <button class="primary" onclick="buildRun()">Build the run</button>
     </div>
+  </div>
+
+  <div class="card">
+    <div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap">
+      <h2 style="margin:0">Worth a call for this date</h2>
+      <span class="muted">People close to the day's stops who are one payment away from clearing.
+        Ring them: "we're in your area that day."</span>
+      <span style="margin-left:auto"><span class="muted">within</span>
+        <select id="km" onchange="loadCalls()" style="padding:6px 8px">
+          <option value="3">3 km</option><option value="6" selected>6 km</option>
+          <option value="10">10 km</option><option value="15">15 km</option>
+        </select></span>
+    </div>
+    <div id="calls" class="muted" style="margin-top:10px">Pick a date above.</div>
   </div>
 
   <div id="runs"></div>
@@ -78,7 +94,10 @@ async function boot(){
     .in("role",["driver","warehouse","admin","manager","office"]).eq("active",true).order("full_name");
   DRIVERS = data||[];
   $("pDriver").innerHTML = DRIVERS.map(d=>`<option value="${d.id}">${esc(d.full_name||d.email)} · ${esc(d.role)}</option>`).join("");
+  $("pDate").onchange = () => { load(); loadCalls(); };   // alerts are date-independent
   await load();
+  await loadCalls();
+  await loadAlerts();
 }
 
 async function buildRun(){
@@ -88,6 +107,51 @@ async function buildRun(){
   if(error) return showErr(error.message);
   if(data && data.ok===false) return showErr(data.error);
   await load();
+  await loadCalls();
+}
+
+async function loadAlerts(){
+  const { data, error } = await sb.from("v_booking_alerts").select("*").order("delivery_date");
+  const box = $("alerts");
+  if(error || !data || !data.length){ box.innerHTML = ""; return; }
+  box.innerHTML = `<div class="card" style="border-color:#e0b4b0;background:#fdf4f3">
+    <div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap">
+      <h2 style="margin:0;color:var(--red)">\u26A0 ${data.length} booked ${data.length==1?"delivery needs":"deliveries need"} a look</h2>
+      <span class="muted">Booked, but the customer has slipped since. Check before the truck is loaded.</span>
+    </div>
+    <table style="margin-top:10px"><thead><tr>
+      <th>Customer</th><th>Booked</th><th>What changed</th><th>Where they are</th><th>Call</th>
+    </tr></thead><tbody>` + data.map(r=>`<tr>
+      <td>${esc(r.customer||"—")}<div class="muted">${esc(r.suburb||"")}</div></td>
+      <td>${new Date(r.delivery_date).toLocaleDateString("en-NZ",{weekday:"short",day:"numeric",month:"short"})}
+        <div class="muted">${r.days_until<=0?"today":r.days_until+" day"+(r.days_until==1?"":"s")+" away"}${r.delivery_time?" · "+esc(r.delivery_time):""}</div></td>
+      <td><b style="color:var(--red)">${esc(r.why||"")}</b></td>
+      <td class="muted">${r.paid_pct}% paid of ${r.need_pct}% · clean run ${r.clean_run}/${r.run_needed}${
+        r.payments_to_go?` · ${r.payments_to_go} payment${r.payments_to_go==1?"":"s"} to go`:""}</td>
+      <td>${r.mobile?`<a class="link" href="tel:${esc(String(r.mobile).replace(/\s/g,""))}">${esc(r.mobile)}</a>`:'<span class="muted">no mobile</span>'}</td>
+    </tr>`).join("") + `</tbody></table>
+    <div class="muted" style="margin-top:8px">Authorising the delivery on the customer's order clears it from this list.</div>
+  </div>`;
+}
+
+async function loadCalls(){
+  const d = $("pDate").value || todayNZ();
+  const { data, error } = await sb.rpc("delivery_call_list", { p_date: d, p_km: Number($("km").value||6) });
+  if(error){ $("calls").textContent = "Couldn't load: " + error.message; return; }
+  if(!data || !data.length){
+    $("calls").textContent = "Nobody within range is one payment away for that date."; return; }
+  $("calls").innerHTML = `<table><thead><tr>
+      <th>Customer</th><th>Suburb</th><th>Distance</th><th>Near</th><th>Still needs</th><th>Call</th>
+    </tr></thead><tbody>` + data.map(r=>`<tr>
+      <td>${esc(r.customer||"—")}<div class="muted">${r.paid_pct}% paid, needs ${r.need_pct}%${
+        r.clean_run!=null?` · clean run ${r.clean_run}/${r.run_needed}`:""}</div></td>
+      <td>${esc(r.suburb||"")}</td>
+      <td>${r.km_away} km${r.located_by==="suburb"?'<div class="muted">approx</div>':""}</td>
+      <td>${esc(r.near_stop||"")}<div class="muted">${esc(r.near_suburb||"")}</div></td>
+      <td><b>${esc(r.why||"")}</b></td>
+      <td>${r.mobile?`<a class="link" href="tel:${esc(String(r.mobile).replace(/\s/g,""))}">${esc(r.mobile)}</a>`:'<span class="muted">no mobile</span>'}</td>
+    </tr>`).join("") + `</tbody></table>
+    <div class="muted" style="margin-top:8px">Distances are from suburb centres until addresses are geocoded, so treat them as a guide.</div>`;
 }
 
 async function load(){
@@ -111,19 +175,21 @@ async function load(){
     return `<div class="card">
       <div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap">
         <h2 style="margin:0">${esc(r.driver_name||"—")} ${state}</h2>
-        <span class="muted">${esc(r.vehicle||"")} · started ${tm(r.started_at)}${r.ended_at?` · finished ${tm(r.ended_at)}`:""}
+        <span class="muted">${esc(r.vehicle||"")} · at work ${tm(r.started_at)}${r.left_warehouse_at?` · left yard ${tm(r.left_warehouse_at)}`:""}${r.ended_at?` · finished ${tm(r.ended_at)}`:""}
           · ${r.hours_on_road??0} h on road · ${r.break_minutes} min break</span>
       </div>
       <div class="bar"><i style="width:${pct}%"></i></div>
       <div class="muted">${r.done} delivered${r.failed?`, ${r.failed} not completed`:""} of ${r.stops}</div>
       <table style="margin-top:10px"><thead><tr>
-        <th>#</th><th>Customer</th><th>Told</th><th>Arrived</th><th>Left</th><th>On site</th><th>Items</th><th>Proof</th><th>Result</th>
+        <th>#</th><th>Customer</th><th>Told</th><th>ETA given</th><th>Arrived</th><th>Left</th><th>On site</th><th>Items</th><th>Proof</th><th>Result</th>
       </tr></thead><tbody>
       ${list.map(s=>`<tr>
         <td>${s.seq}</td>
         <td>${esc(s.customer||"—")}<div class="muted">${esc(s.suburb||"")}</div>
           ${s.notes?`<div class="muted">${esc(s.notes)}</div>`:""}</td>
         <td>${tm(s.notified_at)}</td>
+        <td>${s.eta_minutes?`${s.eta_minutes} min${s.eta_km?`<div class="muted">${s.eta_km} km</div>`:""}`:'<span class="muted">—</span>'}
+            ${s.minutes_texted_to_arrival!=null?`<div class="muted">took ${s.minutes_texted_to_arrival}</div>`:""}</td>
         <td>${tm(s.arrived_at)}${s.arrive_lat?` <a class="link" target="_blank"
              href="https://www.google.com/maps?q=${s.arrive_lat},${s.arrive_lng}">map</a>`:""}</td>
         <td>${tm(s.departed_at)}</td>

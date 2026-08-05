@@ -218,8 +218,13 @@ function projectReadyDate(r){
   const needPct=r.needPct||10;
   const runNeeded=r.runNeeded||5;
   // starting point: their next scheduled payment date
+  // Most orders carry a next_payment_date that has already passed, so project from
+  // tomorrow at the earliest - otherwise the forecast counts people as clearing in
+  // the past and overstates the list (this is why the tab used to read 78).
   let nd=r.nextDate?new Date(r.nextDate+'T12:00:00'):null;
   if(!nd) return null;
+  const tmrw=new Date(); tmrw.setDate(tmrw.getDate()+1); tmrw.setHours(12,0,0,0);
+  if(nd<tmrw) nd=tmrw;
   let paid=r.paid;
   let streak=r.cleanStreak;
   // step forward up to ~40 future payments looking for the crossover
@@ -265,7 +270,7 @@ async function load(quiet){
   const {data:rules}=await sb.from('delivery_rules').select('*').order('min_deposit_pct');
   // single source of truth for clearance — same view the home tile counts
   const {data:clr}=await sb.from('v_delivery_clearance')
-    .select('order_id,cleared,near_ready,clean_run,run_needed,need_pct');
+    .select('order_id,cleared,near_ready,clean_run,run_needed,need_pct,clears_soon,clears_on,payments_to_go');
   const CLR={}; (clr||[]).forEach(r=>{ CLR[r.order_id]=r; });
   RULES=rules||[];
   const {data:orders,error}=await sb.from('sim_orders')
@@ -315,7 +320,10 @@ async function load(quiet){
     const V = CLR[o.id] || null;                       // v_delivery_clearance row
     const {run:localRun} = cleanRun(pays,dishonours);
     const cleanStreak = V ? Number(V.clean_run) : localRun;
-    const isCleared   = V ? !!V.cleared : cleared(o,payAcct,pays,dishonours);
+    // cleared now, or will have cleared inside the booking window
+    const isCleared   = V ? (!!V.cleared || !!V.clears_soon) : cleared(o,payAcct,pays,dishonours);
+    const clearsOn    = V && !V.cleared && V.clears_soon ? V.clears_on : null;
+    const toGo        = V ? Number(V.payments_to_go||0) : null;
     const freq=payAcct.payment_frequency||o.payment_frequency||'weekly';
     const runNeeded   = V ? Number(V.run_needed) : cleanRunRequired(freq);
     // Requirements for full clearance: 10% paid AND N most-recent debits clean (N by freq) — OR 50% paid.
@@ -345,7 +353,7 @@ async function load(quiet){
       note:o.delivery_note||'',
       consultantNote:o.consultant_delivery_note||'',
       items, product:items.map(i=>(i.qty>1?i.qty+'× ':'')+i.name).join(', ')||'—',
-      cleared:isCleared,
+      cleared:isCleared, clearsOn, paymentsToGo:toGo,
       authorised:o.delivery_authorised===true,
       delivered:o.delivery_status==='delivered',
       overdue: !!o.delivery_date && o.delivery_status!=='delivered' && o.delivery_date < todayStr,
@@ -749,7 +757,10 @@ function renderList(view,mode){
   $('list').innerHTML=view.map((r,i)=>{
     const maps=r.address?`<a class="maplink" href="${mapLink(r.address)}" target="_blank" onclick="event.stopPropagation()">Open in Maps ↗</a>`:'';
     let right='', warn='';
-    if(mode==='ready') right=`<button class="btn gold noprint" onclick="event.stopPropagation();openBook('${r.id}','${esc(r.name).replace(/'/g,"\\'")}')">${r.overdue?'Rebook delivery':'Book delivery'}</button>`;
+    if(mode==='ready'){
+      const soon = r.clearsOn ? `<div class="k mt-1" style="color:#fbbf24">clears ${new Date(r.clearsOn).toLocaleDateString('en-NZ',{day:'numeric',month:'short'})}${r.paymentsToGo?` · ${r.paymentsToGo} payment${r.paymentsToGo==1?'':'s'} to go`:''}</div>` : '';
+      right=`<div class="text-right"><button class="btn gold noprint" onclick="event.stopPropagation();openBook('${r.id}','${esc(r.name).replace(/'/g,"\\'")}')">${r.overdue?'Rebook delivery':'Book delivery'}</button>${soon}</div>`;
+    }
     else if(mode==='near'){
       const shortfall=Math.max(0, (r.contract*r.needPct/100)-r.paid);
       right=`<div class="text-right"><div class="k">One payment away</div>

@@ -401,7 +401,16 @@ async function loadStrip(){
     const {count:ready}=await sb.from("v_delivery_clearance")
       .select("order_id",{count:"exact",head:true}).eq("ready_to_book",true);
     document.getElementById("sReady").textContent=ready ?? 0;
-    document.getElementById("sReadySub").textContent = ready ? "cleared for delivery" : "none right now";
+    // booked deliveries where the customer has slipped since booking
+    const {count:slipped}=await sb.from("v_booking_alerts")
+      .select("order_id",{count:"exact",head:true});
+    if(slipped){
+      const sub=document.getElementById("sReadySub");
+      sub.innerHTML = `<a href="driver-runs.html" style="color:#b4342e;font-weight:700;text-decoration:none">\u26A0 ${slipped} booked ${slipped==1?"delivery":"deliveries"} to check</a>`;
+      sub.dataset.alert="1";
+    }
+    if(!document.getElementById("sReadySub").dataset.alert)
+      document.getElementById("sReadySub").textContent = ready ? "cleared, or clearing soon" : "none right now";
   }catch(e){ document.getElementById("sReadySub").textContent=""; }
 
   try{
