@@ -271,6 +271,9 @@ async function load(quiet){
   // single source of truth for clearance — same view the home tile counts
   const {data:clr}=await sb.from('v_delivery_clearance')
     .select('order_id,cleared,near_ready,clean_run,run_needed,need_pct,clears_soon,clears_on,payments_to_go');
+  // delivery zones, so the ready list can be grouped into runnable areas
+  const {data:zn}=await sb.from('v_ready_by_zone').select('order_id,zone,suburb');
+  const ZONE={}; (zn||[]).forEach(z=>{ ZONE[z.order_id]={zone:z.zone, suburb:z.suburb}; });
   const CLR={}; (clr||[]).forEach(r=>{ CLR[r.order_id]=r; });
   RULES=rules||[];
   const {data:orders,error}=await sb.from('sim_orders')
@@ -354,6 +357,7 @@ async function load(quiet){
       consultantNote:o.consultant_delivery_note||'',
       items, product:items.map(i=>(i.qty>1?i.qty+'× ':'')+i.name).join(', ')||'—',
       cleared:isCleared, clearsOn, paymentsToGo:toGo,
+      zone:(ZONE[o.id]||{}).zone||'Unzoned', suburb:(ZONE[o.id]||{}).suburb||'',
       authorised:o.delivery_authorised===true,
       delivered:o.delivery_status==='delivered',
       overdue: !!o.delivery_date && o.delivery_status!=='delivered' && o.delivery_date < todayStr,
@@ -752,9 +756,45 @@ function renderForecast(){
   $('list').innerHTML=html;
 }
 
+function zoneSummary(view){
+  // one line per zone so the office can see where a run is worth doing
+  const by={};
+  view.forEach(r=>{ const z=r.zone||'Unzoned'; (by[z]=by[z]||{n:0,ready:0,subs:{}}); by[z].n++;
+    if(!r.clearsOn) by[z].ready++;
+    by[z].subs[r.suburb||'—']=(by[z].subs[r.suburb||'—']||0)+1; });
+  const zones=Object.entries(by).sort((a,b)=>b[1].n-a[1].n);
+  return `<div class="card mb-4"><div class="lbl mb-2">Where they are — pick a zone and fill the truck</div>
+    <div style="display:flex;flex-wrap:wrap;gap:8px">${zones.map(([z,v])=>`
+      <div style="border:1px solid #334155;border-radius:10px;padding:9px 12px;min-width:150px">
+        <div style="font-weight:700">${esc(z)} · ${v.n}</div>
+        <div class="k">${v.ready?`${v.ready} ready now · `:''}${Object.entries(v.subs).sort((a,b)=>b[1]-a[1])
+          .map(([s,n])=>`${esc(s)} ${n}`).join(' · ')}</div>
+      </div>`).join('')}</div></div>`;
+}
+
 function renderList(view,mode){
   if(!view.length){$('list').innerHTML=`<div class="text-center text-slate-500 py-16">Nothing here right now.</div>`;return;}
-  $('list').innerHTML=view.map((r,i)=>{
+  // ready list is grouped by zone; everything else stays a flat list
+  if(mode==='ready'){
+    const by={};
+    view.forEach(r=>{ const z=r.zone||'Unzoned'; (by[z]=by[z]||[]).push(r); });
+    const order=Object.keys(by).sort((a,b)=>by[b].length-by[a].length);
+    $('list').innerHTML = zoneSummary(view) + order.map(z=>{
+      const grp=by[z].slice().sort((a,b)=>(a.suburb||'').localeCompare(b.suburb||'')
+                || new Date(a.clearsOn||0)-new Date(b.clearsOn||0));
+      const readyNow=grp.filter(r=>!r.clearsOn).length;
+      return `<div class="mt-5 mb-2" style="display:flex;align-items:baseline;gap:10px">
+          <h3 style="font-size:15px;font-weight:800;color:#e2e8f0;margin:0">${esc(z)}</h3>
+          <span class="k">${grp.length} to book${readyNow?` · ${readyNow} cleared now`:''}</span>
+        </div>` + renderRows(grp,mode);
+    }).join('');
+    return;
+  }
+  $('list').innerHTML = renderRows(view,mode);
+}
+
+function renderRows(view,mode){
+  return view.map((r,i)=>{
     const maps=r.address?`<a class="maplink" href="${mapLink(r.address)}" target="_blank" onclick="event.stopPropagation()">Open in Maps ↗</a>`:'';
     let right='', warn='';
     if(mode==='ready'){
