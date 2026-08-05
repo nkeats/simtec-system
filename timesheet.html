@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
+<title>Simtec — Timesheet</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="auth.js?v=4" data-roles="admin,manager,office,warehouse,driver"></script>
+<style>
+  :root{ --navy:#012B60; --line:#d9dee6; --sub:#6b6a6f; --bg:#f4f6f9; --green:#1c6b34; --amber:#8a5b00; }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",sans-serif;background:var(--bg);color:#1c2430}
+  .top{background:var(--navy);color:#fff;padding:14px 18px;display:flex;align-items:center;gap:12px}
+  .top a{color:#c9d6ea;text-decoration:none;font-size:14px}
+  .top b{font-size:17px;letter-spacing:.5px}
+  .wrap{max-width:900px;margin:0 auto;padding:18px}
+  .card{background:#fff;border:1px solid var(--line);border-radius:14px;padding:18px;margin-bottom:16px}
+  h2{margin:0 0 4px;font-size:17px}
+  .muted{color:var(--sub);font-size:13px}
+  .big{font-size:40px;font-weight:800;letter-spacing:-1px;margin:6px 0}
+  button{font-family:inherit;cursor:pointer;border-radius:10px;border:1px solid var(--line);
+         background:#fff;color:var(--navy);font-size:15px;font-weight:600;padding:11px 16px}
+  button.primary{background:var(--green);color:#fff;border:none}
+  button.stop{background:#b4342e;color:#fff;border:none}
+  button.wide{width:100%;font-size:19px;font-weight:800;padding:20px}
+  button:disabled{opacity:.5;cursor:default}
+  input,select{font-family:inherit;font-size:16px;padding:10px 12px;border:1px solid var(--line);
+               border-radius:9px;width:100%;background:#fff}
+  label{display:block;font-size:12px;color:var(--sub);margin:10px 0 4px}
+  table{width:100%;border-collapse:collapse}
+  th{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--sub);text-align:left;
+     padding:8px 6px;border-bottom:1px solid var(--line)}
+  td{padding:9px 6px;border-bottom:1px solid #eef1f5;font-size:14px;vertical-align:top}
+  .chip{display:inline-block;padding:3px 9px;border-radius:20px;font-size:11.5px;font-weight:700;white-space:nowrap}
+  .ok{background:#e7f4ec;color:var(--green)} .wait{background:#fff5e0;color:var(--amber)}
+  .live{background:#e6efff;color:#123c8a}
+  .row{display:flex;gap:10px;flex-wrap:wrap}
+  .row>div{flex:1;min-width:120px}
+  .err{background:#fdecec;border:1px solid #e0b4b0;color:#b4342e;border-radius:9px;padding:10px 12px;
+       font-size:14px;margin-bottom:12px;display:none}
+  .tot{display:flex;justify-content:space-between;align-items:baseline;padding:9px 0;border-bottom:1px solid #eef1f5}
+  .tot b{font-size:16px}
+  .weeknav{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+  .weeknav button{padding:7px 12px;font-size:14px}
+</style>
+</head>
+<body>
+
+<div class="top">
+  <a href="home.html" id="homeLink" style="display:none">‹ Home</a>
+  <b>SIMTEC</b><span style="opacity:.75;font-size:14px">Timesheet</span>
+  <span style="margin-left:auto;font-size:13px;opacity:.8" id="who"></span>
+</div>
+
+<div class="wrap">
+  <div class="err" id="err"></div>
+  <div id="mine"></div>
+  <div id="office"></div>
+</div>
+
+<script>
+const sb = supabase.createClient(
+  "https://jvqjoenaungubpoegyvf.supabase.co",
+  "sb_publishable_J4MYTdJJyEaWe-GadpwdYA_upPT2rKw");
+const $ = id => document.getElementById(id);
+const esc = s => (s||"").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const showErr = m => { const e=$("err"); e.style.display = m ? "block" : "none"; e.textContent = m||""; };
+const hrs = n => (Number(n)||0).toFixed(2);
+const nzDate = d => new Date(d).toLocaleDateString("en-NZ",{weekday:"short",day:"numeric",month:"short"});
+const nzTime = d => d ? new Date(d).toLocaleTimeString("en-NZ",{hour:"2-digit",minute:"2-digit"}) : "—";
+function todayNZ(){
+  const p = new Intl.DateTimeFormat("en-CA",{timeZone:"Pacific/Auckland",year:"numeric",month:"2-digit",day:"2-digit"}).format(new Date());
+  return p;
+}
+function mondayOf(dateStr){
+  const d = new Date(dateStr+"T00:00:00");
+  const dow = (d.getDay()+6)%7;              // Monday = 0
+  d.setDate(d.getDate()-dow);
+  return d.toISOString().slice(0,10);
+}
+
+let ME = null, ROLE = null, OFFICE = false, WEEK = mondayOf(todayNZ()), OPEN = null;
+
+async function boot(){
+  ME = window.SIMTEC_USER || {};
+  ROLE = ME.role || "";
+  OFFICE = ["admin","manager","office","matt"].includes(ROLE);
+  $("who").textContent = (ME.full_name || ME.email || "") + (ROLE ? " · " + ROLE : "");
+  if (OFFICE) $("homeLink").style.display = "inline";
+  await refresh();
+}
+
+async function refresh(){
+  showErr("");
+  await renderMine();
+  if (OFFICE) await renderOffice();
+}
+
+/* ---------------- my hours (everyone sees this) ---------------- */
+async function renderMine(){
+  const from = new Date(); from.setDate(from.getDate()-21);
+  const { data, error } = await sb.from("v_timesheets").select("*")
+    .eq("user_id", ME.id).gte("work_date", from.toISOString().slice(0,10))
+    .order("work_date",{ascending:false}).order("clock_in",{ascending:false});
+  if (error) { showErr("Couldn't load your hours: " + error.message); return; }
+  const rows = data || [];
+  OPEN = rows.find(r => r.open_now) || null;
+
+  const wkStart = WEEK;
+  const wkRows = rows.filter(r => mondayOf(r.work_date) === mondayOf(todayNZ()));
+  const wkHours = wkRows.reduce((s,r)=> s + Number(r.hours||0), 0);
+
+  const clockCard = OPEN ? `
+    <div class="card" style="border-color:#123c8a">
+      <h2>You're clocked in</h2>
+      <div class="muted">Started ${nzTime(OPEN.clock_in)} · ${nzDate(OPEN.work_date)}</div>
+      <div class="big" id="running">—</div>
+      <label>Unpaid break (minutes)</label>
+      <input id="brk" type="number" min="0" step="5" value="30" inputmode="numeric">
+      <label>Note (optional)</label>
+      <input id="note" placeholder="e.g. Manukau run">
+      <div style="margin-top:14px"><button class="wide stop" onclick="clockOut()">Clock out</button></div>
+    </div>` : `
+    <div class="card">
+      <h2>Not clocked in</h2>
+      <div class="muted">Tap when you start work. You can add a shift by hand if you forget.</div>
+      <div style="margin-top:14px"><button class="wide primary" onclick="clockIn()">Clock in</button></div>
+    </div>`;
+
+  const list = rows.filter(r=>!r.open_now).map(r=>`
+    <tr>
+      <td>${nzDate(r.work_date)}<div class="muted">${nzTime(r.clock_in)} – ${nzTime(r.clock_out)}${r.break_minutes?` · ${r.break_minutes}m break`:""}</div>
+        ${r.note?`<div class="muted">${esc(r.note)}</div>`:""}</td>
+      <td style="text-align:right;font-weight:700">${hrs(r.hours)}</td>
+      <td style="text-align:right">${r.approved
+          ? '<span class="chip ok">Approved</span>'
+          : '<span class="chip wait">Waiting</span>'}</td>
+    </tr>`).join("") || `<tr><td colspan="3" class="muted">Nothing in the last three weeks.</td></tr>`;
+
+  $("mine").innerHTML = clockCard + `
+    <div class="card">
+      <h2>This week</h2>
+      <div class="big">${hrs(wkHours)} <span style="font-size:16px;font-weight:600;color:var(--sub)">hours</span></div>
+      <table><thead><tr><th>Shift</th><th style="text-align:right">Hours</th><th style="text-align:right">Status</th></tr></thead>
+      <tbody>${list}</tbody></table>
+    </div>
+    <div class="card">
+      <h2>Add a shift you forgot to clock</h2>
+      <div class="muted">Goes to the office to approve, same as any other shift.</div>
+      <div class="row">
+        <div><label>Date</label><input id="mDate" type="date" max="${todayNZ()}" value="${todayNZ()}"></div>
+        <div><label>Start</label><input id="mStart" type="time" value="08:00"></div>
+        <div><label>Finish</label><input id="mEnd" type="time" value="16:30"></div>
+        <div><label>Break (min)</label><input id="mBreak" type="number" min="0" step="5" value="30" inputmode="numeric"></div>
+      </div>
+      <label>Note (optional)</label><input id="mNote" placeholder="e.g. Forgot to clock in">
+      <div style="margin-top:14px"><button class="primary" onclick="addManual()">Add shift</button></div>
+    </div>`;
+  tick();
+}
+
+let TICK=null;
+function tick(){
+  if (TICK) clearInterval(TICK);
+  if (!OPEN) return;
+  const paint = () => {
+    const el = $("running"); if (!el) return;
+    const mins = Math.max(0, Math.floor((Date.now() - new Date(OPEN.clock_in).getTime())/60000));
+    el.textContent = `${Math.floor(mins/60)}h ${String(mins%60).padStart(2,"0")}m`;
+  };
+  paint(); TICK = setInterval(paint, 30000);
+}
+
+async function clockIn(){
+  showErr("");
+  const { data, error } = await sb.rpc("timesheet_clock_in");
+  if (error) return showErr(error.message);
+  if (data && data.ok === false) return showErr(data.error);
+  await refresh();
+}
+async function clockOut(){
+  showErr("");
+  const brk = Number(($("brk")||{}).value || 0);
+  const note = (($("note")||{}).value || "").trim();
+  const { data, error } = await sb.rpc("timesheet_clock_out", { p_break: brk, p_note: note });
+  if (error) return showErr(error.message);
+  if (data && data.ok === false) return showErr(data.error);
+  await refresh();
+}
+async function addManual(){
+  showErr("");
+  const { data, error } = await sb.rpc("timesheet_add_manual", {
+    p_date: $("mDate").value, p_start: $("mStart").value, p_end: $("mEnd").value,
+    p_break: Number($("mBreak").value||0), p_note: ($("mNote").value||"").trim() });
+  if (error) return showErr(error.message);
+  if (data && data.ok === false) return showErr(data.error);
+  await refresh();
+}
+
+/* ---------------- office approval ---------------- */
+function weekEnd(ws){ const d=new Date(ws+"T00:00:00"); d.setDate(d.getDate()+6); return d.toISOString().slice(0,10); }
+function shiftWeek(n){ const d=new Date(WEEK+"T00:00:00"); d.setDate(d.getDate()+7*n); WEEK=d.toISOString().slice(0,10); renderOffice(); }
+
+async function renderOffice(){
+  const { data, error } = await sb.from("v_timesheets").select("*")
+    .gte("work_date", WEEK).lte("work_date", weekEnd(WEEK))
+    .order("work_date").order("staff_name");
+  if (error) { showErr("Couldn't load timesheets: " + error.message); return; }
+  const rows = data || [];
+
+  const byStaff = {};
+  rows.forEach(r => { const k = r.staff_name || "—";
+    byStaff[k] = byStaff[k] || { hours:0, waiting:0, open:0 };
+    byStaff[k].hours += Number(r.hours||0);
+    if (!r.approved && !r.open_now) byStaff[k].waiting++;
+    if (r.open_now) byStaff[k].open++; });
+
+  const totals = Object.entries(byStaff).map(([n,v]) => `
+    <div class="tot"><span>${esc(n)}
+      ${v.open?' <span class="chip live">on now</span>':""}
+      ${v.waiting?` <span class="chip wait">${v.waiting} to approve</span>`:""}</span>
+      <b>${hrs(v.hours)} h</b></div>`).join("") ||
+    `<div class="muted">Nobody logged hours this week.</div>`;
+
+  const grand = rows.reduce((s,r)=> s+Number(r.hours||0), 0);
+  const pending = rows.filter(r=>!r.approved && !r.open_now);
+
+  const list = rows.map(r=>`
+    <tr>
+      <td>${esc(r.staff_name||"—")}<div class="muted">${esc(r.staff_role||"")}</div></td>
+      <td>${nzDate(r.work_date)}<div class="muted">${nzTime(r.clock_in)} – ${r.open_now?"still on":nzTime(r.clock_out)}${r.break_minutes?` · ${r.break_minutes}m`:""}</div>
+        ${r.note?`<div class="muted">${esc(r.note)}</div>`:""}
+        ${r.source==="manual"?'<span class="chip wait">added by hand</span>':""}</td>
+      <td style="text-align:right;font-weight:700">${r.open_now?"—":hrs(r.hours)}</td>
+      <td style="text-align:right">${
+        r.open_now ? '<span class="chip live">clocked in</span>'
+        : r.approved ? `<span class="chip ok">Approved</span>
+             <div><button style="padding:4px 9px;font-size:12px;margin-top:5px" onclick="approve('${r.id}',false)">Undo</button></div>`
+        : `<button class="primary" style="padding:7px 12px;font-size:13px" onclick="approve('${r.id}',true)">Approve</button>`}</td>
+    </tr>`).join("") || `<tr><td colspan="4" class="muted">No shifts this week.</td></tr>`;
+
+  $("office").innerHTML = `
+    <div class="card">
+      <div class="weeknav">
+        <button onclick="shiftWeek(-1)">‹ Prev</button>
+        <b>Week of ${nzDate(WEEK)}</b>
+        <button onclick="shiftWeek(1)">Next ›</button>
+        <span style="margin-left:auto" class="muted">${hrs(grand)} h total</span>
+      </div>
+      ${totals}
+      ${pending.length?`<div style="margin-top:14px"><button class="primary" onclick="approveAll()">Approve all ${pending.length} waiting</button></div>`:""}
+    </div>
+    <div class="card">
+      <h2>Every shift this week</h2>
+      <table><thead><tr><th>Who</th><th>Shift</th><th style="text-align:right">Hours</th><th style="text-align:right">Status</th></tr></thead>
+      <tbody>${list}</tbody></table>
+    </div>`;
+}
+
+async function approve(id, yes){
+  showErr("");
+  const { data, error } = await sb.rpc("timesheet_approve", { p_id: id, p_approved: yes });
+  if (error) return showErr(error.message);
+  if (data && data.ok === false) return showErr(data.error);
+  await refresh();
+}
+async function approveAll(){
+  const { data } = await sb.from("v_timesheets").select("id")
+    .gte("work_date", WEEK).lte("work_date", weekEnd(WEEK))
+    .eq("approved", false).not("clock_out","is",null);
+  for (const r of (data||[])) await sb.rpc("timesheet_approve", { p_id: r.id, p_approved: true });
+  await refresh();
+}
+
+/* auth.js sets window.SIMTEC_USER before this runs on a normal load; if it
+   hasn't yet (slow profile read), wait for it rather than showing nothing. */
+(function start(){
+  if (window.SIMTEC_USER) return boot();
+  let n = 0;
+  const t = setInterval(() => { if (window.SIMTEC_USER || ++n > 40) { clearInterval(t); boot(); } }, 150);
+})();
+</script>
+</body>
+</html>

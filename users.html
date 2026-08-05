@@ -60,6 +60,7 @@
           <option value="manager">Manager</option>
           <option value="admin">Admin</option>
           <option value="driver">Driver</option>
+          <option value="warehouse">Warehouse</option>
           <option value="consultant">Consultant</option>
           <option value="matt">Matt (read-only dashboard)</option>
         </select></div>
@@ -83,7 +84,7 @@
 <script>
 const sb = supabase.createClient("https://jvqjoenaungubpoegyvf.supabase.co","sb_publishable_J4MYTdJJyEaWe-GadpwdYA_upPT2rKw");
 const $=id=>document.getElementById(id);
-const ROLES=["office","manager","admin","driver","consultant","matt"];
+const ROLES=["office","manager","admin","driver","warehouse","consultant","matt"];
 function show(t,ok){ const m=$("msg"); m.style.display="block"; m.className=ok?"msgok":"msgerr"; m.textContent=t; window.scrollTo({top:0,behavior:"smooth"}); }
 function clearMsg(){ $("msg").style.display="none"; }
 function esc(s){ return (s||"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
