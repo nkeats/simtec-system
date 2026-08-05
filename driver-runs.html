@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Simtec — Delivery runs</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="auth.js?v=4" data-roles="admin,manager,office"></script>
+<style>
+  :root{ --navy:#012B60; --line:#d9dee6; --sub:#6b6a6f; --bg:#f4f6f9; --green:#1c6b34;
+         --amber:#8a5b00; --red:#b4342e; --blue:#123c8a; }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",sans-serif;background:var(--bg);color:#1c2430}
+  .top{background:var(--navy);color:#fff;padding:13px 18px;display:flex;align-items:center;gap:12px}
+  .top a{color:#c9d6ea;text-decoration:none;font-size:14px}
+  .wrap{max-width:1080px;margin:0 auto;padding:18px}
+  .card{background:#fff;border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:16px}
+  h2{margin:0 0 8px;font-size:16px}
+  .muted{color:var(--sub);font-size:13px}
+  button{font-family:inherit;cursor:pointer;border-radius:9px;border:1px solid var(--line);background:#fff;
+         color:var(--navy);font-size:14px;font-weight:600;padding:9px 13px}
+  button.primary{background:var(--green);color:#fff;border:none}
+  input,select{font-family:inherit;font-size:15px;padding:9px 11px;border:1px solid var(--line);border-radius:9px;background:#fff}
+  table{width:100%;border-collapse:collapse}
+  th{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--sub);text-align:left;
+     padding:8px 6px;border-bottom:1px solid var(--line)}
+  td{padding:9px 6px;border-bottom:1px solid #eef1f5;font-size:14px;vertical-align:top}
+  .chip{display:inline-block;padding:3px 9px;border-radius:20px;font-size:11.5px;font-weight:700;white-space:nowrap}
+  .ok{background:#e7f4ec;color:var(--green)} .go{background:#e6efff;color:var(--blue)}
+  .bad{background:#fdecec;color:var(--red)} .wait{background:#fff5e0;color:var(--amber)}
+  .bar{height:8px;border-radius:5px;background:#eef1f5;overflow:hidden;margin:8px 0}
+  .bar>i{display:block;height:100%;background:var(--green)}
+  .err{background:#fdecec;border:1px solid #e0b4b0;color:var(--red);border-radius:9px;padding:10px 12px;
+       font-size:14px;margin-bottom:12px;display:none}
+  a.link{color:var(--blue);text-decoration:none;font-weight:600}
+</style>
+</head>
+<body>
+
+<div class="top">
+  <a href="home.html">‹ Home</a><b style="font-size:16px;letter-spacing:.5px">SIMTEC</b>
+  <span style="opacity:.8;font-size:14px">Delivery runs</span>
+  <button style="margin-left:auto;background:transparent;color:#c9d6ea;border-color:#33507e" onclick="load()">↻ Refresh</button>
+</div>
+
+<div class="wrap">
+  <div class="err" id="err"></div>
+
+  <div class="card">
+    <h2>Plan a run</h2>
+    <div class="muted">Builds a run from every delivery booked for that date, in time-slot then suburb order.
+      Anything already on a run for that day is left alone.</div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-top:12px">
+      <div><div class="muted">Date</div><input type="date" id="pDate"></div>
+      <div><div class="muted">Driver</div><select id="pDriver"></select></div>
+      <div><div class="muted">Vehicle</div><input id="pVehicle" placeholder="Truck 1" style="width:130px"></div>
+      <button class="primary" onclick="buildRun()">Build the run</button>
+    </div>
+  </div>
+
+  <div id="runs"></div>
+</div>
+
+<script>
+const sb = supabase.createClient("https://jvqjoenaungubpoegyvf.supabase.co",
+  "sb_publishable_J4MYTdJJyEaWe-GadpwdYA_upPT2rKw");
+const $ = id => document.getElementById(id);
+const esc = s => (s||"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const showErr = m => { const e=$("err"); e.style.display=m?"block":"none"; e.textContent=m||""; };
+const tm = d => d ? new Date(d).toLocaleTimeString("en-NZ",{hour:"2-digit",minute:"2-digit"}) : "—";
+const todayNZ = () => new Intl.DateTimeFormat("en-CA",{timeZone:"Pacific/Auckland"}).format(new Date());
+
+let DRIVERS = [];
+
+async function boot(){
+  $("pDate").value = todayNZ();
+  const { data } = await sb.from("profiles").select("id,full_name,email,role")
+    .in("role",["driver","warehouse","admin","manager","office"]).eq("active",true).order("full_name");
+  DRIVERS = data||[];
+  $("pDriver").innerHTML = DRIVERS.map(d=>`<option value="${d.id}">${esc(d.full_name||d.email)} · ${esc(d.role)}</option>`).join("");
+  await load();
+}
+
+async function buildRun(){
+  showErr("");
+  const { data, error } = await sb.rpc("driver_build_run", {
+    p_date: $("pDate").value, p_driver: $("pDriver").value, p_vehicle: ($("pVehicle").value||"").trim()||null });
+  if(error) return showErr(error.message);
+  if(data && data.ok===false) return showErr(data.error);
+  await load();
+}
+
+async function load(){
+  const from = $("pDate").value || todayNZ();
+  const { data:runs, error } = await sb.from("v_driver_runs").select("*").eq("run_date", from).order("driver_name");
+  if(error) return showErr(error.message);
+  if(!runs || !runs.length){
+    $("runs").innerHTML = `<div class="card"><h2>No runs for ${esc(from)}</h2>
+      <div class="muted">Build one above, or pick another date.</div></div>`; return;
+  }
+  const ids = runs.map(r=>r.id);
+  const { data:stops } = await sb.from("v_driver_stops").select("*").in("run_id", ids).order("seq");
+  const byRun = {}; (stops||[]).forEach(s=>{ (byRun[s.run_id]=byRun[s.run_id]||[]).push(s); });
+
+  $("runs").innerHTML = runs.map(r=>{
+    const list = byRun[r.id]||[];
+    const pct = r.stops ? Math.round((r.done+r.failed)/r.stops*100) : 0;
+    const state = r.status==="active" ? '<span class="chip go">On the road</span>'
+                : r.status==="done" ? '<span class="chip ok">Finished</span>'
+                : '<span class="chip wait">Not started</span>';
+    return `<div class="card">
+      <div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap">
+        <h2 style="margin:0">${esc(r.driver_name||"—")} ${state}</h2>
+        <span class="muted">${esc(r.vehicle||"")} · started ${tm(r.started_at)}${r.ended_at?` · finished ${tm(r.ended_at)}`:""}
+          · ${r.hours_on_road??0} h on road · ${r.break_minutes} min break</span>
+      </div>
+      <div class="bar"><i style="width:${pct}%"></i></div>
+      <div class="muted">${r.done} delivered${r.failed?`, ${r.failed} not completed`:""} of ${r.stops}</div>
+      <table style="margin-top:10px"><thead><tr>
+        <th>#</th><th>Customer</th><th>Told</th><th>Arrived</th><th>Left</th><th>On site</th><th>Items</th><th>Proof</th><th>Result</th>
+      </tr></thead><tbody>
+      ${list.map(s=>`<tr>
+        <td>${s.seq}</td>
+        <td>${esc(s.customer||"—")}<div class="muted">${esc(s.suburb||"")}</div>
+          ${s.notes?`<div class="muted">${esc(s.notes)}</div>`:""}</td>
+        <td>${tm(s.notified_at)}</td>
+        <td>${tm(s.arrived_at)}${s.arrive_lat?` <a class="link" target="_blank"
+             href="https://www.google.com/maps?q=${s.arrive_lat},${s.arrive_lng}">map</a>`:""}</td>
+        <td>${tm(s.departed_at)}</td>
+        <td>${s.minutes_on_site!=null?s.minutes_on_site+" min":"—"}</td>
+        <td>${s.items_ticked}/${s.item_count}</td>
+        <td>${s.photo_count?`<a class="link" href="#" onclick="proof('${s.id}');return false">${s.photo_count} photo${s.photo_count==1?"":"s"}</a>`:'<span class="muted">—</span>'}
+            ${s.signature_path?` <a class="link" href="#" onclick="sig('${esc(s.signature_path)}');return false">signature</a>`:""}</td>
+        <td>${s.status==="done"?'<span class="chip ok">'+esc(s.outcome||"delivered")+'</span>'
+             : s.status==="failed"?'<span class="chip bad">'+esc(s.outcome||"not done")+'</span>'
+             : s.status==="arrived"?'<span class="chip go">on site</span>'
+             : s.status==="en_route"?'<span class="chip go">on the way</span>'
+             : '<span class="muted">waiting</span>'}</td>
+      </tr>`).join("")}
+      </tbody></table>
+    </div>`;
+  }).join("");
+}
+
+async function signedUrl(path){
+  const { data, error } = await sb.storage.from("delivery-proof").createSignedUrl(path, 300);
+  if(error){ showErr("Couldn't open that file: "+error.message); return null; }
+  return data.signedUrl;
+}
+async function sig(path){ const u = await signedUrl(path); if(u) window.open(u,"_blank"); }
+async function proof(stopId){
+  const { data } = await sb.from("driver_photos").select("path").eq("stop_id",stopId).order("taken_at");
+  for(const p of (data||[])){ const u = await signedUrl(p.path); if(u) window.open(u,"_blank"); }
+}
+
+boot();
+</script>
+</body>
+</html>

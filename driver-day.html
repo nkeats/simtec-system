@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover">
+<title>Simtec — Driver</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  :root{ --navy:#012B60; --line:#d9dee6; --sub:#6b6a6f; --bg:#f4f6f9; --green:#1c6b34;
+         --amber:#8a5b00; --red:#b4342e; --blue:#123c8a; }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",sans-serif;background:var(--bg);
+       color:#1c2430;-webkit-text-size-adjust:100%}
+  .top{background:var(--navy);color:#fff;padding:14px 16px;display:flex;align-items:center;gap:10px;
+       position:sticky;top:0;z-index:5}
+  .top b{font-size:16px;letter-spacing:.5px}
+  .wrap{max-width:760px;margin:0 auto;padding:14px}
+  .card{background:#fff;border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:14px}
+  h2{margin:0 0 6px;font-size:16px}
+  .muted{color:var(--sub);font-size:13px}
+  button{font-family:inherit;cursor:pointer;border-radius:11px;border:1px solid var(--line);
+         background:#fff;color:var(--navy);font-size:15px;font-weight:600;padding:12px 15px}
+  button.primary{background:var(--green);color:#fff;border:none}
+  button.blue{background:var(--blue);color:#fff;border:none}
+  button.warn{background:var(--amber);color:#fff;border:none}
+  button.stop{background:var(--red);color:#fff;border:none}
+  button.wide{width:100%;font-size:18px;font-weight:800;padding:18px;margin-top:8px}
+  button:disabled{opacity:.5}
+  input,select,textarea{font-family:inherit;font-size:16px;padding:11px 12px;border:1px solid var(--line);
+        border-radius:10px;width:100%;background:#fff}
+  label{display:block;font-size:12px;color:var(--sub);margin:10px 0 4px}
+  .chip{display:inline-block;padding:3px 9px;border-radius:20px;font-size:11.5px;font-weight:700}
+  .ok{background:#e7f4ec;color:var(--green)} .wait{background:#fff5e0;color:var(--amber)}
+  .go{background:#e6efff;color:var(--blue)} .bad{background:#fdecec;color:var(--red)}
+  .stopcard{display:flex;gap:12px;align-items:flex-start;padding:13px 0;border-bottom:1px solid #eef1f5}
+  .seq{width:30px;height:30px;border-radius:50%;background:var(--navy);color:#fff;display:flex;
+       align-items:center;justify-content:center;font-weight:800;font-size:14px;flex:0 0 auto}
+  .seq.done{background:var(--green)} .seq.failed{background:var(--red)} .seq.now{background:var(--blue)}
+  .err{background:#fdecec;border:1px solid #e0b4b0;color:var(--red);border-radius:10px;padding:11px;
+       font-size:14px;margin-bottom:12px;display:none}
+  .banner{background:#e6efff;border:1px solid #b9cdf0;color:var(--blue);border-radius:10px;padding:10px 12px;
+          font-size:13px;margin-bottom:12px}
+  .row{display:flex;gap:9px;flex-wrap:wrap}
+  .row>*{flex:1}
+  .tick{display:flex;align-items:center;gap:11px;padding:12px 0;border-bottom:1px solid #eef1f5;font-size:15px}
+  .tick input{width:24px;height:24px;flex:0 0 auto}
+  canvas{border:1px dashed var(--line);border-radius:10px;background:#fff;touch-action:none;width:100%;height:150px}
+  a.call{color:var(--blue);font-weight:700;text-decoration:none}
+  .gps{font-size:11px;color:var(--sub)}
+</style>
+</head>
+<body>
+
+<div class="top">
+  <b>SIMTEC</b><span style="opacity:.8;font-size:14px">Driver</span>
+  <span style="margin-left:auto;font-size:12px;opacity:.85" id="who"></span>
+</div>
+
+<div class="wrap">
+  <div class="err" id="err"></div>
+  <div id="view"></div>
+</div>
+
+<script>
+const SB_URL = "https://jvqjoenaungubpoegyvf.supabase.co";
+const SB_KEY = "sb_publishable_J4MYTdJJyEaWe-GadpwdYA_upPT2rKw";
+const sb = supabase.createClient(SB_URL, SB_KEY);
+const $ = id => document.getElementById(id);
+const esc = s => (s||"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const showErr = m => { const e=$("err"); e.style.display=m?"block":"none"; e.textContent=m||""; };
+const tm = d => d ? new Date(d).toLocaleTimeString("en-NZ",{hour:"2-digit",minute:"2-digit"}) : "—";
+
+let ME=null, ROLE=null, RUN=null, STOPS=[], ONBREAK=false, PING=null, CURRENT=null;
+
+/* ---------------- location ---------------- */
+function here(timeout=8000){
+  return new Promise(res=>{
+    if(!navigator.geolocation) return res({lat:null,lng:null});
+    navigator.geolocation.getCurrentPosition(
+      p => res({lat:+p.coords.latitude.toFixed(6), lng:+p.coords.longitude.toFixed(6),
+                acc:p.coords.accuracy, speed:p.coords.speed}),
+      () => res({lat:null,lng:null}), {enableHighAccuracy:true, timeout, maximumAge:5000});
+  });
+}
+function startPings(){
+  if(PING) clearInterval(PING);
+  const send = async () => { const p = await here(6000);
+    if(p.lat!=null) sb.rpc("driver_ping",{p_lat:p.lat,p_lng:p.lng,p_acc:p.acc||null,p_speed:p.speed||null}); };
+  send(); PING = setInterval(send, 60000);          // a ping a minute while the app is open
+}
+
+/* ---------------- sign in with an emailed code ---------------- */
+function loginView(step, email){
+  $("view").innerHTML = step==="code" ? `
+    <div class="card">
+      <h2>Check your email</h2>
+      <div class="muted">We sent a 6-digit code to ${esc(email)}. It expires in an hour.</div>
+      <label>Code</label>
+      <input id="code" inputmode="numeric" autocomplete="one-time-code" placeholder="123456">
+      <button class="wide primary" onclick="verifyCode('${esc(email)}')">Sign in</button>
+      <button class="wide" onclick="loginView('email')">Use a different email</button>
+    </div>` : `
+    <div class="card">
+      <h2>Good morning</h2>
+      <div class="muted">Enter your work email and we'll text a code to it.</div>
+      <label>Email</label>
+      <input id="email" type="email" inputmode="email" autocomplete="email" placeholder="you@simtectp.com">
+      <button class="wide primary" onclick="sendCode()">Send me a code</button>
+    </div>`;
+}
+async function sendCode(){
+  showErr("");
+  const email = ($("email").value||"").trim().toLowerCase();
+  if(!email) return showErr("Enter your email address.");
+  const { error } = await sb.auth.signInWithOtp({ email, options:{ shouldCreateUser:false } });
+  if(error) return showErr(error.message.includes("not found") ? "That email isn't set up yet — ask the office." : error.message);
+  loginView("code", email);
+}
+async function verifyCode(email){
+  showErr("");
+  const token = ($("code").value||"").trim();
+  if(!token) return showErr("Enter the code from your email.");
+  const { error } = await sb.auth.verifyOtp({ email, token, type:"email" });
+  if(error) return showErr("That code didn't work. Check it, or send a new one.");
+  boot();
+}
+
+/* ---------------- boot ---------------- */
+async function boot(){
+  showErr("");
+  const { data:{ session } } = await sb.auth.getSession();
+  if(!session) return loginView("email");
+  const { data:prof } = await sb.from("profiles").select("role,full_name,email,active").eq("id",session.user.id).maybeSingle();
+  if(prof && prof.active===false){ await sb.auth.signOut(); return loginView("email"); }
+  ME = { id:session.user.id, name:(prof&&prof.full_name)||session.user.email };
+  ROLE = (prof&&prof.role)||"";
+  $("who").textContent = ME.name;
+  await load();
+}
+
+async function load(){
+  const today = new Intl.DateTimeFormat("en-CA",{timeZone:"Pacific/Auckland"}).format(new Date());
+  const { data:runs } = await sb.from("v_driver_runs").select("*").eq("driver_id",ME.id).eq("run_date",today).limit(1);
+  RUN = (runs||[])[0] || null;
+  if(RUN){
+    const { data:stops } = await sb.from("v_driver_stops").select("*").eq("run_id",RUN.id).order("seq");
+    STOPS = stops||[];
+    const { data:br } = await sb.from("driver_breaks").select("id").eq("run_id",RUN.id).is("ended_at",null);
+    ONBREAK = !!(br&&br.length);
+    if(RUN.status==="active") startPings();
+  } else { STOPS=[]; }
+  render();
+}
+
+/* ---------------- main screens ---------------- */
+function render(){
+  if(CURRENT) return renderStop();
+  if(!RUN) return $("view").innerHTML = `
+    <div class="card"><h2>No run today</h2>
+      <div class="muted">The office hasn't set up a run for you yet. Give them a call if that's not right.</div>
+      <button class="wide" onclick="load()">Check again</button>
+      <button class="wide" onclick="signOut()">Sign out</button></div>`;
+
+  if(RUN.status==="planned") return $("view").innerHTML = `
+    <div class="card">
+      <h2>${RUN.stops} stop${RUN.stops==1?"":"s"} today</h2>
+      <div class="muted">${esc(RUN.vehicle||"")} · tap below when you're ready to leave. This starts your timesheet.</div>
+      <button class="wide primary" onclick="startDay()">Start my day</button>
+    </div>` + stopList();
+
+  if(RUN.status==="done") return $("view").innerHTML = `
+    <div class="card"><h2>Day finished</h2>
+      <div class="muted">${RUN.done} delivered${RUN.failed?`, ${RUN.failed} not completed`:""} ·
+        ${RUN.hours_on_road||0} hours · ${RUN.break_minutes} min break. Your timesheet is with the office.</div>
+      <button class="wide" onclick="signOut()">Sign out</button></div>` + stopList();
+
+  const nextStop = STOPS.find(s=>s.status==="pending"||s.status==="en_route"||s.status==="arrived");
+  $("view").innerHTML = `
+    ${ONBREAK?`<div class="banner">On a break — nothing is being recorded against a stop.</div>`:""}
+    <div class="card">
+      <h2>${RUN.done} of ${RUN.stops} done</h2>
+      <div class="muted">Started ${tm(RUN.started_at)} · ${esc(RUN.vehicle||"")}</div>
+      <div class="row" style="margin-top:12px">
+        ${ONBREAK
+          ? `<button class="primary" onclick="brk(false)">Finish break</button>`
+          : `<button class="warn" onclick="brk(true)">Take a break</button>`}
+        <button class="stop" onclick="endDay()">End my day</button>
+      </div>
+    </div>
+    ${nextStop && !ONBREAK ? `
+      <div class="card" style="border-color:var(--blue)">
+        <div class="muted">NEXT STOP</div>
+        <h2>${esc(nextStop.customer||"—")}</h2>
+        <div class="muted">${esc(nextStop.address||"")}${nextStop.suburb?", "+esc(nextStop.suburb):""}</div>
+        <button class="wide blue" onclick="openStop('${nextStop.id}')">Open this stop</button>
+      </div>`:""}
+    ${stopList()}`;
+}
+
+function stopList(){
+  const rows = STOPS.map(s=>{
+    const cls = s.status==="done"?"done":s.status==="failed"?"failed":
+                (s.status==="en_route"||s.status==="arrived")?"now":"";
+    const chip = s.status==="done"?'<span class="chip ok">Delivered</span>'
+      : s.status==="failed"?`<span class="chip bad">${esc(s.outcome||"not done")}</span>`
+      : s.status==="arrived"?'<span class="chip go">On site</span>'
+      : s.status==="en_route"?'<span class="chip go">On the way</span>':"";
+    return `<div class="stopcard" onclick="openStop('${s.id}')">
+      <div class="seq ${cls}">${s.seq}</div>
+      <div style="flex:1">
+        <div style="font-weight:700">${esc(s.customer||"—")} ${chip}</div>
+        <div class="muted">${esc(s.address||"")}${s.suburb?", "+esc(s.suburb):""}</div>
+        <div class="muted">${s.item_count} item${s.item_count==1?"":"s"}${s.delivery_time?" · "+esc(s.delivery_time):""}
+          ${s.minutes_on_site!=null?` · ${s.minutes_on_site} min on site`:""}</div>
+      </div></div>`;}).join("");
+  return `<div class="card"><h2>Today's stops</h2>${rows||'<div class="muted">Nothing loaded.</div>'}</div>`;
+}
+
+/* ---------------- one stop ---------------- */
+async function openStop(id){
+  CURRENT = STOPS.find(s=>s.id===id);
+  if(!CURRENT) return;
+  const { data:items } = await sb.from("driver_stop_items").select("*").eq("stop_id",id).order("product_name");
+  CURRENT._items = items||[];
+  renderStop();
+}
+function renderStop(){
+  const s = CURRENT;
+  const done = s.status==="done"||s.status==="failed";
+  const maps = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent((s.address||"")+" "+(s.suburb||""))}`;
+  $("view").innerHTML = `
+    <div class="card">
+      <button onclick="CURRENT=null;render()" style="margin-bottom:10px">‹ Back to run</button>
+      <h2>${s.seq}. ${esc(s.customer||"—")}</h2>
+      <div class="muted">${esc(s.address||"")}${s.suburb?", "+esc(s.suburb):""}</div>
+      <div style="margin-top:8px">
+        ${s.mobile?`<a class="call" href="tel:${esc((s.mobile||"").replace(/\s/g,""))}">${esc(s.mobile)}</a> · `:""}
+        <a class="call" href="${maps}" target="_blank">Directions</a>
+      </div>
+      ${s.delivery_note?`<div class="banner" style="margin-top:10px">${esc(s.delivery_note)}</div>`:""}
+      <div class="gps" style="margin-top:8px">
+        ${s.notified_at?`Texted ${tm(s.notified_at)} · `:""}${s.arrived_at?`Arrived ${tm(s.arrived_at)} · `:""}
+        ${s.departed_at?`Left ${tm(s.departed_at)}`:""}
+      </div>
+    </div>
+
+    ${done?`<div class="card"><h2>Finished</h2>
+        <div class="muted">${esc(s.outcome||"")}${s.notes?" — "+esc(s.notes):""} ·
+        ${s.items_ticked}/${s.item_count} items · ${s.photo_count} photo${s.photo_count==1?"":"s"}</div></div>`:`
+    <div class="card">
+      <h2>On the way</h2>
+      <div class="muted">Tap Next when you leave for this stop — it texts the customer that you're 15-20 minutes away.</div>
+      <button class="wide blue" onclick="nextStop()" ${s.notified_at?"disabled":""}>
+        ${s.notified_at?"Customer already told":"NEXT — tell them we're coming"}</button>
+      <button class="wide" onclick="arrive()" ${s.arrived_at?"disabled":""}>
+        ${s.arrived_at?"Arrived "+tm(s.arrived_at):"I've arrived"}</button>
+    </div>
+
+    <div class="card">
+      <h2>What's going in</h2>
+      ${s._items.map(i=>`<label class="tick">
+          <input type="checkbox" ${i.delivered?"checked":""} onchange="tick('${i.id}',this.checked)">
+          <span>${esc(i.product_name)}${i.quantity>1?` ×${i.quantity}`:""}</span></label>`).join("")
+        || '<div class="muted">No items listed on this order.</div>'}
+    </div>
+
+    <div class="card">
+      <h2>Proof</h2>
+      <label>Photo (of the delivery or where you left it)</label>
+      <input type="file" accept="image/*" capture="environment" onchange="uploadPhoto(this)">
+      <div class="muted" id="photoState">${s.photo_count} taken</div>
+      <label>Customer signature</label>
+      <canvas id="sig"></canvas>
+      <div class="row" style="margin-top:8px">
+        <button onclick="clearSig()">Clear</button>
+        <button class="primary" onclick="saveSig()">Save signature</button>
+      </div>
+      <div class="muted" id="sigState">${s.signature_path?"Signature saved":"Not signed yet"}</div>
+    </div>
+
+    <div class="card">
+      <h2>Finish this stop</h2>
+      <label>Notes (optional)</label>
+      <textarea id="notes" rows="2" placeholder="e.g. left in front bedroom"></textarea>
+      <button class="wide primary" onclick="finish('delivered')">All delivered</button>
+      <div class="row" style="margin-top:8px">
+        <button onclick="finish('part')">Part delivered</button>
+        <button onclick="finish('not_home')">Not home</button>
+      </div>
+      <div class="row" style="margin-top:8px">
+        <button onclick="finish('refused')">Refused</button>
+        <button onclick="finish('wrong_address')">Wrong address</button>
+        <button onclick="finish('damaged')">Damaged</button>
+      </div>
+    </div>`}`;
+  if(!done) initSig();
+}
+
+/* ---------------- actions ---------------- */
+async function rpc(fn, args){
+  const { data, error } = await sb.rpc(fn, args||{});
+  if(error){ showErr(error.message); return null; }
+  if(data && data.ok===false){ showErr(data.error||"That didn't work"); return null; }
+  return data||{};
+}
+async function startDay(){
+  const p = await here();
+  if(!await rpc("driver_start_run",{p_lat:p.lat,p_lng:p.lng,p_vehicle:RUN.vehicle})) return;
+  startPings(); await load();
+}
+async function endDay(){
+  if(!confirm("End your day? This finishes your timesheet too.")) return;
+  const p = await here();
+  const r = await rpc("driver_end_run",{p_lat:p.lat,p_lng:p.lng});
+  if(!r) return;
+  if(PING) clearInterval(PING);
+  CURRENT=null; await load();
+}
+async function brk(start){
+  const p = await here();
+  if(!await rpc("driver_break",{p_start:start,p_lat:p.lat,p_lng:p.lng})) return;
+  await load();
+}
+async function nextStop(){
+  showErr("");
+  const p = await here();
+  const r = await rpc("driver_next_stop",{p_stop:CURRENT.id,p_lat:p.lat,p_lng:p.lng});
+  if(!r) return;
+  if(!r.mobile){ showErr("No mobile number for this customer — give them a ring instead."); return; }
+  const { data, error } = await sb.functions.invoke("hyper-handler",{ body:{ mobile:r.mobile, message:r.message } });
+  if(error || (data&&data.error)){ showErr("Couldn't send the text: " + ((data&&data.error)||error.message)); return; }
+  await rpc("driver_mark_notified",{p_stop:CURRENT.id,p_ok:true});
+  await refreshStop();
+}
+async function arrive(){
+  const p = await here();
+  if(!await rpc("driver_arrive",{p_stop:CURRENT.id,p_lat:p.lat,p_lng:p.lng})) return;
+  await refreshStop();
+}
+async function tick(id, val){ await rpc("driver_tick_item",{p_item:id,p_delivered:val}); }
+async function finish(outcome){
+  const nice = {delivered:"all delivered",part:"part delivered",not_home:"not home",
+                refused:"refused",wrong_address:"wrong address",damaged:"damaged"}[outcome];
+  if(!confirm(`Finish this stop as "${nice}"?`)) return;
+  const p = await here();
+  const notes = ($("notes")&&$("notes").value||"").trim();
+  if(!await rpc("driver_complete_stop",{p_stop:CURRENT.id,p_outcome:outcome,p_notes:notes,
+        p_lat:p.lat,p_lng:p.lng,p_signature:null})) return;
+  CURRENT=null; await load();
+}
+async function refreshStop(){
+  const id = CURRENT.id;
+  const { data } = await sb.from("v_driver_stops").select("*").eq("id",id).maybeSingle();
+  if(data){ const items = CURRENT._items; CURRENT = data; CURRENT._items = items; }
+  const idx = STOPS.findIndex(s=>s.id===id); if(idx>=0 && data) STOPS[idx]=data;
+  renderStop();
+}
+
+/* ---------------- proof ---------------- */
+async function uploadPhoto(input){
+  const f = input.files && input.files[0]; if(!f) return;
+  $("photoState").textContent = "Uploading…";
+  const p = await here(4000);
+  const path = `${CURRENT.run_id}/${CURRENT.id}/photo-${Date.now()}.jpg`;
+  const { error } = await sb.storage.from("delivery-proof").upload(path, f, {contentType:f.type||"image/jpeg"});
+  if(error){ $("photoState").textContent = "Upload failed — try again"; return; }
+  await sb.from("driver_photos").insert({stop_id:CURRENT.id, path, lat:p.lat, lng:p.lng});
+  $("photoState").textContent = "Photo saved";
+}
+let SIGCTX=null, DRAWN=false;
+function initSig(){
+  const c = $("sig"); if(!c) return;
+  const r = c.getBoundingClientRect();
+  c.width = r.width*2; c.height = r.height*2;
+  SIGCTX = c.getContext("2d"); SIGCTX.scale(2,2);
+  SIGCTX.lineWidth=2; SIGCTX.lineCap="round"; SIGCTX.strokeStyle="#12203a";
+  let drawing=false;
+  const pos = e => { const b=c.getBoundingClientRect(); const t=e.touches?e.touches[0]:e;
+                     return {x:t.clientX-b.left, y:t.clientY-b.top}; };
+  const down = e => { drawing=true; DRAWN=true; const p=pos(e); SIGCTX.beginPath(); SIGCTX.moveTo(p.x,p.y); e.preventDefault(); };
+  const move = e => { if(!drawing) return; const p=pos(e); SIGCTX.lineTo(p.x,p.y); SIGCTX.stroke(); e.preventDefault(); };
+  const up = () => { drawing=false; };
+  c.onmousedown=down; c.onmousemove=move; c.onmouseup=up; c.onmouseleave=up;
+  c.ontouchstart=down; c.ontouchmove=move; c.ontouchend=up;
+}
+function clearSig(){ const c=$("sig"); if(c&&SIGCTX){ SIGCTX.clearRect(0,0,c.width,c.height); DRAWN=false; } }
+async function saveSig(){
+  if(!DRAWN) return showErr("Ask the customer to sign in the box first.");
+  showErr("");
+  $("sigState").textContent = "Saving…";
+  const blob = await new Promise(r => $("sig").toBlob(r, "image/png"));
+  const path = `${CURRENT.run_id}/${CURRENT.id}/signature.png`;
+  const { error } = await sb.storage.from("delivery-proof").upload(path, blob, {contentType:"image/png", upsert:true});
+  if(error){ $("sigState").textContent = "Couldn't save — try again"; return; }
+  await sb.from("driver_stops").update({signature_path:path}).eq("id",CURRENT.id);
+  $("sigState").textContent = "Signature saved";
+}
+
+async function signOut(){ if(PING) clearInterval(PING); await sb.auth.signOut(); location.reload(); }
+
+boot();
+</script>
+</body>
+</html>

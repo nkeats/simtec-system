@@ -70,7 +70,10 @@
   var allowed = window.__SIMTEC_ROLES__;
   if (role && Array.isArray(allowed) && allowed.indexOf(role) === -1) {
     reveal();
-    var landing = role === 'consultant' ? 'my-sales.html' : (role === 'matt' ? 'matt.html' : 'home.html');
+    var landing = role === 'consultant' ? 'my-sales.html'
+      : (role === 'matt' ? 'matt.html'
+      : (role === 'driver' ? 'driver-day.html'
+      : (role === 'warehouse' ? 'timesheet.html' : 'home.html')));
     document.body.innerHTML =
       '<div style="max-width:440px;margin:90px auto;padding:0 20px;font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;text-align:center;color:#1a2334">' +
       '<div style="font-size:24px;font-weight:800;color:#122347;letter-spacing:.5px">SIMTEC</div>' +
