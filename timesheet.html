@@ -56,6 +56,7 @@
   <div class="err" id="err"></div>
   <div id="mine"></div>
   <div id="office"></div>
+  <div id="crewadmin"></div>
 </div>
 
 <script>
@@ -93,7 +94,7 @@ async function boot(){
 async function refresh(){
   showErr("");
   await renderMine();
-  if (OFFICE) await renderOffice();
+  if (OFFICE) { await renderOffice(); await renderCrewAdmin(); }
 }
 
 /* ---------------- my hours (everyone sees this) ---------------- */
@@ -195,6 +196,66 @@ async function addManual(){
   if (error) return showErr(error.message);
   if (data && data.ok === false) return showErr(data.error);
   await refresh();
+}
+
+/* ---------------- warehouse staff (who appears on the iPad) ---------------- */
+async function renderCrewAdmin(){
+  const { data, error } = await sb.rpc("crew_list");
+  if(error){ $("crewadmin").innerHTML = `<div class="card"><div class="muted">Couldn't load the crew list: ${esc(error.message)}</div></div>`; return; }
+  const crew = data || [];
+  $("crewadmin").innerHTML = `
+    <div class="card">
+      <h2>Warehouse staff</h2>
+      <div class="muted">Anyone here gets their own Sign in / Sign out button on the warehouse iPad.
+        They never need a password - a 6-digit code goes to their email when they tap their name.</div>
+
+      ${crew.length ? `<table style="margin-top:12px">
+        <thead><tr><th>Name</th><th>Email</th><th>Right now</th><th></th></tr></thead><tbody>
+        ${crew.map(c=>`<tr>
+          <td style="font-weight:600">${esc(c.name)}</td>
+          <td class="muted">${esc(c.email)}</td>
+          <td>${c.on_now ? '<span class="chip ok">On since '+nzTime(c.signed_in_at)+'</span>'
+                          : '<span class="muted">not signed on</span>'}</td>
+          <td style="text-align:right"><button style="padding:6px 11px;font-size:12.5px"
+              onclick="removeCrew('${c.user_id}','${esc(c.name).replace(/'/g,"\\'")}')">Remove</button></td>
+        </tr>`).join("")}</tbody></table>`
+      : '<div class="muted" style="margin-top:10px">Nobody set up yet - add your first warehouse person below.</div>'}
+
+      <div style="margin-top:16px;border-top:1px solid var(--line);padding-top:14px">
+        <div class="row">
+          <div><label>Name</label><input id="cwName" placeholder="Tama Reihana"></div>
+          <div><label>Email</label><input id="cwEmail" type="email" inputmode="email" placeholder="tama@simtectp.com"></div>
+        </div>
+        <div style="margin-top:12px"><button class="primary" onclick="addCrew()">Add to the iPad</button></div>
+        <div class="muted" style="margin-top:8px">They will appear on the iPad straight away - no email is sent until they tap their own name.</div>
+      </div>
+    </div>`;
+}
+
+async function addCrew(){
+  showErr("");
+  const name=($("cwName").value||"").trim(), email=($("cwEmail").value||"").trim();
+  if(!name || !email) return showErr("Name and email are both needed.");
+  const { data:{ session } } = await sb.auth.getSession();
+  const { data, error } = await sb.functions.invoke("manage-users", {
+    body:{ action:"crew-add", full_name:name, email },
+    headers:{ "x-user-token": session ? session.access_token : "" } });
+  if(error) return showErr(error.message);
+  if(data && data.error) return showErr(data.error);
+  $("cwName").value=""; $("cwEmail").value="";
+  await renderCrewAdmin();
+}
+
+async function removeCrew(id, name){
+  if(!confirm(`Take ${name} off the iPad? Their hours already recorded are kept.`)) return;
+  showErr("");
+  const { data:{ session } } = await sb.auth.getSession();
+  const { data, error } = await sb.functions.invoke("manage-users", {
+    body:{ action:"crew-set-active", id, active:false },
+    headers:{ "x-user-token": session ? session.access_token : "" } });
+  if(error) return showErr(error.message);
+  if(data && data.error) return showErr(data.error);
+  await renderCrewAdmin();
 }
 
 /* ---------------- office approval ---------------- */
