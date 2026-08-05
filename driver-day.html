@@ -67,6 +67,12 @@ const SB_KEY = "sb_publishable_J4MYTdJJyEaWe-GadpwdYA_upPT2rKw";
 const sb = supabase.createClient(SB_URL, SB_KEY);
 const $ = id => document.getElementById(id);
 const esc = s => (s||"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+function toastLike(msg){
+  const e=document.getElementById("err");
+  e.style.display="block"; e.style.background="#eef6f0"; e.style.borderColor="#bcdcc6"; e.style.color="#1c6b34";
+  e.textContent=msg;
+  setTimeout(()=>{ e.style.display="none"; e.style.background=""; e.style.borderColor=""; e.style.color=""; }, 6000);
+}
 const showErr = m => { const e=$("err"); e.style.display=m?"block":"none"; e.textContent=m||""; };
 const tm = d => d ? new Date(d).toLocaleTimeString("en-NZ",{hour:"2-digit",minute:"2-digit"}) : "—";
 
@@ -89,58 +95,104 @@ function startPings(){
   send(); PING = setInterval(send, 60000);          // a ping a minute while the app is open
 }
 
-/* ---------------- sign in with an emailed code ---------------- */
-function loginView(step, email){
-  $("view").innerHTML = step==="code" ? `
-    <div class="card">
-      <h2>Check your email</h2>
-      <div class="muted">We sent a 6-digit code to ${esc(email)}. It expires in an hour.</div>
-      <label>Code</label>
-      <input id="code" inputmode="numeric" autocomplete="one-time-code" placeholder="123456">
-      <button class="wide primary" onclick="verifyCode('${esc(email)}')">Sign in</button>
-      <button class="wide" onclick="loginView('email')">Use a different email</button>
-    </div>` : `
-    <div class="card">
-      <h2>Good morning</h2>
-      <div class="muted">Enter your work email and we'll text a code to it.</div>
-      <label>Email</label>
-      <input id="email" type="email" inputmode="email" autocomplete="email" placeholder="you@simtectp.com">
-      <button class="wide primary" onclick="sendCode()">Send me a code</button>
-    </div>`;
-}
-async function sendCode(){
-  showErr("");
-  const email = ($("email").value||"").trim().toLowerCase();
-  if(!email) return showErr("Enter your email address.");
-  const { error } = await sb.auth.signInWithOtp({ email, options:{ shouldCreateUser:false } });
-  if(error) return showErr(error.message.includes("not found") ? "That email isn't set up yet — ask the office." : error.message);
-  loginView("code", email);
-}
-async function verifyCode(email){
-  showErr("");
-  const token = ($("code").value||"").trim();
-  if(!token) return showErr("Enter the code from your email.");
-  const { error } = await sb.auth.verifyOtp({ email, token, type:"email" });
-  if(error) return showErr("That code didn't work. Check it, or send a new one.");
-  boot();
+/* ---------------- crew sign in / out (shared iPad) ----------------
+   Several warehouse staff share one iPad. Each taps their own name and gets a
+   code emailed to them - that proves who it is, clocks them on, and adds them to
+   today's run. The run belongs to the day and the truck, not to one person. */
+let CREW = [], PENDING = null;
+
+async function loadCrew(){
+  const { data, error } = await sb.rpc("crew_list");
+  if(error){ showErr("Couldn't load the crew list: " + error.message); return []; }
+  CREW = data || [];
+  return CREW;
 }
 
+function crewView(){
+  const rows = CREW.map(c => `
+    <div class="card" style="${c.on_now?'border-color:var(--green)':''}">
+      <div style="display:flex;align-items:center;gap:12px">
+        <div style="flex:1">
+          <div style="font-weight:800;font-size:17px">${esc(c.name)}</div>
+          <div class="muted">${c.on_now ? "Signed on " + tm(c.signed_in_at) : "Not signed on"}</div>
+        </div>
+        <button class="${c.on_now?'stop':'primary'}" style="min-width:118px"
+          onclick="startCode('${c.user_id}','${esc(c.email)}','${c.on_now?'out':'in'}')">
+          ${c.on_now ? "Sign out" : "Sign in"}</button>
+      </div>
+    </div>`).join("");
+
+  $("view").innerHTML = `
+    <div class="card">
+      <h2>Warehouse crew</h2>
+      <div class="muted">Tap your name to sign on or off. A 6-digit code goes to your email so we know it is you.</div>
+    </div>
+    ${rows || '<div class="card"><div class="muted">No warehouse staff set up yet - ask the office.</div></div>'}
+    ${ME ? '<div class="card"><button class="wide" onclick="SHOW_RUN=true;load()">Open today\'s run</button></div>' : ""}`;
+}
+
+async function startCode(userId, email, action){
+  showErr("");
+  PENDING = { userId, email, action };
+  const { error } = await sb.auth.signInWithOtp({ email, options:{ shouldCreateUser:false } });
+  if(error){ showErr(error.message.includes("not found") ? "That email isn't set up yet - ask the office." : error.message); return; }
+  codeView();
+}
+
+function codeView(){
+  const who = (CREW.find(c=>c.user_id===PENDING.userId)||{}).name || "";
+  $("view").innerHTML = `
+    <div class="card">
+      <h2>${esc(who)} - check your email</h2>
+      <div class="muted">A 6-digit code has gone to ${esc(PENDING.email)}.</div>
+      <label>Code</label>
+      <input id="code" inputmode="numeric" autocomplete="one-time-code" placeholder="123456">
+      <button class="wide primary" onclick="finishCode()">${PENDING.action==="in"?"Sign me on":"Sign me off"}</button>
+      <button class="wide" onclick="backToCrew()">Cancel</button>
+    </div>`;
+}
+
+async function finishCode(){
+  showErr("");
+  const token = (($("code")||{}).value||"").trim();
+  if(!token) return showErr("Enter the code from your email.");
+  const { error } = await sb.auth.verifyOtp({ email: PENDING.email, token, type:"email" });
+  if(error) return showErr("That code didn't work. Check it, or send a new one.");
+  const p = await here();
+  const r = PENDING.action==="in"
+    ? await rpc("crew_sign_in", { p_lat:p.lat, p_lng:p.lng, p_vehicle:VEHICLE })
+    : await rpc("crew_sign_out", { p_lat:p.lat, p_lng:p.lng });
+  if(!r) return;
+  PENDING = null;
+  await boot();
+}
+
+function backToCrew(){ PENDING=null; SHOW_RUN=false; showErr(""); boot(); }
+
 /* ---------------- boot ---------------- */
+const VEHICLE = "Truck 1";
+let SHOW_RUN = false;
+
 async function boot(){
   showErr("");
+  await loadCrew();
   const { data:{ session } } = await sb.auth.getSession();
-  if(!session) return loginView("email");
-  const { data:prof } = await sb.from("profiles").select("role,full_name,email,active").eq("id",session.user.id).maybeSingle();
-  if(prof && prof.active===false){ await sb.auth.signOut(); return loginView("email"); }
-  ME = { id:session.user.id, name:(prof&&prof.full_name)||session.user.email };
-  ROLE = (prof&&prof.role)||"";
-  $("who").textContent = ME.name;
-  await load();
+  ME = null;
+  if(session){
+    const { data:prof } = await sb.from("profiles").select("full_name,email,active")
+      .eq("id", session.user.id).maybeSingle();
+    if(prof && prof.active !== false) ME = { id: session.user.id, name: prof.full_name || prof.email };
+  }
+  const on = CREW.filter(c=>c.on_now);
+  $("who").textContent = on.length ? on.map(c=>String(c.name).split(" ")[0]).join(", ") + " on" : "nobody signed on";
+  if(SHOW_RUN && ME) return load();
+  crewView();
 }
 
 async function load(){
-  const today = new Intl.DateTimeFormat("en-CA",{timeZone:"Pacific/Auckland"}).format(new Date());
-  const { data:runs } = await sb.from("v_driver_runs").select("*").eq("driver_id",ME.id).eq("run_date",today).limit(1);
+  const { data:runId } = await sb.rpc("my_run_today");
+  if(!runId){ RUN=null; STOPS=[]; return render(); }
+  const { data:runs } = await sb.from("v_driver_runs").select("*").eq("id", runId).limit(1);
   RUN = (runs||[])[0] || null;
   if(RUN){
     const { data:stops } = await sb.from("v_driver_stops").select("*").eq("run_id",RUN.id).order("seq");
@@ -159,32 +211,39 @@ function render(){
     <div class="card"><h2>No run today</h2>
       <div class="muted">The office hasn't set up a run for you yet. Give them a call if that's not right.</div>
       <button class="wide" onclick="load()">Check again</button>
-      <button class="wide" onclick="signOut()">Sign out</button></div>`;
+      <button class="wide" onclick="backToCrew()">\u2039 Crew sign in / out</button></div>`;
 
   if(RUN.status==="planned") return $("view").innerHTML = `
     <div class="card">
       <h2>${RUN.stops} stop${RUN.stops==1?"":"s"} today</h2>
-      <div class="muted">${esc(RUN.vehicle||"")} · tap below when you're ready to leave. This starts your timesheet.</div>
-      <button class="wide primary" onclick="startDay()">Start my day</button>
+      <div class="muted">${esc(RUN.vehicle||"")} · tap when you get to work. This starts your timesheet.</div>
+      <button class="wide primary" onclick="startDay()">I'm at work — start my day</button>
     </div>` + stopList();
 
   if(RUN.status==="done") return $("view").innerHTML = `
     <div class="card"><h2>Day finished</h2>
       <div class="muted">${RUN.done} delivered${RUN.failed?`, ${RUN.failed} not completed`:""} ·
         ${RUN.hours_on_road||0} hours · ${RUN.break_minutes} min break. Your timesheet is with the office.</div>
-      <button class="wide" onclick="signOut()">Sign out</button></div>` + stopList();
+      <button class="wide" onclick="backToCrew()">\u2039 Crew sign in / out</button></div>` + stopList();
 
   const nextStop = STOPS.find(s=>s.status==="pending"||s.status==="en_route"||s.status==="arrived");
   $("view").innerHTML = `
     ${ONBREAK?`<div class="banner">On a break — nothing is being recorded against a stop.</div>`:""}
+    ${!RUN.left_warehouse_at ? `
+      <div class="card" style="border-color:var(--blue)">
+        <h2>Ready to leave?</h2>
+        <div class="muted">Tap when you pull out of the yard — it texts the first customer with a travel time worked out from where you are.</div>
+        <button class="wide blue" onclick="leaveWarehouse()">LEFT WAREHOUSE</button>
+      </div>`:""}
     <div class="card">
       <h2>${RUN.done} of ${RUN.stops} done</h2>
-      <div class="muted">Started ${tm(RUN.started_at)} · ${esc(RUN.vehicle||"")}</div>
+      <div class="muted">At work ${tm(RUN.started_at)}${RUN.left_warehouse_at?` · left the yard ${tm(RUN.left_warehouse_at)}`:""} · ${esc(RUN.vehicle||"")}</div>
+      <button class="wide" style="margin-top:2px" onclick="backToCrew()">\u2039 Crew sign in / out</button>
       <div class="row" style="margin-top:12px">
         ${ONBREAK
           ? `<button class="primary" onclick="brk(false)">Finish break</button>`
           : `<button class="warn" onclick="brk(true)">Take a break</button>`}
-        <button class="stop" onclick="endDay()">End my day</button>
+        <button class="stop" onclick="endDay()">End the day (everyone off)</button>
       </div>
     </div>
     ${nextStop && !ONBREAK ? `
@@ -249,7 +308,7 @@ function renderStop(){
         ${s.items_ticked}/${s.item_count} items · ${s.photo_count} photo${s.photo_count==1?"":"s"}</div></div>`:`
     <div class="card">
       <h2>On the way</h2>
-      <div class="muted">Tap Next when you leave for this stop — it texts the customer that you're 15-20 minutes away.</div>
+      <div class="muted">Tap NEXT as you leave the stop before this one — it works out how far away you are and texts this customer the travel time.</div>
       <button class="wide blue" onclick="nextStop()" ${s.notified_at?"disabled":""}>
         ${s.notified_at?"Customer already told":"NEXT — tell them we're coming"}</button>
       <button class="wide" onclick="arrive()" ${s.arrived_at?"disabled":""}>
@@ -309,7 +368,7 @@ async function startDay(){
   startPings(); await load();
 }
 async function endDay(){
-  if(!confirm("End your day? This finishes your timesheet too.")) return;
+  if(!confirm("End the day for the whole crew? Anyone still signed on is signed off and their timesheet closed.")) return;
   const p = await here();
   const r = await rpc("driver_end_run",{p_lat:p.lat,p_lng:p.lng});
   if(!r) return;
@@ -321,6 +380,19 @@ async function brk(start){
   if(!await rpc("driver_break",{p_start:start,p_lat:p.lat,p_lng:p.lng})) return;
   await load();
 }
+async function leaveWarehouse(){
+  showErr("");
+  const p = await here();
+  const r = await rpc("driver_leave_warehouse",{p_lat:p.lat,p_lng:p.lng});
+  if(!r) return;
+  if(r.no_stops){ await load(); return; }
+  if(!r.mobile){ showErr("No mobile for the first customer — give them a ring."); await load(); return; }
+  const { data, error } = await sb.functions.invoke("hyper-handler",{ body:{ mobile:r.mobile, message:r.message } });
+  if(error || (data&&data.error)) showErr("Left the yard, but the text didn't send: " + ((data&&data.error)||error.message));
+  else await rpc("driver_mark_notified",{p_stop:r.stop_id,p_ok:true,
+                  p_eta_minutes:r.eta_minutes||null,p_km:r.km||null});
+  await load();
+}
 async function nextStop(){
   showErr("");
   const p = await here();
@@ -329,7 +401,10 @@ async function nextStop(){
   if(!r.mobile){ showErr("No mobile number for this customer — give them a ring instead."); return; }
   const { data, error } = await sb.functions.invoke("hyper-handler",{ body:{ mobile:r.mobile, message:r.message } });
   if(error || (data&&data.error)){ showErr("Couldn't send the text: " + ((data&&data.error)||error.message)); return; }
-  await rpc("driver_mark_notified",{p_stop:CURRENT.id,p_ok:true});
+  await rpc("driver_mark_notified",{p_stop:CURRENT.id,p_ok:true,
+             p_eta_minutes:r.eta_minutes||null,p_km:r.km||null});
+  showErr("");
+  toastLike(`Texted ${r.name}: ${r.eta_text}${r.km?` (${r.km} km away)`:""}`);
   await refreshStop();
 }
 async function arrive(){
