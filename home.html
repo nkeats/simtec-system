@@ -6,6 +6,7 @@
 <title>Simtec — Operating System</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="auth.js?v=3" data-roles="admin,manager,office"></script>
+<script src="live.js?v=2" defer></script>
 <style>
   :root{
     --navy:#111f3d; --navy2:#1a2c53; --navy3:#24386a; --gold:#c6a15b; --gold2:#d9be86;
@@ -523,41 +524,10 @@ function homeChime(){
     o.connect(g); g.connect(AC_H.destination); o.start(AC_H.currentTime+t); o.stop(AC_H.currentTime+t+0.45);
   });
 }
-function homeNewOrder(o){
-  const c=o.sim_customers||{};
-  const name=[c.first_name,c.last_name].filter(Boolean).join(' ')||'New customer';
-  let b=document.getElementById('newOrderBanner');
-  if(!b){ b=document.createElement('div'); b.id='newOrderBanner';
-    b.style.cssText='position:fixed;top:0;left:0;right:0;z-index:9999;background:#1c6b34;color:#fff;padding:14px 18px;'+
-      'display:flex;align-items:center;gap:14px;box-shadow:0 3px 14px rgba(0,0,0,.3);font-family:inherit';
-    document.body.appendChild(b); }
-  b.innerHTML='<div style="font-size:24px">\u{1F6CF}\u{FE0F}</div><div style="flex:1">'+
-    '<div style="font-weight:800;font-size:16px">New order \u2014 '+name+'</div>'+
-    '<div style="font-size:13px;opacity:.9">'+(c.suburb||'')+' \u00B7 needs a confirmation call</div></div>'+
-    '<a href="confirmation.html" style="background:#fff;color:#1c6b34;border-radius:8px;padding:9px 16px;'+
-    'font-weight:700;text-decoration:none">Open confirmation calls</a>'+
-    '<button onclick="this.parentNode.remove()" style="background:transparent;border:1px solid #fff;color:#fff;'+
-    'border-radius:8px;padding:9px 14px;cursor:pointer">Dismiss</button>';
-  homeChime();
-  document.title = '\u{1F514} NEW ORDER \u2014 ' + name;
-  const restore=()=>{ document.title='Simtec'; window.removeEventListener('focus',restore); };
-  window.addEventListener('focus',restore);
-}
 
-function watchOrdersHome(){
-  try{
-    sb.channel('home-new-orders').on('postgres_changes',
-      { event:'INSERT', schema:'public', table:'sim_orders' }, async (p)=>{
-        const { data } = await sb.from('sim_orders').select('*, sim_customers(*)').eq('id',p.new.id).maybeSingle();
-        if(data) homeNewOrder(data);
-      }).subscribe();
-  }catch(e){}
-  if(SND_H) wakeAudio();
-  document.addEventListener('click', function once(){ if(SND_H) wakeAudio(); paintSoundBar(); }, { once:true });
-  paintSoundBar();
-}
 
-watchOrdersHome();
+
+
 </script>
 </body>
 </html>

@@ -68,11 +68,103 @@
   }
   window.SIMTEC_TOAST = toast;
 
+
+  /* ---------------------------------------------------------------
+     A new order is the one event the whole office wants to know about,
+     wherever they happen to be looking. It lived on two pages; it belongs
+     here, so every screen that loads live.js announces it the same way.
+
+     Sound needs a click first (browser rule), so the switch stays on the
+     home page and the preference is shared through localStorage.
+     --------------------------------------------------------------- */
+  var AC = null;
+  function soundOn() { try { return localStorage.getItem("simtec_order_sound") === "on"; } catch (e) { return false; } }
+  function wakeAudio() {
+    if (!soundOn()) return false;
+    try {
+      AC = AC || new (window.AudioContext || window.webkitAudioContext)();
+      if (AC.state === "suspended") AC.resume();
+      return AC.state === "running";
+    } catch (e) { return false; }
+  }
+  function chime() {
+    if (!wakeAudio()) return;
+    [[880, 0], [1174.7, 0.16], [1567.9, 0.32]].forEach(function (n) {
+      var o = AC.createOscillator(), g = AC.createGain();
+      o.type = "sine"; o.frequency.value = n[0];
+      g.gain.setValueAtTime(0.0001, AC.currentTime + n[1]);
+      g.gain.exponentialRampToValueAtTime(0.25, AC.currentTime + n[1] + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, AC.currentTime + n[1] + 0.42);
+      o.connect(g); g.connect(AC.destination);
+      o.start(AC.currentTime + n[1]); o.stop(AC.currentTime + n[1] + 0.45);
+    });
+  }
+  document.addEventListener("click", function () { wakeAudio(); }, { once: true });
+
+  var TITLE_TIMER = null;
+  function flashTitle(name) {
+    var original = document.title, on = true;
+    clearTimeout(TITLE_TIMER);
+    TITLE_TIMER = setInterval(function () {
+      document.title = on ? "\uD83D\uDD14 NEW ORDER \u2014 " + name : original;
+      on = !on;
+    }, 900);
+    var stop = function () {
+      clearInterval(TITLE_TIMER); document.title = original;
+      window.removeEventListener("focus", stop); document.removeEventListener("click", stop);
+    };
+    window.addEventListener("focus", stop); document.addEventListener("click", stop);
+  }
+
+  function esc(t) {
+    return String(t == null ? "" : t).replace(/[&<>"]/g, function (m) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[m];
+    });
+  }
+
+  function newOrderBanner(o) {
+    var c = (o && o.sim_customers) || {};
+    var name = [c.first_name, c.last_name].filter(Boolean).join(" ") || "New customer";
+    var b = document.getElementById("simtecNewOrder");
+    if (!b) {
+      b = document.createElement("div");
+      b.id = "simtecNewOrder";
+      b.style.cssText =
+        "position:fixed;top:0;left:0;right:0;z-index:10000;background:#1c6b34;color:#fff;" +
+        "padding:14px 18px;display:flex;align-items:center;gap:14px;" +
+        "box-shadow:0 3px 14px rgba(0,0,0,.3);" +
+        "font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif";
+      document.body.appendChild(b);
+    }
+    var here = /confirmation\.html/i.test(location.pathname);
+    b.innerHTML =
+      '<div style="font-size:24px">\uD83D\uDECF\uFE0F</div>' +
+      '<div style="flex:1"><div style="font-weight:800;font-size:16px">New order \u2014 ' + esc(name) + "</div>" +
+      '<div style="font-size:13px;opacity:.9">' + esc(c.suburb || "") +
+        (o && o.consultant_name ? " \u00B7 " + esc(o.consultant_name) : "") +
+        " \u00B7 needs a confirmation call</div></div>" +
+      (here ? "" :
+        '<a href="confirmation.html" style="background:#fff;color:#1c6b34;border-radius:8px;padding:9px 16px;' +
+        'font-weight:700;text-decoration:none">Open confirmation calls</a>') +
+      '<button onclick="this.parentNode.remove()" style="background:transparent;border:1px solid #fff;color:#fff;' +
+      'border-radius:8px;padding:9px 14px;cursor:pointer">Dismiss</button>';
+    chime();
+    flashTitle(name);
+  }
+
   function subscribe(sb) {
     if (started) return;
     started = true;
 
     var ch = sb.channel("simtec-live-" + Math.random().toString(36).slice(2, 8));
+
+    // a brand new order: announce it, don't just quietly refresh
+    ch.on("postgres_changes", { event: "INSERT", schema: "public", table: "sim_orders" }, function (payload) {
+      sb.from("sim_orders").select("*, sim_customers(*)").eq("id", payload.new.id).maybeSingle()
+        .then(function (r) { newOrderBanner((r && r.data) || { sim_customers: {} }); })
+        .catch(function () { newOrderBanner({ sim_customers: {} }); });
+    });
+
     TABLES.forEach(function (t) {
       ch.on("postgres_changes", { event: "*", schema: "public", table: t }, function () {
         reload("realtime:" + t);

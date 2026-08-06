@@ -8,7 +8,7 @@
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://unpkg.com/@supabase/supabase-js@2.38.4/dist/umd/supabase.js"></script>
-<script src="live.js?v=1" defer></script>
+<script src="live.js?v=2" defer></script>
 <script src="auth.js?v=3" data-roles="admin,manager,office"></script>
 <style>
 body{font-family:system-ui,sans-serif}
@@ -470,7 +470,7 @@ function renderMap(booked){
     box.innerHTML='<div style="padding:20px;color:#fbbf24;font-size:13px">Map library didn\'t load \u2014 check the internet connection, then refresh.</div>';
     return;
   }
-  // This panel is rebuilt on every reload (live.js refreshes once a minute and
+  // This panel is rebuilt on every reload (live.js?v=2 refreshes once a minute and
   // whenever the tab regains focus), which destroys the old map element. If our
   // map is still bound to a container that has gone, remember where the user was
   // looking, throw the dead map away and build a fresh one.
@@ -952,7 +952,7 @@ window.markDayDelivered=async(dateStr)=>{
 };
 window.markDayDeliveredFromPicker=function(){ const d=document.getElementById('docketDate'); if(d&&d.value) markDayDelivered(d.value); };
 
-// live.js calls this when the database changes, when this tab regains focus,
+// live.js?v=2 calls this when the database changes, when this tab regains focus,
 // and once a minute as a safety net. Nobody has to remember to refresh.
 window.SIMTEC_RELOAD = function(){ load(true); };
 

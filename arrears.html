@@ -6,7 +6,7 @@
 <title>Simtec — Arrears Overview</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://unpkg.com/@supabase/supabase-js@2.38.4/dist/umd/supabase.js"></script>
-<script src="live.js?v=1" defer></script>
+<script src="live.js?v=2" defer></script>
 <script src="auth.js?v=3" data-roles="admin,manager,office"></script>
 <script src="doubtful.js?v=1"></script>
 <style>
@@ -369,7 +369,7 @@ function render(){
 document.querySelectorAll('[data-sort]').forEach(b=>b.onclick=()=>{sortBy=b.dataset.sort;render();});
 document.querySelectorAll('[data-filter]').forEach(b=>b.onclick=()=>{filter=b.dataset.filter;render();});
 
-// One change anywhere shows up everywhere: live.js calls this when the database
+// One change anywhere shows up everywhere: live.js?v=2 calls this when the database
 // changes, when the tab regains focus, and once a minute as a safety net.
 window.SIMTEC_RELOAD = function(reason){ load(true); };
 

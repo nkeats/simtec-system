@@ -6,7 +6,7 @@
 <title>Simtec — Stock</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://unpkg.com/@supabase/supabase-js@2.38.4/dist/umd/supabase.js"></script>
-<script src="live.js?v=1" defer></script>
+<script src="live.js?v=2" defer></script>
 <script src="auth.js?v=3" data-roles="admin,manager,office"></script>
 <style>
 body{font-family:system-ui,sans-serif}
@@ -326,7 +326,7 @@ window.saveMove=async()=>{
   closeOv(); await load();
 };
 
-// live.js: refresh on data change / focus / once a minute
+// live.js?v=2: refresh on data change / focus / once a minute
 window.SIMTEC_RELOAD=function(){ load(); };
 load();
 </script>
