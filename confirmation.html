@@ -81,6 +81,7 @@
   </div>
   <div class="wrap">
     <div class="tabs" id="tabs"></div>
+    <div id="missedCalls"></div>
     <div id="list"><div class="state">Loading orders…</div></div>
   </div>
 
@@ -104,6 +105,62 @@ function nowISO(){return new Date().toISOString();}
 function payLabel(o){return o.payment_method?(PAYLBL[o.payment_method]||o.payment_method):'Ezidebit (pending set-up)';}
 function afford(o){return o.affordability_passed===true?['✓ Passed','good']:o.affordability_passed===false?['✗ Not passed','bad']:['— not checked','']; }
 function fmtDate(d){ if(!d) return '—'; try{return new Date(String(d).length<=10?d+'T12:00:00':d).toLocaleDateString('en-NZ',{day:'2-digit',month:'short',year:'numeric'});}catch(e){return d;} }
+
+
+/* ---------------- missed calls to return ----------------
+   Every unanswered call on 09 886 9897 is written into the System by the
+   missed-call-alert webhook, so the office has a list to work rather than an
+   email that scrolls away. Ticking one off also writes it into the customer's
+   contact history. */
+async function loadMissedCalls(){
+  const box = document.getElementById('missedCalls');
+  if(!box) return;
+  const { data, error } = await sb.from('v_missed_calls')
+    .select('*').is('returned_at', null).order('called_at', { ascending:false }).limit(50);
+  if(error){ box.innerHTML=''; return; }
+  const calls = data || [];
+  if(!calls.length){ box.innerHTML=''; return; }
+
+  const row = c => {
+    const when = new Date(c.called_at).toLocaleString('en-NZ',
+                   {weekday:'short', hour:'2-digit', minute:'2-digit'});
+    const old = c.hours_ago > 24;
+    const again = c.calls_this_week > 1
+      ? `<span style="background:#fdecec;color:#b4342e;border-radius:10px;padding:1px 8px;font-size:11px;font-weight:700;margin-left:6px">rang ${c.calls_this_week}\u00D7</span>` : '';
+    return `<tr>
+      <td style="padding:9px 8px;border-bottom:1px solid #eef1f5">
+        <b>${esc(c.caller_name || c.customer || 'Unknown caller')}</b>${again}
+        ${c.customer ? `<div style="font-size:12px;color:#64728a">customer${c.suburb?' \u00B7 '+esc(c.suburb):''}</div>` : `<div style="font-size:12px;color:#64728a">not in the book</div>`}
+      </td>
+      <td style="padding:9px 8px;border-bottom:1px solid #eef1f5">
+        <a href="tel:${esc(String(c.phone).replace(/\s/g,''))}" style="color:#123c8a;font-weight:700;text-decoration:none;font-size:15px">${esc(c.phone)}</a>
+      </td>
+      <td style="padding:9px 8px;border-bottom:1px solid #eef1f5;font-size:12.5px;color:${old?'#b4342e':'#64728a'}">
+        ${when}${old?' \u00B7 over a day ago':''}
+      </td>
+      <td style="padding:9px 8px;border-bottom:1px solid #eef1f5;text-align:right;white-space:nowrap">
+        ${c.customer_id ? `<a href="customer-detail.html?customer=${c.customer_id}" style="color:#123c8a;font-size:12.5px;margin-right:10px;text-decoration:none">Open</a>` : ''}
+        <button onclick="markCalled('${c.id}')" style="background:#1c6b34;color:#fff;border:none;border-radius:7px;padding:7px 13px;font-size:12.5px;font-weight:700;cursor:pointer">Called back</button>
+      </td>
+    </tr>`;
+  };
+
+  box.innerHTML = `
+    <div style="background:#fff;border:1px solid #e0b4b0;border-left:5px solid #b4342e;border-radius:12px;padding:14px 16px;margin-bottom:16px">
+      <div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:8px">
+        <div style="font-size:16px;font-weight:800;color:#b4342e">\u260E\uFE0F ${calls.length} missed call${calls.length==1?'':'s'} to return</div>
+        <div style="font-size:12.5px;color:#64728a">Unanswered on 09 886 9897. Tick each one off once you have spoken to them.</div>
+      </div>
+      <table style="width:100%;border-collapse:collapse">${calls.map(row).join('')}</table>
+    </div>`;
+}
+
+async function markCalled(id){
+  const { data, error } = await sb.rpc('missed_call_returned', { p_id:id, p_outcome:'spoke' });
+  if(error) return showErr(error.message);
+  if(data && data.ok === false) return showErr(data.error);
+  loadMissedCalls();
+}
 
 async function loadAll(){
   document.getElementById('list').innerHTML='<div class="state">Loading orders…</div>';
@@ -390,7 +447,7 @@ function newOrderBanner(o){
 }
 
 // live.js calls this on any relevant row change; we also listen for INSERTs
-window.SIMTEC_RELOAD = function(){ loadAll(); };
+window.SIMTEC_RELOAD = function(){ loadAll(); loadMissedCalls(); };
 
 function watchNewOrders(){
   try{
@@ -410,7 +467,7 @@ function watchNewOrders(){
 // Wait for auth.js to establish the session/client, then load.
 (function boot(){
   let n=0; const t=setInterval(()=>{ n++;
-    if(window.SIMTEC_USER || n>80){ clearInterval(t); loadAll(); watchNewOrders();
+    if(window.SIMTEC_USER || n>80){ clearInterval(t); loadAll(); loadMissedCalls(); watchNewOrders();
       wakeSound(); soundBar();
       document.addEventListener('click', function once(){ wakeSound(); soundBar(); }, { once:true }); }
   },50);

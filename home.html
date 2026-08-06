@@ -170,6 +170,13 @@
       <!-- NEW-ORDER SOUND: browsers will not play a chime until someone has
            clicked the page, so this is the one-off switch. It lives here on the
            home screen because that is what stays open in the office. -->
+      <div id="missedBar" style="display:none;align-items:center;gap:12px;background:#fdecec;border:1px solid #e0b4b0;
+           border-radius:11px;padding:11px 15px;margin-bottom:12px;font-size:14px;color:#b4342e">
+        <span id="missedMsg" style="flex:1"></span>
+        <a href="confirmation.html" style="background:#b4342e;color:#fff;border-radius:8px;padding:8px 15px;
+           font-size:13.5px;font-weight:700;text-decoration:none">Open the list</a>
+      </div>
+
       <div id="soundBar" style="display:none;align-items:center;gap:12px;background:#fffbe9;border:1px solid #e8d9a0;
            border-radius:11px;padding:11px 15px;margin-bottom:14px;font-size:14px;color:#4a3c12">
         <span id="soundMsg" style="flex:1"></span>
@@ -411,6 +418,16 @@ async function loadStrip(){
     const {count:ready}=await sb.from("v_delivery_clearance")
       .select("order_id",{count:"exact",head:true}).eq("ready_to_book",true);
     document.getElementById("sReady").textContent=ready ?? 0;
+    // unanswered calls waiting to be returned
+    try{
+      const { count:missed } = await sb.from("v_missed_calls")
+        .select("id",{count:"exact",head:true}).is("returned_at", null);
+      if(missed){
+        document.getElementById("missedBar").style.display="flex";
+        document.getElementById("missedMsg").innerHTML =
+          `\u260E\uFE0F <b>${missed} missed call${missed==1?"":"s"} waiting to be returned.</b> Nobody has rung them back yet.`;
+      }
+    }catch(e){}
     // booked deliveries where the customer has slipped since booking
     const {count:slipped}=await sb.from("v_booking_alerts")
       .select("order_id",{count:"exact",head:true});
