@@ -464,6 +464,7 @@ function orderSection(o, items, pays, open){
   const behindTxt = p.behindBy>1 ? `${fmt(p.behindBy)} behind (${p.periodsBehind.toFixed(0)} ${p.freq.word})` : (p.cls==="green"?"On track":"—");
 
   const actions = isStaff() ? `
+    <button onclick="openDocs('${o.id}')" style="background:#fff;color:var(--navy);border:1px solid #cbd4df;border-radius:8px;padding:8px 14px;font-size:13.5px;font-weight:600;cursor:pointer;margin-right:6px">\u{1F4C4} Documents &amp; signatures</button>
     ${!isCancelled?`<button onclick="openCardPay('${o.id}')" style="background:#1c6b34;color:#fff;border:none;border-radius:8px;padding:8px 14px;font-size:13.5px;font-weight:700;cursor:pointer;margin-right:6px">\u{1F4B3} Take payment</button>`:``}
     ${!isCancelled?`<button onclick="openAmend('${o.id}')" style="background:#c6a15b;color:#122347;border:none;border-radius:8px;padding:8px 14px;font-size:13.5px;font-weight:700;cursor:pointer;margin-right:6px">✎ Amend order</button>`:""}
     ${(isCancelled||isHold)?`<button onclick="reinstate('${o.id}')" style="background:#1c6b34;color:#fff;border:none;border-radius:8px;padding:8px 14px;font-size:13.5px;font-weight:600;cursor:pointer;margin-right:6px">↩ Reinstate</button>`:""}
@@ -2156,6 +2157,21 @@ async function rebuildPaid(o){
 </div>
 
 <!-- ============ EDIT CUSTOMER DETAILS ============ -->
+<div id="docsModal" class="modalbg">
+  <div class="modal" style="max-width:720px">
+    <h3 style="margin:0 0 4px">Order documents</h3>
+    <p class="muted" style="font-size:12.5px;margin:0 0 14px">
+      Everything the customer signed on the iPad, kept against this order. Links last five minutes.
+    </p>
+    <div id="docsErr" style="display:none;background:#fdecec;border:1px solid #e0b4b0;color:#b4342e;border-radius:9px;padding:11px 13px;font-size:13.5px;margin-bottom:12px"></div>
+    <div id="docsBody" class="muted">Loading…</div>
+    <div style="margin-top:16px;display:flex;gap:8px;flex-wrap:wrap">
+      <button id="docsPrint" onclick="printPack()" style="background:#122347;color:#fff;border:none;border-radius:8px;padding:9px 16px;font-size:13.5px;font-weight:700;cursor:pointer">\u{1F5A8}\u{FE0F} Print the pack</button>
+      <button onclick="document.getElementById('docsModal').style.display='none'" style="margin-left:auto;background:#fff;color:var(--navy);border:1px solid #cbd4df;border-radius:8px;padding:9px 14px;font-size:13.5px;font-weight:600;cursor:pointer">Close</button>
+    </div>
+  </div>
+</div>
+
 <div id="cardPayModal" class="modalbg">
   <div class="modal" style="max-width:540px">
     <h3 style="margin:0 0 4px">Take a card payment</h3>
@@ -2379,6 +2395,129 @@ async function saveReassign(){
     reErr("<b>The sale was not moved.</b><br>"+(e.message||e));
     btn.disabled=false; btn.textContent="Move sale";
   }
+}
+
+
+/* ---------------- order documents & signatures ----------------
+   The Sales App uploads to the private storage bucket "order-documents", one
+   folder per order: signature1/2.png, the initials for the terms and each
+   acknowledgement, ID photos, and order-summary.pdf. Nothing in the System
+   showed them until now, so this lists them, shows the signatures, and prints
+   a pack for the customer file. */
+let DOCS = { orderId:null, files:[], urls:{} };
+
+const DOC_LABELS = {
+  'order-summary.pdf':'Order summary (PDF)',
+  'signature1.png':'Signature \u2014 applicant 1',
+  'signature2.png':'Signature \u2014 applicant 2',
+  'initials-tnc.png':'Initials \u2014 terms and conditions',
+  'initials-ack1.png':'Initials \u2014 acknowledgement 1',
+  'initials-ack2.png':'Initials \u2014 acknowledgement 2',
+  'initials-ack3.png':'Initials \u2014 acknowledgement 3',
+  'initials-ack4.png':'Initials \u2014 acknowledgement 4 (cooling off)',
+  'initials-tnc-applicant2.png':'Initials \u2014 terms (applicant 2)',
+  'initials-ack1-applicant2.png':'Initials \u2014 acknowledgement 1 (applicant 2)',
+  'initials-ack2-applicant2.png':'Initials \u2014 acknowledgement 2 (applicant 2)',
+  'initials-ack3-applicant2.png':'Initials \u2014 acknowledgement 3 (applicant 2)',
+  'initials-ack4-applicant2.png':'Initials \u2014 acknowledgement 4 (applicant 2)'
+};
+function docLabel(n){
+  if(DOC_LABELS[n]) return DOC_LABELS[n];
+  if(n.indexOf('id-applicant1')===0) return 'ID photo \u2014 applicant 1';
+  if(n.indexOf('id-applicant2')===0) return 'ID photo \u2014 applicant 2';
+  return n;
+}
+
+async function openDocs(orderId){
+  DOCS = { orderId:orderId, files:[], urls:{} };
+  document.getElementById('docsErr').style.display='none';
+  document.getElementById('docsBody').innerHTML='Loading\u2026';
+  document.getElementById('docsModal').style.display='flex';
+  try{
+    const res = await sb.storage.from('order-documents').list(orderId, { limit:100 });
+    if(res.error) throw res.error;
+    const files = (res.data||[]).filter(function(f){ return f.name && f.name!=='.emptyFolderPlaceholder'; });
+    if(!files.length){
+      document.getElementById('docsBody').innerHTML =
+        '<div style="background:#fff5e0;border:1px solid #e8d9a0;border-radius:9px;padding:12px 14px;color:#8a5b00">'+
+        '<b>No documents were saved against this order.</b><br>'+
+        'That means it was not completed through to the Done step on the iPad, or the upload failed. '+
+        'Orders keyed in by the office by hand never have documents \u2014 that is normal.</div>';
+      document.getElementById('docsPrint').style.display='none';
+      return;
+    }
+    document.getElementById('docsPrint').style.display='';
+    const paths = files.map(function(f){ return orderId+'/'+f.name; });
+    const signed = await sb.storage.from('order-documents').createSignedUrls(paths, 300);
+    (signed.data||[]).forEach(function(u,i){ if(u && u.signedUrl) DOCS.urls[files[i].name]=u.signedUrl; });
+    DOCS.files = files.map(function(f){ return f.name; }).sort();
+
+    const imgs = DOCS.files.filter(function(n){ return /\.(png|jpe?g)$/i.test(n); });
+    const pdfs = DOCS.files.filter(function(n){ return /\.pdf$/i.test(n); });
+    document.getElementById('docsBody').innerHTML =
+      (pdfs.length ? '<div style="margin-bottom:14px">'+pdfs.map(function(n){
+        return '<a href="'+(DOCS.urls[n]||'#')+'" target="_blank" style="display:inline-block;background:#122347;'+
+          'color:#fff;border-radius:8px;padding:9px 15px;font-size:13.5px;font-weight:700;text-decoration:none;'+
+          'margin-right:8px">\uD83D\uDCC4 '+esc(docLabel(n))+'</a>'; }).join('')+'</div>' : '') +
+      '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px">'+
+      imgs.map(function(n){
+        return '<div style="border:1px solid var(--line);border-radius:9px;padding:9px">'+
+          '<div class="muted" style="font-size:11.5px;margin-bottom:6px">'+esc(docLabel(n))+'</div>'+
+          '<a href="'+(DOCS.urls[n]||'#')+'" target="_blank"><img src="'+(DOCS.urls[n]||'')+'" '+
+          'style="width:100%;height:90px;object-fit:contain;background:#fff;border-radius:5px"></a></div>';
+      }).join('')+'</div>';
+  }catch(e){
+    document.getElementById('docsBody').innerHTML='';
+    const el=document.getElementById('docsErr'); el.style.display='block';
+    el.textContent='Could not load the documents: '+(e.message||e);
+  }
+}
+
+function printPack(){
+  const o = ORDERS[DOCS.orderId] || {};
+  const items = (ITEMSBY[DOCS.orderId]||[]).map(function(i){
+    return '<tr><td>'+esc(i.product_name||'')+'</td><td style="text-align:right">'+(i.quantity||1)+
+      '</td><td style="text-align:right">'+(i.unit_price!=null?fmt(i.unit_price):'')+'</td></tr>'; }).join('');
+  const sigs = DOCS.files.filter(function(n){ return /\.(png|jpe?g)$/i.test(n) && n.indexOf('id-')!==0; });
+  const ids  = DOCS.files.filter(function(n){ return n.indexOf('id-')===0; });
+  const name = [CUST.first_name,CUST.last_name].filter(Boolean).join(' ');
+  const win = window.open('', '_blank');
+  if(!win){ alert('Allow pop-ups for this site so the pack can open in a new tab.'); return; }
+  const img = function(n,h){ return '<div class="sig"><img src="'+(DOCS.urls[n]||'')+'"'+(h?' style="height:'+h+'"':'')+
+     '><div class="cap">'+esc(docLabel(n))+'</div></div>'; };
+  win.document.write('<!DOCTYPE html><html><head><meta charset="utf-8"><title>Order pack \u2014 '+esc(name)+'</title>'+
+   '<style>body{font-family:Arial,Helvetica,sans-serif;color:#1c2430;margin:0;padding:22px;font-size:12pt}'+
+   'h1{font-size:17pt;color:#012B60;margin:0 0 2px}.sub{color:#6b6a6f;font-size:10pt;margin-bottom:16px}'+
+   'table{width:100%;border-collapse:collapse;margin-bottom:14px}'+
+   'td,th{padding:5px 6px;border-bottom:1px solid #eee;font-size:11pt;text-align:left}'+
+   'th{font-size:8.5pt;text-transform:uppercase;color:#6b6a6f;letter-spacing:.05em}'+
+   '.kv td:first-child{color:#6b6a6f;width:180px}'+
+   '.sig{display:inline-block;width:46%;margin:0 2% 14px 0;vertical-align:top}'+
+   '.sig img{width:100%;height:110px;object-fit:contain;border:1px solid #d9dee6;border-radius:6px;background:#fff}'+
+   '.cap{font-size:9pt;color:#6b6a6f;margin-top:3px}'+
+   'h2{font-size:12pt;color:#012B60;border-bottom:2px solid #012B60;padding-bottom:4px;margin:18px 0 10px}'+
+   '@media print{@page{size:A4;margin:14mm}}</style></head><body>'+
+   '<h1>Order pack \u2014 '+esc(name)+'</h1>'+
+   '<div class="sub">Order '+esc(DOCS.orderId)+' &middot; printed '+
+     new Date().toLocaleDateString('en-NZ',{day:'numeric',month:'long',year:'numeric'})+'</div>'+
+   '<h2>Customer</h2><table class="kv">'+
+   '<tr><td>Name</td><td>'+esc(name)+'</td></tr>'+
+   '<tr><td>Mobile</td><td>'+esc(CUST.mobile||'')+'</td></tr>'+
+   '<tr><td>Email</td><td>'+esc(CUST.email||'')+'</td></tr>'+
+   '<tr><td>Address</td><td>'+esc(CUST.address||'')+(CUST.suburb?', '+esc(CUST.suburb):'')+'</td></tr></table>'+
+   '<h2>Order</h2><table class="kv">'+
+   '<tr><td>Order date</td><td>'+esc(o.order_date||'')+'</td></tr>'+
+   '<tr><td>Consultant</td><td>'+esc(o.consultant_name||'')+'</td></tr>'+
+   '<tr><td>Contract value</td><td>'+(o.contract_value!=null?fmt(o.contract_value):'')+'</td></tr>'+
+   '<tr><td>Instalment</td><td>'+(o.instalment_amount!=null?fmt(o.instalment_amount)+' '+esc(o.payment_frequency||''):'')+'</td></tr>'+
+   '<tr><td>Paid to date</td><td>'+(o.amount_paid_to_date!=null?fmt(o.amount_paid_to_date):'')+'</td></tr></table>'+
+   (items?'<h2>What was ordered</h2><table><thead><tr><th>Item</th><th style="text-align:right">Qty</th>'+
+     '<th style="text-align:right">Price</th></tr></thead><tbody>'+items+'</tbody></table>':'')+
+   (sigs.length?'<h2>Signed on the iPad</h2>'+sigs.map(function(n){return img(n);}).join(''):'')+
+   (ids.length?'<h2>Identification</h2>'+ids.map(function(n){return img(n,'220px');}).join(''):'')+
+   '</body></html>');
+  win.document.close();
+  setTimeout(function(){ try{ win.print(); }catch(e){} }, 1200);   // let the images load first
 }
 
 // ===== Card payment: keyed by the office, or sent as a link ================
