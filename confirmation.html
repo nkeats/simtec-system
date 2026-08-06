@@ -5,7 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Simtec — Order Confirmation Calls</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="auth.js?v=3" data-roles="admin,manager,office"></script>
+<script src="auth.js?v=4" data-roles="admin,manager,office"></script>
+<script src="live.js?v=1" defer></script>
 <style>
   :root{
     --navy:#111f3d; --navy2:#1a2c53; --gold:#c6a15b; --gold2:#d9be86;
@@ -302,10 +303,118 @@ window.reviewCancel=async function(id){
   loadAll();
 };
 
+
+/* ============================================================
+   New-order alert. The office leaves this page open; when an order
+   arrives from the iPad the list reloads by itself, a chime sounds and
+   a banner names the customer.
+
+   Browsers refuse to play sound until someone has clicked the page at
+   least once, so there is a one-off "Turn sound on" button and the
+   preference is remembered.
+   ============================================================ */
+let AC=null, SOUND = localStorage.getItem('simtec_order_sound') !== 'off';
+
+function soundBar(){
+  let bar=document.getElementById('sndBar');
+  if(!bar){
+    bar=document.createElement('div'); bar.id='sndBar';
+    bar.style.cssText='position:fixed;left:0;right:0;bottom:0;z-index:9998;background:#111f3d;color:#fff;'+
+      'padding:10px 16px;font-size:14px;display:flex;align-items:center;gap:12px;'+
+      "font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif";
+    document.body.appendChild(bar);
+  }
+  bar.innerHTML = SOUND && AC
+    ? '<span>\u{1F514} New orders will chime on this screen.</span>'+
+      '<button onclick="muteSound()" style="margin-left:auto;background:transparent;border:1px solid #4a5a80;color:#c9d6ea;'+
+      'border-radius:7px;padding:6px 12px;cursor:pointer">Turn sound off</button>'
+    : '<span>\u{1F515} Sound is off \u2014 new orders will still appear, but silently.</span>'+
+      '<button onclick="enableSound()" style="margin-left:auto;background:#c6a15b;border:none;color:#1a2334;font-weight:700;'+
+      'border-radius:7px;padding:7px 14px;cursor:pointer">Turn sound on</button>';
+}
+function enableSound(){
+  try{
+    AC = AC || new (window.AudioContext||window.webkitAudioContext)();
+    if(AC.state==='suspended') AC.resume();
+    SOUND=true; localStorage.setItem('simtec_order_sound','on');
+    chime();                                   // so they know it works
+  }catch(e){ alert('This browser will not play sound here.'); }
+  soundBar();
+}
+function muteSound(){ SOUND=false; localStorage.setItem('simtec_order_sound','off'); soundBar(); }
+
+function chime(){
+  if(!SOUND || !AC) return;
+  const notes=[[880,0],[1174.7,0.16],[1567.9,0.32]];   // a rising three-note ping
+  notes.forEach(([f,t])=>{
+    const o=AC.createOscillator(), g=AC.createGain();
+    o.type='sine'; o.frequency.value=f;
+    g.gain.setValueAtTime(0.0001, AC.currentTime+t);
+    g.gain.exponentialRampToValueAtTime(0.25, AC.currentTime+t+0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001, AC.currentTime+t+0.42);
+    o.connect(g); g.connect(AC.destination);
+    o.start(AC.currentTime+t); o.stop(AC.currentTime+t+0.45);
+  });
+}
+
+let TITLE_TIMER=null;
+function flashTitle(name){
+  const original='Simtec — Order Confirmation Calls';
+  let on=true;
+  clearInterval(TITLE_TIMER);
+  TITLE_TIMER=setInterval(()=>{ document.title = on ? '\u{1F514} NEW ORDER — '+name : original; on=!on; }, 900);
+  const stop=()=>{ clearInterval(TITLE_TIMER); document.title=original;
+                   window.removeEventListener('focus',stop); document.removeEventListener('click',stop); };
+  window.addEventListener('focus',stop); document.addEventListener('click',stop);
+}
+
+function newOrderBanner(o){
+  const c=o.sim_customers||{};
+  const name=[c.first_name,c.last_name].filter(Boolean).join(' ')||'New customer';
+  let b=document.getElementById('newOrderBanner');
+  if(!b){
+    b=document.createElement('div'); b.id='newOrderBanner';
+    b.style.cssText='position:fixed;top:0;left:0;right:0;z-index:9999;background:#1c6b34;color:#fff;padding:14px 18px;'+
+      'display:flex;align-items:center;gap:14px;box-shadow:0 3px 14px rgba(0,0,0,.3);'+
+      "font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif";
+    document.body.appendChild(b);
+  }
+  b.innerHTML='<div style="font-size:24px">\u{1F6CF}\u{FE0F}</div>'+
+    '<div style="flex:1"><div style="font-weight:800;font-size:16px">New order — '+esc(name)+'</div>'+
+    '<div style="font-size:13px;opacity:.9">'+esc(c.suburb||'')+
+      (o.consultant_name?' \u00B7 '+esc(o.consultant_name):'')+
+      (o.contract_value?' \u00B7 $'+Number(o.contract_value).toLocaleString('en-NZ'):'')+
+      ' \u00B7 needs a confirmation call</div></div>'+
+    '<button onclick="this.parentNode.remove()" style="background:#fff;color:#1c6b34;border:none;border-radius:8px;'+
+    'padding:9px 16px;font-weight:700;cursor:pointer">Got it</button>';
+  chime(); flashTitle(name);
+}
+
+// live.js calls this on any relevant row change; we also listen for INSERTs
+window.SIMTEC_RELOAD = function(){ loadAll(); };
+
+function watchNewOrders(){
+  try{
+    sb.channel('office-new-orders')
+      .on('postgres_changes', { event:'INSERT', schema:'public', table:'sim_orders' }, async (payload)=>{
+        try{
+          const { data } = await sb.from('sim_orders')
+            .select('*, sim_customers(*)').eq('id', payload.new.id).maybeSingle();
+          if(data) newOrderBanner(data);
+        }catch(e){}
+        loadAll();
+      })
+      .subscribe();
+  }catch(e){ console.error('new-order watch failed', e); }
+}
+
 // Wait for auth.js to establish the session/client, then load.
 (function boot(){
   let n=0; const t=setInterval(()=>{ n++;
-    if(window.SIMTEC_USER || n>80){ clearInterval(t); loadAll(); }
+    if(window.SIMTEC_USER || n>80){ clearInterval(t); loadAll(); watchNewOrders();
+      if(SOUND){ try{ AC=new (window.AudioContext||window.webkitAudioContext)();
+                      if(AC.state==='suspended'){ AC=null; } }catch(e){ AC=null; } }
+      soundBar(); }
   },50);
 })();
 </script>
