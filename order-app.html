@@ -631,23 +631,24 @@ const EZI_EDDR_BASE  = "https://secure.ezidebit.com.au/webddr/Request.aspx"; // 
 const EZI_PUBLIC_KEY = "745DA227B547633D89A603CB3DCC309D";                   // LIVE eDDR form key from Ezidebit's go-live email (sandbox was 3097BB91-C589-44E4-8500-719B70EC3F27)
 // eDDR frequency codes: 1=Weekly 2=Fortnightly 4=Monthly 8=4-weekly 16=Qtrly 32=Half-yr 64=Yearly
 const EZI_FREQ = { weekly:1, fortnightly:2, monthly:4 };
-let TEAM={"Kenzie Lam Sam":"Kenzie Lam Sam","Anovale Tovio":"Kenzie Lam Sam","PJ Tonga":"Kenzie Lam Sam","Rita Neli":"Kenzie Lam Sam","Tame Cooper":"Kenzie Lam Sam","Yazan Othman":"Yazan Othman","Brooke Komene":"Yazan Othman","Kono Harris":"Yazan Othman","Stacey Numanga":"Yazan Othman"};
+let TEAM={"Kenzie Lam Sam":"Kenzie Lam Sam","PJ Tonga":"Kenzie Lam Sam","Rita Neli":"Kenzie Lam Sam","Tame Cooper":"Kenzie Lam Sam","Yazan Othman":"Yazan Othman","Brooke Komene":"Yazan Othman","Stacey Numanga":"Yazan Othman","Batre Wilson-Harris":null,"Bill Sevele":null,"Celina Fitu":null,"Elias Manuel-Mehan":null,"Kaman Murthi":null,"Rea Patil":null,"Matt":null};  // fallback only — the live list from consultants.html replaces this at load
 // Load the LIVE consultant list (added/edited in consultants.html) into the dropdown +
 // team mapping. Falls back to the hardcoded list above if the fetch fails.
 async function loadConsultants(){
   try{
     const { data } = await sb.rpc("list_active_consultants");
     const list = (typeof data === "string") ? JSON.parse(data) : data;
-    if(!Array.isArray(list) || !list.length) return;
+    if(!Array.isArray(list) || !list.length) return false;
     const sel = document.getElementById("consultant");
-    if(!sel) return;
+    if(!sel) return false;
     const cur = sel.value;
     TEAM = {};
     sel.innerHTML = '<option value="">Select consultant…</option>' +
       list.map(c=>{ TEAM[c.name] = c.team_leader || null;
                     return '<option>'+String(c.name).replace(/[&<>]/g,ch=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[ch]))+'</option>'; }).join("");
     if(cur && TEAM.hasOwnProperty(cur)) sel.value = cur;
-  }catch(e){ /* keep the fallback list */ }
+    return true;
+  }catch(e){ return false; }   // keep the fallback list
 }
 // New-app payment options -> your payment_method values. Ezidebit becomes weekly_dd/fortnightly_dd
 // once the Ezidebit callback tells us the frequency; null until then.
@@ -669,8 +670,22 @@ async function loadAffiliations(){
     data.forEach(a=>{ const o=document.createElement('option'); o.value=a.id; o.textContent=a.name; sel.appendChild(o); });
   }catch(e){ /* offline or not yet set up — group stays optional */ }
 }
-if(document.readyState!=='loading') loadAffiliations(); else document.addEventListener('DOMContentLoaded', loadAffiliations);
-if(document.readyState!=='loading') loadConsultants(); else document.addEventListener('DOMContentLoaded', loadConsultants);
+// Both of these read data behind RLS, so they must not run until auth.js has
+// restored the session — otherwise the request goes out signed-out, comes back
+// empty, and the consultant dropdown silently keeps the hardcoded fallback list
+// (which is missing every consultant added since July). Wait for the session,
+// then retry a couple of times if the list still comes back short.
+async function bootLists(){
+  for(let i=0; i<100 && !window.SIMTEC_USER; i++) await new Promise(r=>setTimeout(r,50)); // up to 5s
+  await loadAffiliations();
+  for(let attempt=0; attempt<3; attempt++){
+    const got = await loadConsultants();
+    if(got) return;
+    await new Promise(r=>setTimeout(r,800));
+  }
+  console.warn('consultant list did not load — the fallback list is in use');
+}
+if(document.readyState!=='loading') bootLists(); else document.addEventListener('DOMContentLoaded', bootLists);
 const S = { step:0, saleType:'', pay:'', depositMethod:'ezidebit', fullMethod:'bank', a2:false, products:[], referralId:null, emailVerified:false, sentCode:null, tncRead:false, idPhotos:{A1:[],A2:[]} };
 const STEP_LABELS = ['Start','Products','Details','Referees','Terms','ID','Payment','Sign','Ezidebit','Done'];
 
