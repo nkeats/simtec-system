@@ -270,8 +270,10 @@ function render(name, sales, orders, baseline, refs){
   const isCx = o => (o.order_status||"active")==="cancelled" || cxIds.has(o.id);
   const active = orders.filter(o=>!isCx(o));
   const cancelled = orders.filter(isCx);
-  const rows = orders.map((o,i)=>{
-    const cx=isCx(o);
+  // Consultants only need their live customers. Cancelled sales still count for
+  // the office, reports and commission, but they don't belong on this screen.
+  const rows = active.map((o,i)=>{
+    const cx=false;
     const c=o.sim_customers||{}; const cname=`${c.first_name||""} ${c.last_name||""}`.trim()||"(no name)";
     const items=(o._items||[]).slice().sort((a,b)=>(a.line_no||0)-(b.line_no||0));
     const pd=items.map(it=>(it.quantity>1?it.quantity+"× ":"")+it.product_name).join(", ")||"—";
@@ -327,8 +329,8 @@ function render(name, sales, orders, baseline, refs){
     ${awardHTML}
     ${refCard}
     <div class="card">
-      <h2>My sales · ${active.length} active${cancelled.length?` · <span style="color:#c0392b">${cancelled.length} cancelled</span>`:``}</h2>
-      ${orders.length ? `<table><thead><tr><th>Customer / products</th><th>Sale date</th><th class="num">Value</th></tr></thead><tbody>${rows}</tbody></table>`
+      <h2>My sales · ${active.length} customer${active.length==1?"":"s"}</h2>
+      ${active.length ? `<table><thead><tr><th>Customer / products</th><th>Sale date</th><th class="num">Value</th></tr></thead><tbody>${rows}</tbody></table>`
         : `<div id="state">No customers to show here yet.</div>`}
       ${gap ? `<div style="padding:10px 18px;font-size:12px;color:#7a8798;border-top:1px solid #eef1f4">Your sales count comes from the pay record. A few older/imported sales aren\u2019t in the operating system yet, so they don\u2019t appear in this contact list — new sales entered here will.</div>` : ""}
     </div>`;
