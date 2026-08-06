@@ -313,35 +313,34 @@ window.reviewCancel=async function(id){
    least once, so there is a one-off "Turn sound on" button and the
    preference is remembered.
    ============================================================ */
-let AC=null, SOUND = localStorage.getItem('simtec_order_sound') !== 'off';
+let AC=null, SOUND = localStorage.getItem('simtec_order_sound') === 'on';
 
 function soundBar(){
+  // The switch now lives on the home screen; this page just follows the setting
+  // and only mentions it when the sound is off.
   let bar=document.getElementById('sndBar');
   if(!bar){
     bar=document.createElement('div'); bar.id='sndBar';
     bar.style.cssText='position:fixed;left:0;right:0;bottom:0;z-index:9998;background:#111f3d;color:#fff;'+
-      'padding:10px 16px;font-size:14px;display:flex;align-items:center;gap:12px;'+
+      'padding:9px 16px;font-size:13.5px;display:flex;align-items:center;gap:12px;'+
       "font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif";
     document.body.appendChild(bar);
   }
-  bar.innerHTML = SOUND && AC
-    ? '<span>\u{1F514} New orders will chime on this screen.</span>'+
-      '<button onclick="muteSound()" style="margin-left:auto;background:transparent;border:1px solid #4a5a80;color:#c9d6ea;'+
-      'border-radius:7px;padding:6px 12px;cursor:pointer">Turn sound off</button>'
-    : '<span>\u{1F515} Sound is off \u2014 new orders will still appear, but silently.</span>'+
-      '<button onclick="enableSound()" style="margin-left:auto;background:#c6a15b;border:none;color:#1a2334;font-weight:700;'+
-      'border-radius:7px;padding:7px 14px;cursor:pointer">Turn sound on</button>';
+  const live = SOUND && AC && AC.state === 'running';
+  if(live){ bar.remove(); return; }                     // nothing to say when it works
+  bar.innerHTML = '<span>\u{1F515} New orders will appear here silently. '+
+    'Turn the chime on from the <b>home screen</b>.</span>'+
+    '<a href="home.html" style="margin-left:auto;background:#c6a15b;color:#1a2334;font-weight:700;'+
+    'border-radius:7px;padding:7px 14px;text-decoration:none">Open home</a>';
 }
-function enableSound(){
+function wakeSound(){
+  if(!SOUND) return false;
   try{
     AC = AC || new (window.AudioContext||window.webkitAudioContext)();
-    if(AC.state==='suspended') AC.resume();
-    SOUND=true; localStorage.setItem('simtec_order_sound','on');
-    chime();                                   // so they know it works
-  }catch(e){ alert('This browser will not play sound here.'); }
-  soundBar();
+    if(AC.state === 'suspended') AC.resume();
+    return AC.state === 'running';
+  }catch(e){ return false; }
 }
-function muteSound(){ SOUND=false; localStorage.setItem('simtec_order_sound','off'); soundBar(); }
 
 function chime(){
   if(!SOUND || !AC) return;
@@ -412,9 +411,8 @@ function watchNewOrders(){
 (function boot(){
   let n=0; const t=setInterval(()=>{ n++;
     if(window.SIMTEC_USER || n>80){ clearInterval(t); loadAll(); watchNewOrders();
-      if(SOUND){ try{ AC=new (window.AudioContext||window.webkitAudioContext)();
-                      if(AC.state==='suspended'){ AC=null; } }catch(e){ AC=null; } }
-      soundBar(); }
+      wakeSound(); soundBar();
+      document.addEventListener('click', function once(){ wakeSound(); soundBar(); }, { once:true }); }
   },50);
 })();
 </script>

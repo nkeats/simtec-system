@@ -167,6 +167,16 @@
 
     <div class="content">
 
+      <!-- NEW-ORDER SOUND: browsers will not play a chime until someone has
+           clicked the page, so this is the one-off switch. It lives here on the
+           home screen because that is what stays open in the office. -->
+      <div id="soundBar" style="display:none;align-items:center;gap:12px;background:#fffbe9;border:1px solid #e8d9a0;
+           border-radius:11px;padding:11px 15px;margin-bottom:14px;font-size:14px;color:#4a3c12">
+        <span id="soundMsg" style="flex:1"></span>
+        <button id="soundBtn" onclick="toggleOrderSound()" style="background:#122347;color:#fff;border:none;
+          border-radius:8px;padding:8px 15px;font-size:13.5px;font-weight:700;cursor:pointer"></button>
+      </div>
+
       <!-- LIVE STATUS STRIP -->
       <div class="strip">
         <a class="stat blue" href="delivery.html"><div class="n" id="sDeliv">–</div><div class="l">Deliveries today</div><div class="s" id="sDelivSub"></div><span class="go">→</span></a>
@@ -453,10 +463,40 @@ window.markContacted=async function(orderId, name, paidNow){
 loadUrgent();
 loadStrip();
 
-/* ---- new-order chime, mirrors confirmation.html so either screen announces it ---- */
-let AC_H=null, SND_H = localStorage.getItem('simtec_order_sound') !== 'off';
+/* ---- new-order chime -------------------------------------------------------
+   The switch lives on this page (the office leaves the home screen open). The
+   preference is shared with the confirmation page through localStorage, and any
+   click on either page wakes the audio, so it only has to be turned on once. */
+let AC_H=null, SND_H = localStorage.getItem('simtec_order_sound') === 'on';
+
+function wakeAudio(){
+  try{
+    AC_H = AC_H || new (window.AudioContext||window.webkitAudioContext)();
+    if(AC_H.state === 'suspended') AC_H.resume();
+    return AC_H.state === 'running';
+  }catch(e){ return false; }
+}
+function paintSoundBar(){
+  const bar=document.getElementById('soundBar'); if(!bar) return;
+  bar.style.display='flex';
+  const live = SND_H && AC_H && AC_H.state === 'running';
+  document.getElementById('soundMsg').innerHTML = live
+    ? '\u{1F514} <b>New orders will chime on this screen.</b> Leave this page open in the office.'
+    : (SND_H ? '\u{1F515} <b>Sound needs one more tap.</b> Browsers only allow it after a click.'
+             : '\u{1F515} <b>New orders arrive silently.</b> Turn the sound on so the office hears them.');
+  document.getElementById('soundBtn').textContent = live ? 'Turn sound off' : 'Turn sound on';
+}
+function toggleOrderSound(){
+  if(SND_H && AC_H && AC_H.state === 'running'){
+    SND_H=false; localStorage.setItem('simtec_order_sound','off');
+  }else{
+    SND_H=true; localStorage.setItem('simtec_order_sound','on');
+    if(wakeAudio()) homeChime();          // prove it works
+  }
+  paintSoundBar();
+}
 function homeChime(){
-  if(!SND_H || !AC_H) return;
+  if(!SND_H || !AC_H || AC_H.state !== 'running') return;
   [[880,0],[1174.7,0.16],[1567.9,0.32]].forEach(([f,t])=>{
     const o=AC_H.createOscillator(), g=AC_H.createGain();
     o.type='sine'; o.frequency.value=f;
@@ -465,13 +505,6 @@ function homeChime(){
     g.gain.exponentialRampToValueAtTime(0.0001, AC_H.currentTime+t+0.42);
     o.connect(g); g.connect(AC_H.destination); o.start(AC_H.currentTime+t); o.stop(AC_H.currentTime+t+0.45);
   });
-}
-function homeSoundOn(){
-  try{ AC_H = AC_H || new (window.AudioContext||window.webkitAudioContext)();
-       if(AC_H.state==='suspended') AC_H.resume();
-       SND_H=true; localStorage.setItem('simtec_order_sound','on'); homeChime();
-       const b=document.getElementById('sndBtn'); if(b) b.textContent='\u{1F514} Order sound is on';
-  }catch(e){}
 }
 function homeNewOrder(o){
   const c=o.sim_customers||{};
@@ -489,7 +522,11 @@ function homeNewOrder(o){
     '<button onclick="this.parentNode.remove()" style="background:transparent;border:1px solid #fff;color:#fff;'+
     'border-radius:8px;padding:9px 14px;cursor:pointer">Dismiss</button>';
   homeChime();
+  document.title = '\u{1F514} NEW ORDER \u2014 ' + name;
+  const restore=()=>{ document.title='Simtec'; window.removeEventListener('focus',restore); };
+  window.addEventListener('focus',restore);
 }
+
 function watchOrdersHome(){
   try{
     sb.channel('home-new-orders').on('postgres_changes',
@@ -497,9 +534,10 @@ function watchOrdersHome(){
         const { data } = await sb.from('sim_orders').select('*, sim_customers(*)').eq('id',p.new.id).maybeSingle();
         if(data) homeNewOrder(data);
       }).subscribe();
-    if(SND_H){ try{ AC_H=new (window.AudioContext||window.webkitAudioContext)();
-                    if(AC_H.state==='suspended') AC_H=null; }catch(e){} }
   }catch(e){}
+  if(SND_H) wakeAudio();
+  document.addEventListener('click', function once(){ if(SND_H) wakeAudio(); paintSoundBar(); }, { once:true });
+  paintSoundBar();
 }
 
 watchOrdersHome();
