@@ -1163,7 +1163,85 @@ async function generateAndUploadOrderPdf(orderId,P){
   doc.setTextColor(120); doc.setFontSize(9);
   doc.text('This order is confirmed on the confirmation call. Terms & Conditions and the 15-year warranty apply.',M,y);
   const blob=doc.output('blob');
-  await sb.storage.from('order-documents').upload(orderId+'/order-summary.pdf', blob, {upsert:true, contentType:'application/pdf'});
+  // the summary PDF goes through the same safety net as the signatures
+  const durl = await new Promise((res,rej)=>{ const r=new FileReader(); r.onload=()=>res(r.result); r.onerror=rej; r.readAsDataURL(blob); });
+  await safeUpload(orderId, orderId+'/order-summary.pdf', durl, 'application/pdf');
+}
+
+
+/* ---------------------------------------------------------------------------
+   Uploading paperwork, the safe way.
+
+   7 Aug 2026: every upload from a consultant iPad was refused by storage with
+   HTTP 400 (older Safari), and three signed orders ended up with no paperwork.
+   The order itself saved fine, so nobody noticed for two days.
+
+   So the rules now are:
+     1. send raw BYTES with an explicit content type — never a bare Blob whose
+        .type an old browser may leave empty;
+     2. if it fails, try once more;
+     3. if it still fails, write the file INTO THE DATABASE. The database has
+        never refused. A recovery job moves it to storage afterwards.
+     4. record every failure where the office can see it.
+   A signature must never be lost again because a browser was old.
+--------------------------------------------------------------------------- */
+function dataURLtoBytes(durl){
+  const comma = durl.indexOf(',');
+  const meta  = durl.slice(0, comma);
+  const b64   = durl.slice(comma + 1);
+  const type  = (meta.match(/data:([^;]+)/) || [])[1] || 'application/octet-stream';
+  const bin   = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return { bytes, type, b64 };
+}
+
+async function logUploadFailure(orderId, path, message){
+  try{
+    await sb.from('sim_upload_failures').insert({
+      order_id: orderId, path: path,
+      message: String(message||'').slice(0,500),
+      device: (navigator.userAgent||'').slice(0,200)
+    });
+  }catch(e){ /* logging must never make things worse */ }
+}
+
+// Returns true if the file is safe somewhere — storage OR the database.
+async function safeUpload(orderId, path, durl, contentTypeHint){
+  if(!durl) return true;                       // nothing to save is not a failure
+  let parsed;
+  try{ parsed = dataURLtoBytes(durl); }
+  catch(e){ await logUploadFailure(orderId, path, 'could not read the image: '+(e.message||e)); return false; }
+
+  const type = contentTypeHint || parsed.type || 'application/octet-stream';
+  let lastMsg = '';
+
+  for(let attempt = 1; attempt <= 2; attempt++){
+    try{
+      const { error } = await sb.storage.from('order-documents')
+        .upload(path, parsed.bytes, { upsert:true, contentType:type });
+      if(!error) return true;
+      lastMsg = error.message || String(error);
+    }catch(e){ lastMsg = e.message || String(e); }
+    if(attempt === 1) await new Promise(r=>setTimeout(r, 600));
+  }
+
+  // Storage refused twice. Park it in the database instead — never lose it.
+  try{
+    const { error:dbErr } = await sb.from('sim_document_fallback').insert({
+      order_id: orderId, path: path, content_type: type,
+      data_base64: parsed.b64, bytes: parsed.bytes.length,
+      reason: String(lastMsg).slice(0,300),
+      device: (navigator.userAgent||'').slice(0,200)
+    });
+    await logUploadFailure(orderId, path, 'storage refused ('+lastMsg+') — held in the database');
+    if(!dbErr) return true;                    // safe, just not in storage yet
+    await logUploadFailure(orderId, path, 'storage AND database both refused: '+(dbErr.message||dbErr));
+    return false;
+  }catch(e){
+    await logUploadFailure(orderId, path, 'storage refused and the database threw: '+(e.message||e));
+    return false;
+  }
 }
 
 // Returns an array of human-readable warnings ([] when everything attached OK).
@@ -1173,12 +1251,9 @@ async function saveExtrasPayload(orderId,P){
   const uploads={}; const failed=[];
   const put=async(key,durl,sub,label)=>{
     if(!durl) return;
-    try{
-      const blob=dataURLtoBlob(durl); const path=orderId+'/'+sub;
-      const {error}=await sb.storage.from('order-documents').upload(path,blob,{upsert:true,contentType:blob.type});
-      if(error){ failed.push(label); console.warn('upload failed',sub,error.message||error); }
-      else uploads[key]=path;
-    }catch(e){ failed.push(label); console.warn('upload threw',sub,e.message||e); }
+    const path=orderId+'/'+sub;
+    const ok=await safeUpload(orderId, path, durl, sub.endsWith('.png')?'image/png':null);
+    if(ok) uploads[key]=path; else failed.push(label);
   };
   // ID photos: each applicant can have MANY. Store them all under
   // {orderId}/id-applicant{1,2}/{n}.jpg; the applications row keeps the first as
@@ -1189,12 +1264,9 @@ async function saveExtrasPayload(orderId,P){
     const paths=[];
     for(let i=0;i<arr.length;i++){
       const sub=folder+'/'+(i+1)+'.jpg';
-      try{
-        const blob=dataURLtoBlob(arr[i]); const path=orderId+'/'+sub;
-        const {error}=await sb.storage.from('order-documents').upload(path,blob,{upsert:true,contentType:blob.type||'image/jpeg'});
-        if(error){ failed.push(label+' '+(i+1)); console.warn('upload failed',sub,error.message||error); }
-        else paths.push(path);
-      }catch(e){ failed.push(label+' '+(i+1)); console.warn('upload threw',sub,e.message||e); }
+      const path=orderId+'/'+sub;
+      const ok=await safeUpload(orderId, path, arr[i], 'image/jpeg');
+      if(ok) paths.push(path); else failed.push(label+' '+(i+1));
     }
     return paths;
   };
