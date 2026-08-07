@@ -107,8 +107,47 @@ async function buildRun(){
     p_date: $("pDate").value, p_driver: $("pDriver").value, p_vehicle: ($("pVehicle").value||"").trim()||null });
   if(error) return showErr(error.message);
   if(data && data.ok===false) return showErr(data.error);
+  // A freshly built run is in booking order. Put it into driving order straight
+  // away — the office never has to remember to ask.
+  if(data && data.run_id){
+    const r = await sb.rpc("driver_optimise_run", { p_run: data.run_id });
+    const o = r && r.data;
+    if(o && o.ok && o.km_saved > 0.5) toast(`Run ordered for driving \u2014 ${o.km_after} km instead of ${o.km_before}, saving ${o.km_saved} km.`);
+  }
   await load();
   await loadCalls();
+}
+
+// Re-order an existing run (after adding or removing a stop, or when the driver
+// wants it worked out from where the truck actually is).
+async function optimiseRun(runId, btn){
+  showErr("");
+  if(btn){ btn.disabled = true; btn.textContent = "Working it out\u2026"; }
+  const { data, error } = await sb.rpc("driver_optimise_run", { p_run: runId });
+  if(btn){ btn.disabled = false; btn.textContent = "\u{1F9ED} Order for driving"; }
+  if(error) return showErr(error.message);
+  if(data && data.ok === false) return showErr(data.error);
+  if(data){
+    toast(data.km_saved > 0.5
+      ? `Ordered for driving \u2014 ${data.km_after} km instead of ${data.km_before}, saving ${data.km_saved} km.`
+      : `Already in a sensible order (${data.km_after} km).`
+      + (data.no_location ? ` ${data.no_location} stop${data.no_location==1?"":"s"} had no address match and stayed at the end.` : ""));
+  }
+  await load();
+}
+
+function toast(msg){
+  let t = document.getElementById("toast");
+  if(!t){
+    t = document.createElement("div"); t.id = "toast";
+    t.style.cssText = "position:fixed;left:50%;transform:translateX(-50%);bottom:24px;z-index:9999;"+
+      "background:#122347;color:#fff;padding:12px 18px;border-radius:10px;font-size:14px;"+
+      "box-shadow:0 4px 18px rgba(0,0,0,.25);max-width:90vw;text-align:center";
+    document.body.appendChild(t);
+  }
+  t.textContent = msg; t.style.display = "block";
+  clearTimeout(window.__toastT);
+  window.__toastT = setTimeout(()=>{ t.style.display = "none"; }, 6000);
 }
 
 async function loadAlerts(){
@@ -180,7 +219,12 @@ async function load(){
           · ${r.hours_on_road??0} h on road · ${r.break_minutes} min break</span>
       </div>
       <div class="bar"><i style="width:${pct}%"></i></div>
-      <div class="muted">${r.done} delivered${r.failed?`, ${r.failed} not completed`:""} of ${r.stops}</div>
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+        <div class="muted">${r.done} delivered${r.failed?`, ${r.failed} not completed`:""} of ${r.stops}</div>
+        ${r.status!=="done" && list.length>1 ? `<button onclick="optimiseRun('${r.id}', this)"
+           style="background:#fff;color:var(--navy);border:1px solid #cbd4df;border-radius:8px;
+           padding:6px 12px;font-size:12.5px;font-weight:600;cursor:pointer">\u{1F9ED} Order for driving</button>` : ""}
+      </div>
       <table style="margin-top:10px"><thead><tr>
         <th>#</th><th>Customer</th><th>Told</th><th>ETA given</th><th>Arrived</th><th>Left</th><th>On site</th><th>Items</th><th>Proof</th><th>Result</th>
       </tr></thead><tbody>
