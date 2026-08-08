@@ -735,7 +735,7 @@ function showStep(ds){
 }
 async function go(dir){
   const vis=visibleSteps(); const cur=vis.indexOf(S.step);
-  if(dir>0 && !validateStep(S.step)) return;
+  if(dir>0 && !(await validateStep(S.step))) return;
   if(dir>0 && S.step===7){
     const res=await submitOrder();
     if(res==='error') return;              // stay on review; error shown
@@ -745,7 +745,7 @@ async function go(dir){
   const nx=cur+dir; if(nx<0||nx>=vis.length) return;
   showStep(vis[nx]);
 }
-function validateStep(ds){
+async function validateStep(ds){
   if(ds===0){ if(!val('consultant')||!val('visitDate')||!S.saleType){alert('Enter consultant, date and sale type.');return false;} }
   if(ds===1){ if(!S.products.some(p=>p.name)){alert('Add at least one product.');return false;} }
   if(ds===2){ if(!val('a1first')||!val('a1last')||!val('mobile')||!val('email')||!val('street')){alert('Fill the required customer fields.');return false;}
@@ -759,7 +759,34 @@ function validateStep(ds){
       if(isBlank('iTnc_2')){alert('Applicant 2 must initial the Terms & Conditions box.');return false;}
       for(let i=1;i<=ackMax;i++){ if(isBlank('iAck'+i+'_2')){alert('Applicant 2 must initial every acknowledgement.');return false;} }
     } }
-  if(ds===8){ if(isBlank('sigEzi')){alert('Please sign the direct-debit authority — the last box on this page — to finish.');return false;} }
+  if(ds===8){
+    /* Nigel's rule, 8 Aug: "the only reason we wouldnt do ezidebit is if its a
+       solicited sale paying in full. Other than that, ezidebit will be used in
+       all sales."
+
+       So there is exactly ONE exemption, and it is not a judgement call the
+       consultant makes at the door. Everything else must have a live direct
+       debit before the order can finish — Hemara Katene-brown's $5,790 order
+       reached Done with nothing scheduled to collect, and an order with no
+       schedule can never appear in arrears, so nothing downstream would ever
+       have flagged it.
+
+       If Ezidebit genuinely can't be reached (no signal at the door), the
+       consultant PARKS the order instead — that path already exists and the
+       office finishes it. */
+    const exempt = (S.saleType === 'solicited' && S.pay === 'full');
+    if(!exempt && !S.eziRef){
+      alert('The direct debit has not been set up.\n\n'
+        + 'Every sale is collected by direct debit, apart from a solicited sale paid in full, '
+        + 'so this order cannot be finished until it is done.\n\n'
+        + 'Set it up on this page. If you have no signal, use Park instead and the office will finish it.');
+      return false;
+    }
+    if(!exempt && isBlank('sigEzi')){
+      alert('Please sign the direct-debit authority — the last box on this page — to finish.');
+      return false;
+    }
+  }
   if(ds===6){ if(!S.pay){alert('Select a payment method.');return false;} }
   if(ds===7){ if(isBlank('sigA1')){alert('Applicant 1 must sign.');return false;} if(S.a2&&isBlank('sigA2')){alert('Applicant 2 must sign.');return false;} }
   return true;
@@ -1222,6 +1249,21 @@ async function safeUpload(orderId, path, durl, contentTypeHint){
   const type = contentTypeHint || parsed.type || 'application/octet-stream';
   let lastMsg = '';
 
+  /* THROUGH THE SERVER FIRST.
+     This page builds its own Supabase client, and its storage calls were not
+     carrying the session — every upload came back "new row violates row-level
+     security policy" while the database writes from the same page worked. The
+     edge function checks the order is ours and writes with the service role, so
+     a browser session quirk can never again decide whether a signature is kept. */
+  try{
+    const { data, error } = await sb.functions.invoke('upload-order-document', {
+      body: { orderId: orderId, path: path, contentType: type, data: parsed.b64 }
+    });
+    if(!error && data && data.ok) return true;
+    lastMsg = (data && data.error) || (error && error.message) || 'server upload failed';
+  }catch(e){ lastMsg = e.message || String(e); }
+
+  /* then the direct route, in case the function is unreachable */
   for(let attempt = 1; attempt <= 2; attempt++){
     try{
       const { error } = await sb.storage.from('order-documents')
@@ -1699,6 +1741,7 @@ window.addEventListener('message', function(ev){
   if(ev.origin!==location.origin) return;                    // only trust our own return page
   const d=ev.data; if(!d || d.__simtec!=='ezidebit-return') return;
   applyEzidebitCallback(d.params||{}).then(()=>{
+    S.eziRef = (d.params&&(d.params.cref||d.params.uref))||null;   // the direct debit really is set up
     document.getElementById('eziFrameWrap').classList.add('hidden');
     const done=document.getElementById('eziDone'); done.classList.remove('hidden');
     const p=d.params||{};
@@ -1717,7 +1760,7 @@ async function applyEzidebitCallback(cb){
   const methodMap={weekly:'weekly_dd',fortnightly:'fortnightly_dd',monthly:'monthly_dd'};
   const rIso=eziDateToIso(cb.rdate);
   const upd={
-    ezidebit_payer_ref:(cb.cref||cb.uref||'')||null,
+    ezidebit_payer_ref:(cb.cref||cb.uref||'')||null,   // S.eziRef is set below once this saves
     payment_method:(methodMap[freq]||'weekly_dd'), payment_frequency:freq,
     instalment_amount:numOrNull(cb.ramount), term_periods:numOrNull(cb.numpayments),
     first_payment_date:rIso, schedule_start_date:rIso, next_payment_date:rIso
