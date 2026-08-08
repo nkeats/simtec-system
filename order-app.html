@@ -1427,6 +1427,25 @@ async function takeCardPayment(){
 async function finalizeOrder(){
   if(!sb || !S.orderId || S.finalized) return;
   S.finalized=true;
+
+  /* ------------------------------------------------------------------
+     The direct-debit authority signature.
+
+     The order is saved — and all its documents uploaded — at the END OF
+     STEP 7, because the Ezidebit step needs an order id to attach to.
+     But the DD signature is signed on STEP 8, AFTER that upload has
+     already happened. So it was captured into the payload while the
+     canvas was still blank, and never made it to storage: zero of 36
+     orders had one. Upload it here, once it actually exists.
+  ------------------------------------------------------------------ */
+  try{
+    const durl = canvasDataURL('sigEzi');
+    if(durl){
+      const ok = await safeUpload(S.orderId, S.orderId+'/signature-dd.png', durl, 'image/png');
+      if(!ok) console.warn('DD authority signature could not be attached');
+    }
+  }catch(e){ console.warn('DD signature upload threw:', e&&e.message||e); }
+
   if((S.pay==='ezidebit' || S.pay==='deposit50') && S.lastP){
     try{ await generateAndUploadOrderPdf(S.orderId, S.lastP); }
     catch(e){ console.warn('summary regen pending:',e&&e.message||e); }
