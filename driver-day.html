@@ -245,6 +245,8 @@ function render(){
           : `<button class="warn" onclick="brk(true)">Take a break</button>`}
         <button class="stop" onclick="endDay()">End the day (everyone off)</button>
       </div>
+      ${RUN.stops - RUN.done > 1 ? `<button class="wide" style="margin-top:8px"
+        onclick="reorderFromHere(this)">\u{1F9ED} Best order from where I am</button>` : ""}
     </div>
     ${nextStop && !ONBREAK ? `
       <div class="card" style="border-color:var(--blue)">
@@ -375,6 +377,30 @@ async function endDay(){
   if(PING) clearInterval(PING);
   CURRENT=null; await load();
 }
+
+/* The office puts the run in driving order from the yard first thing. Once the
+   day is under way the truck is somewhere else entirely, and a stop may have
+   been added or missed — so the driver can ask for the best order FROM HERE.
+   Stops already delivered keep their place; only what is left gets reshuffled. */
+async function reorderFromHere(btn){
+  if(!RUN) return;
+  const label = btn ? btn.textContent : "";
+  if(btn){ btn.disabled = true; btn.textContent = "Working it out\u2026"; }
+  const p = await here();
+  const { data, error } = await sb.rpc("driver_optimise_run", {
+    p_run: RUN.id, p_start_lat: p.lat, p_start_lng: p.lng });
+  if(btn){ btn.disabled = false; btn.textContent = label; }
+  if(error) return showErr(error.message);
+  if(data && data.ok === false) return showErr(data.error);
+  if(data){
+    showErr("");
+    alert(data.km_saved > 0.5
+      ? `Re-ordered \u2014 ${data.km_after} km left instead of ${data.km_before}, saving ${data.km_saved} km.`
+      : `Already in a sensible order \u2014 ${data.km_after} km to go.`);
+  }
+  await load();
+}
+
 async function brk(start){
   const p = await here();
   if(!await rpc("driver_break",{p_start:start,p_lat:p.lat,p_lng:p.lng})) return;

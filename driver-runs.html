@@ -35,6 +35,13 @@
        font-size:14px;margin-bottom:12px;display:none}
   a.link{color:var(--blue);text-decoration:none;font-weight:600}
 </style>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+  .maprow{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:10px 0 6px}
+  .mapbox{height:420px;border-radius:12px;border:1px solid var(--line);overflow:hidden}
+  .stale{color:var(--red);font-weight:600}
+</style>
 </head>
 <body>
 
@@ -150,6 +157,108 @@ function toast(msg){
   window.__toastT = setTimeout(()=>{ t.style.display = "none"; }, 6000);
 }
 
+
+/* ---------------------------------------------------------------------------
+   Live map. Free OpenStreetMap tiles via Leaflet — no key, nothing to pay for,
+   which is the same reasoning as the free routing approach.
+
+   Shows: the yard, every stop numbered in driving order (green done, red not
+   completed, navy still to come), the truck's last known position, and the
+   trail it has driven. Refreshes itself every 30s while open.
+--------------------------------------------------------------------------- */
+const MAPS = {};
+
+async function toggleMap(runId, btn){
+  const box = document.getElementById("map-" + runId);
+  if(!box) return;
+  if(box.style.display !== "none"){
+    box.style.display = "none";
+    btn.textContent = "\u{1F5FA}\uFE0F Show the map";
+    if(MAPS[runId] && MAPS[runId].timer) clearInterval(MAPS[runId].timer);
+    return;
+  }
+  box.style.display = "block";
+  btn.textContent = "Hide the map";
+  if(!MAPS[runId]){
+    const map = L.map(box).setView([-36.9776, 174.8607], 11);
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 19, attribution: "&copy; OpenStreetMap"
+    }).addTo(map);
+    MAPS[runId] = { map, layer: L.layerGroup().addTo(map), timer: null };
+  }
+  await drawMap(runId);
+  MAPS[runId].timer = setInterval(()=>drawMap(runId), 30000);
+  setTimeout(()=>MAPS[runId].map.invalidateSize(), 100);
+}
+
+async function drawMap(runId){
+  const M = MAPS[runId]; if(!M) return;
+  M.layer.clearLayers();
+  const pts = [];
+
+  // the yard
+  const yard = L.circleMarker([-36.9776, 174.8607], {radius:7, color:"#c0a062", weight:2,
+    fillColor:"#c0a062", fillOpacity:.9}).bindTooltip("The yard");
+  M.layer.addLayer(yard); pts.push([-36.9776, 174.8607]);
+
+  // the stops, numbered in driving order
+  const { data: stops } = await sb.from("v_driver_stops")
+    .select("seq,status,customer,suburb,stop_lat,stop_lng,located_by,delivery_time")
+    .eq("run_id", runId).order("seq");
+  (stops||[]).forEach(s=>{
+    if(s.stop_lat == null) return;
+    const done = s.status === "done", failed = s.status === "failed";
+    const colour = done ? "#1c6b34" : failed ? "#b4342e" : "#122347";
+    const m = L.marker([s.stop_lat, s.stop_lng], {
+      icon: L.divIcon({className:"", html:
+        `<div style="background:${colour};color:#fff;width:26px;height:26px;border-radius:50%;
+          display:flex;align-items:center;justify-content:center;font:700 13px/1 Arial;
+          border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4)">${s.seq}</div>`,
+        iconSize:[26,26], iconAnchor:[13,13] })
+    }).bindTooltip(`${s.seq}. ${esc(s.customer||"")}<br>${esc(s.suburb||"")}${
+        s.delivery_time?" &middot; "+esc(s.delivery_time):""}${
+        s.located_by!=="exact"?"<br><i>approximate location</i>":""}`);
+    M.layer.addLayer(m); pts.push([s.stop_lat, s.stop_lng]);
+  });
+
+  // the trail, then the truck on top of it
+  const { data: trail } = await sb.rpc("run_trail", { p_run: runId });
+  if(trail && trail.length > 1){
+    M.layer.addLayer(L.polyline(trail.map(t=>[t.lat, t.lng]),
+      {color:"#4a6ea8", weight:3, opacity:.65}));
+  }
+  // Where the truck is: a live GPS fix if the device can give one, otherwise the
+  // last stop the driver worked. The two are never presented as the same thing —
+  // one is measured, the other is the address we sent them to.
+  const { data: pos } = await sb.rpc("run_position", { p_run: runId });
+  const p = pos && pos[0];
+  const note = document.getElementById("mapnote-" + runId);
+  if(p && p.lat != null){
+    const live = p.source === "gps";
+    const mins = Math.round((Date.now() - new Date(p.at_time).getTime()) / 60000);
+    M.layer.addLayer(L.circleMarker([p.lat, p.lng], {
+      radius:10, color:"#fff", weight:3,
+      fillColor: live ? "#1c6b34" : "#4a6ea8",
+      fillOpacity: live ? 1 : .75,
+      dashArray: live ? null : "3"
+    }).bindTooltip(live
+      ? "The truck \u2014 " + (mins < 2 ? "just now" : mins + " min ago")
+      : "Last stop worked \u2014 " + (mins < 2 ? "just now" : mins + " min ago") + "<br><i>no GPS on this device</i>"));
+    pts.push([p.lat, p.lng]);
+    if(note){
+      note.innerHTML = live
+        ? (mins > 10
+            ? `<span class="stale">Last seen ${mins} min ago \u2014 the app may be closed.</span>`
+            : `Truck seen ${mins < 2 ? "just now" : mins + " min ago"}.`)
+        : `Shown at the last stop worked ${mins < 2 ? "just now" : mins + " min ago"} \u2014 this iPad has no GPS, so the position is the delivery address, not a live fix.`;
+    }
+  } else if(note){
+    note.textContent = "No position yet \u2014 nothing has been delivered and the device has not reported in.";
+  }
+
+  if(pts.length > 1) M.map.fitBounds(pts, {padding:[30,30]});
+}
+
 async function loadAlerts(){
   const { data, error } = await sb.from("v_booking_alerts").select("*").order("delivery_date");
   const box = $("alerts");
@@ -225,6 +334,13 @@ async function load(){
            style="background:#fff;color:var(--navy);border:1px solid #cbd4df;border-radius:8px;
            padding:6px 12px;font-size:12.5px;font-weight:600;cursor:pointer">\u{1F9ED} Order for driving</button>` : ""}
       </div>
+      <div class="maprow">
+        <button onclick="toggleMap('${r.id}', this)" style="background:#fff;color:var(--navy);
+          border:1px solid #cbd4df;border-radius:8px;padding:6px 12px;font-size:12.5px;
+          font-weight:600;cursor:pointer">\u{1F5FA}\uFE0F Show the map</button>
+        <span class="muted" id="mapnote-${r.id}"></span>
+      </div>
+      <div id="map-${r.id}" class="mapbox" style="display:none"></div>
       <table style="margin-top:10px"><thead><tr>
         <th>#</th><th>Customer</th><th>Told</th><th>ETA given</th><th>Arrived</th><th>Left</th><th>On site</th><th>Items</th><th>Proof</th><th>Result</th>
       </tr></thead><tbody>
