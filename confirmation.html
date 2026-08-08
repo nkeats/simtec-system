@@ -72,6 +72,12 @@
   .badge{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:700;padding:3px 9px;border-radius:20px}
   .badge.g{background:var(--greenbg);color:var(--green)} .badge.n{background:#eef1f7;color:var(--sub)}
   .review-banner{background:var(--redbg);border:1px solid #e7c3bf;color:var(--red);border-radius:11px;padding:11px 14px;margin-bottom:14px;font-size:13.5px;font-weight:600}
+  .claimbar{padding:9px 14px;font-size:13px;font-weight:600;border-radius:10px 10px 0 0}
+  .claimbar.free{background:#f2f5fa;color:#5a6b8c}
+  .claimbar.mine{background:#e7f3ec;color:#1c6b34}
+  .claimbar.taken{background:#fdf3e0;color:#8a6d2f}
+  .claimbar a{color:inherit}
+  .ocard.dim{opacity:.62}
 </style>
 </head>
 <body>
@@ -163,6 +169,7 @@ async function markCalled(id){
 }
 
 async function loadAll(){
+  await loadClaims();
   document.getElementById('list').innerHTML='<div class="state">Loading orders…</div>';
   try{
     const {data:pend,error:e1}=await sb.from('sim_orders')
@@ -231,7 +238,15 @@ function pendingCard(o){
   const id=o.id;
   const checks=CHECKS.map(([f,lbl])=>
     '<label class="chk" id="lab_'+f+'_'+id+'"><input type="checkbox" class="conf-chk" data-order="'+id+'" data-field="'+f+'" onchange="onCheck(\''+id+'\',this)">'+esc(lbl)+'</label>').join('');
-  return '<div class="ocard" id="card_'+id+'">'
+  const cl = CLAIMS[id];
+  const mine = cl && cl.claimed_by === MYID;
+  const claimBar = cl
+    ? (mine
+        ? '<div class="claimbar mine">You are on this call \u00b7 <a href="#" onclick="letGo(\''+id+'\');return false">let it go</a></div>'
+        : '<div class="claimbar taken">\u260E\uFE0F '+esc(cl.claimed_name||'Someone')+' is calling this one now</div>')
+    : '<div class="claimbar free"><button class="btn2" onclick="takeCall(\''+id+'\')">I\'ll call this one</button></div>';
+
+  return '<div class="ocard'+(cl&&!mine?' dim':'')+'" id="card_'+id+'">'+claimBar
     +'<div class="ohead"><div><div class="who">'+esc(fullName(o))+'</div>'
       +'<div class="meta">'+(o.order_no?('Order '+esc(o.order_no)+' · '):'')+fmtDate(o.order_date)+' · '+esc(o.consultant_name||'')+'</div></div>'
       +'<div class="val">'+money(o.contract_value)+'<small>contract value</small></div></div>'
@@ -277,6 +292,37 @@ function acceptedCard(o){
     +'<div class="val">'+money(o.contract_value)+'<small>contract value</small></div></div></div>';
 }
 
+
+/* Two people work this list on a Monday. Without a claim they both ring the
+   newest order and the customer gets called twice. The claim is deliberately
+   SOFT — it expires by itself after ten minutes, so a card someone opened and
+   walked away from never stays locked. A stuck lock is worse than a collision. */
+let CLAIMS = {}, MYID = null;
+
+async function loadClaims(){
+  try{
+    if(!MYID){ const { data:u } = await sb.auth.getUser(); MYID = u && u.user ? u.user.id : null; }
+    const { data } = await sb.from('v_confirmation_claims').select('*');
+    CLAIMS = {}; (data||[]).forEach(function(c){ CLAIMS[c.order_id] = c; });
+  }catch(e){ CLAIMS = {}; }
+}
+
+window.takeCall = async function(id){
+  const { data, error } = await sb.rpc('claim_confirmation_call', { p_order: id });
+  if(error) return alert(error.message);
+  if(data && data.ok === false){
+    if(data.taken) alert(data.by + ' started this call ' +
+      (data.minutes_ago < 1 ? 'just now' : data.minutes_ago + ' min ago') + '. Pick another one.');
+    else alert(data.error);
+  }
+  await loadClaims(); render();
+};
+
+window.letGo = async function(id){
+  await sb.rpc('release_confirmation_call', { p_order: id });
+  await loadClaims(); render();
+};
+
 function render(){
   renderTabs();
   const list=ORDERS.filter(o=>o.confirmation_status===TAB);
@@ -315,6 +361,7 @@ window.accept=async function(id){
   const row={order_id:id,...checks,accepted:true,status:'accepted',called_by:me(),called_at:nowISO(),updated_at:nowISO()};
   const {error}=await upsertConf(row);
   if(error){ setState(id,'Couldn\'t save: '+error.message,'#b4342e'); return; }
+  try{ await sb.rpc('release_confirmation_call',{p_order:id}); }catch(e){}
   const {error:e2}=await sb.from('sim_orders').update({confirmation_status:'accepted'}).eq('id',id);
   if(e2){ setState(id,'Saved checklist, but status update failed: '+e2.message,'#b4342e'); return; }
   loadAll();
@@ -327,6 +374,7 @@ window.toReview=async function(id){
   const row={order_id:id,...checks,accepted:false,status:'review',called_by:me(),called_at:nowISO(),review_note:note,updated_at:nowISO()};
   const {error}=await upsertConf(row);
   if(error){ setState(id,'Couldn\'t save: '+error.message,'#b4342e'); return; }
+  try{ await sb.rpc('release_confirmation_call',{p_order:id}); }catch(e){}
   const {error:e2}=await sb.from('sim_orders').update({confirmation_status:'review'}).eq('id',id);
   if(e2){ setState(id,'Saved, but status update failed: '+e2.message,'#b4342e'); return; }
   loadAll();
@@ -338,6 +386,7 @@ window.reviewAccept=async function(id){
   const row={order_id:id,accepted:true,status:'accepted',review_decision:'accepted',review_note:note,reviewed_by:me(),reviewed_at:nowISO(),updated_at:nowISO()};
   const {error}=await upsertConf(row);
   if(error){ setState(id,'Couldn\'t save: '+error.message,'#b4342e'); return; }
+  try{ await sb.rpc('release_confirmation_call',{p_order:id}); }catch(e){}
   const {error:e2}=await sb.from('sim_orders').update({confirmation_status:'accepted'}).eq('id',id);
   if(e2){ setState(id,'Saved, but status update failed: '+e2.message,'#b4342e'); return; }
   loadAll();
@@ -408,6 +457,7 @@ let TITLE_TIMER=null;
 
 // live.js?v=2 calls this on any relevant row change; we also listen for INSERTs
 window.SIMTEC_RELOAD = function(){ loadAll(); loadMissedCalls(); };
+setInterval(async function(){ await loadClaims(); render(); }, 20000);
 
 /* the new-order banner + chime now live in live.js?v=2, so every screen gets them */
 
