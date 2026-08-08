@@ -163,8 +163,8 @@ async function finishCode(){
   if(error) return showErr("That code didn't work. If you asked for more than one, use the newest email \u2014 older codes stop working.");
   const p = await here();
   const r = PENDING.action==="in"
-    ? await rpc("crew_sign_in", { p_lat:p.lat, p_lng:p.lng, p_vehicle:VEHICLE })
-    : await rpc("crew_sign_out", { p_lat:p.lat, p_lng:p.lng });
+    ? await rpc("crew_sign_in", { p_lat:p.lat, p_lng:p.lng, p_vehicle:VEHICLE, p_device:deviceKey() })
+    : await rpc("crew_sign_out", { p_lat:p.lat, p_lng:p.lng, p_device:deviceKey() });
   if(!r) return;
   PENDING = null;
   await boot();
@@ -176,8 +176,67 @@ function backToCrew(){ PENDING=null; SHOW_RUN=false; showErr(""); boot(); }
 const VEHICLE = "Truck 1";
 let SHOW_RUN = false;
 
+
+/* ---------------------------------------------------------------------------
+   This device.
+
+   Nigel, 8 Aug: staff must not be able to sign on from their own phone before
+   they reach work. So the crew screen only works on a device the OFFICE has
+   paired. The iPad keeps a random key; every sign-on and sign-off sends it, and
+   the server refuses anything it doesn't recognise.
+
+   The key lives in localStorage, which survives closing the app but not
+   clearing the browser. If that happens the office issues a new pairing code —
+   twenty seconds, not a rebuild.
+--------------------------------------------------------------------------- */
+const DEV_KEY = "simtec_crew_device";
+function deviceKey(){
+  try{
+    let k = localStorage.getItem(DEV_KEY);
+    if(!k){
+      k = (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random())
+          .replace(/-/g, "");
+      localStorage.setItem(DEV_KEY, k);
+    }
+    return k;
+  }catch(e){ return ""; }        // private browsing — will simply be refused
+}
+
+async function deviceIsPaired(){
+  try{
+    const { data } = await sb.rpc("crew_device_ok", { p_key: deviceKey() });
+    return data === true;
+  }catch(e){ return false; }
+}
+
+function pairScreen(msg){
+  document.getElementById("app").innerHTML = `
+    <div class="card">
+      <h2>Set up this iPad</h2>
+      <div class="muted" style="margin-bottom:10px">
+        ${msg || "Sign-on works on the warehouse iPad only. Ask the office for a set-up code."}
+      </div>
+      <label>Set-up code</label>
+      <input id="pcode" inputmode="latin" autocapitalize="characters" placeholder="ABC123">
+      <button class="wide primary" onclick="claimDevice()">Set up this iPad</button>
+    </div>`;
+}
+
+async function claimDevice(){
+  const code = ((document.getElementById("pcode")||{}).value||"").trim().toUpperCase();
+  if(!code) return showErr("Enter the code the office gave you.");
+  const { data, error } = await sb.rpc("crew_claim_device", { p_code: code, p_key: deviceKey() });
+  if(error) return showErr(error.message);
+  if(data && data.ok === false) return showErr(data.error);
+  showErr("");
+  alert("This iPad is set up as \"" + (data.label || "the warehouse iPad") + "\". You can sign on now.");
+  boot();
+}
+
 async function boot(){
   showErr("");
+  // Nothing else happens until we know this is the warehouse iPad.
+  if(!(await deviceIsPaired())) return pairScreen();
   await loadCrew();
   const { data:{ session } } = await sb.auth.getSession();
   ME = null;

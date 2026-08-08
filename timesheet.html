@@ -200,6 +200,74 @@ async function addManual(){
 }
 
 /* ---------------- warehouse staff (who appears on the iPad) ---------------- */
+
+/* The truck takes the iPad. If it is late back, whoever stayed in the warehouse
+   has nothing to sign out on — so the office can do it for them, at the time
+   they actually left. The record says the office did it, and the run stays open
+   because the other two are still out. */
+
+
+/* A shift closed automatically at 8pm is a FLAG, not an answer — if the crew
+   really finished at 9.15 the office puts the real times in here. Anything
+   corrected goes back to unapproved so it gets looked at again. */
+async function fixTimes(id, name, curIn, curOut, curBreak){
+  const start = prompt("Start time for " + name + " (24-hour, e.g. 07:30)", curIn || "07:30");
+  if(start === null) return;
+  const end = prompt("Finish time (24-hour, e.g. 21:15)", curOut || "");
+  if(end === null) return;
+  const ok = t => /^\d{1,2}[:.]?\d{2}$/.test((t||"").trim());
+  if(!ok(start) || !ok(end)) return showErr("Enter times as 07:30 and 21:15.");
+  const tidy = t => { const m=t.trim().match(/^(\d{1,2})[:.]?(\d{2})$/);
+                      return String(m[1]).padStart(2,"0") + ":" + m[2]; };
+  const br = prompt("Unpaid break, in minutes", String(curBreak || 0));
+  if(br === null) return;
+  const why = prompt("Why? (goes on the record)", "ran late") || null;
+
+  const { data, error } = await sb.rpc("timesheet_office_set", {
+    p_id:id, p_in:tidy(start), p_out:tidy(end), p_break:parseInt(br,10)||0, p_note:why });
+  if(error) return showErr(error.message);
+  if(data && data.ok === false) return showErr(data.error);
+  showErr("");
+  alert(name + ": " + tidy(start) + " to " + tidy(end) + " = " + data.hours + " hours. Waiting to be approved.");
+  await renderOffice();
+}
+
+async function pairIpad(){
+  const label = prompt("What shall we call this device?", "Warehouse iPad");
+  if(label === null) return;
+  const { data, error } = await sb.rpc("crew_pair_code", { p_label: label });
+  if(error) return showErr(error.message);
+  if(data && data.ok === false) return showErr(data.error);
+  alert("Set-up code: " + data.code +
+        "\n\nOn the iPad open the crew app and type this in. It lasts " +
+        data.expires_in_minutes + " minutes and works once.");
+}
+
+async function signOutFor(id, name){
+  const t = prompt("What time did " + name + " finish? (24-hour, e.g. 16:30)\n\nLeave blank to use right now.", "");
+  if (t === null) return;                       // cancelled
+  let at = null;
+  if (t.trim()) {
+    const m = t.trim().match(/^(\d{1,2})[:.]?(\d{2})$/);
+    if (!m) return showErr("Enter the time as 16:30.");
+    const d = new Date();
+    d.setHours(+m[1], +m[2], 0, 0);
+    if (d > new Date()) return showErr("That time hasn't happened yet.");
+    at = d.toISOString();
+  }
+  const why = prompt("Anything to note? (optional)\n\ne.g. truck late back, signed out on their behalf", "") || null;
+
+  const { data, error } = await sb.rpc("crew_sign_out_for", { p_user:id, p_at:at, p_note:why });
+  if (error) return showErr(error.message);
+  if (data && data.ok === false) return showErr(data.error);
+  showErr("");
+  alert(name + " signed out at " + new Date(data.signed_out_at)
+        .toLocaleTimeString("en-NZ", {hour:"2-digit", minute:"2-digit"}) +
+        ". The run stays open while the truck is still out.");
+  await renderCrewAdmin();
+  await renderOffice();
+}
+
 async function renderCrewAdmin(){
   const { data, error } = await sb.rpc("crew_list");
   if(error){ $("crewadmin").innerHTML = `<div class="card"><div class="muted">Couldn't load the crew list: ${esc(error.message)}</div></div>`; return; }
@@ -209,6 +277,10 @@ async function renderCrewAdmin(){
       <h2>Warehouse staff</h2>
       <div class="muted">Anyone here gets their own Sign in / Sign out button on the warehouse iPad.
         They never need a password - a 6-digit code goes to their email when they tap their name.</div>
+      <div class="muted" style="margin-top:8px">
+        Sign-on works on the paired iPad only, so nobody can start their day from their own phone.
+        <button class="mini" style="margin-left:6px" onclick="pairIpad()">Set up a device</button>
+      </div>
 
       ${crew.length ? `<table style="margin-top:12px">
         <thead><tr><th>Name</th><th>Email</th><th>Right now</th><th></th></tr></thead><tbody>
@@ -218,7 +290,9 @@ async function renderCrewAdmin(){
           <td>${c.on_now ? '<span class="chip ok">On since '+nzTime(c.signed_in_at)+'</span>'
                           : '<span class="muted">not signed on</span>'}</td>
           <td style="text-align:right"><button style="padding:6px 11px;font-size:12.5px"
-              onclick="removeCrew('${c.user_id}','${esc(c.name).replace(/'/g,"\\'")}')">Remove</button></td>
+              onclick="removeCrew('${c.user_id}','${esc(c.name).replace(/'/g,"\\'")}')">Remove</button>
+            ${c.on_now ? `<button class="mini" style="margin-left:6px"
+              onclick="signOutFor('${c.user_id}','${esc(c.name).replace(/'/g,"\\'")}')">Sign out</button>` : ""}</td>
         </tr>`).join("")}</tbody></table>`
       : '<div class="muted" style="margin-top:10px">Nobody set up yet - add your first warehouse person below.</div>'}
 
@@ -298,7 +372,9 @@ async function renderOffice(){
         r.open_now ? '<span class="chip live">clocked in</span>'
         : r.approved ? `<span class="chip ok">Approved</span>
              <div><button style="padding:4px 9px;font-size:12px;margin-top:5px" onclick="approve('${r.id}',false)">Undo</button></div>`
-        : `<button class="primary" style="padding:7px 12px;font-size:13px" onclick="approve('${r.id}',true)">Approve</button>`}</td>
+        : `<button class="primary" style="padding:7px 12px;font-size:13px" onclick="approve('${r.id}',true)">Approve</button>`}
+             ${r.open_now ? "" : `<div><button style="padding:4px 9px;font-size:12px;margin-top:5px"
+               onclick="fixTimes('${r.id}','${esc(r.staff_name||"").replace(/'/g,"\\'")}','${(r.clock_in||"").slice(11,16)}','${(r.clock_out||"").slice(11,16)}',${r.break_minutes||0})">Fix times</button></div>`}</td>
     </tr>`).join("") || `<tr><td colspan="4" class="muted">No shifts this week.</td></tr>`;
 
   $("office").innerHTML = `
