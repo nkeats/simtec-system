@@ -19,10 +19,42 @@
     ? me.dataset.roles.split(',').map(function (s) { return s.trim(); }).filter(Boolean)
     : null;
   try {
+    // Open the connections to Supabase and the CDN NOW, in parallel with the
+    // rest of the page, rather than waiting until the first query. On mobile
+    // data this saves the DNS + TLS handshake on every single page load.
+    ['https://jvqjoenaungubpoegyvf.supabase.co', 'https://cdn.jsdelivr.net'].forEach(function (h) {
+      ['preconnect', 'dns-prefetch'].forEach(function (rel) {
+        var l = document.createElement('link');
+        l.rel = rel; l.href = h; if (rel === 'preconnect') l.crossOrigin = '';
+        (document.head || document.documentElement).appendChild(l);
+      });
+    });
+
+    // The page still stays hidden until we know who you are — but a blank white
+    // screen reads as "the app has frozen", which is what a consultant reported.
+    // Show the Simtec mark instead so the wait looks like loading, not a fault.
     var st = document.createElement('style');
     st.id = 'simtec-auth-hide';
-    st.textContent = 'body{visibility:hidden !important}';
+    st.textContent =
+      'body{visibility:hidden !important}' +
+      '#simtec-boot{visibility:visible !important;position:fixed;inset:0;z-index:2147483647;' +
+      'display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;' +
+      'background:#f4f6fa;font:600 13px -apple-system,Segoe UI,Roboto,Arial,sans-serif;color:#6b7889}' +
+      '#simtec-boot .mk{font:800 22px/1 -apple-system,Segoe UI,Roboto,Arial,sans-serif;' +
+      'color:#122347;letter-spacing:2px}' +
+      '#simtec-boot .sp{width:26px;height:26px;border:3px solid #d7deea;border-top-color:#122347;' +
+      'border-radius:50%;animation:simspin .8s linear infinite}' +
+      '@keyframes simspin{to{transform:rotate(360deg)}}';
     (document.head || document.documentElement).appendChild(st);
+
+    document.addEventListener('DOMContentLoaded', function () {
+      if (document.getElementById('simtec-auth-hide') && !document.getElementById('simtec-boot')) {
+        var d = document.createElement('div');
+        d.id = 'simtec-boot';
+        d.innerHTML = '<div class="mk">SIMTEC</div><div class="sp"></div><div>Loading\u2026</div>';
+        document.body.appendChild(d);
+      }
+    });
   } catch (e) {}
 })();
 
@@ -30,7 +62,10 @@
   var URL_ = "https://jvqjoenaungubpoegyvf.supabase.co";
   var KEY_ = "sb_publishable_J4MYTdJJyEaWe-GadpwdYA_upPT2rKw";
 
-  function reveal() { var s = document.getElementById('simtec-auth-hide'); if (s) s.remove(); }
+  function reveal() {
+    var s = document.getElementById('simtec-auth-hide'); if (s) s.remove();
+    var b = document.getElementById('simtec-boot'); if (b) b.remove();
+  }
   var inFrame = (function () { try { return window.top !== window.self; } catch (e) { return true; } })();
   function toLogin() { if (inFrame) { reveal(); return; } location.replace('login.html'); }
 
@@ -46,11 +81,28 @@
   if (!session) { toLogin(); return; }
 
   // load the user's profile (role + active flag)
-  var prof = null;
+  var prof = null, cacheKey = 'simtec_profile_' + session.user.id, fromCache = false;
   try {
-    var res = await _sb.from('profiles').select('role,active,consultant_name,full_name,email').eq('id', session.user.id).maybeSingle();
-    prof = res.data;
+    var cached = sessionStorage.getItem(cacheKey);
+    if (cached) { prof = JSON.parse(cached); fromCache = true; }
   } catch (e) {}
+
+  if (!prof) {
+    try {
+      var res = await _sb.from('profiles').select('role,active,consultant_name,full_name,email').eq('id', session.user.id).maybeSingle();
+      prof = res.data;
+      if (prof) { try { sessionStorage.setItem(cacheKey, JSON.stringify(prof)); } catch (e) {} }
+    } catch (e) {}
+  } else {
+    // re-check quietly; if anything important changed, take the page back
+    _sb.from('profiles').select('role,active,consultant_name,full_name,email').eq('id', session.user.id).maybeSingle()
+      .then(function (r) {
+        var fresh = r && r.data; if (!fresh) return;
+        try { sessionStorage.setItem(cacheKey, JSON.stringify(fresh)); } catch (e) {}
+        if (fresh.active === false || fresh.role !== prof.role) location.reload();
+      })
+      .catch(function () {});
+  }
   // ONLY a definitely-disabled account gets bounced. A missing profile or a read
   // error must NOT sign you out — that could cause a login loop.
   if (prof && prof.active === false) { await _sb.auth.signOut(); toLogin(); return; }

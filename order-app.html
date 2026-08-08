@@ -676,13 +676,19 @@ async function loadAffiliations(){
 // (which is missing every consultant added since July). Wait for the session,
 // then retry a couple of times if the list still comes back short.
 async function bootLists(){
-  for(let i=0; i<100 && !window.SIMTEC_USER; i++) await new Promise(r=>setTimeout(r,50)); // up to 5s
-  await loadAffiliations();
+  // Poll every 50ms for up to 5s, but the moment the session lands we move —
+  // this used to feel slow on an older iPad because the first check happened
+  // after a fixed wait rather than immediately.
+  for(let i=0; i<100 && !window.SIMTEC_USER; i++) await new Promise(r=>setTimeout(r,50));
+  // These two don't depend on each other, so fetch them together rather than
+  // one after the other.
+  const affs = loadAffiliations();
   for(let attempt=0; attempt<3; attempt++){
     const got = await loadConsultants();
-    if(got) return;
+    if(got){ await affs; return; }
     await new Promise(r=>setTimeout(r,800));
   }
+  await affs;
   console.warn('consultant list did not load — the fallback list is in use');
 }
 if(document.readyState!=='loading') bootLists(); else document.addEventListener('DOMContentLoaded', bootLists);
