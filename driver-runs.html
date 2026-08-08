@@ -127,6 +127,117 @@ async function buildRun(){
 
 // Re-order an existing run (after adding or removing a stop, or when the driver
 // wants it worked out from where the truck actually is).
+
+/* ---------------------------------------------------------------------------
+   The printed run sheet.
+
+   Nigel, 8 Aug: "we need to be able to print those out the day before so they
+   can load the truck before they go home."
+
+   So the sheet leads with a LOAD LIST — the whole run's items totalled by
+   product — because that is the job being done the night before. The stop
+   list follows, in driving order, with everything the driver needs on paper if
+   the iPad dies: address, phone, time slot, items and any delivery note.
+--------------------------------------------------------------------------- */
+async function printRunSheet(runId, btn){
+  const label = btn ? btn.textContent : "";
+  if(btn){ btn.disabled = true; btn.textContent = "Building\u2026"; }
+  try{
+    const { data: stops, error } = await sb.from("v_driver_stops")
+      .select("id,seq,customer,mobile,address,suburb,delivery_time,delivery_note,run_date,vehicle,driver_name,item_count,located_by")
+      .eq("run_id", runId).order("seq");
+    if(error) throw error;
+    if(!stops || !stops.length){ showErr("That run has no stops yet."); return; }
+
+    const { data: items } = await sb.from("driver_stop_items")
+      .select("stop_id,product_name,quantity")
+      .in("stop_id", stops.map(s=>s.id));
+
+    // Charges aren't cargo. A delivery fee is a line on the order, not something
+    // anyone carries out to the truck, so it stays off the loading list and off
+    // the driver's item list.
+    const isCargo = n => !/(fee|freight|discount|deposit|surcharge)/i.test(String(n||""));
+
+    const byStop = {}, load = {};
+    (items||[]).filter(i=>isCargo(i.product_name)).forEach(i=>{
+      (byStop[i.stop_id] = byStop[i.stop_id] || []).push(i);
+      load[i.product_name] = (load[i.product_name] || 0) + (i.quantity || 1);
+    });
+
+    const r0 = stops[0];
+    const day = new Date(r0.run_date + "T00:00:00").toLocaleDateString("en-NZ",
+      { weekday:"long", day:"numeric", month:"long", year:"numeric" });
+    const totalItems = Object.values(load).reduce((a,b)=>a+b, 0);
+
+    const loadRows = Object.keys(load).sort().map(p=>
+      `<tr><td class="q">${load[p]}</td><td>${esc(p)}</td><td class="tick">\u2610</td></tr>`).join("");
+
+    const stopRows = stops.map(s=>{
+      const its = (byStop[s.id]||[]).map(i=>`${i.quantity||1} \u00D7 ${esc(i.product_name)}`).join("<br>") || "\u2014";
+      return `<tr>
+        <td class="seq">${s.seq}</td>
+        <td><b>${esc(s.customer||"")}</b><br><span class="sm">${esc(s.mobile||"")}</span></td>
+        <td>${esc(s.address||"")}<br><span class="sm">${esc(s.suburb||"")}${
+             s.located_by!=="exact" ? " \u00B7 <i>address needs checking</i>" : ""}</span></td>
+        <td class="tm">${esc(s.delivery_time||"\u2014")}</td>
+        <td>${its}</td>
+        <td class="note">${esc(s.delivery_note||"")}</td>
+      </tr>`;
+    }).join("");
+
+    const w = window.open("", "_blank");
+    if(!w){ showErr("Your browser blocked the print window \u2014 allow pop-ups for this site."); return; }
+    w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8">
+      <title>Run sheet ${esc(r0.run_date)}</title><style>
+      @page{size:A4;margin:12mm}
+      *{box-sizing:border-box}
+      body{font-family:Arial,Helvetica,sans-serif;color:#1b2a4a;margin:0}
+      h1{font-size:19px;margin:0 0 2px}
+      .sub{color:#5a6b8c;font-size:12.5px;margin-bottom:14px}
+      h2{font-size:13px;letter-spacing:.08em;text-transform:uppercase;color:#8a6d2f;
+         margin:16px 0 6px;border-bottom:1px solid #d8c9a3;padding-bottom:3px}
+      table{width:100%;border-collapse:collapse}
+      th{font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:#6b7889;
+         text-align:left;border-bottom:1.5px solid #122347;padding:5px 6px}
+      td{padding:7px 6px;border-bottom:1px solid #e6eaf0;font-size:12px;vertical-align:top}
+      .load td{font-size:14px;padding:9px 6px}
+      .q{font-weight:bold;width:44px;font-size:16px}
+      .tick{width:40px;text-align:center;font-size:19px;color:#8c98ad}
+      .seq{width:26px;font-weight:bold;font-size:14px}
+      .tm{width:62px;white-space:nowrap}
+      .sm{color:#6b7889;font-size:11px}
+      .note{color:#8a4b00;font-size:11.5px;max-width:150px}
+      .sign{margin-top:22px;display:flex;gap:30px}
+      .sign div{flex:1;border-top:1px solid #8c98ad;padding-top:5px;font-size:11px;color:#6b7889}
+      .foot{margin-top:16px;font-size:10.5px;color:#8a97ad}
+      @media print{.noprint{display:none}}
+      </style></head><body>
+      <h1>Delivery run \u2014 ${day}</h1>
+      <div class="sub">${esc(r0.vehicle||"Truck")}${r0.driver_name?" \u00B7 "+esc(r0.driver_name):""}
+        \u00B7 ${stops.length} stop${stops.length==1?"":"s"} \u00B7 ${totalItems} item${totalItems==1?"":"s"} to load</div>
+
+      <h2>Load the truck \u2014 tick each one on</h2>
+      <table class="load"><thead><tr><th>Qty</th><th>Product</th><th>Loaded</th></tr></thead>
+        <tbody>${loadRows || '<tr><td colspan="3">No items listed on these orders.</td></tr>'}</tbody></table>
+
+      <h2>Stops, in driving order</h2>
+      <table><thead><tr><th></th><th>Customer</th><th>Address</th><th>Time</th><th>Items</th><th>Notes</th></tr></thead>
+        <tbody>${stopRows}</tbody></table>
+
+      <div class="sign"><div>Loaded by</div><div>Checked by</div><div>Date</div></div>
+      <div class="foot">Printed ${new Date().toLocaleString("en-NZ")} \u00B7 order may change on the day if a stop is added.</div>
+      <p class="noprint" style="margin-top:18px"><button onclick="window.print()"
+        style="padding:9px 18px;font-size:14px">Print</button></p>
+      </body></html>`);
+    w.document.close();
+    setTimeout(()=>{ try{ w.focus(); w.print(); }catch(e){} }, 400);
+  }catch(e){
+    showErr("Couldn't build the run sheet: " + (e.message || e));
+  }finally{
+    if(btn){ btn.disabled = false; btn.textContent = label; }
+  }
+}
+
 async function optimiseRun(runId, btn){
   showErr("");
   if(btn){ btn.disabled = true; btn.textContent = "Working it out\u2026"; }
@@ -333,6 +444,9 @@ async function load(){
         ${r.status!=="done" && list.length>1 ? `<button onclick="optimiseRun('${r.id}', this)"
            style="background:#fff;color:var(--navy);border:1px solid #cbd4df;border-radius:8px;
            padding:6px 12px;font-size:12.5px;font-weight:600;cursor:pointer">\u{1F9ED} Order for driving</button>` : ""}
+        ${list.length ? `<button onclick="printRunSheet('${r.id}', this)"
+           style="background:#fff;color:var(--navy);border:1px solid #cbd4df;border-radius:8px;
+           padding:6px 12px;font-size:12.5px;font-weight:600;cursor:pointer">\u{1F5A8}\uFE0F Print run sheet</button>` : ""}
       </div>
       <div class="maprow">
         <button onclick="toggleMap('${r.id}', this)" style="background:#fff;color:var(--navy);
