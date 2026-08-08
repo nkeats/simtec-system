@@ -136,6 +136,7 @@ async function toggleReminderTexts(turnOn){
 function kv(k,v){ return `<div class="kv"><span class="k">${k}</span><span class="v">${v}</span></div>`; }
 const isStaff = () => (window.SIMTEC_USER && ['admin','manager','office'].includes(window.SIMTEC_USER.role));
 const isMgr   = () => (window.SIMTEC_USER && ['admin','manager'].includes(window.SIMTEC_USER.role));
+const isOffice= () => (window.SIMTEC_USER && ['admin','manager','office'].includes(window.SIMTEC_USER.role));
 const isAdmin = () => (window.SIMTEC_USER && window.SIMTEC_USER.role==='admin');
 
 // Position / traffic light. Uses the order's OWN stored instalment and term where we
@@ -301,15 +302,22 @@ async function doSearch(){
     filter=parts.join(",");
   }
 
-  const {data,error}=await sb.from("sim_customers")
-    .select("id,first_name,last_name,mobile,address")
-    .or(filter)
-    .limit(12);
+  // Search now covers the SECOND name on an order too: the sale is in one name,
+  // but when the partner rings there was no way to find them.
+  const {data:hits,error}=await sb.rpc("search_customers",{ p_q:q, p_limit:12 });
+  const data=(hits||[]).map(h=>({
+    id:h.customer_id, first_name:h.first_name, last_name:h.last_name,
+    mobile:h.mobile, address:h.address, matched_on:h.matched_on,
+    partner_name:h.partner_name, partner_mobile:h.partner_mobile
+  }));
   if(error){ box.innerHTML=`<div style="padding:10px 13px;color:#b4342e;font-size:13px">${esc(error.message)}</div>`; box.style.display=""; return; }
   if(!data||!data.length){ box.innerHTML=`<div style="padding:10px 13px;color:#7a8798;font-size:13px">No matches for “${esc(q)}”. Try just the surname, or a phone number.</div>`; box.style.display=""; return; }
   box.innerHTML=data.map(c=>`<div style="padding:9px 13px;cursor:pointer;border-bottom:1px solid #eef1f5" onmouseover="this.style.background='#f4f7fa'" onmouseout="this.style.background='#fff'" onclick="goCustomer('${c.id}')">
       <div style="font-size:14px;font-weight:600">${esc(c.first_name)} ${esc(c.last_name)}</div>
-      <div style="font-size:12px;color:#7a8798">${esc(c.mobile||"")}${c.address?" · "+esc(c.address):""}</div></div>`).join("");
+      <div style="font-size:12px;color:#7a8798">${esc(c.mobile||"")}${c.address?" · "+esc(c.address):""}</div>
+      ${c.matched_on&&c.matched_on!=="customer"?`<div style="font-size:11.5px;color:#8a6d2f;font-weight:600">
+         matched on ${esc(c.matched_on)}: ${esc(c.partner_name||"")}${c.partner_mobile?" · "+esc(c.partner_mobile):""}</div>`:""}
+      </div>`).join("");
   box.style.display="";
 }
 function goCustomer(id){
@@ -478,14 +486,27 @@ function orderSection(o, items, pays, open){
   const conBtn = isMgr()
     ? `<button onclick="openReassign('${o.id}')" style="background:none;border:1px solid var(--line);border-radius:7px;padding:2px 8px;font-size:11px;cursor:pointer;color:var(--sub);margin-left:8px">Change</button>`
     : "";
+  /* Two names go on the paper order form, but there was nowhere to record the
+     second one in the System — so when the partner rang, the office couldn't
+     find the sale. It shows here, it's editable here, and search finds it. */
+  const secondBtn = isOffice()
+    ? `<button onclick="openSecondName('${o.id}')" style="background:none;border:1px solid var(--line);
+        border-radius:7px;padding:2px 8px;font-size:11px;cursor:pointer;margin-left:6px">
+        ${o.second_customer_name ? "Edit" : "Add"}</button>`
+    : "";
+  const secondTxt = o.second_customer_name
+    ? esc(o.second_customer_name) + (o.second_mobile ? ` · <a href="tel:${esc(String(o.second_mobile).replace(/\s/g,""))}">${esc(o.second_mobile)}</a>` : " · no number")
+    : '<span class="muted">nobody recorded</span>';
+
   const sale=`<div class="card"><h2>Sale</h2>
     ${kv("Consultant",(esc(o.consultant_name)||"—")+conBtn)}
+    ${kv("Also on the order", secondTxt + secondBtn)}
     ${kv("Sale date",auDate(o.order_date)+(isMgr()?` <button onclick="openSaleDate('${o.id}')" style="background:#fff;color:var(--navy);border:1px solid #cbd4df;border-radius:6px;padding:2px 8px;font-size:11.5px;font-weight:600;cursor:pointer;margin-left:8px">change</button>`:""))}
     ${kv("Payment method",PM[o.payment_method]||o.payment_method||"—")}
     ${kv("Frequency",cap(o.payment_frequency))}
     ${kv("Ezidebit Payer ID",esc(o.ezidebit_payer_ref)||"—")}
     ${kv("First payment",auDate(o.first_payment_date))}
-    ${o.joint_purchase?kv("Joint purchaser",esc(o.second_customer_name)||"—"):""}
+
   </div>`;
 
   const money2=n=>(n==null)?"—":"$"+Number(n).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
@@ -2331,6 +2352,25 @@ async function saveEditCust(){
 let REORD=null, RECONS=[];   // RECONS: [{id,name}]
 
 function reErr(m){ const b=document.getElementById("reErr"); if(!m){b.style.display="none";return;} b.style.display=""; b.innerHTML=m; }
+
+
+/* The office keys paper orders in, and both names are on the form. */
+async function openSecondName(orderId){
+  const o = (ORDERS||[]).find(x=>x.id===orderId) || {};
+  const name = prompt("Second name on the order (leave blank to clear it)", o.second_customer_name || "");
+  if(name === null) return;
+  let mobile = "", email = "";
+  if(name.trim()){
+    mobile = prompt("Their mobile (optional)", o.second_mobile || "") || "";
+    if(mobile === null) return;
+    email  = prompt("Their email (optional)", o.second_email || "") || "";
+  }
+  const { data, error } = await sb.rpc("set_second_applicant", {
+    p_order: orderId, p_name: name, p_mobile: mobile, p_email: email });
+  if(error) return alert(error.message);
+  if(data && data.ok === false) return alert(data.error);
+  await load();
+}
 
 async function openReassign(oid){
   const o=ORDERS[oid]; if(!o) return;

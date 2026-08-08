@@ -144,7 +144,7 @@ async function printRunSheet(runId, btn){
   if(btn){ btn.disabled = true; btn.textContent = "Building\u2026"; }
   try{
     const { data: stops, error } = await sb.from("v_driver_stops")
-      .select("id,seq,customer,mobile,address,suburb,delivery_time,delivery_note,run_date,vehicle,driver_name,item_count,located_by")
+      .select("id,seq,customer,mobile,customer2,mobile2,address,suburb,delivery_time,delivery_note,run_date,vehicle,driver_name,item_count,located_by")
       .eq("run_id", runId).order("seq");
     if(error) throw error;
     if(!stops || !stops.length){ showErr("That run has no stops yet."); return; }
@@ -176,7 +176,8 @@ async function printRunSheet(runId, btn){
       const its = (byStop[s.id]||[]).map(i=>`${i.quantity||1} \u00D7 ${esc(i.product_name)}`).join("<br>") || "\u2014";
       return `<tr>
         <td class="seq">${s.seq}</td>
-        <td><b>${esc(s.customer||"")}</b><br><span class="sm">${esc(s.mobile||"")}</span></td>
+        <td><b>${esc(s.customer||"")}</b><br><span class="sm">${esc(s.mobile||"")}</span>
+            ${s.customer2?`<br><b>${esc(s.customer2)}</b>${s.mobile2?`<br><span class="sm">${esc(s.mobile2)}</span>`:""}`:""}</td>
         <td>${esc(s.address||"")}<br><span class="sm">${esc(s.suburb||"")}${
              s.located_by!=="exact" ? " \u00B7 <i>address needs checking</i>" : ""}</span></td>
         <td class="tm">${esc(s.delivery_time||"\u2014")}</td>
