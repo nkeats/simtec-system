@@ -2434,9 +2434,23 @@ async function openDocs(orderId){
   document.getElementById('docsBody').innerHTML='Loading\u2026';
   document.getElementById('docsModal').style.display='flex';
   try{
+    // ID photos are stored one level down (id-applicant1/1.jpg, id-applicant2/2.jpg),
+    // so listing only the top level showed the signature and initials but silently
+    // dropped every photograph. Look inside any folder we find.
     const res = await sb.storage.from('order-documents').list(orderId, { limit:100 });
     if(res.error) throw res.error;
-    const files = (res.data||[]).filter(function(f){ return f.name && f.name!=='.emptyFolderPlaceholder'; });
+    const top = (res.data||[]).filter(function(f){ return f.name && f.name!=='.emptyFolderPlaceholder'; });
+
+    const files = [];
+    for(const f of top){
+      const isFolder = !f.metadata;                    // storage returns no metadata for a folder
+      if(!isFolder){ files.push({ name:f.name, path:orderId+'/'+f.name }); continue; }
+      const sub = await sb.storage.from('order-documents').list(orderId+'/'+f.name, { limit:50 });
+      (sub.data||[]).forEach(function(g){
+        if(g.name && g.name!=='.emptyFolderPlaceholder')
+          files.push({ name:f.name+'/'+g.name, path:orderId+'/'+f.name+'/'+g.name });
+      });
+    }
     if(!files.length){
       document.getElementById('docsBody').innerHTML =
         '<div style="background:#fff5e0;border:1px solid #e8d9a0;border-radius:9px;padding:12px 14px;color:#8a5b00">'+
@@ -2447,7 +2461,7 @@ async function openDocs(orderId){
       return;
     }
     document.getElementById('docsPrint').style.display='';
-    const paths = files.map(function(f){ return orderId+'/'+f.name; });
+    const paths = files.map(function(f){ return f.path; });
     const signed = await sb.storage.from('order-documents').createSignedUrls(paths, 300);
     (signed.data||[]).forEach(function(u,i){ if(u && u.signedUrl) DOCS.urls[files[i].name]=u.signedUrl; });
     DOCS.files = files.map(function(f){ return f.name; }).sort();
