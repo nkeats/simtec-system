@@ -154,10 +154,13 @@ function codeView(){
 
 async function finishCode(){
   showErr("");
-  const token = (($("code")||{}).value||"").trim();
+  // iOS autofill and copy-paste both like to bring spaces along, and a stray
+  // character makes a valid code look wrong. Keep the digits, drop the rest.
+  const token = (($("code")||{}).value||"").replace(/\D/g, "");
   if(!token) return showErr("Enter the code from your email.");
+  if(token.length < 6) return showErr("That code looks too short \u2014 it should be 6 digits.");
   const { error } = await sb.auth.verifyOtp({ email: PENDING.email, token, type:"email" });
-  if(error) return showErr("That code didn't work. Check it, or send a new one.");
+  if(error) return showErr("That code didn't work. If you asked for more than one, use the newest email \u2014 older codes stop working.");
   const p = await here();
   const r = PENDING.action==="in"
     ? await rpc("crew_sign_in", { p_lat:p.lat, p_lng:p.lng, p_vehicle:VEHICLE })
