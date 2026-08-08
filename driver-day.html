@@ -139,7 +139,13 @@ function crewView(){
       <div class="muted">Tap your name to sign on or off. A 6-digit code goes to your email so we know it is you.</div>
     </div>
     ${rows || '<div class="card"><div class="muted">No warehouse staff set up yet - ask the office.</div></div>'}
-    ${ME ? '<div class="card"><button class="wide" onclick="SHOW_RUN=true;load()">Open today\'s run</button></div>' : ""}`;
+    ${ME ? `<div class="card">
+        <button class="wide" onclick="SHOW_RUN=true;load()">Open today's run</button>
+        <button class="wide" style="margin-top:8px;background:#fff;color:#122347;border:1px solid #cbd4df"
+          onclick="startPractice()">\u{1F393} Practice run \u2014 nothing is sent</button>
+        <div class="gps" style="margin-top:6px">Use the practice run to learn the app or train someone.
+          Invented customers, no texts, no deliveries recorded.</div>
+      </div>` : ""}`;
 }
 
 async function startCode(userId, email, action){
@@ -186,6 +192,7 @@ function backToCrew(){ PENDING=null; SHOW_RUN=false; showErr(""); boot(); }
 /* ---------------- boot ---------------- */
 const VEHICLE = "Truck 1";
 let SHOW_RUN = false;
+let PRACTICE = false;   // true while the training run is open
 
 
 /* ---------------------------------------------------------------------------
@@ -262,8 +269,34 @@ async function boot(){
   crewView();
 }
 
+
+/* Training. A real run texts real customers and marks real orders delivered, so
+   nobody can learn on it. The practice run is the same app with invented stops
+   that point at no order — the NEXT text is shown rather than sent, and nothing
+   reaches a customer or the office figures. */
+async function startPractice(){
+  showErr("");
+  const r = await rpc("practice_run");
+  if(!r || r.ok===false) return;
+  PRACTICE = true; SHOW_RUN = true;
+  await load();
+}
+async function endPractice(){
+  if(!confirm("Finish practice? The practice run is deleted.")) return;
+  await rpc("practice_run_clear");
+  PRACTICE = false; SHOW_RUN = false;
+  await load();
+}
+
 async function load(){
-  const { data:runId } = await sb.rpc("my_run_today");
+  let runId = null;
+  if(PRACTICE){
+    // the practice run is dated far in the future so it can never collide with
+    // a real day, which also means my_run_today() will never return it
+    const { data:pr } = await sb.from("driver_runs").select("id").eq("practice",true).limit(1);
+    runId = (pr&&pr[0]) ? pr[0].id : null;
+  }
+  if(!runId){ const { data:rid } = await sb.rpc("my_run_today"); runId = rid; }
   if(!runId){ RUN=null; STOPS=[]; return render(); }
   const { data:runs } = await sb.from("v_driver_runs").select("*").eq("id", runId).limit(1);
   RUN = (runs||[])[0] || null;
@@ -301,6 +334,10 @@ function render(){
 
   const nextStop = STOPS.find(s=>s.status==="pending"||s.status==="en_route"||s.status==="arrived");
   $("view").innerHTML = `
+    ${RUN&&RUN.practice?`<div class="banner" style="background:#fdf3e0;border-color:#e2c48a;color:#8a6d2f">
+       <b>PRACTICE RUN</b> — invented customers. Nothing is texted and no delivery is recorded.
+       <button onclick="endPractice()" style="margin-top:8px;width:100%;background:#8a6d2f;color:#fff;
+         border:none;border-radius:8px;padding:9px">Finish practice</button></div>`:""}
     ${ONBREAK?`<div class="banner">On a break — nothing is being recorded against a stop.</div>`:""}
     ${!RUN.left_warehouse_at ? `
       <div class="card" style="border-color:var(--blue)">
@@ -494,6 +531,11 @@ async function leaveWarehouse(){
   if(!r) return;
   if(r.no_stops){ await load(); return; }
   if(!r.mobile){ showErr("No mobile for the first customer — give them a ring."); await load(); return; }
+  if(RUN && RUN.practice){
+    alert("PRACTICE \u2014 nothing was sent.\n\nOn a real run this text would go to " + (r.mobile||"the customer") + ":\n\n" + r.message);
+    await rpc("driver_mark_notified",{p_stop:r.stop_id,p_ok:true,p_eta_minutes:r.eta_minutes||null,p_km:r.km||null});
+    await load(); return;
+  }
   const { data, error } = await sb.functions.invoke("hyper-handler",{ body:{ mobile:r.mobile, message:r.message } });
   if(error || (data&&data.error)) showErr("Left the yard, but the text didn't send: " + ((data&&data.error)||error.message));
   else await rpc("driver_mark_notified",{p_stop:r.stop_id,p_ok:true,
@@ -506,6 +548,11 @@ async function nextStop(){
   const r = await rpc("driver_next_stop",{p_stop:CURRENT.id,p_lat:p.lat,p_lng:p.lng});
   if(!r) return;
   if(!r.mobile){ showErr("No mobile number for this customer — give them a ring instead."); return; }
+  if(RUN && RUN.practice){
+    alert("PRACTICE \u2014 nothing was sent.\n\nOn a real run this text would go to " + (r.mobile||"the customer") + ":\n\n" + r.message);
+    await rpc("driver_mark_notified",{p_stop:CURRENT.id,p_ok:true,p_eta_minutes:r.eta_minutes||null,p_km:r.km||null});
+    await load(); return;
+  }
   const { data, error } = await sb.functions.invoke("hyper-handler",{ body:{ mobile:r.mobile, message:r.message } });
   if(error || (data&&data.error)){ showErr("Couldn't send the text: " + ((data&&data.error)||error.message)); return; }
   await rpc("driver_mark_notified",{p_stop:CURRENT.id,p_ok:true,
