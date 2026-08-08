@@ -55,11 +55,8 @@ body{font-family:system-ui,sans-serif}
   <label class="k block mb-1">Delivery window</label>
   <select id="bktime" class="inp mb-3">
     <option value="">— no window set —</option>
-    <option value="08:00">8:00 AM – 10:00 AM</option>
-    <option value="10:00">10:00 AM – 12:00 PM</option>
-    <option value="12:00">12:00 PM – 2:00 PM</option>
-    <option value="14:00">2:00 PM – 4:00 PM</option>
-    <option value="16:00">4:00 PM – 6:00 PM</option>
+    <option value="Morning">Morning (8am – 12pm)</option>
+    <option value="Afternoon">Afternoon (12pm – 4pm)</option>
   </select>
   <label class="k block mb-1">Exact time <span style="text-transform:none;letter-spacing:normal;color:#64748b">(optional — use only if a precise time is required; overrides the window above)</span></label>
   <input type="time" id="bkexact" class="inp mb-3" oninput="bkExactSync()">
@@ -102,12 +99,21 @@ const fmt=n=>'$'+(+n||0).toLocaleString('en-NZ',{minimumFractionDigits:2,maximum
 const shortD=d=>d?new Date(d+'T12:00:00').toLocaleDateString('en-NZ',{day:'2-digit',month:'short',year:'2-digit'}):'—';
 
 // Delivery windows are 2 hours. delivery_time stores the START of the window.
-const WINDOWS=[['08:00','8:00 AM \u2013 10:00 AM'],['10:00','10:00 AM \u2013 12:00 PM'],
-               ['12:00','12:00 PM \u2013 2:00 PM'],['14:00','2:00 PM \u2013 4:00 PM'],
-               ['16:00','4:00 PM \u2013 6:00 PM']];
+// From 8 Aug the office offers a HALF DAY, not a two-hour slot. A wider window
+// is what lets the run be ordered for driving rather than by the clock — and on
+// a real Mangere run that was worth 27% of the driving.
+// Old two-hour values (08:00 … 16:00) are still understood on existing bookings.
+const WINDOWS=[['Morning','Morning (8am \u2013 12pm)'],['Afternoon','Afternoon (12pm \u2013 4pm)']];
+const OLD_WINDOWS={'08:00':'8:00 AM \u2013 10:00 AM','10:00':'10:00 AM \u2013 12:00 PM',
+                   '12:00':'12:00 PM \u2013 2:00 PM','14:00':'2:00 PM \u2013 4:00 PM',
+                   '16:00':'4:00 PM \u2013 6:00 PM'};
 function winTxt(t){
   if(!t) return '';
-  const hhmm=String(t).slice(0,5);
+  const raw=String(t).trim();
+  const found0=WINDOWS.find(w=>w[0].toLowerCase()===raw.toLowerCase());
+  if(found0) return found0[1];                       // Morning / Afternoon
+  const hhmm=raw.slice(0,5);
+  if(OLD_WINDOWS[hhmm]) return OLD_WINDOWS[hhmm];    // a booking made before the change
   const found=WINDOWS.find(w=>w[0]===hhmm);
   if(found) return found[1];
   // any other stored time: show it as start -> start+2h
@@ -842,10 +848,13 @@ window.openBook=(id,name)=>{bookId=id;$('ovwho').textContent=name;
   if(r&&r.deliveryDate){ $('bkdate').value=r.deliveryDate; }
   else { const t=new Date(now.getTime()+DAY);$('bkdate').value=`${t.getFullYear()}-${String(t.getMonth()+1).padStart(2,'0')}-${String(t.getDate()).padStart(2,'0')}`; }
   // an existing time is either a preset window or an exact time — put it in the right field
-  const hhmm=(r&&r.deliveryTime)?String(r.deliveryTime).slice(0,5):'';
-  const isWin=WINDOWS.some(w=>w[0]===hhmm);
-  $('bktime').value  = isWin?hhmm:'';
-  $('bkexact').value = (hhmm && !isWin)?hhmm:'';
+  const raw=(r&&r.deliveryTime)?String(r.deliveryTime).trim():'';
+  const hhmm=raw.slice(0,5);
+  const isWin=WINDOWS.some(w=>w[0].toLowerCase()===raw.toLowerCase());
+  $('bktime').value  = isWin?WINDOWS.find(w=>w[0].toLowerCase()===raw.toLowerCase())[0]:'';
+  // a two-hour booking made before the change keeps its exact time rather than
+  // being silently widened to half a day
+  $('bkexact').value = (!isWin && hhmm && /^\d/.test(hhmm))?hhmm:'';
   $('bknote').value = (r&&r.note)?r.note:'';
   // confirm-before-booking checkboxes: show what's on file, start unticked
   $('ackAddrTxt').textContent    = (r&&r.address)?r.address:'(no address on file)';
