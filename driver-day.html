@@ -240,7 +240,11 @@ async function deviceIsPaired(){
 }
 
 function pairScreen(msg){
-  document.getElementById("app").innerHTML = `
+  // 9 Aug: this wrote to getElementById("app"), which does not exist in this
+  // page — the container is #view, as every other screen uses. So it threw
+  // "Cannot set properties of null" and the set-up screen NEVER rendered:
+  // a blank page under the header, and no iPad could ever be paired.
+  $("view").innerHTML = `
     <div class="card">
       <h2>Set up this iPad</h2>
       <div class="muted" style="margin-bottom:10px">
