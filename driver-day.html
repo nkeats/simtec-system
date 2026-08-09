@@ -101,6 +101,64 @@ const tm = d => d ? new Date(d).toLocaleTimeString("en-NZ",{hour:"2-digit",minut
 
 let ME=null, ROLE=null, RUN=null, STOPS=[], ONBREAK=false, PING=null, CURRENT=null;
 
+/* ---------------------------------------------------------------------------
+   ONE PLACE THAT MAKES BUTTONS SAFE.
+
+   10 Aug rebuild. Three separate faults in one morning were all the same shape:
+   an action that could fire twice (two sign-in codes, the second killing the
+   first) or one that waited forever with nothing on screen. Each screen had its
+   own hand-written handler, so each one reintroduced the hole.
+
+   Every button now goes through act(). It is the only way an action runs:
+     - while one action is running, every other button is ignored. A double tap
+       is not "discouraged", it is impossible.
+     - the button says what it is doing, so nobody wonders if it registered.
+     - nothing waits forever. Every call has a deadline.
+     - anything that goes wrong ends up on screen in plain words, never silence.
+--------------------------------------------------------------------------- */
+let BUSY = false;
+
+function friendly(e){
+  const m = (e && (e.message || e.error_description || e)) + "";
+  if(/deadline|timeout|timed out/i.test(m)) return "That took too long. Check the wi-fi and try again.";
+  if(/fetch|network|Failed to fetch|offline/i.test(m)) return "No internet just now. Try again in a moment.";
+  if(/not found/i.test(m)) return "That email isn't set up yet — ask the office.";
+  return m;
+}
+
+// Nothing in this app may hang. Every promise gets a deadline.
+function withDeadline(promise, ms, what){
+  return Promise.race([
+    promise,
+    new Promise((_, rej) => setTimeout(() => rej(new Error("timeout: " + (what||"that"))), ms))
+  ]);
+}
+
+async function act(btn, fn){
+  if(BUSY) return;                       // the whole double-tap class, gone
+  BUSY = true;
+  let restore = null;
+  if(btn && btn.tagName === "BUTTON"){
+    const label = btn.innerHTML;
+    btn.disabled = true;
+    btn.dataset.busy = "1";
+    btn.innerHTML = "Working…";
+    restore = () => {
+      if(document.body.contains(btn)){    // many actions redraw the screen
+        btn.disabled = false; btn.innerHTML = label; delete btn.dataset.busy;
+      }
+    };
+  }
+  try {
+    await withDeadline(Promise.resolve(fn()), 25000, "that");
+  } catch(e){
+    showErr(friendly(e));
+  } finally {
+    BUSY = false;
+    if(restore) restore();
+  }
+}
+
 /* ---------------- location ---------------- */
 function here(timeout=8000){
   return new Promise(res=>{
@@ -150,73 +208,142 @@ async function loadCrew(){
 
 function crewView(){
   const rows = CREW.map(c => `
-    <div class="card" style="${c.on_now?'border-color:var(--green)':''}">
-      <div style="display:flex;align-items:center;gap:12px">
-        <div style="flex:1">
-          <div style="font-weight:800;font-size:17px">${esc(c.name)}</div>
-          <div class="muted">${c.on_now ? "Signed on " + tm(c.signed_in_at) : "Not signed on"}</div>
+    <div class="card" style="${c.on_now?'border-color:var(--green);background:#f2fbf5':''}">
+      <div style="display:flex;align-items:center;gap:14px">
+        <div style="flex:1;min-width:0">
+          <div style="font-weight:800;font-size:24px;line-height:1.2">${esc(c.name)}</div>
+          <div style="font-size:16px;color:${c.on_now?'#1c6b34':'#6b7889'};margin-top:3px">
+            ${c.on_now ? "✅ At work since " + tm(c.signed_in_at) : "Not at work yet"}</div>
         </div>
-        <button class="${c.on_now?'stop':'primary'}" style="min-width:118px"
-          onclick="startCode('${c.user_id}','${esc(c.email)}','${c.on_now?'out':'in'}')">
-          ${c.on_now ? "Sign out" : "Sign in"}</button>
+        <button class="${c.on_now?'stop':'primary'}" style="min-width:150px;font-size:19px;padding:18px 14px"
+          onclick="act(this,()=>startCode('${c.user_id}','${esc(c.email)}','${c.on_now?'out':'in'}'))">
+          ${c.on_now ? "Finish" : "Start work"}</button>
       </div>
     </div>`).join("");
 
   $("view").innerHTML = `
     <div class="card">
-      <h2>Warehouse crew</h2>
-      <div class="muted">Tap your name to sign on or off. A 6-digit code goes to your email so we know it is you.</div>
+      <h2 style="font-size:26px;margin:0">Who is here?</h2>
+      <div style="font-size:17px;color:#6b7889;margin-top:6px">
+        Tap your name. We email you a 6-digit code to check it is really you.</div>
     </div>
-    ${rows || '<div class="card"><div class="muted">No warehouse staff set up yet - ask the office.</div></div>'}
+    ${rows || '<div class="card"><div class="muted">No warehouse staff set up yet — ask the office.</div></div>'}
     ${ME ? `<div class="card">
-        <button class="wide" onclick="SHOW_RUN=true;load()">Open today's run</button>
-        <button class="wide" style="margin-top:8px;background:#fff;color:#122347;border:1px solid #cbd4df"
-          onclick="startPractice()">\u{1F393} Practice run \u2014 nothing is sent</button>
-        <div class="gps" style="margin-top:6px">Use the practice run to learn the app or train someone.
-          Invented customers, no texts, no deliveries recorded.</div>
-      </div>` : ""}`;
+        <button class="wide primary" style="font-size:22px;padding:22px"
+          onclick="act(this,()=>{SHOW_RUN=true;return load();})">📦 Today's deliveries</button>
+        <button class="wide" style="margin-top:10px;background:#fff;color:#122347;border:1px solid #cbd4df"
+          onclick="act(this,()=>startPractice())">🎓 Practice — nothing is sent</button>
+        <div class="gps" style="margin-top:8px">Practice uses made-up customers. No texts, no deliveries recorded.</div>
+      </div>` : `<div class="card"><div class="muted">Sign on above to open today's deliveries.</div></div>`}`;
 }
+
+/* Sign-on codes.
+   THE 10 AUG FAULT: tapping a name twice sent TWO codes, and asking for a second
+   code kills the first — so the crew typed the code from the email they were
+   looking at and were told it had expired. It never had; it had been replaced.
+   CODE_SENT_AT locks the request, and act() stops the second tap ever landing. */
+let CODE_SENT_AT = 0, TICKER = null;
 
 async function startCode(userId, email, action){
   showErr("");
+  const since = Date.now() - CODE_SENT_AT;
+  if(PENDING && PENDING.email === email && since < 60000){ codeView(); return; }  // already sent — show the box
   PENDING = { userId, email, action };
-  const { error } = await sb.auth.signInWithOtp({ email, options:{ shouldCreateUser:false } });
-  if(error){ showErr(error.message.includes("not found") ? "That email isn't set up yet - ask the office." : error.message); return; }
+  const { error } = await withDeadline(
+    sb.auth.signInWithOtp({ email, options:{ shouldCreateUser:false } }), 20000, "the email");
+  if(error){ PENDING = null; showErr(friendly(error)); return; }
+  CODE_SENT_AT = Date.now();
   codeView();
 }
 
 function codeView(){
   const who = (CREW.find(c=>c.user_id===PENDING.userId)||{}).name || "";
   $("view").innerHTML = `
-    <div class="card">
-      <h2>${esc(who)} - check your email</h2>
-      <div class="muted">A 6-digit code has gone to ${esc(PENDING.email)}.</div>
-      <label>Code</label>
-      <input id="code" inputmode="numeric" autocomplete="one-time-code" placeholder="123456">
-      <button class="wide primary" onclick="finishCode()">${PENDING.action==="in"?"Sign me on":"Sign me off"}</button>
-      <button class="wide" onclick="backToCrew()">Cancel</button>
+    <div class="card" style="text-align:center">
+      <div style="font-size:26px;font-weight:800">${esc(who)}</div>
+      <div style="font-size:18px;color:#6b7889;margin-top:8px">
+        We emailed a 6-digit code to<br><b>${esc(PENDING.email)}</b></div>
+      <div style="font-size:16px;color:#8a6d2f;background:#fff6e5;border:1px solid #e6cf9a;
+                  border-radius:10px;padding:10px;margin-top:12px">
+        Only the newest code works. If two emails arrive, use the last one.</div>
+      <input id="code" inputmode="numeric" autocomplete="one-time-code" maxlength="6"
+             placeholder="000000" oninput="codeTyped()"
+             style="font-size:40px;letter-spacing:10px;text-align:center;padding:16px;margin-top:14px">
+      <div id="codeState" style="font-size:16px;color:#6b7889;min-height:22px;margin-top:4px"></div>
+      <button id="codeGo" class="wide primary" style="font-size:22px;padding:20px"
+        onclick="act(this,()=>finishCode())">${PENDING.action==="in"?"Start work":"Finish work"}</button>
+      <button class="wide" id="resend" disabled onclick="act(this,()=>resendCode())"
+        style="margin-top:10px;background:#fff;color:#122347;border:1px solid #cbd4df">Send another code</button>
+      <button class="wide" onclick="act(this,()=>backToCrew())"
+        style="margin-top:8px;background:none;border:none;color:#6b7889">Cancel</button>
     </div>`;
+  startResendTimer();
+  const el = $("code"); if(el) el.focus();
+}
+
+// The resend button stays locked for a minute, counting down, so nobody can
+// invalidate the code that is sitting in their inbox.
+function startResendTimer(){
+  if(TICKER) clearInterval(TICKER);
+  const paint = () => {
+    const b = $("resend"); if(!b){ clearInterval(TICKER); return; }
+    const left = Math.ceil((60000 - (Date.now() - CODE_SENT_AT)) / 1000);
+    if(left > 0){ b.disabled = true; b.textContent = "Send another code in " + left + "s"; }
+    else { b.disabled = false; b.textContent = "Send another code"; clearInterval(TICKER); }
+  };
+  paint(); TICKER = setInterval(paint, 1000);
+}
+
+async function resendCode(){
+  if(!PENDING) return;
+  if(Date.now() - CODE_SENT_AT < 60000) return;
+  showErr("");
+  const { error } = await withDeadline(
+    sb.auth.signInWithOtp({ email: PENDING.email, options:{ shouldCreateUser:false } }), 20000, "the email");
+  if(error){ showErr(friendly(error)); return; }
+  CODE_SENT_AT = Date.now();
+  const s = $("codeState"); if(s) s.textContent = "New code sent — use this newest one.";
+  const el = $("code"); if(el) el.value = "";
+  startResendTimer();
+}
+
+// Six digits in, and it just goes. No hunting for the button.
+function codeTyped(){
+  const el = $("code"); if(!el) return;
+  const digits = (el.value||"").replace(/\D/g, "").slice(0,6);
+  if(el.value !== digits) el.value = digits;
+  const s = $("codeState");
+  if(s) s.textContent = digits.length && digits.length < 6 ? (6 - digits.length) + " more" : "";
+  if(digits.length === 6){ const b = $("codeGo"); if(b && !b.disabled) act(b, () => finishCode()); }
 }
 
 async function finishCode(){
   showErr("");
-  // iOS autofill and copy-paste both like to bring spaces along, and a stray
-  // character makes a valid code look wrong. Keep the digits, drop the rest.
   const token = (($("code")||{}).value||"").replace(/\D/g, "");
-  if(!token) return showErr("Enter the code from your email.");
-  if(token.length < 6) return showErr("That code looks too short \u2014 it should be 6 digits.");
-  const { error } = await sb.auth.verifyOtp({ email: PENDING.email, token, type:"email" });
-  if(error) return showErr("That code didn't work. If you asked for more than one, use the newest email \u2014 older codes stop working.");
+  if(token.length < 6){ showErr("Type all 6 numbers from the email."); return; }
+
+  const { error } = await withDeadline(
+    sb.auth.verifyOtp({ email: PENDING.email, token, type:"email" }), 20000, "the code");
+  if(error){
+    const el = $("code"); if(el) el.value = "";
+    showErr("That code didn't work. Check you used the NEWEST email, or tap “Send another code”.");
+    return;
+  }
+  if(TICKER) clearInterval(TICKER);
+
+  // Location is optional here and must never hold up the clock.
   const p = await here();
   const r = PENDING.action==="in"
     ? await rpc("crew_sign_in", { p_lat:p.lat, p_lng:p.lng, p_vehicle:VEHICLE, p_device:deviceKey() })
     : await rpc("crew_sign_out", { p_lat:p.lat, p_lng:p.lng, p_device:deviceKey() });
   if(!r) return;
-  PENDING = null;
+  const done = PENDING.action;
+  PENDING = null; CODE_SENT_AT = 0;
   await boot();
+  toastLike(done==="in" ? "You are at work. Have a good day." : "Signed off. Thanks.");
 }
 
-function backToCrew(){ PENDING=null; SHOW_RUN=false; showErr(""); boot(); }
+function backToCrew(){ PENDING=null; SHOW_RUN=false; showErr(""); if(TICKER) clearInterval(TICKER); return boot(); }
 
 /* ---------------- boot ---------------- */
 const VEHICLE = "Truck 1";
@@ -269,7 +396,7 @@ function pairScreen(msg){
       </div>
       <label>Set-up code</label>
       <input id="pcode" inputmode="latin" autocapitalize="characters" placeholder="ABC123">
-      <button class="wide primary" onclick="claimDevice()">Set up this iPad</button>
+      <button class="wide primary" onclick="act(this,()=>claimDevice())">Set up this iPad</button>
     </div>`;
 }
 
@@ -349,54 +476,54 @@ function render(){
   if(!RUN) return $("view").innerHTML = `
     <div class="card"><h2>No run today</h2>
       <div class="muted">The office hasn't set up a run for you yet. Give them a call if that's not right.</div>
-      <button class="wide" onclick="load()">Check again</button>
-      <button class="wide" onclick="backToCrew()">\u2039 Crew sign in / out</button></div>`;
+      <button class="wide" onclick="act(this,()=>load())">Check again</button>
+      <button class="wide" onclick="act(this,()=>backToCrew())">\u2039 Crew sign in / out</button></div>`;
 
   if(RUN.status==="planned") return $("view").innerHTML = `
     <div class="card">
       <h2>${RUN.stops} stop${RUN.stops==1?"":"s"} today</h2>
       <div class="muted">${esc(RUN.vehicle||"")} · tap when you get to work. This starts your timesheet.</div>
-      <button class="wide primary" onclick="startDay()">I'm at work — start my day</button>
+      <button class="wide primary" onclick="act(this,()=>startDay())">I'm at work — start my day</button>
     </div>` + stopList();
 
   if(RUN.status==="done") return $("view").innerHTML = `
     <div class="card"><h2>Day finished</h2>
       <div class="muted">${RUN.done} delivered${RUN.failed?`, ${RUN.failed} not completed`:""} ·
         ${RUN.hours_on_road||0} hours · ${RUN.break_minutes} min break. Your timesheet is with the office.</div>
-      <button class="wide" onclick="backToCrew()">\u2039 Crew sign in / out</button></div>` + stopList();
+      <button class="wide" onclick="act(this,()=>backToCrew())">\u2039 Crew sign in / out</button></div>` + stopList();
 
   const nextStop = STOPS.find(s=>s.status==="pending"||s.status==="en_route"||s.status==="arrived");
   $("view").innerHTML = `
     ${RUN&&RUN.practice?`<div class="banner" style="background:#fdf3e0;border-color:#e2c48a;color:#8a6d2f">
        <b>PRACTICE RUN</b> — invented customers. Nothing is texted and no delivery is recorded.
-       <button onclick="endPractice()" style="margin-top:8px;width:100%;background:#8a6d2f;color:#fff;
+       <button onclick="act(this,()=>endPractice())" style="margin-top:8px;width:100%;background:#8a6d2f;color:#fff;
          border:none;border-radius:8px;padding:9px">Finish practice</button></div>`:""}
     ${ONBREAK?`<div class="banner">On a break — nothing is being recorded against a stop.</div>`:""}
     ${!RUN.left_warehouse_at ? `
       <div class="card" style="border-color:var(--blue)">
         <h2>Ready to leave?</h2>
         <div class="muted">Tap when you pull out of the yard — it texts the first customer with a travel time worked out from where you are.</div>
-        <button class="wide blue" onclick="leaveWarehouse()">LEFT WAREHOUSE</button>
+        <button class="wide blue" onclick="act(this,()=>leaveWarehouse())">LEFT WAREHOUSE</button>
       </div>`:""}
     <div class="card">
       <h2>${RUN.done} of ${RUN.stops} done</h2>
       <div class="muted">At work ${tm(RUN.started_at)}${RUN.left_warehouse_at?` · left the yard ${tm(RUN.left_warehouse_at)}`:""} · ${esc(RUN.vehicle||"")}</div>
-      <button class="wide" style="margin-top:2px" onclick="backToCrew()">\u2039 Crew sign in / out</button>
+      <button class="wide" style="margin-top:2px" onclick="act(this,()=>backToCrew())">\u2039 Crew sign in / out</button>
       <div class="row" style="margin-top:12px">
         ${ONBREAK
-          ? `<button class="primary" onclick="brk(false)">Finish break</button>`
-          : `<button class="warn" onclick="brk(true)">Take a break</button>`}
-        <button class="stop" onclick="endDay()">End the day (everyone off)</button>
+          ? `<button class="primary" onclick="act(this,()=>brk(false))">Finish break</button>`
+          : `<button class="warn" onclick="act(this,()=>brk(true))">Take a break</button>`}
+        <button class="stop" onclick="act(this,()=>endDay())">End the day (everyone off)</button>
       </div>
       ${RUN.stops - RUN.done > 1 ? `<button class="wide" style="margin-top:8px"
-        onclick="reorderFromHere(this)">\u{1F9ED} Best order from where I am</button>` : ""}
+        onclick="act(this,()=>reorderFromHere(this))">\u{1F9ED} Best order from where I am</button>` : ""}
     </div>
     ${nextStop && !ONBREAK ? `
       <div class="card" style="border-color:var(--blue)">
         <div class="muted">NEXT STOP</div>
         <h2>${esc(nextStop.customer||"—")}</h2>
         <div class="muted">${esc(nextStop.address||"")}${nextStop.suburb?", "+esc(nextStop.suburb):""}</div>
-        <button class="wide blue" onclick="openStop('${nextStop.id}')">Open this stop</button>
+        <button class="wide blue" onclick="act(this,()=>openStop('${nextStop.id}'))">Open this stop</button>
       </div>`:""}
     ${stopList()}`;
 }
@@ -409,7 +536,7 @@ function stopList(){
       : s.status==="failed"?`<span class="chip bad">${esc(s.outcome||"not done")}</span>`
       : s.status==="arrived"?'<span class="chip go">On site</span>'
       : s.status==="en_route"?'<span class="chip go">On the way</span>':"";
-    return `<div class="stopcard" onclick="openStop('${s.id}')">
+    return `<div class="stopcard" onclick="act(this,()=>openStop('${s.id}'))">
       <div class="seq ${cls}">${s.seq}</div>
       <div style="flex:1">
         <div style="font-weight:700">${esc(s.customer||"—")} ${chip}</div>
@@ -443,7 +570,7 @@ function renderStop(){
   const amaps = `https://maps.apple.com/?daddr=${encodeURIComponent(where)}&dirflg=d`;
   $("view").innerHTML = `
     <div class="card">
-      <button onclick="CURRENT=null;render()" style="margin-bottom:10px">‹ Back to run</button>
+      <button onclick="act(this,()=>{CURRENT=null;render()})" style="margin-bottom:10px">‹ Back to run</button>
       <h2>${s.seq}. ${esc(s.customer||"—")}${s.customer2?` <span style="font-weight:600">&amp; ${esc(s.customer2)}</span>`:""}</h2>
       <div class="bigaddr">${esc(s.address||"")}</div>
       <div class="bigsub">${esc(s.suburb||"")}${s.delivery_time?" &middot; "+esc(s.delivery_time):""}</div>
@@ -467,16 +594,16 @@ function renderStop(){
     <div class="card">
       <h2>On the way</h2>
       <div class="muted">Tap NEXT as you leave the stop before this one — it works out how far away you are and texts this customer the travel time.</div>
-      <button class="wide blue" onclick="nextStop()" ${s.notified_at?"disabled":""}>
+      <button class="wide blue" onclick="act(this,()=>nextStop())" ${s.notified_at?"disabled":""}>
         ${s.notified_at?"Customer already told":"NEXT — tell them we're coming"}</button>
-      <button class="wide" onclick="arrive()" ${s.arrived_at?"disabled":""}>
+      <button class="wide" onclick="act(this,()=>arrive())" ${s.arrived_at?"disabled":""}>
         ${s.arrived_at?"Arrived "+tm(s.arrived_at):"I've arrived"}</button>
     </div>
 
     <div class="card">
       <h2>What's going in</h2>
       ${s._items.map(i=>`<label class="tick">
-          <input type="checkbox" ${i.delivered?"checked":""} onchange="tick('${i.id}',this.checked)">
+          <input type="checkbox" ${i.delivered?"checked":""} onchange="tick('${i.id}',this.checked,this)">
           <span>${esc(i.product_name)}${i.quantity>1?` ×${i.quantity}`:""}</span></label>`).join("")
         || '<div class="muted">No items listed on this order.</div>'}
     </div>
@@ -489,8 +616,8 @@ function renderStop(){
       <label>Customer signature</label>
       <canvas id="sig"></canvas>
       <div class="row" style="margin-top:8px">
-        <button onclick="clearSig()">Clear</button>
-        <button class="primary" onclick="saveSig()">Save signature</button>
+        <button onclick="act(this,()=>clearSig())">Clear</button>
+        <button class="primary" onclick="act(this,()=>saveSig())">Save signature</button>
       </div>
       <div class="muted" id="sigState">${s.signature_path?"Signature saved":"Not signed yet"}</div>
     </div>
@@ -499,15 +626,15 @@ function renderStop(){
       <h2>Finish this stop</h2>
       <label>Notes (optional)</label>
       <textarea id="notes" rows="2" placeholder="e.g. left in front bedroom"></textarea>
-      <button class="wide primary" onclick="finish('delivered')">All delivered</button>
+      <button class="wide primary" onclick="act(this,()=>finish('delivered'))">All delivered</button>
       <div class="row" style="margin-top:8px">
-        <button onclick="finish('part')">Part delivered</button>
-        <button onclick="finish('not_home')">Not home</button>
+        <button onclick="act(this,()=>finish('part'))">Part delivered</button>
+        <button onclick="act(this,()=>finish('not_home'))">Not home</button>
       </div>
       <div class="row" style="margin-top:8px">
-        <button onclick="finish('refused')">Refused</button>
-        <button onclick="finish('wrong_address')">Wrong address</button>
-        <button onclick="finish('damaged')">Damaged</button>
+        <button onclick="act(this,()=>finish('refused'))">Refused</button>
+        <button onclick="act(this,()=>finish('wrong_address'))">Wrong address</button>
+        <button onclick="act(this,()=>finish('damaged'))">Damaged</button>
       </div>
     </div>`}`;
   if(!done) initSig();
@@ -515,8 +642,11 @@ function renderStop(){
 
 /* ---------------- actions ---------------- */
 async function rpc(fn, args){
-  const { data, error } = await sb.rpc(fn, args||{});
-  if(error){ showErr(error.message); return null; }
+  let data, error;
+  try {
+    ({ data, error } = await withDeadline(sb.rpc(fn, args||{}), 20000, fn));
+  } catch(e){ showErr(friendly(e)); return null; }
+  if(error){ showErr(friendly(error)); return null; }
   if(data && data.ok===false){ showErr(data.error||"That didn't work"); return null; }
   return data||{};
 }
@@ -604,7 +734,13 @@ async function arrive(){
   if(!await rpc("driver_arrive",{p_stop:CURRENT.id,p_lat:p.lat,p_lng:p.lng})) return;
   await refreshStop();
 }
-async function tick(id, val){ await rpc("driver_tick_item",{p_item:id,p_delivered:val}); }
+async function tick(id, val, box){
+  // A tick is the record that an item was handed over, so it must never LOOK
+  // saved when it isn't. If the save fails the box goes back and says so.
+  const r = await rpc("driver_tick_item",{p_item:id,p_delivered:val});
+  if(r === null && box){ box.checked = !val; }
+  return r;
+}
 async function finish(outcome){
   const nice = {delivered:"all delivered",part:"part delivered",not_home:"not home",
                 refused:"refused",wrong_address:"wrong address",damaged:"damaged"}[outcome];
