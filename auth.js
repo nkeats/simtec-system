@@ -66,13 +66,31 @@
     var s = document.getElementById('simtec-auth-hide'); if (s) s.remove();
     var b = document.getElementById('simtec-boot'); if (b) b.remove();
   }
+
+  // Shown when we genuinely cannot establish who the user is. Fails CLOSED —
+  // the page content is never revealed — but gives a retry so a flaky
+  // connection does not look like a broken app.
+  function cannotVerify(why) {
+    reveal();
+    document.body.innerHTML =
+      '<div style="max-width:440px;margin:90px auto;padding:0 20px;font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;text-align:center;color:#1a2334">' +
+      '<div style="font-size:24px;font-weight:800;color:#122347;letter-spacing:.5px">SIMTEC</div>' +
+      '<h2 style="color:#122347;margin-top:22px">Can\u2019t check your sign-in</h2>' +
+      '<p style="color:#6b7889">' + (why || '') + ' Please check your connection and try again.</p>' +
+      '<p style="margin-top:18px"><a href="#" id="_simrt" style="color:#1c3363;font-weight:600">Try again</a></p></div>';
+    var rt = document.getElementById('_simrt');
+    if (rt) rt.onclick = function (e) { e.preventDefault(); location.reload(); };
+  }
   var inFrame = (function () { try { return window.top !== window.self; } catch (e) { return true; } })();
   function toLogin() { if (inFrame) { reveal(); return; } location.replace('login.html'); }
 
   // wait briefly for the supabase library to be present
   var tries = 0;
   while (typeof supabase === 'undefined' && tries < 60) { await new Promise(function (r) { setTimeout(r, 40); }); tries++; }
-  if (typeof supabase === 'undefined') { reveal(); return; } // library missing → don't brick the page
+  // If the library never arrived we cannot check who you are. Revealing the page
+  // anyway would mean an unchecked page render whenever the CDN is slow or blocked,
+  // so say so and offer a retry instead.
+  if (typeof supabase === 'undefined') { cannotVerify('We could not load the sign-in check.'); return; }
 
   var _sb = supabase.createClient(URL_, KEY_);
 
@@ -87,13 +105,20 @@
     if (cached) { prof = JSON.parse(cached); fromCache = true; }
   } catch (e) {}
 
+  // profileKnown = the lookup actually completed, so "no row" means "genuinely has
+  // no staff profile" rather than "we could not find out". The gate below relies on
+  // being able to tell those two apart.
+  var profileKnown = false;
+
   if (!prof) {
     try {
       var res = await _sb.from('profiles').select('role,active,consultant_name,full_name,email').eq('id', session.user.id).maybeSingle();
+      profileKnown = !(res && res.error);
       prof = res.data;
       if (prof) { try { sessionStorage.setItem(cacheKey, JSON.stringify(prof)); } catch (e) {} }
-    } catch (e) {}
+    } catch (e) { profileKnown = false; }
   } else {
+    profileKnown = true;
     // re-check quietly; if anything important changed, take the page back
     _sb.from('profiles').select('role,active,consultant_name,full_name,email').eq('id', session.user.id).maybeSingle()
       .then(function (r) {
@@ -117,15 +142,31 @@
   };
   window.SIMTEC_SB = _sb;
 
-  // role gate — enforced only when we actually know the role (transient read
-  // failures let the logged-in user through rather than lock them out).
+  // Role gate.
+  //
+  // ⚠ 9 Aug: this used to read `if (role && ...)`, so a NULL role skipped the gate
+  // entirely. Every Games App customer is a signed-in user with NO profiles row and
+  // therefore a null role, which meant a customer could open any office page in the
+  // System. Same shape as the null-is-not-false bug found in the SQL guards.
+  //
+  // Now: a page that declares data-roles admits you only if your role is on the list.
+  // No role + we know it (profileKnown) => denied. A failed lookup still lets you
+  // through, so a network blip cannot lock staff out mid-shift — the database is the
+  // real gate underneath either way.
   var allowed = window.__SIMTEC_ROLES__;
-  if (role && Array.isArray(allowed) && allowed.indexOf(role) === -1) {
+  var denied = Array.isArray(allowed) && (
+    role ? allowed.indexOf(role) === -1
+         : profileKnown
+  );
+  if (denied) {
     reveal();
-    var landing = role === 'consultant' ? 'my-sales.html'
+    // A user with no staff role is a Games App customer — send them to the rewards
+    // app, not to home.html, which would just be another "No access" screen.
+    var landing = !role ? 'rewards.html'
+      : (role === 'consultant' ? 'my-sales.html'
       : (role === 'matt' ? 'matt.html'
       : (role === 'driver' ? 'driver-day.html'
-      : (role === 'warehouse' ? 'timesheet.html' : 'home.html')));
+      : (role === 'warehouse' ? 'timesheet.html' : 'home.html'))));
     document.body.innerHTML =
       '<div style="max-width:440px;margin:90px auto;padding:0 20px;font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;text-align:center;color:#1a2334">' +
       '<div style="font-size:24px;font-weight:800;color:#122347;letter-spacing:.5px">SIMTEC</div>' +
