@@ -104,11 +104,28 @@ let ME=null, ROLE=null, RUN=null, STOPS=[], ONBREAK=false, PING=null, CURRENT=nu
 /* ---------------- location ---------------- */
 function here(timeout=8000){
   return new Promise(res=>{
-    if(!navigator.geolocation) return res({lat:null,lng:null});
+    // 10 Aug: this used to hand back the browser's promise directly. On iOS —
+    // especially once the app is launched from the Home Screen, which counts as
+    // a fresh permission context — getCurrentPosition can sit there forever if
+    // the location prompt is never answered: neither callback fires and the
+    // browser's own timeout does not start. Everything that asks for a position
+    // first (crew sign-on, "I'm at work", leaving the warehouse, arriving at a
+    // stop) then froze with no error on screen.
+    //
+    // A position is a nice-to-have on every one of those actions — the server
+    // accepts a null lat/lng — so this now ALWAYS settles, and the work carries
+    // on with no location rather than not at all.
+    let done = false;
+    const finish = v => { if(!done){ done = true; res(v); } };
+    const bail = setTimeout(() => finish({lat:null, lng:null}), timeout + 1500);
+
+    if(!navigator.geolocation){ clearTimeout(bail); return finish({lat:null, lng:null}); }
     navigator.geolocation.getCurrentPosition(
-      p => res({lat:+p.coords.latitude.toFixed(6), lng:+p.coords.longitude.toFixed(6),
-                acc:p.coords.accuracy, speed:p.coords.speed}),
-      () => res({lat:null,lng:null}), {enableHighAccuracy:true, timeout, maximumAge:5000});
+      p => { clearTimeout(bail);
+             finish({lat:+p.coords.latitude.toFixed(6), lng:+p.coords.longitude.toFixed(6),
+                     acc:p.coords.accuracy, speed:p.coords.speed}); },
+      () => { clearTimeout(bail); finish({lat:null, lng:null}); },
+      {enableHighAccuracy:true, timeout, maximumAge:5000});
   });
 }
 function startPings(){
