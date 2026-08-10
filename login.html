@@ -45,6 +45,36 @@
 </div>
 
 <script>
+/* ------------------------------------------------------------------
+   10 Aug — DON'T LET AN OUTSIDE CDN TAKE THE DOOR OFF ITS HINGES.
+   supabase-js is fetched from jsdelivr. When it doesn't arrive — slow
+   wi-fi, a captive portal, a blocked or failing CDN — the next line
+   threw "supabase is not defined" and NOTHING below it ran. The form
+   still drew, so the page looked fine, but the button did nothing and
+   said nothing. The 36 pages behind auth.js already handle this; these
+   three sit in FRONT of the login and had no cover at all.
+   We show a plain message and stop, rather than leave a dead page.
+------------------------------------------------------------------ */
+if (typeof supabase === "undefined" || !supabase.createClient) {
+  (function () {
+    var show = function () {
+      document.body.innerHTML =
+        '<div style="max-width:430px;margin:70px auto;padding:0 22px;text-align:center;' +
+        'font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;color:#1a2334">' +
+        '<div style="font-size:26px;font-weight:800;color:#122347;letter-spacing:1px">SIMTEC</div>' +
+        '<h2 style="color:#122347;margin-top:24px;font-size:22px">Can\u2019t start up</h2>' +
+        '<p style="color:#6b7889;font-size:16px;line-height:1.5">Part of the page could not be ' +
+        'downloaded. This is nearly always the internet connection.</p>' +
+        '<button onclick="location.reload()" style="margin-top:14px;background:#122347;color:#fff;' +
+        'border:none;border-radius:9px;padding:15px 30px;font-size:17px;font-weight:700;' +
+        'cursor:pointer">Try again</button>' +
+        '<p style="color:#8a97ad;font-size:14px;margin-top:18px">If it keeps happening, check the ' +
+        'wi-fi, then call the office on 09 886 9897.</p></div>';
+    };
+    if (document.body) show(); else document.addEventListener("DOMContentLoaded", show);
+  })();
+  throw new Error("simtec: supabase-js did not load — notice shown");
+}
 const sb = supabase.createClient("https://jvqjoenaungubpoegyvf.supabase.co","sb_publishable_J4MYTdJJyEaWe-GadpwdYA_upPT2rKw");
 const $=id=>document.getElementById(id);
 function show(t,cls){ const m=$("msg"); m.style.display="block"; m.className=cls; m.textContent=t; }
