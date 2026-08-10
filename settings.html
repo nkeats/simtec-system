@@ -20,6 +20,7 @@
   table{width:100%;border-collapse:collapse;font-size:14px}
   th,td{padding:8px 14px;text-align:left;border-bottom:1px solid var(--line);vertical-align:middle}
   th{background:#f3f6fa;color:var(--navy);font-size:11.5px;text-transform:uppercase;letter-spacing:.04em}
+  code{background:#eef2f7;border-radius:4px;padding:1px 5px;font-size:12px}
   input{width:110px;padding:7px 9px;border:1px solid #cbd4df;border-radius:7px;font-size:14px;font-family:inherit}
   select{padding:7px 9px;border:1px solid #cbd4df;border-radius:7px;font-size:14px;font-family:inherit;background:#fff}
   .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px 22px;padding:14px 18px}
@@ -82,6 +83,37 @@
     <table><thead><tr><th>Deposit</th><th>% of contract paid required</th><th>Dishonours allowed</th></tr></thead><tbody id="drRows"></tbody></table>
     <div class="bar"><span class="msg" id="drMsg"></span><button class="save" onclick="saveDelivery()">Save delivery rules</button></div>
   </div>
+
+  <!-- GHL WEBHOOK KEY -->
+  <div class="card" id="keyCard" style="display:none">
+    <h2>GHL webhook key</h2>
+    <div class="sub">The shared phrase that lets GHL tell the System a delivery is complete or an order is cancelled.
+      Set it here, then put the <b>same phrase</b> into GHL as custom data named <code>p_key</code> on
+      <b>both</b> webhook actions — delivery complete and cancelled. Until both match, neither sync works.
+      The phrase is stored scrambled and can never be read back, so keep your own note of it.</div>
+    <div style="padding:0 18px 4px">
+      <div id="keyState" style="font-size:13px;margin-bottom:12px"></div>
+      <div class="fld" style="max-width:420px">
+        <label>New phrase (at least 12 characters)</label>
+        <input id="keyNew" type="text" autocomplete="off" spellcheck="false" placeholder="e.g. simtec-ghl-2026-winter">
+      </div>
+      <div class="fld" style="max-width:420px;margin-top:10px">
+        <label>Type it again to be sure</label>
+        <input id="keyNew2" type="text" autocomplete="off" spellcheck="false">
+      </div>
+    </div>
+    <div class="bar"><span class="msg" id="keyMsg"></span><button class="save" onclick="saveKey()">Save the key</button></div>
+
+    <div style="border-top:1px solid var(--line);padding:14px 18px">
+      <div style="font-size:13px;font-weight:700;color:var(--navy);margin-bottom:4px">Check what you put into GHL</div>
+      <div class="sub" style="padding:0 0 10px">Paste the phrase exactly as it appears in the GHL webhook action. This only answers yes or no — nothing is changed.</div>
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        <input id="keyTest" type="text" autocomplete="off" spellcheck="false" style="width:260px" placeholder="phrase from GHL">
+        <button class="save" onclick="testKey()" style="background:#fff;color:var(--navy);border:1px solid #cbd4df">Check it matches</button>
+        <span id="keyTestMsg" style="font-size:13px;font-weight:700"></span>
+      </div>
+    </div>
+  </div>
 </div>
 
 <script>
@@ -115,6 +147,7 @@ async function load(){
   DRULES=dr||[];
   $("state").style.display="none";
   renderPrices(); renderComm(); renderAwards(); renderBaselines(); renderDelivery();
+  loadKey();
 }
 
 // ---- prices ----
@@ -125,6 +158,54 @@ function renderPrices(){
       <td><input id="pr${i}" type="number" step="1" value="${p.value.retail!=null?p.value.retail:''}"></td>
       <td><input id="pc${i}" type="number" step="1" value="${p.value.cost!=null?p.value.cost:''}"></td></tr>`).join("");
 }
+/* ---------------- GHL webhook key ----------------
+   Set from the browser as a signed-in admin, which is the only context
+   set_webhook_key() accepts — the Supabase SQL editor has no login attached to
+   it and is refused, which is why this card exists rather than a SQL snippet.
+   The phrase never leaves this page except as an argument to the RPC, and the
+   database stores only a scrambled version of it. */
+async function loadKey(){
+  const card=$("keyCard"); if(!card) return;
+  card.style.display="";
+  const el=$("keyState");
+  try{
+    const {data,error}=await sb.rpc("webhook_key_status");
+    if(error) throw error;
+    const row=(data||[]).find(r=>r.name==="ghl");
+    if(row){
+      const when=row.updated_at ? new Date(row.updated_at).toLocaleString("en-NZ",
+                    {day:"2-digit",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit"}) : "";
+      el.innerHTML='<span style="color:var(--ok);font-weight:700">\u2713 A key is set</span>'
+                 + '<span class="muted"> \u00b7 last changed '+esc(when)+(row.updated_by?" by "+esc(row.updated_by):"")+'</span>';
+    }else{
+      el.innerHTML='<span style="color:#b4342e;font-weight:700">\u26A0 No key is set \u2014 delivered and cancelled are not syncing from GHL</span>';
+    }
+  }catch(e){ el.innerHTML='<span class="muted">Could not check the current key.</span>'; }
+}
+
+async function saveKey(){
+  const a=($("keyNew").value||"").trim(), b=($("keyNew2").value||"").trim();
+  const msg=$("keyMsg"); msg.style.color=""; msg.textContent="";
+  if(a.length<12){ msg.style.color="#b4342e"; msg.textContent="At least 12 characters."; return; }
+  if(a!==b){ msg.style.color="#b4342e"; msg.textContent="The two phrases do not match."; return; }
+  if(!confirm("Save this as the GHL webhook key?\n\nThe delivered and cancelled syncs will STOP working until you put the same phrase into both GHL webhook actions as p_key.")) return;
+  const {error}=await sb.rpc("set_webhook_key",{p_name:"ghl",p_key:a});
+  if(error){ msg.style.color="#b4342e"; msg.textContent=error.message; return; }
+  msg.textContent="Saved. Now put the same phrase into GHL.";
+  $("keyNew").value=""; $("keyNew2").value="";
+  loadKey();
+}
+
+async function testKey(){
+  const v=($("keyTest").value||"").trim();
+  const out=$("keyTestMsg");
+  if(!v){ out.style.color="#7a8798"; out.textContent="Paste the phrase first."; return; }
+  const {data,error}=await sb.rpc("webhook_key_check",{p_name:"ghl",p_key:v});
+  if(error){ out.style.color="#b4342e"; out.textContent=error.message; return; }
+  if(data){ out.style.color="var(--ok)"; out.textContent="\u2713 Matches \u2014 GHL will be accepted."; }
+  else     { out.style.color="#b4342e"; out.textContent="\u2717 Does not match \u2014 GHL will be refused."; }
+}
+
 async function savePrices(){
   $("pricesMsg").textContent="Saving…";
   try{
