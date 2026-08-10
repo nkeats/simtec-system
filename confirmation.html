@@ -94,7 +94,6 @@
 <script>
 const sb = supabase.createClient("https://jvqjoenaungubpoegyvf.supabase.co","sb_publishable_J4MYTdJJyEaWe-GadpwdYA_upPT2rKw");
 const CHECKS=[
-  ['confirmed_address','Address'],
   ['confirmed_income','Income'],
   ['confirmed_affordability','Affordability'],
   ['confirmed_understanding','Understanding of commitment'],
@@ -356,7 +355,7 @@ function setState(id,txt,color){ const s=document.getElementById('st_'+id); if(s
 
 window.accept=async function(id){
   const checks=gather(id);
-  if(!CHECKS.every(([f])=>checks[f])){ setState(id,'Tick all five items before accepting.','#b4342e'); return; }
+  if(!CHECKS.every(([f])=>checks[f])){ setState(id,'Tick all '+CHECKS.length+' items before accepting.','#b4342e'); return; }
   setState(id,'Saving…');
   const row={order_id:id,...checks,accepted:true,status:'accepted',called_by:me(),called_at:nowISO(),updated_at:nowISO()};
   const {error}=await upsertConf(row);

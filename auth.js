@@ -203,6 +203,72 @@
     b.title = window.SIMTEC_USER.email + ' (' + (role || 'no role') + ')';
     b.onclick = async function () { b.disabled = true; await _sb.auth.signOut(); toLogin(); };
     document.body.appendChild(b);
+    keepLogoutClear();
+  }
+
+  /* -------------------------------------------------------------------------
+     The Log out button is fixed to a corner and floats above everything, so it
+     can cover a page's own buttons — it has done exactly that before, on the
+     Sales App diary button, and a survey on 10 Aug found ten more pages at risk.
+     Patching each page is whack-a-mole: the next page anyone builds starts the
+     problem again.
+
+     So instead of trusting every page to leave the corner free, this MEASURES.
+     If the button is genuinely covering something you could tap, the page's own
+     bar is padded until it isn't. If nothing is in the way, nothing changes.
+     Works on pages that draw themselves later, and after a rotate or resize.
+  ------------------------------------------------------------------------- */
+  function keepLogoutClear() {
+    var btn = document.getElementById('simtec-logout');
+    if (!btn) return;
+
+    var GAP = 10;                       // breathing room around the button
+    var box = btn.getBoundingClientRect();
+    if (!box.width) return;
+    var zone = { left: box.left - GAP, right: box.right + GAP,
+                 top: box.top - GAP,  bottom: box.bottom + GAP };
+
+    var hits = document.querySelectorAll('button,a,input,select,label,[onclick],[role="button"]');
+    for (var i = 0; i < hits.length; i++) {
+      var el = hits[i];
+      if (el === btn || el.closest('#simtec-logout')) continue;
+      if (el.dataset && el.dataset.simtecShifted) continue;
+      var r = el.getBoundingClientRect();
+      if (!r.width || !r.height) continue;                       // hidden
+      if (r.right <= zone.left || r.left >= zone.right) continue; // clear across
+      if (r.bottom <= zone.top || r.top >= zone.bottom) continue; // clear down
+
+      // Something tappable is underneath. Push the bar it lives in out of the way.
+      var bar = el, hops = 0;
+      while (bar && bar !== document.body && hops < 6) {
+        var w = bar.getBoundingClientRect().width;
+        if (w > window.innerWidth * 0.6) break;   // wide enough to be the bar
+        bar = bar.parentElement; hops++;
+      }
+      var target = (bar && bar !== document.body) ? bar : el;
+      var need = Math.ceil(box.width + GAP * 2);
+      var cur  = parseInt(window.getComputedStyle(target).paddingRight, 10) || 0;
+      if (cur < need) {
+        target.style.paddingRight = need + 'px';
+        target.style.boxSizing = 'border-box';
+      }
+      if (target === el) el.dataset.simtecShifted = '1';
+      return keepLogoutClear();                   // re-measure; layout has moved
+    }
+  }
+
+  // Pages draw themselves at different moments, so check a few times, on resize,
+  // and whenever the page adds something new.
+  if (!inFrame) {
+    var _t = null, _recheck = function () {
+      clearTimeout(_t); _t = setTimeout(keepLogoutClear, 250);
+    };
+    [300, 1000, 2500, 5000].forEach(function (ms) { setTimeout(keepLogoutClear, ms); });
+    window.addEventListener('resize', _recheck);
+    window.addEventListener('orientationchange', _recheck);
+    if (window.MutationObserver && document.body) {
+      new MutationObserver(_recheck).observe(document.body, { childList: true, subtree: true });
+    }
   }
   if (!inFrame) { if (document.body) addLogout(); else document.addEventListener('DOMContentLoaded', addLogout); }
 

@@ -411,6 +411,20 @@ function renderAll(c, orders, paysByRef, comms){
     ${kv("Mobile",esc(c.mobile)||"—")}
     ${kv("Email",esc(c.email)||"—")}
     ${kv("Address",esc(c.address)||"—")}
+    ${(() => {
+        /* Joint applications: the second person's name and number used to appear
+           only inside the Sale card further down, so the office rang the primary
+           and missed the partner. Both people now sit together in Contact. */
+        const j = orders.find(o => o.second_customer_name);
+        if(!j) return "";
+        const tel = j.second_mobile
+          ? `<a href="tel:${esc(String(j.second_mobile).replace(/\s/g,""))}">${esc(j.second_mobile)}</a>`
+          : '<span class="muted">no number</span>';
+        return `<div class="kv" style="border-top:1px dashed var(--line);margin-top:6px;padding-top:8px">
+                  <span class="k">Also on the order</span><span class="v"><b>${esc(j.second_customer_name)}</b></span></div>`
+             + kv("Their mobile", tel)
+             + kv("Their email", esc(j.second_email)||"—");
+      })()}
     <div class="kv"><span class="k">Reminder texts</span><span class="v">
       ${window.__OPT_SMS__
         ? `<b style="color:#c02626">Off — opted out</b> <button onclick="toggleReminderTexts(true)" style="margin-left:10px;background:#fff;color:var(--navy);border:1px solid #cbd4df;border-radius:7px;padding:3px 10px;font-size:12px;font-weight:600;cursor:pointer">Turn back on</button>`
