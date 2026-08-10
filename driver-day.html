@@ -87,7 +87,33 @@
 <script>
 const SB_URL = "https://jvqjoenaungubpoegyvf.supabase.co";
 const SB_KEY = "sb_publishable_J4MYTdJJyEaWe-GadpwdYA_upPT2rKw";
-const sb = supabase.createClient(SB_URL, SB_KEY);
+/* 10 Aug — WHITE SCREEN ON THE iPAD.
+   This line used to be `supabase.createClient(...)` with nothing in front of it.
+   supabase-js is fetched from an outside CDN (jsdelivr). When that script does
+   not arrive — slow warehouse wi-fi, a captive portal, the CDN being blocked,
+   or iOS serving the page from cache without it — `supabase` is undefined and
+   this line throws on the THIRD line of the script. Everything below it,
+   including boot(), never runs: a blank page under the SIMTEC bar, no error,
+   nothing to tap. Reproduced exactly in a headless browser.
+   The app must not be killable by a third party. */
+let sb = null;
+if (typeof supabase !== "undefined" && supabase.createClient) {
+  sb = supabase.createClient(SB_URL, SB_KEY);
+} else {
+  (function(){
+    var v = document.getElementById("view");
+    if (v) v.innerHTML =
+      '<div class="card" style="text-align:center">' +
+      '<h2 style="font-size:24px;margin:0 0 8px">Can\u2019t start up</h2>' +
+      '<div style="font-size:17px;color:#6b7889;margin-bottom:14px">' +
+      'The iPad could not load part of the app. This is usually the wi-fi.</div>' +
+      '<button class="wide primary" style="font-size:20px;padding:18px" ' +
+      'onclick="location.reload()">Try again</button>' +
+      '<div style="font-size:14px;color:#8a97ad;margin-top:12px">' +
+      'If it keeps happening, check the iPad is on the warehouse wi-fi, ' +
+      'then ring the office.</div></div>';
+  })();
+}
 const $ = id => document.getElementById(id);
 const esc = s => (s||"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 function toastLike(msg){
@@ -412,6 +438,7 @@ async function claimDevice(){
 }
 
 async function boot(){
+  if(!sb) return;                       // no client — the notice above is already on screen
   showErr("");
   // Nothing else happens until we know this is the warehouse iPad.
   if(!(await deviceIsPaired())) return pairScreen();
