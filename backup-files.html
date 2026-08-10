@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Simtec — Back up documents</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.112.2"></script>
+<!-- JSZip 3.10.1 — fetched and verified before use (97,630 bytes, real library). -->
+<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+<script src="auth.js?v=4" data-roles="admin"></script>
+<style>
+  :root{ --navy:#122347; --gold:#c6a15b; --line:#e3e8ef; --muted:#6b7889; --green:#1c6b34; --red:#b4342e; }
+  *{box-sizing:border-box}
+  body{margin:0;background:#f4f6fa;color:#1b2a4a;
+       font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif}
+  .top{background:var(--navy);color:#fff;padding:14px 18px;display:flex;align-items:center;gap:10px}
+  .top b{letter-spacing:1px}
+  .wrap{max-width:760px;margin:0 auto;padding:18px}
+  .card{background:#fff;border:1px solid var(--line);border-radius:12px;padding:18px;margin-bottom:14px}
+  h1{font-size:22px;margin:0 0 6px}
+  h2{font-size:17px;margin:0 0 8px}
+  .muted{color:var(--muted);font-size:14px}
+  button{background:var(--navy);color:#fff;border:none;border-radius:9px;padding:15px 26px;
+         font-size:17px;font-weight:700;cursor:pointer}
+  button:disabled{opacity:.55;cursor:default}
+  .bar{height:12px;background:#e9edf3;border-radius:7px;overflow:hidden;margin-top:12px}
+  .bar > i{display:block;height:100%;width:0;background:var(--gold);transition:width .2s}
+  table{width:100%;border-collapse:collapse;font-size:14px;margin-top:8px}
+  td,th{padding:7px 5px;border-bottom:1px solid var(--line);text-align:left}
+  th{font-size:11.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)}
+  .num{text-align:right}
+  .warn{background:#fff6e5;border:1px solid #e6cf9a;color:#7a5a12;border-radius:9px;padding:11px 13px;font-size:14px}
+  .err{background:#fdecea;border:1px solid #f2b8b2;color:var(--red);border-radius:9px;padding:11px 13px;font-size:14px;margin-top:10px}
+  a{color:#1c3363}
+</style>
+</head>
+<body>
+
+<div class="top"><b>SIMTEC</b><span style="opacity:.85;font-size:14px">Back up documents</span></div>
+
+<div class="wrap">
+  <div class="card">
+    <h1>Back up the signed documents</h1>
+    <div class="muted">
+      The nightly database backup records <b>which</b> document belongs to which order.
+      It does not contain the documents themselves — those live separately and have
+      never been copied anywhere. This puts every one of them into a single zip on
+      your computer.
+    </div>
+    <div class="warn" style="margin-top:12px">
+      This file contains signed credit agreements and photographs of customer ID.
+      Save it somewhere private — the <b>D drive</b>, not a shared folder, and not email.
+    </div>
+  </div>
+
+  <div class="card" id="summaryCard">
+    <h2>What will be saved</h2>
+    <div id="summary" class="muted">Loading…</div>
+    <div id="stat" style="margin-top:14px;font-size:15px"></div>
+    <div class="bar"><i id="bar"></i></div>
+    <button id="go" style="margin-top:14px" disabled>Loading…</button>
+    <div id="err"></div>
+  </div>
+</div>
+
+<script>
+const sb = supabase.createClient(
+  "https://jvqjoenaungubpoegyvf.supabase.co",
+  "sb_publishable_J4MYTdJJyEaWe-GadpwdYA_upPT2rKw");
+
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const mb = b => (b/1048576).toFixed(1) + " MB";
+
+let FILES = [];
+let BUSY = false;
+
+function say(msg, isErr){
+  $("err").innerHTML = msg ? '<div class="' + (isErr ? "err" : "warn") + '">' + esc(msg) + "</div>" : "";
+}
+
+async function load(){
+  try{
+    const { data, error } = await sb.rpc("backup_file_list");
+    if(error) throw error;
+    FILES = data || [];
+    if(!FILES.length){ $("summary").textContent = "No documents found."; return; }
+
+    const byBucket = {};
+    let total = 0;
+    FILES.forEach(f => {
+      byBucket[f.bucket] = byBucket[f.bucket] || { n:0, bytes:0 };
+      byBucket[f.bucket].n++; byBucket[f.bucket].bytes += Number(f.bytes||0);
+      total += Number(f.bytes||0);
+    });
+    const label = { "order-documents":"Signed orders, ID photos and signatures",
+                    "delivery-proof":"Proof of delivery — photos and signatures",
+                    "email-assets":"Marketing attachments" };
+    $("summary").innerHTML =
+      "<table><tr><th>What</th><th class='num'>Files</th><th class='num'>Size</th></tr>" +
+      Object.keys(byBucket).sort().map(b =>
+        "<tr><td>" + esc(label[b] || b) + "<div class='muted'>" + esc(b) + "</div></td>" +
+        "<td class='num'>" + byBucket[b].n + "</td>" +
+        "<td class='num'>" + mb(byBucket[b].bytes) + "</td></tr>").join("") +
+      "<tr><td><b>Total</b></td><td class='num'><b>" + FILES.length +
+      "</b></td><td class='num'><b>" + mb(total) + "</b></td></tr></table>";
+
+    $("go").disabled = false;
+    $("go").textContent = "Download all " + FILES.length + " documents";
+  }catch(e){
+    $("summary").textContent = "";
+    say("Could not read the document list: " + (e.message || e) + ". Only an admin login can use this page.", true);
+  }
+}
+
+async function run(){
+  if(BUSY) return;                       // one at a time; a second click does nothing
+  BUSY = true;
+  $("go").disabled = true;
+  say("");
+
+  const zip = new JSZip();
+  const failed = [];
+  let done = 0, gotBytes = 0;
+
+  const tick = () => {
+    const pct = Math.round(done / FILES.length * 100);
+    $("bar").style.width = pct + "%";
+    $("stat").textContent = done + " of " + FILES.length + " saved" +
+      (failed.length ? "  ·  " + failed.length + " could not be read" : "");
+  };
+  tick();
+
+  // Signed links are made in batches; each is short-lived and only this page uses it.
+  const BATCH = 40;
+  const byBucket = {};
+  FILES.forEach(f => { (byBucket[f.bucket] = byBucket[f.bucket] || []).push(f.path); });
+
+  try{
+    for(const bucket of Object.keys(byBucket)){
+      const paths = byBucket[bucket];
+      for(let i = 0; i < paths.length; i += BATCH){
+        const slice = paths.slice(i, i + BATCH);
+        const { data: links, error } = await sb.storage.from(bucket)
+          .createSignedUrls(slice, 60 * 30);
+        if(error) throw error;
+
+        for(const link of (links || [])){
+          const path = link.path || "";
+          try{
+            if(link.error || !link.signedUrl) throw new Error(link.error || "no link");
+            const res = await fetch(link.signedUrl);
+            if(!res.ok) throw new Error("HTTP " + res.status);
+            // arrayBuffer rather than blob: JSZip accepts it everywhere,
+            // and it sidesteps any Blob-type quirk in an older browser.
+            const buf = await res.arrayBuffer();
+            // keep the original folder structure inside the zip
+            zip.file(bucket + "/" + path, buf);
+            gotBytes += buf.byteLength;
+          }catch(e){
+            failed.push(bucket + "/" + path + "  —  " + (e.message || e));
+          }
+          done++; if(done % 3 === 0) tick();
+        }
+      }
+    }
+    tick();
+
+    // A plain list so you can tell later what should be in here
+    const stamp = new Date().toISOString().slice(0,10);
+    zip.file("MANIFEST.txt",
+      "SIMTEC document backup\ntaken: " + new Date().toString() + "\n" +
+      "files saved: " + (FILES.length - failed.length) + " of " + FILES.length + "\n" +
+      "size: " + mb(gotBytes) + "\n\n" +
+      (failed.length ? "COULD NOT BE READ:\n" + failed.join("\n") + "\n\n" : "") +
+      "FILES:\n" + FILES.map(f => f.bucket + "/" + f.path + "   " + f.bytes + " bytes").join("\n") + "\n");
+
+    $("stat").textContent = "Building the zip… this can take a minute, don't close the page.";
+    const out = await zip.generateAsync({ type:"blob", compression:"DEFLATE",
+                                          compressionOptions:{ level:6 } },
+      m => { $("bar").style.width = Math.round(m.percent) + "%"; });
+
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(out);
+    a.download = "simtec-documents-" + stamp + ".zip";
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+
+    $("stat").textContent = "Saved " + (FILES.length - failed.length) + " of " + FILES.length +
+      " documents  ·  " + mb(gotBytes);
+    say(failed.length
+      ? failed.length + " file(s) could not be read — they are listed in MANIFEST.txt inside the zip. Everything else saved."
+      : "All " + FILES.length + " documents saved. Move the zip to your D drive.", failed.length > 0);
+  }catch(e){
+    say("Stopped: " + (e.message || e) + ". Nothing was changed — you can try again.", true);
+  }finally{
+    BUSY = false;
+    $("go").disabled = false;
+    $("go").textContent = "Download again";
+  }
+}
+
+$("go").onclick = run;
+load();
+</script>
+</body>
+</html>
