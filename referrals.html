@@ -60,6 +60,8 @@ select.asgnsel{background:#0f172a;border:1px solid #334155;color:#e2e8f0;border-
     </div>
   </div>
 
+  <div id="prizeCard" class="mb-4"></div>
+
   <div class="flex items-center justify-between mb-2">
     <h2 class="text-sm font-semibold text-slate-300" id="listTitle">With office</h2>
     <span class="text-xs text-slate-500" id="asOf"></span>
@@ -102,15 +104,55 @@ function badge(s){ const b=BADGES[s]||['—','#334155','#cbd5e1']; return `<span
 
 async function load(){
   $("state").style.display="block"; $("state").textContent="Loading…";
-  const [consRes, refsRes] = await Promise.all([
+  const [consRes, refsRes, dueRes, tierRes] = await Promise.all([
     sb.from("commission_consultants").select("id,name").eq("active",true).order("name"),
-    sb.from("v_referrals_office").select("*")
+    sb.from("v_referrals_office").select("*"),
+    sb.from("v_referral_prizes_due").select("*"),
+    sb.from("v_referrer_tiers").select("*")
   ]);
   if(refsRes.error){ $("state").textContent="Couldn't load: "+refsRes.error.message; return; }
   CONS = consRes.data||[];
   REFS = refsRes.data||[];
+  renderPrizes(dueRes.data||[], tierRes.data||[]);
   $("asOf").textContent = "as at "+new Date().toLocaleString("en-NZ",{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"});
   render();
+}
+
+/* ---------------- referrer prizes ----------------
+   Every referral pays 50,000 points EXCEPT the 5th, 10th and 25th, where the
+   prize replaces the points. The engine records an unfulfilled award when that
+   happens — but nothing showed it, so the office would only find out when the
+   customer rang. This card shows what is owed now, and who is close, so a
+   voucher can be ready before it is asked for. */
+function renderPrizes(due, tiers){
+  const box = $("prizeCard");
+  if(!box) return;
+  const soon = (tiers||[]).filter(t => t.referrals_to_go != null && t.referrals_to_go <= 2);
+  if(!due.length && !soon.length){ box.innerHTML=""; return; }
+
+  const nm = r => esc([r.first_name, r.last_name].filter(Boolean).join(" ") || "Unnamed");
+  const tel = m => m ? `<a href="tel:${esc(String(m).replace(/\s/g,""))}" class="text-sky-400">${esc(m)}</a>` : '<span class="text-slate-600">no number</span>';
+
+  const dueRows = due.map(r => `<div class="flex items-center gap-3 py-1.5 border-b border-slate-800 last:border-0">
+      <span class="badge" style="background:#7c2d12;color:#fdba74">${esc(String(r.referral_number))}${r.referral_number==1?'st':(r.referral_number==2?'nd':(r.referral_number==3?'rd':'th'))} referral</span>
+      <span class="font-semibold text-slate-200">${nm(r)}</span>
+      <span class="text-xs text-slate-400">${esc(r.prize||"")}</span>
+      <span class="ml-auto text-xs">${tel(r.mobile)}</span>
+    </div>`).join("");
+
+  const soonRows = soon.map(t => `<div class="flex items-center gap-3 py-1.5 border-b border-slate-800 last:border-0">
+      <span class="badge" style="background:#1e3a5f;color:#93c5fd">${t.referrals_to_go} to go</span>
+      <span class="font-semibold text-slate-200">${nm(t)}</span>
+      <span class="text-xs text-slate-400">on ${t.referrals_paid} \u00b7 next is ${esc(t.next_prize||"")} at ${t.next_tier}</span>
+      <span class="ml-auto text-xs">${tel(t.mobile)}</span>
+    </div>`).join("");
+
+  box.innerHTML = `
+    <div class="rounded-lg border border-amber-700/60 bg-amber-950/20 p-4">
+      <div class="text-sm font-semibold text-amber-300 mb-2">\u{1F381} Referrer prizes</div>
+      ${due.length ? `<div class="text-xs text-slate-400 mb-1">Owed now \u2014 the points were not paid, the prize was earned instead.</div>${dueRows}` : ''}
+      ${soon.length ? `<div class="text-xs text-slate-400 mt-3 mb-1">Coming up</div>${soonRows}` : ''}
+    </div>`;
 }
 
 function done(r){ return r.reward_status==='paid' || !!r.converted_order_id; }

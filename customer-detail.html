@@ -613,7 +613,7 @@ function orderSection(o, items, pays, open){
         : `<button onclick="setFreePillow('${o.id}',true)" style="margin-left:auto;background:#fff8e8;color:#7a5b12;border:1px solid #f0dca8;border-radius:7px;padding:5px 12px;font-size:12px;font-weight:600;cursor:pointer">🎁 Add free pillow</button>`)
     : "";
   const pillowTag = hasFreePillow
-    ? `<span style="font-weight:400;font-size:12.5px;color:#1a7f37">🎁 Free pillow (10+ referrals)</span>` : "";
+    ? `<span style="font-weight:400;font-size:12.5px;color:#1a7f37">🎁 Free pillow</span>` : "";
 
   const products=`<div class="card full">
     <h2 style="display:flex;align-items:center;flex-wrap:wrap;gap:12px"><span>Products</span>${pillowTag}${pillowCtl}</h2>
