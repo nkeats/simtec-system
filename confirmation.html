@@ -6,7 +6,7 @@
 <title>Simtec — Order Confirmation Calls</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.112.2"></script>
 <script src="auth.js?v=4" data-roles="admin,manager,office"></script>
-<script src="live.js?v=2" defer></script>
+<script src="live.js?v=3" defer></script>
 <style>
   :root{
     --navy:#111f3d; --navy2:#1a2c53; --gold:#c6a15b; --gold2:#d9be86;
@@ -88,6 +88,7 @@
   <div class="wrap">
     <div class="tabs" id="tabs"></div>
     <div id="missedCalls"></div>
+    <div id="unfinishedOrders"></div>
     <div id="list"><div class="state">Loading orders…</div></div>
   </div>
 
@@ -126,6 +127,48 @@ function coolingTxt(o){
 }
 function fmtDate(d){ if(!d) return '—'; try{return new Date(String(d).length<=10?d+'T12:00:00':d).toLocaleDateString('en-NZ',{day:'2-digit',month:'short',year:'numeric'});}catch(e){return d;} }
 
+
+/* ---------------- orders started but never finished ----------------
+   The Sales App saves the order row at the Ezidebit step and only hands it to
+   the office when the consultant reaches Done, so the confirmation call is no
+   longer made mid-sale. The risk that creates is an order abandoned at step 8
+   — iPad dies, consultant walks out — sitting in the database with nobody
+   knowing. This is the safety net: anything unfinished for longer than the
+   configured window shows up here, clearly NOT as a call to make. */
+async function loadUnfinished(){
+  const box = document.getElementById('unfinishedOrders');
+  if(!box) return;
+  const { data, error } = await sb.from('v_orders_started_not_finished').select('*').limit(50);
+  if(error){ box.innerHTML=''; return; }
+  const rows = data || [];
+  if(!rows.length){ box.innerHTML=''; return; }
+
+  const age = m => m < 120 ? Math.round(m)+' min' : (m < 2880 ? Math.round(m/60)+' hours' : Math.round(m/1440)+' days');
+  const row = o => `<tr>
+      <td style="padding:9px 8px;border-bottom:1px solid #eef1f5">
+        <b>${esc([o.first_name,o.last_name].filter(Boolean).join(' ') || 'No name yet')}</b>
+        <div style="font-size:12px;color:#64728a">${esc(o.consultant_name||'no consultant')}${o.suburb?' \u00B7 '+esc(o.suburb):''}</div>
+      </td>
+      <td style="padding:9px 8px;border-bottom:1px solid #eef1f5;font-size:12.5px">
+        ${o.mobile ? `<a href="tel:${esc(String(o.mobile).replace(/\s/g,''))}" style="color:#123c8a;font-weight:700;text-decoration:none">${esc(o.mobile)}</a>` : '<span style="color:#64728a">no number</span>'}
+      </td>
+      <td style="padding:9px 8px;border-bottom:1px solid #eef1f5;font-size:12.5px;color:#64728a">
+        started ${age(o.minutes_ago)} ago \u00B7 ${o.items||0} item${o.items==1?'':'s'} \u00B7 ${o.has_direct_debit?'direct debit set up':'<b style="color:#8a6d1a">no direct debit</b>'}
+      </td>
+      <td style="padding:9px 8px;border-bottom:1px solid #eef1f5;text-align:right;white-space:nowrap">
+        <a href="customer-detail.html?order=${o.id}" style="color:#123c8a;font-size:12.5px;text-decoration:none">Open</a>
+      </td>
+    </tr>`;
+
+  box.innerHTML = `
+    <div style="background:#fff;border:1px solid #f0dca8;border-left:5px solid #c99a1e;border-radius:12px;padding:14px 16px;margin-bottom:16px">
+      <div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:8px">
+        <div style="font-size:16px;font-weight:800;color:#8a6d1a">\u26A0 ${rows.length} order${rows.length==1?'':'s'} started but not finished</div>
+        <div style="font-size:12.5px;color:#64728a">Do <b>not</b> ring these \u2014 the sale was never completed on the iPad. Check with the consultant.</div>
+      </div>
+      <table style="width:100%;border-collapse:collapse">${rows.map(row).join('')}</table>
+    </div>`;
+}
 
 /* ---------------- missed calls to return ----------------
    Every unanswered call on 09 886 9897 is written into the System by the
@@ -179,7 +222,7 @@ async function markCalled(id){
   const { data, error } = await sb.rpc('missed_call_returned', { p_id:id, p_outcome:'spoke' });
   if(error) return showErr(error.message);
   if(data && data.ok === false) return showErr(data.error);
-  loadMissedCalls();
+  loadMissedCalls(); loadUnfinished();
 }
 
 async function loadAll(){
@@ -470,16 +513,16 @@ let TITLE_TIMER=null;
 
 
 
-// live.js?v=2 calls this on any relevant row change; we also listen for INSERTs
-window.SIMTEC_RELOAD = function(){ loadAll(); loadMissedCalls(); };
+// live.js?v=3 calls this on any relevant row change; we also listen for INSERTs
+window.SIMTEC_RELOAD = function(){ loadAll(); loadMissedCalls(); loadUnfinished(); };
 setInterval(async function(){ await loadClaims(); render(); }, 20000);
 
-/* the new-order banner + chime now live in live.js?v=2, so every screen gets them */
+/* the new-order banner + chime now live in live.js?v=3, so every screen gets them */
 
 // Wait for auth.js to establish the session/client, then load.
 (function boot(){
   let n=0; const t=setInterval(()=>{ n++;
-    if(window.SIMTEC_USER || n>80){ clearInterval(t); loadAll(); loadMissedCalls();
+    if(window.SIMTEC_USER || n>80){ clearInterval(t); loadAll(); loadMissedCalls(); loadUnfinished();
       wakeSound(); soundBar();
       document.addEventListener('click', function once(){ wakeSound(); soundBar(); }, { once:true }); }
   },50);

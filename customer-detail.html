@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Simtec — Customer</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.112.2"></script>
-<script src="live.js?v=2" defer></script>
+<script src="live.js?v=3" defer></script>
 <script src="auth.js?v=3" data-roles="admin,manager,office"></script>
 <script src="doubtful.js?v=1"></script>
 <style>
@@ -599,7 +599,24 @@ function orderSection(o, items, pays, open){
       return `<tr><td>${esc(i.product_name)}</td><td class="num">${i.quantity}</td><td class="num">${i.unit_price!=null?fmt(i.unit_price):""}</td>${delivCell}</tr>`;
     }).join("") : `<tr><td colspan="4" class="muted">No product lines recorded.</td></tr>`;
 
-  const products=`<div class="card full"><h2>Products</h2>
+  /* Free pillow for 10+ referrals. The consultant collects the referrals on a
+     PAPER sheet after the order is submitted, so they add it from the Done
+     screen — but if they forget, or tap it on the wrong order, the office is
+     the one who fixes it. A free pillow IS a Pillow line at zero price; the
+     product name is deliberately exactly "Pillow" so it counts against stock. */
+  const hasFreePillow = (items||[]).some(i =>
+    String(i.product_name||"").trim().toLowerCase()==="pillow"
+    && Number(i.unit_price||0)===0 && !i.cancelled);
+  const pillowCtl = isOffice()
+    ? (hasFreePillow
+        ? `<button onclick="setFreePillow('${o.id}',false)" style="margin-left:auto;background:#fff;color:#b4342e;border:1px solid #e0b4b0;border-radius:7px;padding:5px 12px;font-size:12px;font-weight:600;cursor:pointer">Remove free pillow</button>`
+        : `<button onclick="setFreePillow('${o.id}',true)" style="margin-left:auto;background:#fff8e8;color:#7a5b12;border:1px solid #f0dca8;border-radius:7px;padding:5px 12px;font-size:12px;font-weight:600;cursor:pointer">🎁 Add free pillow</button>`)
+    : "";
+  const pillowTag = hasFreePillow
+    ? `<span style="font-weight:400;font-size:12.5px;color:#1a7f37">🎁 Free pillow (10+ referrals)</span>` : "";
+
+  const products=`<div class="card full">
+    <h2 style="display:flex;align-items:center;flex-wrap:wrap;gap:12px"><span>Products</span>${pillowTag}${pillowCtl}</h2>
     <table><thead><tr><th>Product</th><th class="num">Qty</th><th class="num">Unit price</th><th class="num">Delivery</th></tr></thead><tbody>${prodRows}</tbody></table></div>`;
 
   const totalPaid = pays.reduce((s,x)=>s+Number(x.amount||0),0);
@@ -646,6 +663,15 @@ function togOrder(oid){
 }
 // Load an order's ID photos on demand (admin/manager only). Lists both applicant
 // folders in the private bucket and renders each via a 1-hour signed URL.
+async function setFreePillow(orderId, on){
+  if(on && !confirm("Add a free pillow to this delivery?\n\nOnly for a customer who gave 10 or more referrals.")) return;
+  if(!on && !confirm("Take the free pillow off this order?")) return;
+  const {data,error}=await sb.rpc("order_free_pillow_set",{p_order:orderId,p_on:on});
+  if(error){ alert("Could not change it: "+error.message); return; }
+  if(!data || !data.ok){ alert(data && data.reason ? data.reason : "Could not change it."); return; }
+  location.reload();
+}
+
 async function loadIdDocs(oid){
   const box=document.getElementById("iddocs_"+oid); if(!box) return;
   box.innerHTML='<span class="muted">Loading…</span>';

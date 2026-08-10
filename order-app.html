@@ -16,7 +16,7 @@
      reach the order app before go-live. When you roll out to consultants, add
      ",consultant" to data-roles below and add a New Order button to my-sales.html. -->
 <script src="auth.js?v=3" data-roles="admin,manager,office,consultant"></script>
-<script>window.SIMTEC_BUILD="2026-08-10-01";</script>
+<script>window.SIMTEC_BUILD="2026-08-11-01";</script>
 <script src="update.js?v=1"></script>
 
 
@@ -593,6 +593,18 @@
             <div id="cardPayMsg" class="sub" style="margin-top:8px"></div>
           </div>
           <div id="cardPayOff" class="sub hidden" style="margin-top:6px;color:#8a6d1a"><b>Not available for this order.</b> Unsolicited sale — the 5-working-day cooling-off period means no payment can be taken today.</div>
+        </div>
+
+        <!-- Referrals are collected on a PAPER sheet after the order is submitted,
+             so this has to live here, after Done, rather than anywhere in the flow. -->
+        <div id="pillowBox" class="hidden" style="max-width:430px;margin:20px auto 0;border:1.5px solid #f0dca8;border-radius:14px;padding:16px 18px;background:#fff8e8;text-align:center">
+          <div style="font-weight:800;font-size:15px;">🎁 Referral sheet</div>
+          <div id="pillowInner">
+            <div class="sub" style="margin:6px 0 12px">If the customer has given you <b>10 or more referrals</b>, add their free pillow now. It goes on the truck with their delivery.</div>
+            <button type="button" class="btn next" style="max-width:320px;margin:0 auto;display:block" onclick="addFreePillow()">Add the free pillow</button>
+          </div>
+          <div id="pillowDone" class="hidden" style="margin-top:6px;font-weight:700;color:#1a7f37">✅ Free pillow added to this delivery.<div class="sub" style="font-weight:400;margin-top:4px">Added by mistake? The office can take it off.</div></div>
+          <div id="pillowMsg" class="sub" style="margin-top:8px"></div>
         </div>
 
         <button class="btn next" style="max-width:260px;margin:22px auto 0;display:block;" onclick="newOrder()">Start new order</button>
@@ -1289,7 +1301,13 @@ async function savePayload(P){
     // --- NEW: consultant notes + confirmation-call flag ---
     consultant_account_note:(f.noteAccountChk?(String(f.noteAccount||'').trim()||null):null),
     consultant_delivery_note:(f.noteDeliveryChk?(String(f.noteDelivery||'').trim()||null):null),
-    confirmation_status:'pending'
+    /* 'draft', not 'pending'. The order row has to be saved HERE because the
+       Ezidebit step needs an order id — but the consultant is still sitting
+       with the customer for another few minutes. Saving it as pending put it
+       on the office call list immediately, so the confirmation call was being
+       made while the sale was still being finished. finalizeOrder() promotes
+       it to 'pending' when the consultant reaches Done. */
+    confirmation_status:'draft'
   };
   const {data:ord,error:e2}=await sb.from('sim_orders').insert(order).select('id').single();
   if(e2) throw new Error('order: '+e2.message);
@@ -1652,8 +1670,49 @@ async function finalizeOrder(){
     try{ await generateAndUploadOrderPdf(S.orderId, S.lastP); }
     catch(e){ console.warn('summary regen pending:',e&&e.message||e); }
   }
+  /* The order is genuinely finished now — Ezidebit done, signature captured,
+     PDF regenerated. THIS is the moment the office should hear about it. */
+  try{
+    await sb.from('sim_orders').update({confirmation_status:'pending'}).eq('id', S.orderId);
+  }catch(e){ console.warn('could not hand the order to the office:', e&&e.message||e); }
+
+  showPillowBox();
   pushOrderToGhl(S.orderId);
   try{ sendCustomerLoginLink(S.customerId); }catch(_e){}   // show the rewards-app QR now the whole order (incl. Ezidebit) is done
+}
+
+/* ---------------- free pillow for 10+ referrals ----------------
+   The consultant door-knocks to book a presentation, sits with the customer
+   for ~20 minutes, and only then completes the order and the Ezidebit form.
+   The referral sheet is filled in on PAPER after all of that, by which time
+   the order is submitted. So the pillow cannot be part of the order flow —
+   it has to be recordable afterwards, against an order that already exists. */
+function showPillowBox(){
+  const b=document.getElementById('pillowBox');
+  if(b && S.orderId) b.classList.remove('hidden');
+}
+async function addFreePillow(){
+  const msg=document.getElementById('pillowMsg');
+  const inner=document.getElementById('pillowInner');
+  const done=document.getElementById('pillowDone');
+  if(!sb || !S.orderId){ if(msg) msg.textContent='This order is not saved yet.'; return; }
+  const btn=inner?inner.querySelector('button'):null;
+  if(btn){ btn.disabled=true; btn.textContent='Adding…'; }
+  try{
+    const {data,error}=await sb.rpc('order_free_pillow_set',{p_order:S.orderId,p_on:true});
+    if(error) throw error;
+    if(data && data.ok){
+      if(inner) inner.classList.add('hidden');
+      if(done)  done.classList.remove('hidden');
+      if(msg)   msg.textContent='';
+    }else{
+      if(msg) msg.textContent=(data&&data.reason)?data.reason:'Could not add it — tell the office.';
+      if(btn){ btn.disabled=false; btn.textContent='Add the free pillow'; }
+    }
+  }catch(e){
+    if(msg) msg.textContent='Could not add it right now — tell the office and they can add it.';
+    if(btn){ btn.disabled=false; btn.textContent='Add the free pillow'; }
+  }
 }
 
 function setDoneSaved(){ const i=document.getElementById('doneIcon'),t=document.getElementById('doneTitle'); if(i)i.textContent='✅'; if(t)t.textContent='Order complete'; }

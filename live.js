@@ -158,11 +158,29 @@
 
     var ch = sb.channel("simtec-live-" + Math.random().toString(36).slice(2, 8));
 
-    // a brand new order: announce it, don't just quietly refresh
-    ch.on("postgres_changes", { event: "INSERT", schema: "public", table: "sim_orders" }, function (payload) {
-      sb.from("sim_orders").select("*, sim_customers(*)").eq("id", payload.new.id).maybeSingle()
+    /* A FINISHED order: announce it, don't just quietly refresh.
+       This used to fire on INSERT — but the Sales App has to save the order
+       row before the Ezidebit step, so the office was being told about a sale
+       the consultant was still in the middle of, and the confirmation call was
+       going out while they were sitting with the customer. The Sales App now
+       saves as 'draft' and promotes to 'pending' at the Done step, so THAT is
+       what we listen for. Office-keyed orders carry no confirmation status and
+       are deliberately not announced, exactly as before. */
+    var announced = {};
+    function maybeAnnounce(row) {
+      if (!row || !row.id) return;
+      if (row.confirmation_status !== "pending") return;
+      if (announced[row.id]) return;          // one announcement per order, per screen
+      announced[row.id] = true;
+      sb.from("sim_orders").select("*, sim_customers(*)").eq("id", row.id).maybeSingle()
         .then(function (r) { newOrderBanner((r && r.data) || { sim_customers: {} }); })
         .catch(function () { newOrderBanner({ sim_customers: {} }); });
+    }
+    ch.on("postgres_changes", { event: "INSERT", schema: "public", table: "sim_orders" }, function (p) {
+      maybeAnnounce(p && p.new);
+    });
+    ch.on("postgres_changes", { event: "UPDATE", schema: "public", table: "sim_orders" }, function (p) {
+      maybeAnnounce(p && p.new);
     });
 
     TABLES.forEach(function (t) {
