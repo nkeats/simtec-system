@@ -109,6 +109,21 @@ function me(){return (window.SIMTEC_USER&&(window.SIMTEC_USER.full_name||window.
 function nowISO(){return new Date().toISOString();}
 function payLabel(o){return o.payment_method?(PAYLBL[o.payment_method]||o.payment_method):'Ezidebit (pending set-up)';}
 function afford(o){return o.affordability_passed===true?['✓ Passed','good']:o.affordability_passed===false?['✗ Not passed','bad']:['— not checked','']; }
+/* The call sheet used to show only a cooling-off date, which was BLANK on a
+   solicited sale — so the person on the phone could not tell "solicited, none
+   applies" from "unsolicited, nobody filled it in". Both now say which. */
+function saleTypeTxt(o){
+  const t = String(o.sale_type||'').trim().toLowerCase();
+  if(t==='solicited')   return '<b>Solicited</b>';
+  if(t==='unsolicited') return '<b>Unsolicited</b>';
+  return 'Not recorded';
+}
+function coolingTxt(o){
+  const t = String(o.sale_type||'').trim().toLowerCase();
+  if(t==='solicited') return 'Does not apply';
+  const d = fmtDate(o.cooling_off_expires);
+  return (d==='\u2014' && t==='unsolicited') ? 'Not set' : d;
+}
 function fmtDate(d){ if(!d) return '—'; try{return new Date(String(d).length<=10?d+'T12:00:00':d).toLocaleDateString('en-NZ',{day:'2-digit',month:'short',year:'numeric'});}catch(e){return d;} }
 
 
@@ -226,7 +241,8 @@ function summaryHTML(o){
     +'<div class="row"><span class="l">Deposit</span><span class="v">'+money(o.deposit_amount)+'</span></div>'
     +'<div class="row"><span class="l">Income</span><span class="v">'+esc(income)+'</span></div>'
     +'<div class="row"><span class="l">Affordability</span><span class="v '+aCls+'">'+aTxt+'</span></div>'
-    +'<div class="row"><span class="l">Cooling-off ends</span><span class="v">'+fmtDate(o.cooling_off_expires)+'</span></div>'
+    +'<div class="row"><span class="l">Sale type</span><span class="v">'+saleTypeTxt(o)+'</span></div>'
+    +'<div class="row"><span class="l">Cooling-off ends</span><span class="v">'+coolingTxt(o)+'</span></div>'
     +'</div>'
     +'<div class="row" style="display:flex;justify-content:space-between;border-bottom:1px dashed var(--line);padding:5px 0;font-size:13.5px"><span class="l" style="color:var(--sub)">Delivery address</span><span class="v" style="font-weight:600;text-align:right;max-width:60%">'+esc(addr)+'</span></div>'
     +'<div class="clh">Products</div><div class="prods">'+prods

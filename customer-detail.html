@@ -509,6 +509,13 @@ function orderSection(o, items, pays, open){
   /* Two names go on the paper order form, but there was nowhere to record the
      second one in the System — so when the partner rang, the office couldn't
      find the sale. It shows here, it's editable here, and search finds it. */
+  const saleTypeTxt = (o) => {
+    const t = String(o.sale_type||"").trim().toLowerCase();
+    if(t==="solicited")   return '<b>Solicited</b> <span class="muted">\u00b7 customer invited us, no cooling-off</span>';
+    if(t==="unsolicited") return '<b style="color:#b45309">Unsolicited</b> <span class="muted">\u00b7 cooling-off applies</span>';
+    return '<span style="color:#b45309">Not recorded</span>';
+  };
+
   const secondBtn = isOffice()
     ? `<button onclick="openSecondName('${o.id}')" style="background:none;border:1px solid var(--line);
         border-radius:7px;padding:2px 8px;font-size:11px;cursor:pointer;margin-left:6px">
@@ -518,9 +525,14 @@ function orderSection(o, items, pays, open){
     ? esc(o.second_customer_name) + (o.second_mobile ? ` · <a href="tel:${esc(String(o.second_mobile).replace(/\s/g,""))}">${esc(o.second_mobile)}</a>` : " · no number")
     : '<span class="muted">nobody recorded</span>';
 
+  /* Sale type decides whether the customer has a five-working-day cancellation
+     right, so it belongs on the page rather than only inside the Sales App.
+     Unsolicited is the one that carries an obligation, so it is the one that
+     is coloured; "not recorded" is amber because it is a gap, not a value. */
   const sale=`<div class="card"><h2>Sale</h2>
     ${kv("Consultant",(esc(o.consultant_name)||"—")+conBtn)}
     ${kv("Also on the order", secondTxt + secondBtn)}
+    ${kv("Sale type",saleTypeTxt(o))}
     ${kv("Sale date",auDate(o.order_date)+(isMgr()?` <button onclick="openSaleDate('${o.id}')" style="background:#fff;color:var(--navy);border:1px solid #cbd4df;border-radius:6px;padding:2px 8px;font-size:11.5px;font-weight:600;cursor:pointer;margin-left:8px">change</button>`:""))}
     ${kv("Payment method",PM[o.payment_method]||o.payment_method||"—")}
     ${kv("Frequency",cap(o.payment_frequency))}
