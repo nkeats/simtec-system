@@ -425,6 +425,12 @@ function renderAll(c, orders, paysByRef, comms){
              + kv("Their mobile", tel)
              + kv("Their email", esc(j.second_email)||"—");
       })()}
+    ${isOffice() ? `<div class="kv" style="border-top:1px dashed var(--line);margin-top:6px;padding-top:10px">
+        <span class="k">Rewards app</span><span class="v">
+          <button id="appLinkBtn" onclick="sendAppLink()" style="background:var(--navy);color:#fff;border:none;
+            border-radius:7px;padding:6px 13px;font-size:12.5px;font-weight:700;cursor:pointer">Send app link</button>
+          <div id="appLinkState" style="font-size:12.5px;color:#6b7889;margin-top:6px"></div>
+        </span></div>` : ""}
     <div class="kv"><span class="k">Reminder texts</span><span class="v">
       ${window.__OPT_SMS__
         ? `<b style="color:#c02626">Off — opted out</b> <button onclick="toggleReminderTexts(true)" style="margin-left:10px;background:#fff;color:var(--navy);border:1px solid #cbd4df;border-radius:7px;padding:3px 10px;font-size:12px;font-weight:600;cursor:pointer">Turn back on</button>`
@@ -691,6 +697,71 @@ async function setFurtherAction(oid, val){
    on commission_sales too — otherwise the sale sits in one week here and another
    there. If the commission has already been PAID (paid_date set) the pay run is
    closed and we must not reach into it, so the change is refused. */
+/* ---------------------------------------------------------------------------
+   SEND THE REWARDS APP LINK  (10 Aug — Nigel)
+   Until now the ONLY way to invite a customer was the Sales App at the moment
+   the order was written, so anyone who ordered on paper — or who said yes
+   later — could not be invited at all. This calls the same customer-magiclink
+   function the Sales App already uses, so there is ONE invite mechanism.
+   The link is a one-time sign-in token: emailed when we hold an email, and
+   shown here either way so the office can text it to someone who has none.
+--------------------------------------------------------------------------- */
+window.sendAppLink = async function(){
+  const btn = document.getElementById("appLinkBtn");
+  const out = document.getElementById("appLinkState");
+  if(!btn || btn.disabled) return;                       // no double-send
+  const to = (CUST && CUST.email) ? CUST.email : null;
+  if(!confirm(to ? ("Email the rewards app sign-in link to:\n\n" + to +
+                    "\n\nThis link signs them straight in, so it must only go to the customer.")
+                 : "No email on file for this customer.\n\nCarry on and I'll show you the link so you can text it?")) return;
+
+  const label = btn.textContent;
+  btn.disabled = true; btn.textContent = "Sending\u2026";
+  out.textContent = ""; out.style.color = "#6b7889";
+  try{
+    const { data:{ session } } = await sb.auth.getSession();
+    if(!session) throw new Error("Your login has expired \u2014 refresh the page.");
+    const res = await fetch("https://jvqjoenaungubpoegyvf.supabase.co/functions/v1/customer-magiclink", {
+      method:"POST",
+      headers:{ "Content-Type":"application/json",
+                "apikey":"sb_publishable_J4MYTdJJyEaWe-GadpwdYA_upPT2rKw",
+                "Authorization":"Bearer " + session.access_token },
+      body: JSON.stringify({ mode:"onboard", customer_id: CUST.id })
+    });
+    const r = await res.json().catch(()=>({}));
+    if(!res.ok || !r.link) throw new Error(r.error || ("couldn't create the link (" + res.status + ")"));
+
+    out.innerHTML =
+      (r.emailed ? '<b style="color:#1c6b34">\u2713 Emailed to ' + esc(CUST.email) + '</b><br>'
+                 : '<b style="color:#8a6d2f">Not emailed' + (r.hasEmail ? " \u2014 the email didn't send" : " \u2014 no email on file") + '</b><br>') +
+      '<span style="color:#6b7889">Or send them this link:</span><br>' +
+      '<input readonly id="appLinkUrl" value="' + esc(r.link) + '" style="width:100%;font-size:11.5px;padding:5px;margin-top:4px">' +
+      '<button onclick="copyAppLink()" style="margin-top:5px;background:#fff;color:var(--navy);border:1px solid #cbd4df;' +
+      'border-radius:6px;padding:4px 10px;font-size:12px;font-weight:600;cursor:pointer">Copy link</button>';
+
+    try{
+      await sb.from("sim_contacts").insert({
+        customer_id: CUST.id, channel: "email", direction: "outbound",
+        subject: "Rewards app sign-in link sent",
+        body: (r.emailed ? "Emailed to " + CUST.email : "Link generated for the office to send"),
+        staff_name: (window.SIMTEC_USER && (window.SIMTEC_USER.full_name || window.SIMTEC_USER.email)) || "office"
+      });
+    }catch(e){ /* the history note is a nicety; never fail the send over it */ }
+  }catch(e){
+    out.style.color = "#b4342e";
+    out.textContent = e.message || "That didn't work \u2014 try again.";
+  }finally{
+    btn.disabled = false; btn.textContent = label;
+  }
+};
+
+window.copyAppLink = function(){
+  const el = document.getElementById("appLinkUrl"); if(!el) return;
+  el.select(); el.setSelectionRange(0, 99999);
+  try{ document.execCommand("copy"); }catch(e){}
+  if(navigator.clipboard) navigator.clipboard.writeText(el.value).catch(()=>{});
+};
+
 window.openSaleDate=async function(oid){
   const o=ORDERS[oid]; if(!o) return;
   document.getElementById("sdOid").value=oid;

@@ -96,9 +96,20 @@ function showLogin(){
     if(mobile.replace(/\D/g,"").length<8){ $("msg").innerHTML='<div class="err">Please enter a valid mobile number.</div>'; return; }
     $("send").disabled=true; $("send").innerHTML='<span class="spin"></span>';
     try{
-      await fetch(FN_URL,{ method:"POST", headers:{ "Content-Type":"application/json", "apikey":SUPA_KEY },
+      // 10 Aug: this used to send ONLY the apikey header. The functions gateway
+      // needs Authorization as well, so every request was rejected with 401
+      // before it reached our code - no code was ever generated and no text
+      // ever sent, yet the page still said "we've texted you a code".
+      const rr = await fetch(FN_URL,{ method:"POST",
+        headers:{ "Content-Type":"application/json", "apikey":SUPA_KEY, "Authorization":"Bearer "+SUPA_KEY },
         body:JSON.stringify({ mode:"request-code", mobile }) });
-    }catch(e){}
+      if(!rr.ok) throw new Error("hs" + rr.status);
+    }catch(e){
+      $("send").disabled=false; $("send").textContent="Text me a code";
+      $("msg").innerHTML='<div class="err">We could not send your code just now. '
+        + 'Please check your connection and try again, or call us on 09 886 9897.</div>';
+      return;
+    }
     showCodeEntry(mobile);
   };
 }
@@ -117,7 +128,7 @@ function showCodeEntry(mobile){
     $("go").disabled=true; $("go").innerHTML='<span class="spin"></span>';
     let out={};
     try{
-      const r=await fetch(FN_URL,{ method:"POST", headers:{ "Content-Type":"application/json", "apikey":SUPA_KEY },
+      const r=await fetch(FN_URL,{ method:"POST", headers:{ "Content-Type":"application/json", "apikey":SUPA_KEY, "Authorization":"Bearer "+SUPA_KEY },
         body:JSON.stringify({ mode:"verify-code", mobile, code }) });
       out=await r.json().catch(()=>({}));
     }catch(e){}
