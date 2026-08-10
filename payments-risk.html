@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Simtec — Payments &amp; Risk</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.112.2"></script>
-<script src="live.js?v=2" defer></script>
+<script src="live.js?v=3" defer></script>
 <script src="auth.js?v=3" data-roles="admin,manager,office"></script>
 <script src="doubtful.js?v=1"></script>
 <style>
@@ -209,7 +209,7 @@ function render(){
 }
 
 $("search").addEventListener("input", render);
-// live.js?v=2 calls this when the database changes, when this tab regains focus,
+// live.js?v=3 calls this when the database changes, when this tab regains focus,
 // and once a minute as a safety net. Nobody has to remember to refresh.
 window.SIMTEC_RELOAD = function(){ load(true); };
 

@@ -722,7 +722,7 @@ async function loadGrid(){
   }catch(e){ gridErr("<b>Couldn't build the booking grid.</b><br>"+(e.message||e)); }
 }
 
-// live.js?v=2: new sales and cancellations redraw this page on their own.
+// live.js?v=3: new sales and cancellations redraw this page on their own.
 window.SIMTEC_RELOAD = function(){ load(); loadBook(); loadGrid(); if(typeof loadConv==="function") loadConv(); };
 
 load();
