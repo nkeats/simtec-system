@@ -16,7 +16,7 @@
 <meta name="apple-mobile-web-app-title" content="Simtec Delivery">
 <meta name="theme-color" content="#012B60">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.112.2"></script>
-<script>window.SIMTEC_BUILD="2026-08-10-01";</script>
+<script>window.SIMTEC_BUILD="2026-08-11-01";</script>
 <script src="update.js?v=1"></script>
 
 <style>
@@ -700,6 +700,16 @@ async function endDay(){
    Stops already delivered keep their place; only what is left gets reshuffled. */
 async function reorderFromHere(btn){
   if(!RUN) return;
+  /* If the office has set the order of these stops BY HAND, re-planning throws
+     it away and nobody would know. They may have rung a customer and agreed a
+     time the map cannot see, so ask before overriding a person. */
+  if(RUN.manual_order_at){
+    let when = "";
+    try{ when = new Date(RUN.manual_order_at).toLocaleTimeString("en-NZ",{hour:"2-digit",minute:"2-digit"}); }catch(e){}
+    const who = RUN.manual_order_by ? (" by " + RUN.manual_order_by) : "";
+    if(!confirm("The office set the order of these stops by hand" + who + (when?(" at " + when):"") +
+                ".\n\nRe-ordering will replace it. Ring the office if you are not sure.\n\nCarry on?")) return;
+  }
   const label = btn ? btn.textContent : "";
   if(btn){ btn.disabled = true; btn.textContent = "Working it out\u2026"; }
   const p = await here();
