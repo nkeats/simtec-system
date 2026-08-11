@@ -243,6 +243,36 @@ async function pairIpad(){
         data.expires_in_minutes + " minutes and works once.");
 }
 
+/* Sign-on normally has to happen on the paired iPad, which is what stops
+   anyone starting their day from their own phone at home. But when someone is
+   late and the truck has already gone, that iPad is not in the building — so
+   the office needs a way in. This is office-only, which is a stronger check
+   than the device, and it writes who did it into the timesheet note. */
+async function signOnFor(id, name){
+  const t = prompt("What time did " + name + " start? (24-hour, e.g. 08:45)\n\nLeave blank to use right now.", "");
+  if (t === null) return;
+  let at = null;
+  if (t.trim()) {
+    const m = t.trim().match(/^(\d{1,2})[:.]?(\d{2})$/);
+    if (!m) return showErr("Enter the time as 08:45.");
+    const d = new Date();
+    d.setHours(+m[1], +m[2], 0, 0);
+    if (d > new Date()) return showErr("That time hasn't happened yet.");
+    at = d.toISOString();
+  }
+  const why = prompt("Anything to note? (optional)\n\ne.g. late, truck already gone", "") || null;
+
+  const { data, error } = await sb.rpc("crew_sign_in_for", { p_user:id, p_at:at, p_note:why });
+  if (error) return showErr(error.message);
+  if (data && data.ok === false) return showErr(data.error);
+  showErr("");
+  alert(name + " signed on at " + new Date(data.signed_in_at)
+        .toLocaleTimeString("en-NZ", {hour:"2-digit", minute:"2-digit"}) +
+        ". They are on today's run and their hours have started.");
+  await renderCrewAdmin();
+  await renderOffice();
+}
+
 async function signOutFor(id, name){
   const t = prompt("What time did " + name + " finish? (24-hour, e.g. 16:30)\n\nLeave blank to use right now.", "");
   if (t === null) return;                       // cancelled
@@ -279,6 +309,8 @@ async function renderCrewAdmin(){
         They never need a password - a 6-digit code goes to their email when they tap their name.</div>
       <div class="muted" style="margin-top:8px">
         Sign-on works on the paired iPad only, so nobody can start their day from their own phone.
+        If someone is late and the truck has gone, use <b>Sign on</b> beside their name — it puts them on
+        today's run and starts their hours, and records that the office did it.
         <button class="mini" style="margin-left:6px" onclick="pairIpad()">Set up a device</button>
       </div>
 
@@ -292,7 +324,9 @@ async function renderCrewAdmin(){
           <td style="text-align:right"><button style="padding:6px 11px;font-size:12.5px"
               onclick="removeCrew('${c.user_id}','${esc(c.name).replace(/'/g,"\\'")}')">Remove</button>
             ${c.on_now ? `<button class="mini" style="margin-left:6px"
-              onclick="signOutFor('${c.user_id}','${esc(c.name).replace(/'/g,"\\'")}')">Sign out</button>` : ""}</td>
+              onclick="signOutFor('${c.user_id}','${esc(c.name).replace(/'/g,"\\'")}')">Sign out</button>`
+            : `<button class="mini" style="margin-left:6px"
+              onclick="signOnFor('${c.user_id}','${esc(c.name).replace(/'/g,"\\'")}')">Sign on</button>`}</td>
         </tr>`).join("")}</tbody></table>`
       : '<div class="muted" style="margin-top:10px">Nobody set up yet - add your first warehouse person below.</div>'}
 
