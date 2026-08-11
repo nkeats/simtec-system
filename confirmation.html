@@ -102,6 +102,7 @@ const CHECKS=[
 ];
 const PAYLBL={weekly_dd:'Weekly direct debit',fortnightly_dd:'Fortnightly direct debit',deposit_50:'50% deposit',pay_in_full:'Paid in full',cash:'Cash'};
 let TAB='pending';
+let APPS={};
 let ORDERS=[], CONF={};
 
 function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]));}
@@ -241,6 +242,14 @@ async function loadAll(){
     ORDERS=[...(pend||[]),...(acc||[])];
     const ids=ORDERS.map(o=>o.id);
     CONF={};
+    /* The household's income lives across two tables: applicant 1 on the order,
+       applicant 2 and both "other income" notes on the application row. The
+       office is assessing affordability on this call, so it needs both. */
+    APPS={};
+    for(let i=0;i<ids.length;i+=200){
+      const {data:as}=await sb.from('sim_order_applications').select('*').in('order_id',ids.slice(i,i+200));
+      (as||[]).forEach(a=>APPS[a.order_id]=a);
+    }
     for(let i=0;i<ids.length;i+=200){
       const {data:cs}=await sb.from('sim_order_confirmations').select('*').in('order_id',ids.slice(i,i+200));
       (cs||[]).forEach(c=>CONF[c.order_id]=c);
@@ -269,6 +278,53 @@ function itemsOf(o){ return (o.sim_order_items||[]).slice().sort((a,b)=>(a.line_
 function custOf(o){ return o.sim_customers||{}; }
 function fullName(o){ const c=custOf(o); return [c.first_name,c.last_name].filter(Boolean).join(' ')||'(no name)'; }
 
+/* ---------------- the household income picture ----------------
+   Two earners, plus whatever else comes in. "Other income" is FREE TEXT as the
+   consultant typed it ("WINZ $180/wk approx"), so it is shown, never added —
+   a total that silently swallowed an approximate benefit figure would be worse
+   than no total at all. */
+function moneyYr(v){ return (v==null||v==='')?null:money(v); }
+
+function householdTotal(o){
+  const a=APPS[o.id]||{};
+  const i1=Number(o.income_amount||0), i2=Number(a.a2_income_amount||0);
+  const known=(o.income_amount!=null?1:0)+(a.a2_income_amount!=null?1:0);
+  const otherN=[a.a1_other_income,a.a2_other_income].filter(x=>x&&String(x).trim()).length;
+  if(!known) return otherN ? 'Other income only \u2014 see below' : 'Not recorded';
+  const freq=o.income_frequency||'annual';
+  const other=[a.a1_other_income,a.a2_other_income].filter(x=>x&&String(x).trim()).length;
+  return money(i1+i2)+' / '+freq+(known===2?' (2 incomes)':'')+(other?' + other':'');
+}
+
+function personIncome(label, name, employer, occupation, status, amount, freq, other, homeowner){
+  if(!employer && !occupation && !status && amount==null && !other && !homeowner) return '';
+  const line=(l,v)=> v?('<div style="display:flex;justify-content:space-between;gap:10px;padding:3px 0"><span style="color:var(--sub);font-size:12.5px">'+l+'</span><span style="font-weight:600;font-size:13px;text-align:right">'+esc(v)+'</span></div>'):'';
+  return '<div style="flex:1;min-width:210px;border:1px solid var(--line);border-radius:9px;padding:10px 12px">'
+    +'<div style="font-weight:800;font-size:13px;color:var(--navy);margin-bottom:4px">'+esc(label)+(name?' \u00b7 '+esc(name):'')+'</div>'
+    +line('Employer', employer)
+    +line('Occupation', occupation)
+    +line('Status', status)
+    +line('Income', amount!=null?(money(amount)+' / '+(freq||'annual')):null)
+    +line('Home', homeowner)
+    +(other?('<div style="margin-top:6px;padding-top:6px;border-top:1px dashed var(--line)"><div style="color:var(--sub);font-size:12px">Other income</div><div style="font-weight:600;font-size:13px">'+esc(other)+'</div></div>'):'')
+    +'</div>';
+}
+
+function incomeHTML(o){
+  const a=APPS[o.id]||{}, c=custOf(o);
+  const p1=personIncome('Applicant 1', [c.first_name,c.last_name].filter(Boolean).join(' '),
+        o.employer_name, a.a1_occupation, o.employment_status, o.income_amount, o.income_frequency,
+        a.a1_other_income, a.a1_homeowner);
+  const p2=personIncome('Applicant 2', o.second_customer_name,
+        a.a2_employer, a.a2_occupation, a.a2_employment_status, a.a2_income_amount, o.income_frequency,
+        a.a2_other_income, a.a2_homeowner);
+  if(!p1 && !p2) return '<div class="clh">Household income</div>'
+    +'<div style="color:var(--sub);font-size:13px;padding:4px 0 8px">Nothing recorded \u2014 this order was keyed in the office, or predates the app collecting it.</div>';
+  return '<div class="clh">Household income</div>'
+    +'<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:8px">'+p1+p2+'</div>'
+    +'<div style="font-size:12px;color:var(--sub);margin-bottom:8px">Other income is shown as the consultant wrote it and is <b>not</b> included in the total above.</div>';
+}
+
 function summaryHTML(o){
   const c=custOf(o); const [aTxt,aCls]=afford(o);
   const addr=o.delivery_address||c.address||'—';
@@ -282,12 +338,13 @@ function summaryHTML(o){
     +'<div class="row"><span class="l">Consultant</span><span class="v">'+esc(o.consultant_name||'—')+'</span></div>'
     +'<div class="row"><span class="l">Payment</span><span class="v">'+esc(payLabel(o))+'</span></div>'
     +'<div class="row"><span class="l">Deposit</span><span class="v">'+money(o.deposit_amount)+'</span></div>'
-    +'<div class="row"><span class="l">Income</span><span class="v">'+esc(income)+'</span></div>'
+    +'<div class="row"><span class="l">Household income</span><span class="v">'+esc(householdTotal(o))+'</span></div>'
     +'<div class="row"><span class="l">Affordability</span><span class="v '+aCls+'">'+aTxt+'</span></div>'
     +'<div class="row"><span class="l">Sale type</span><span class="v">'+saleTypeTxt(o)+'</span></div>'
     +'<div class="row"><span class="l">Cooling-off ends</span><span class="v">'+coolingTxt(o)+'</span></div>'
     +'</div>'
     +'<div class="row" style="display:flex;justify-content:space-between;border-bottom:1px dashed var(--line);padding:5px 0;font-size:13.5px"><span class="l" style="color:var(--sub)">Delivery address</span><span class="v" style="font-weight:600;text-align:right;max-width:60%">'+esc(addr)+'</span></div>'
+    +incomeHTML(o)
     +'<div class="clh">Products</div><div class="prods">'+prods
     +'<div class="p" style="font-weight:800;border-top:1px solid var(--line)"><span>Total</span><span>'+money(o.contract_value)+'</span></div></div>';
 }

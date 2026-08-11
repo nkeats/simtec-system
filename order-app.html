@@ -16,7 +16,7 @@
      reach the order app before go-live. When you roll out to consultants, add
      ",consultant" to data-roles below and add a New Order button to my-sales.html. -->
 <script src="auth.js?v=3" data-roles="admin,manager,office,consultant"></script>
-<script>window.SIMTEC_BUILD="2026-08-11-01";</script>
+<script>window.SIMTEC_BUILD="2026-08-11-02";</script>
 <script src="update.js?v=1"></script>
 
 
@@ -1286,6 +1286,7 @@ async function savePayload(P){
     consultant_name:f.consultant, team_leader_name:TEAM[f.consultant]||null,
     sale_type:fl.saleType||null,
     referrer_name:(fl.saleType==='solicited'?(f.refName||null):null),
+    referrer_mobile:(fl.saleType==='solicited'?(f.refMobile||null):null),
     joint_purchase:!!fl.a2,
     second_customer_name:(fl.a2?((f.a2first+' '+f.a2last).trim()||null):null),
     second_mobile:(fl.a2?(String(f.a2mobile||'').trim()||null):null),
@@ -1515,6 +1516,16 @@ async function saveExtrasPayload(orderId,P){
     a2_id_type:(fl.a2?(f.a2idtype||null):null), a2_id_number:(fl.a2?(f.a2dl||null):null),
     a2_employer:f.employer2||null, a2_occupation:f.occupation2||null, a2_income_amount:numOrNull(f.income2),
     a2_employment_status:f.empType2||null,
+    /* The whole income picture, not half of it. These were on the form and were
+       being thrown away at save: the office could never see a household's other
+       income, which is the part that usually decides affordability. */
+    a1_occupation:f.occupation1||null,
+    a1_other_income:(String(f.otherIncome1||'').trim()||null),
+    a2_other_income:(fl.a2?(String(f.otherIncome2||'').trim()||null):null),
+    a1_homeowner:f.homeowner1||null,
+    a2_homeowner:(fl.a2?(f.homeowner2||null):null),
+    a1_signed_name:(String(f.sigA1name||'').trim()||null),
+    a2_signed_name:(fl.a2?(String(f.sigA2name||'').trim()||null):null),
     referee1_name:f.r1name||null, referee1_phone:f.r1phone||null, referee1_relationship:f.r1rel||null, referee1_email:f.r1email||null,
     referee2_name:f.r2name||null, referee2_phone:f.r2phone||null, referee2_relationship:f.r2rel||null, referee2_email:f.r2email||null,
     tnc_agreed:!!f.tncAgree,
