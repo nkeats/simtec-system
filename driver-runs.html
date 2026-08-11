@@ -114,12 +114,23 @@ async function buildRun(){
     p_date: $("pDate").value, p_driver: $("pDriver").value, p_vehicle: ($("pVehicle").value||"").trim()||null });
   if(error) return showErr(error.message);
   if(data && data.ok===false) return showErr(data.error);
-  // A freshly built run is in booking order. Put it into driving order straight
-  // away — the office never has to remember to ask.
+
   if(data && data.run_id){
-    const r = await sb.rpc("driver_optimise_run", { p_run: data.run_id });
-    const o = r && r.data;
-    if(o && o.ok && o.km_saved > 0.5) toast(`Run ordered for driving \u2014 ${o.km_after} km instead of ${o.km_before}, saving ${o.km_saved} km.`);
+    if(data.joined_existing_run){
+      /* Adding to a run that already exists — often one the truck is out
+         working. Do NOT re-plan it automatically: that would reshuffle stops
+         the crew are part way through and silently throw away any order the
+         office set by hand. Say what happened and leave the decision to them. */
+      toast(data.stops_added
+        ? `${data.stops_added} ${data.stops_added===1?"delivery":"deliveries"} added to that day's run \u2014 at the end, so nothing already done has moved. Use \u25B2\u25BC or "Order for driving" if you want them elsewhere.`
+        : "Nothing new to add \u2014 every booked delivery for that day is already on the run.");
+    }else{
+      // A brand new run is in booking order, so put it into driving order
+      // straight away — the office never has to remember to ask.
+      const r = await sb.rpc("driver_optimise_run", { p_run: data.run_id });
+      const o = r && r.data;
+      if(o && o.ok && o.km_saved > 0.5) toast(`Run ordered for driving \u2014 ${o.km_after} km instead of ${o.km_before}, saving ${o.km_saved} km.`);
+    }
   }
   await load();
   await loadCalls();
