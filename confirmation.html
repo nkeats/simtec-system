@@ -114,6 +114,23 @@ function afford(o){return o.affordability_passed===true?['✓ Passed','good']:o.
 /* The call sheet used to show only a cooling-off date, which was BLANK on a
    solicited sale — so the person on the phone could not tell "solicited, none
    applies" from "unsolicited, nobody filled it in". Both now say which. */
+/* Why they bought, in the consultant's own words. On a confirmation call this
+   is the most useful line on the card — ringing someone whose medication causes
+   body aches is a different conversation from ringing someone whose bed sagged.
+   Shown full width rather than squeezed into the label/value grid. */
+function reasonRow(o){
+  const r = String(o.purchase_reason||'').trim();
+  if(!r) return '';
+  const i = r.indexOf(' \u2014 ');
+  const head = i > 0 ? r.slice(0,i) : r;
+  const rest = i > 0 ? r.slice(i+3) : '';
+  return '<div style="margin:8px 0 2px;padding:9px 11px;background:#f6f8fb;border-left:3px solid var(--navy);border-radius:6px">'
+       + '<div style="font-size:11.5px;color:var(--sub);text-transform:uppercase;letter-spacing:.05em">Why they bought</div>'
+       + '<div style="font-weight:700;font-size:13.5px;margin-top:2px">'+esc(head)+'</div>'
+       + (rest ? '<div style="font-size:13px;color:#3d4a5c;margin-top:2px">'+esc(rest)+'</div>' : '')
+       + '</div>';
+}
+
 function saleTypeTxt(o){
   const t = String(o.sale_type||'').trim().toLowerCase();
   if(t==='solicited')   return '<b>Solicited</b>';
@@ -341,6 +358,7 @@ function summaryHTML(o){
     +'<div class="row"><span class="l">Household income</span><span class="v">'+esc(householdTotal(o))+'</span></div>'
     +'<div class="row"><span class="l">Affordability</span><span class="v '+aCls+'">'+aTxt+'</span></div>'
     +'<div class="row"><span class="l">Sale type</span><span class="v">'+saleTypeTxt(o)+'</span></div>'
+    +reasonRow(o)
     +'<div class="row"><span class="l">Cooling-off ends</span><span class="v">'+coolingTxt(o)+'</span></div>'
     +'</div>'
     +'<div class="row" style="display:flex;justify-content:space-between;border-bottom:1px dashed var(--line);padding:5px 0;font-size:13.5px"><span class="l" style="color:var(--sub)">Delivery address</span><span class="v" style="font-weight:600;text-align:right;max-width:60%">'+esc(addr)+'</span></div>'

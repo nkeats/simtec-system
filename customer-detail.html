@@ -509,6 +509,17 @@ function orderSection(o, items, pays, open){
   /* Two names go on the paper order form, but there was nowhere to record the
      second one in the System — so when the partner rang, the office couldn't
      find the sale. It shows here, it's editable here, and search finds it. */
+  /* The consultant picks a category on the iPad and types the detail underneath,
+     and both arrive here as one string. It is the closest thing the office has
+     to knowing why anyone actually buys — and until now nothing displayed it. */
+  const reasonTxt = (o) => {
+    const r = String(o.purchase_reason||"").trim();
+    if(!r) return '<span class="muted">Not recorded</span>';
+    const i = r.indexOf(" — ");
+    if(i > 0) return '<b>'+esc(r.slice(0,i))+'</b><div style="font-weight:400;color:var(--sub);font-size:13px;margin-top:2px">'+esc(r.slice(i+3))+'</div>';
+    return esc(r);
+  };
+
   const saleTypeTxt = (o) => {
     const t = String(o.sale_type||"").trim().toLowerCase();
     if(t==="solicited")   return '<b>Solicited</b> <span class="muted">\u00b7 customer invited us, no cooling-off</span>';
@@ -533,6 +544,7 @@ function orderSection(o, items, pays, open){
     ${kv("Consultant",(esc(o.consultant_name)||"—")+conBtn)}
     ${kv("Also on the order", secondTxt + secondBtn)}
     ${kv("Sale type",saleTypeTxt(o))}
+    ${kv("Why they bought",reasonTxt(o))}
     ${kv("Sale date",auDate(o.order_date)+(isMgr()?` <button onclick="openSaleDate('${o.id}')" style="background:#fff;color:var(--navy);border:1px solid #cbd4df;border-radius:6px;padding:2px 8px;font-size:11.5px;font-weight:600;cursor:pointer;margin-left:8px">change</button>`:""))}
     ${kv("Payment method",PM[o.payment_method]||o.payment_method||"—")}
     ${kv("Frequency",cap(o.payment_frequency))}
