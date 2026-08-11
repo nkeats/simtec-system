@@ -55,8 +55,8 @@ body{font-family:system-ui,sans-serif}
   <label class="k block mb-1">Delivery window</label>
   <select id="bktime" class="inp mb-3">
     <option value="">— no window set —</option>
-    <option value="Morning">Morning (8am – 12pm)</option>
-    <option value="Afternoon">Afternoon (12pm – 4pm)</option>
+    <option value="Morning">Morning (9am – 12pm)</option>
+    <option value="Afternoon">Afternoon (1pm – 4pm)</option>
   </select>
   <label class="k block mb-1">Exact time <span style="text-transform:none;letter-spacing:normal;color:#64748b">(optional — use only if a precise time is required; overrides the window above)</span></label>
   <input type="time" id="bkexact" class="inp mb-3" oninput="bkExactSync()">
@@ -103,7 +103,7 @@ const shortD=d=>d?new Date(d+'T12:00:00').toLocaleDateString('en-NZ',{day:'2-dig
 // is what lets the run be ordered for driving rather than by the clock — and on
 // a real Mangere run that was worth 27% of the driving.
 // Old two-hour values (08:00 … 16:00) are still understood on existing bookings.
-const WINDOWS=[['Morning','Morning (8am \u2013 12pm)'],['Afternoon','Afternoon (12pm \u2013 4pm)']];
+const WINDOWS=[['Morning','Morning (9am \u2013 12pm)'],['Afternoon','Afternoon (1pm \u2013 4pm)']];
 const OLD_WINDOWS={'08:00':'8:00 AM \u2013 10:00 AM','10:00':'10:00 AM \u2013 12:00 PM',
                    '12:00':'12:00 PM \u2013 2:00 PM','14:00':'2:00 PM \u2013 4:00 PM',
                    '16:00':'4:00 PM \u2013 6:00 PM'};
