@@ -8,7 +8,6 @@
 <script src="https://unpkg.com/@supabase/supabase-js@2.38.4/dist/umd/supabase.js"></script>
 <script src="auth.js?v=3" data-roles="admin,manager,office"></script>
 <script src="live.js?v=3" defer></script>
-<script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
 <style>
 body{font-family:system-ui,sans-serif}
 .inp{display:block;width:100%;padding:.5rem .75rem;background:#1e293b;border:1px solid #334155;border-radius:.5rem;color:#fff;font-size:.875rem;box-sizing:border-box}
@@ -636,8 +635,7 @@ async function showRun(){
         <div class="flex items-center gap-3">
         ${run.status==='finalised'
           ?`<button onclick="unfinaliseRun('${run.id}')" class="btn dark text-sm">↩ Un-finalise</button>`
-          :`<button onclick="showImportModal('${run.id}','${run.week_ending}')" class="btn dark text-sm">⬆ Import from Spreadsheet</button>
-           <button data-finalise onclick="finaliseRun('${run.id}')" class="btn gold text-sm">✓ Finalise &amp; Mark Paid</button>`}
+          :`<button data-finalise onclick="finaliseRun('${run.id}')" class="btn gold text-sm">✓ Finalise &amp; Mark Paid</button>`}
         <span class="text-sm px-3 py-1.5 rounded-full ${run.status==='finalised'?'bg-green-900 text-green-400':'bg-slate-700 text-slate-400'}">${run.status==='finalised'?'Finalised ✓ Paid':'Draft'}</span>
       </div>
       </div>
@@ -1993,106 +1991,11 @@ window.unfinaliseRun=async(rid)=>{
   }catch(e){err(e);}
 };
 
-function showImportModal(runId,weekEnding){
-  openMod(`<h3 class="font-semibold text-white mb-2">Import Sales from Spreadsheet</h3>
-    <p class="text-slate-400 text-sm mb-4">Upload your NZ_Sales.xlsx file. The system will import all sales for week ending <strong>${fmtD(weekEnding)}</strong> (sales dated within that Mon–Sun).</p>
-    <label class="text-xs text-slate-400 block mb-1">Select spreadsheet file</label>
-    <input type="file" id="mfile" accept=".xlsx,.xls" class="inp mb-4">
-    <div id="mimport-status" class="text-sm text-slate-400 mb-4 hidden"></div>
-    <div class="flex gap-3">
-      <button class="btn gold flex-1" onclick="runImport('${runId}','${weekEnding}')">Import</button>
-      <button class="btn dark flex-1" onclick="closeMod()">Cancel</button>
-    </div>`);
-}
-
-window.runImport=async(runId,weekEnding)=>{
-  const file=$('mfile')?.files?.[0];
-  if(!file){toast('Please select a file',false);return;}
-  const status=$('mimport-status');
-  status.textContent='Reading file…';status.classList.remove('hidden');
-
-  try{
-    const data=await file.arrayBuffer();
-    const wb=XLSX.read(data,{type:'array',cellDates:true});
-    const ws=wb.Sheets['Customers'];
-    if(!ws){toast('Could not find "Customers" sheet in file',false);return;}
-    const rows=XLSX.utils.sheet_to_json(ws,{raw:false,dateNF:'yyyy-mm-dd'});
-
-    // Determine week Mon-Sun
-    const wkEnd=new Date(weekEnding+'T12:00:00');
-    const wkStart=new Date(wkEnd);wkStart.setDate(wkStart.getDate()-6);
-
-    const PROD_MAP={
-      'M1KS':'Mk I King Single','M1Q':'Mk I Queen','M1SK':'Mk I Super King',
-      'MK2 KS':'Mk II King Single','M2Q':'Mk II Queen','M2SK':'Mk II Super King',
-      'M3KS':'Mk III King Single','M3Q':'Mk III Queen','M3SK':'Mk III Super King',
-      'M3CK':'Mk III California King',
-    };
-    const ACTIVE_NAMES=new Set(consultants.filter(c=>c.active).map(c=>c.name));
-
-    // Robust sale-date parser → returns a local-noon Date, or null if unreadable
-    const parseSaleDate=v=>{
-      if(v instanceof Date)return isNaN(v)?null:new Date(v.getFullYear(),v.getMonth(),v.getDate(),12);
-      if(typeof v==='number'&&XLSX.SSF){const d=XLSX.SSF.parse_date_code(v);if(d)return new Date(d.y,d.m-1,d.d,12);}
-      const s=String(v||'').trim();if(!s)return null;
-      let m=s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);            // yyyy-mm-dd
-      if(m)return new Date(+m[1],+m[2]-1,+m[3],12);
-      m=s.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})/);        // dd/mm/yyyy (NZ)
-      if(m)return new Date(+m[3],+m[2]-1,+m[1],12);
-      const d=new Date(s);return isNaN(d)?null:d;
-    };
-
-    const num=v=>{const n=parseFloat(String(v??'').replace(/[^0-9.]/g,''));return isNaN(n)?0:n;};
-    const findCol=(row,label)=>{const k=Object.keys(row).find(k=>k.trim().toLowerCase()===label);return k===undefined?undefined:row[k];};
-    let imported=0,skipped=0;
-    for(const row of rows){
-      if(row['Cancelled Date'])continue;
-      const cons=String(row['Sleep Consultant']||'').trim();
-      if(!ACTIVE_NAMES.has(cons)){skipped++;continue;}
-
-      const saleDate=parseSaleDate(row['Sale Date']);
-      if(!saleDate){skipped++;continue;}
-      if(saleDate<wkStart||saleDate>wkEnd){skipped++;continue;}
-      const saleDateStr=`${saleDate.getFullYear()}-${String(saleDate.getMonth()+1).padStart(2,'0')}-${String(saleDate.getDate()).padStart(2,'0')}`;
-
-      const prods=[];
-      for(const[col,pname] of Object.entries(PROD_MAP)){
-        const qty=parseInt(row[col])||0;
-        if(qty>0)prods.push({name:pname,qty});
-      }
-      if(!prods.length){skipped++;continue;}
-
-      const surname=String(row['Surname']||'').trim();
-      const firstname=String(row['First Name']||'').trim();
-      const customer=[surname,firstname].filter(Boolean).join(', ');
-      const commission=parseFloat(row['C1 Amount'])||0;
-      const contractValue=num(findCol(row,'contract value'));
-      const paidManually=num(findCol(row,'paid manually'));
-      const paidInFull=contractValue>0&&paidManually+0.01>=contractValue;
-      const consObj=consultants.find(c=>c.name===cons);
-      if(!consObj){skipped++;continue;}
-
-      // Insert sale
-      const{data:sale,error:se}=await sb.from('commission_sales').insert({
-        pay_run_id:runId,consultant_id:consObj.id,
-        sale_date:saleDateStr,customer_name:customer,
-        commission_paid:commission,paid_in_full:paidInFull,status:'active',is_historical:false
-      }).select().single();
-      if(se){console.error(se);skipped++;continue;}
-
-      // Insert items
-      for(const p of prods){
-        const prod=products.find(x=>x.name===p.name);
-        if(prod)await sb.from('commission_sale_items').insert({sale_id:sale.id,product_id:prod.id,quantity:p.qty});
-      }
-      imported++;
-      status.textContent=`Importing… ${imported} done`;
-    }
-    status.textContent=`Done! ${imported} sales imported, ${skipped} skipped.`;
-    toast(`Imported ${imported} sales`);
-    setTimeout(()=>{closeMod();go('run',runId);},1500);
-  }catch(e){err(e);}
-};
+/* The spreadsheet import was removed on 11 Aug 2026. Commission rows now come
+   from the System itself — 447 of 454 carry an order id, and the last import-era
+   row predates that. It read files the office uploaded, which was the only
+   remaining path for a hostile file into this page, so the SheetJS library went
+   with it. The spreadsheet still exists; git has the code if it is ever wanted. */
 
 // ── Boot ───────────────────────────────────────────────────────────────────
 renderNav();
