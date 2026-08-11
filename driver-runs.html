@@ -239,7 +239,40 @@ async function printRunSheet(runId, btn){
   }
 }
 
+/* ---------------- manual re-ordering ----------------
+   The optimiser plans by distance inside the promised time band. The office
+   sometimes knows something the map cannot — someone who can only take it after
+   school, a street to avoid before nine. These arrows override it one step at a
+   time. A finished stop is frozen, and nothing can be lifted above one, because
+   the run sheet has to keep agreeing with what actually happened.
+   \u26A0 A manual order lasts until someone presses "Order for driving", which
+   re-plans the whole run from scratch. That button now warns first. */
+function moveBtns(run, s, ix, list){
+  if(run.status === "done") return "";
+  const finished = (st)=> st==="done" || st==="failed";
+  if(finished(s.status)) return '<span class="muted" title="already finished">\u2014</span>';
+  const above = list.slice(0, ix);
+  const lockedAbove = above.length > 0 && above.every(x=>finished(x.status));
+  const canUp   = ix > 0 && !lockedAbove;
+  const canDown = ix < list.length - 1;
+  const b=(dir,glyph,on)=> on
+    ? `<button onclick="moveStop('${s.id}','${dir}',this)" title="Move ${dir}"
+        style="background:#fff;border:1px solid #cbd4df;border-radius:6px;width:24px;height:22px;
+        line-height:1;font-size:11px;cursor:pointer;padding:0;display:block;margin:1px 0">${glyph}</button>`
+    : `<span style="display:block;width:24px;height:22px"></span>`;
+  return b("up","\u25B2",canUp) + b("down","\u25BC",canDown);
+}
+
+async function moveStop(stopId, dir, btn){
+  if(btn) btn.disabled = true;
+  const { data, error } = await sb.rpc("driver_move_stop", { p_stop: stopId, p_direction: dir });
+  if(error){ toast("Could not move it: " + error.message); if(btn) btn.disabled=false; return; }
+  if(!data || !data.ok){ toast(data && data.reason ? data.reason : "Could not move it"); if(btn) btn.disabled=false; return; }
+  await load();
+}
+
 async function optimiseRun(runId, btn){
+  if(!confirm("Re-plan this run by distance?\n\nAny order you have set by hand will be replaced.")) return;
   showErr("");
   if(btn){ btn.disabled = true; btn.textContent = "Working it out\u2026"; }
   const { data, error } = await sb.rpc("driver_optimise_run", { p_run: runId });
@@ -457,12 +490,14 @@ async function load(){
       </div>
       <div id="map-${r.id}" class="mapbox" style="display:none"></div>
       <table style="margin-top:10px"><thead><tr>
-        <th>#</th><th>Customer</th><th>Told</th><th>ETA given</th><th>Arrived</th><th>Left</th><th>On site</th><th>Items</th><th>Proof</th><th>Result</th>
+        <th>#</th><th></th><th>Customer</th><th>Time</th><th>Told</th><th>ETA given</th><th>Arrived</th><th>Left</th><th>On site</th><th>Items</th><th>Proof</th><th>Result</th>
       </tr></thead><tbody>
-      ${list.map(s=>`<tr>
+      ${list.map((s,ix)=>`<tr>
         <td>${s.seq}</td>
+        <td style="white-space:nowrap;padding:0 2px">${moveBtns(r, s, ix, list)}</td>
         <td>${esc(s.customer||"—")}<div class="muted">${esc(s.suburb||"")}</div>
           ${s.notes?`<div class="muted">${esc(s.notes)}</div>`:""}</td>
+        <td class="muted" style="white-space:nowrap">${esc(s.delivery_time||"—")}</td>
         <td>${tm(s.notified_at)}</td>
         <td>${s.eta_minutes?`${s.eta_minutes} min${s.eta_km?`<div class="muted">${s.eta_km} km</div>`:""}`:'<span class="muted">—</span>'}
             ${s.minutes_texted_to_arrival!=null?`<div class="muted">took ${s.minutes_texted_to_arrival}</div>`:""}</td>
