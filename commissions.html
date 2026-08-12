@@ -124,13 +124,17 @@ async function openingRetBal(storedBal, run, consultantId){
 }
 
 // Giveaway balances: balance owed = SUM(giveaways) − SUM(repayments in finalised runs)
-function givBalances(giveaways,repayDeds,finalisedRunIds){
+/* Two ways to repay, one balance. A pay-run deduction only counts once that run
+   is FINALISED (a draft can be rebuilt or deleted); a direct repayment counts
+   the moment it is recorded, because the money has already changed hands. */
+function givBalances(giveaways,repayDeds,finalisedRunIds,directRepays){
   const fin=new Set(finalisedRunIds||[]);
   const m={};
-  const b=id=>m[id]||(m[id]={taken:0,repaid:0,balance:0});
+  const b=id=>m[id]||(m[id]={taken:0,repaid:0,repaidRun:0,repaidDirect:0,balance:0});
   (giveaways||[]).forEach(g=>{b(g.consultant_id).taken+=(+g.amount||0);});
-  (repayDeds||[]).forEach(d=>{if(fin.has(d.pay_run_id))b(d.consultant_id).repaid+=(+d.amount||0);});
-  Object.values(m).forEach(x=>x.balance=x.taken-x.repaid);
+  (repayDeds||[]).forEach(d=>{if(fin.has(d.pay_run_id))b(d.consultant_id).repaidRun+=(+d.amount||0);});
+  (directRepays||[]).forEach(r=>{b(r.consultant_id).repaidDirect+=(+r.amount||0);});
+  Object.values(m).forEach(x=>{x.repaid=x.repaidRun+x.repaidDirect; x.balance=x.taken-x.repaid;});
   return m;
 }
 
@@ -1103,14 +1107,22 @@ window.printInvoice=(weekEnding)=>{
 };
 // ── Giveaways (stock taken, running balance owed) ───────────────────────────
 async function showGiveaways(){
-  const[{data:cons},{data:givs},{data:repays},{data:finRuns}]=await Promise.all([
+  const[{data:cons},{data:givs},{data:repays},{data:finRuns},{data:direct}]=await Promise.all([
     sb.from('commission_consultants').select('*').eq('active',true).order('name'),
     sb.from('commission_giveaways').select('*'),
     sb.from('commission_deductions').select('consultant_id,amount,pay_run_id').eq('deduction_type','giveaway_repayment'),
     sb.from('commission_pay_runs').select('id').eq('status','finalised'),
+    /* Repayments made OUTSIDE a pay run — cash in hand, a bank transfer. Until
+       12 Aug there was nowhere to record one, so $31,627 sat outstanding with
+       nothing ever marked repaid. A repayment may point at ONE loan/advance/
+       giveaway, or at the total when it is just money off the balance. */
+    sb.from('commission_repayments').select('*').order('paid_date',{ascending:false}),
   ]);
-  const active=cons||[], allGivs=givs||[];
-  const bal=givBalances(allGivs,repays||[],(finRuns||[]).map(r=>r.id));
+  const active=cons||[], allGivs=givs||[], directs=direct||[];
+  const bal=givBalances(allGivs,repays||[],(finRuns||[]).map(r=>r.id),directs);
+  // what is still owing on each individual item
+  const itemRepaid={}; directs.forEach(r=>{ if(r.giveaway_id) itemRepaid[r.giveaway_id]=(itemRepaid[r.giveaway_id]||0)+(+r.amount||0); });
+  const byConsRepay={}; directs.forEach(r=>{ (byConsRepay[r.consultant_id]||(byConsRepay[r.consultant_id]=[])).push(r); });
   const rate=+S().pillow_charge||0;
   const byCons={};allGivs.forEach(g=>{(byCons[g.consultant_id]||(byCons[g.consultant_id]=[])).push(g);});
 
@@ -1124,7 +1136,7 @@ async function showGiveaways(){
           <button class="btn dark" onclick="recordGivModal('loan')">+ Loan</button>
         </div>
       </div>
-      <p class="text-sm text-slate-500 mb-6">Everything a consultant owes the company — giveaways (charged at <b>${fmt(rate)}</b> per item, set in Commission Rates), cash advances against an upcoming pay, and loans. The balance drops when you allocate a repayment in a pay run <b>and that run is finalised</b>. Admin / managers only.</p>
+      <p class="text-sm text-slate-500 mb-6">Everything a consultant owes the company — giveaways (charged at <b>${fmt(rate)}</b> per item, set in Commission Rates), cash advances against an upcoming pay, and loans. The balance drops when you allocate a repayment in a pay run <b>and that run is finalised</b>, or the moment you record one here with <b>Repayment</b> \u2014 for money handed back in cash or by bank transfer. Admin / managers only.</p>
       <div class="card">
         <table class="w-full text-sm">
           <thead><tr class="text-left text-xs uppercase tracking-wide text-slate-500 border-b border-slate-700">
@@ -1144,6 +1156,7 @@ async function showGiveaways(){
             <td class="py-2.5 text-right text-slate-400">${fmt(b.repaid)}</td>
             <td class="py-2.5 text-right font-semibold ${b.balance>0?'text-yellow-400':'text-slate-500'}">${fmt(b.balance)}</td>
             <td class="py-2.5 text-right whitespace-nowrap">
+              ${b.balance>0?`<button class="text-xs text-emerald-400 hover:text-emerald-300 underline mr-3" onclick="repayModal('${c.id}')">Repayment</button>`:''}
               <button class="text-xs text-slate-400 hover:text-white underline mr-3" onclick="openingModal('${c.id}')">Opening bal.</button>
               <button class="text-xs text-slate-400 hover:text-white underline" onclick="givHistory('${c.id}')">History</button>
             </td>
@@ -1235,10 +1248,83 @@ async function showGiveaways(){
               ${(()=>{const k=g.kind||'giveaway';const tag={advance:['Cash advance','#38bdf8'],loan:['Loan','#c084fc'],opening:['Opening balance','#94a3b8']}[k];
                 return tag?`<span style="font-size:10px;font-weight:700;color:${tag[1]};border:1px solid ${tag[1]}55;border-radius:10px;padding:1px 7px;margin-left:6px">${tag[0]}</span>`:'';})()}</div>
               <div class="text-xs text-slate-500">${fmtD(g.taken_date)}${g.notes?' — '+g.notes:''}</div></div>
-        <div class="flex items-center gap-3"><span class="text-yellow-400">${fmt(g.amount)}</span><button class="text-slate-600 hover:text-red-400 text-xs" onclick="delGiv('${g.id}')">✕</button></div>
+        <div class="flex items-center gap-3 text-right">
+          <div><div class="text-yellow-400">${fmt(g.amount)}</div>
+          ${(()=>{const paid=itemRepaid[g.id]||0; if(!paid) return '';
+             const out=(+g.amount||0)-paid;
+             return `<div class="text-xs ${out>0.005?'text-slate-400':'text-emerald-400'}">${out>0.005?fmt(out)+' still owing':'paid off'}</div>`;})()}</div>
+          <button class="text-slate-600 hover:text-red-400 text-xs" onclick="delGiv('${g.id}')">✕</button></div>
       </div>`).join(''):'<p class="text-slate-500 text-sm py-3">Nothing recorded yet.</p>'}
       </div>
+      ${(()=>{const rs=(byConsRepay[cid]||[]); if(!rs.length) return '';
+        const nameOf=id=>{const g=(byCons[cid]||[]).find(x=>x.id===id); return g?(g.item||g.kind||'item'):'a removed item';};
+        return `<div class="mt-4">
+          <div class="text-xs uppercase tracking-wide text-slate-500 mb-1">Repaid outside a pay run</div>
+          <div class="max-h-40 overflow-auto">
+          ${rs.map(r=>`<div class="flex items-center justify-between text-sm py-1.5 border-b border-slate-800">
+            <div><div class="text-emerald-400">${fmt(r.amount)} <span class="text-slate-500 text-xs">${esc(r.method||'')}</span></div>
+              <div class="text-xs text-slate-500">${fmtD(r.paid_date)}${r.giveaway_id?' — against '+esc(nameOf(r.giveaway_id)):' — against the balance'}${r.notes?' · '+esc(r.notes):''}${r.recorded_by?' · '+esc(r.recorded_by):''}</div></div>
+            <button class="text-slate-600 hover:text-red-400 text-xs" onclick="delRepay('${r.id}')">✕</button>
+          </div>`).join('')}
+          </div></div>`;})()}
       <div class="mt-4"><button class="btn dark w-full" onclick="closeMod()">Close</button></div>`);
+  };
+  /* Record a repayment made outside a pay run. It sits on this screen because
+     this is where the balance is read — Nigel: "keep it close to where the loan
+     amount is displayed". Allocating to one item is optional: pick the loan it
+     pays off, or leave it against the total. */
+  window.repayModal=(cid)=>{
+    const c=active.find(x=>x.id===cid);
+    const b=bal[cid]||{balance:0};
+    const items=(byCons[cid]||[])
+      .map(g=>({...g, out:(+g.amount||0)-(itemRepaid[g.id]||0)}))
+      .filter(g=>g.out>0.005)
+      .sort((a,x)=>(a.taken_date||'').localeCompare(x.taken_date||''));
+    const kindName={loan:'Loan',advance:'Cash advance',opening:'Opening balance'};
+    openMod(`<h3 class="font-semibold text-white mb-1">Record a repayment</h3>
+      <p class="text-sm text-slate-400 mb-4">${esc(c?c.name:'')} currently owes <b class="text-yellow-400">${fmt(b.balance)}</b>.
+        Use this for money paid back <b>outside</b> a pay run — cash, or a bank transfer.
+        To take it off their pay instead, use the pay run.</p>
+      <label class="text-xs text-slate-400 block mb-1">Amount</label>
+      <input type="number" id="rpAmt" class="inp mb-3" step="0.01" min="0.01" placeholder="$">
+      <label class="text-xs text-slate-400 block mb-1">What is it paying off?</label>
+      <select id="rpGiv" class="inp mb-3">
+        <option value="">The balance generally (not a specific item)</option>
+        ${items.map(g=>`<option value="${g.id}">${esc(kindName[g.kind||'giveaway']||'Giveaway')} — ${esc(g.item||'')} ${fmtD(g.taken_date)} · ${fmt(g.out)} still owing</option>`).join('')}
+      </select>
+      <div class="grid grid-cols-2 gap-3 mb-3">
+        <div><label class="text-xs text-slate-400 block mb-1">Date paid</label>
+          <input type="date" id="rpDate" class="inp" value="${isoD(new Date())}" max="${isoD(new Date())}"></div>
+        <div><label class="text-xs text-slate-400 block mb-1">How</label>
+          <select id="rpMethod" class="inp"><option value="cash">Cash</option><option value="bank">Bank transfer</option><option value="other">Other</option></select></div>
+      </div>
+      <label class="text-xs text-slate-400 block mb-1">Notes (optional)</label>
+      <input type="text" id="rpNotes" class="inp mb-4" placeholder="e.g. handed in at the Monday meeting">
+      <div class="flex gap-2">
+        <button class="btn dark flex-1" onclick="closeMod()">Cancel</button>
+        <button class="btn gold flex-1" id="rpSave" onclick="saveRepay('${cid}')">Record it</button>
+      </div>`);
+  };
+  window.saveRepay=async(cid)=>{
+    const btn=document.getElementById('rpSave'); if(btn){ if(btn.disabled) return; btn.disabled=true; btn.textContent='Recording…'; }
+    const amount=+((document.getElementById('rpAmt')||{}).value||0);
+    const giv=(document.getElementById('rpGiv')||{}).value||null;
+    const date=(document.getElementById('rpDate')||{}).value||null;
+    const method=(document.getElementById('rpMethod')||{}).value||'cash';
+    const notes=(document.getElementById('rpNotes')||{}).value||null;
+    if(!(amount>0)){ toast('Enter an amount',false); if(btn){btn.disabled=false;btn.textContent='Record it';} return; }
+    const{data,error}=await sb.rpc('record_consultant_repayment',
+      {p_consultant:cid,p_amount:amount,p_giveaway:giv,p_date:date,p_method:method,p_notes:notes});
+    if(error){ toast(error.message,false); if(btn){btn.disabled=false;btn.textContent='Record it';} return; }
+    if(!data||!data.ok){ toast(data&&data.reason?data.reason:'Could not record it',false); if(btn){btn.disabled=false;btn.textContent='Record it';} return; }
+    closeMod(); toast('Repayment recorded — balance now '+fmt(data.balance_now)); go('giveaways');
+  };
+  window.delRepay=async(id)=>{
+    if(!confirm('Remove this repayment? The balance owed will go back up.'))return;
+    const{data,error}=await sb.rpc('delete_consultant_repayment',{p_id:id});
+    if(error){ toast(error.message,false); return; }
+    if(!data||!data.ok){ toast(data&&data.reason?data.reason:'Could not remove it',false); return; }
+    closeMod(); toast('Repayment removed'); go('giveaways');
   };
   window.delGiv=async(id)=>{
     if(!confirm('Remove this entry? This changes the balance owed.'))return;
