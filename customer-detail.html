@@ -139,14 +139,70 @@ const isMgr   = () => (window.SIMTEC_USER && ['admin','manager'].includes(window
 const isOffice= () => (window.SIMTEC_USER && ['admin','manager','office'].includes(window.SIMTEC_USER.role));
 const isAdmin = () => (window.SIMTEC_USER && window.SIMTEC_USER.role==='admin');
 
-// Position / traffic light. Uses the order's OWN stored instalment and term where we
-// have them; only falls back to the old contract÷156 guess when we don't.
-// The schedule is a recorded fact. We never infer it from the order date.
-//   payments due so far = debits from schedule_start_date up to today
-//   expected            = instalment x payments due
-// A customer whose schedule was restarted after a bank error is behind by the
-// payments missed SINCE THE RESTART, not since the day they bought the bed.
+// Position / traffic light.
+//
+// THE MATHS NOW LIVES IN THE DATABASE (view v_order_position), not here. It used to
+// live in three separate copies — twice on this page and once on home.html — which is
+// why the dashboard and this page could disagree about the same customer.
+//
+// Two things the view fixes:
+//   1. It anchors on the customer's FIRST REAL DEBIT ATTEMPT (first payment or first
+//      dishonour), not the schedule date recorded on the order. Those recorded dates
+//      matched the real first debit on only 82 of 349 active orders — median 14 days
+//      early, i.e. two debits counted that were never due.
+//   2. It measures "expected by now" up to the LATEST SETTLEMENT DATE in the book,
+//      not today. Ezidebit settles about two business days after it debits, so money
+//      in transit used to read as arrears.
+// It also returns `silent` — no successful payment for more than two periods — which
+// catches a customer who has stopped paying even if the dates flatter them.
+//
+// positionLocal() below is the original browser-side calculation, kept as a fallback
+// for when the view can't be read.
+let POS={};
+
 function position(o){
+  const v=POS[o.id];
+  if(!v) return positionLocal(o);
+
+  const freq=PERIODS[v.freq]||PERIODS.weekly;
+  const contract=v.contract!=null?Number(v.contract):null;
+  const paid=Number(v.paid||0);
+  const per=Number(v.instalment||0);
+  const behindBy=Number(v.behind_by||0);
+  const periodsBehind=Number(v.periods_behind||0);
+  const silent=!!v.silent;
+  const silentTxt=v.periods_since_payment!=null
+    ? `No payment for ${Number(v.periods_since_payment).toFixed(0)} ${freq.word}`
+    : "No payment received yet";
+
+  let label;
+  if(contract==null||contract<=0)              label="No contract value";
+  else if(paid>=contract*0.999)                label="Paid up";
+  else if(!v.anchor)                           label=(o.delivery_status||"")==="delivered"
+                                                     ? "Delivered, no schedule recorded"
+                                                     : "No payment schedule recorded";
+  else if(v.anchor>v.as_at)                    label="Payments start "+auDate(v.anchor);
+  else if(v.cls==="green")                     label=silent?silentTxt:"On track";
+  else if(v.cls==="red")                       label="Behind — DELIVERED";
+  else                                         label="Behind — not delivered";
+
+  return {
+    cls:v.cls, label, contract, paid,
+    expected:v.expected!=null?Number(v.expected):null,
+    behindBy, periodsBehind, freq,
+    balance:contract!=null?contract-paid:null,
+    estimated:false, dueCount:Number(v.due_count||0),
+    anchor:v.anchor, anchorIsReal:!!v.anchor_is_real, asAt:v.as_at,
+    lastPayment:v.last_payment, silent, silentTxt,
+    notStarted:!!(v.anchor&&v.anchor>v.as_at),
+    noSchedule:!v.anchor, fromView:true
+  };
+}
+
+// Original browser-side calculation — fallback only. Uses the order's OWN stored
+// instalment and term where we have them; only falls back to the old contract÷156
+// guess when we don't.
+function positionLocal(o){
   const contract=o.contract_value!=null?Number(o.contract_value):null;
   const paid=o.amount_paid_to_date!=null?Number(o.amount_paid_to_date):0;
   const delivered=(o.delivery_status||"")==="delivered";
@@ -377,6 +433,15 @@ async function run(quiet){
     }
 
     let comms=[];
+    // Position (behind / on track) now comes from ONE place: v_order_position.
+    // The page no longer does this arithmetic itself. If the view can't be read the
+    // old local maths still runs, so the page degrades rather than breaking.
+    POS={};
+    { const oids=Object.keys(ORDERS);
+      if(oids.length){
+        const {data:pos}=await sb.from("v_order_position").select("*").in("order_id",oids);
+        (pos||[]).forEach(r=>{ POS[r.order_id]=r; });
+      } }
     { const {data}=await sb.from("sim_contacts").select("*").eq("customer_id",customerId).order("contacted_at",{ascending:false});
       comms=data||[]; }
 
@@ -583,6 +648,8 @@ function orderSection(o, items, pays, open){
         ${kv("Expected by now",fmt(p.expected))}
         ${kv("Position",`<span style="color:${p.cls==='red'?'var(--red)':p.cls==='amber'?'var(--amber)':p.cls==='green'?'var(--green)':'var(--grey)'}">${behindTxt}</span>`)}
         ${isStaff()?kv("Collectability",DOUBTFUL.toggleHtml(o.id,o.doubtful)):(o.doubtful?kv("Collectability",DOUBTFUL.badge(true)+' Unlikely to collect'):"")}
+        ${p.silent?`<div style="font-size:11.5px;color:var(--red);margin-top:6px">\u26A0 ${esc(p.silentTxt)} — worth a call even though the balance looks on track.</div>`:""}
+        ${p.fromView&&p.anchor?`<div style="font-size:11.5px;color:#8593a5;margin-top:6px">Counted from ${p.anchorIsReal?"their first debit":"the recorded schedule start"} (${auDate(p.anchor)}), up to the last settled payment date (${auDate(p.asAt)}). Ezidebit settles about two working days after it debits, so anything newer than that hasn't landed yet.</div>`:""}
         ${p.estimated?`<div style="font-size:11.5px;color:var(--amber);margin-top:6px">Estimated — this order's real instalment isn't recorded, so "expected by now" assumes the standard term.</div>`:""}
       </div>`;
 
@@ -2009,7 +2076,12 @@ function schCalc(){
 
   let html="";
   if(inst>0 && start){
-    const today=new Date(); today.setHours(0,0,0,0);
+    // This is a what-if preview of the schedule being typed in the form above, so it
+    // deliberately uses the start date on screen rather than the customer's real first
+    // debit. It does share the live view's cut-off: money still settling isn't arrears.
+    const posRow=POS[o.id];
+    const today=posRow&&posRow.as_at?new Date(posRow.as_at+"T00:00:00"):new Date();
+    today.setHours(0,0,0,0);
     const s=new Date(start+"T00:00:00");
     const due = s>today ? 0 : Math.floor((today-s)/86400000/per)+1;
     const expected=Math.min(contract, inst*due);

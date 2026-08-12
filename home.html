@@ -292,6 +292,8 @@ const PERIODS={weekly:{per:7,total:156,word:"wk"},fortnightly:{per:14,total:78,w
 const today=new Date();
 const todayStr=`${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,"0")}-${String(today.getDate()).padStart(2,"0")}`;
 
+let POS={};
+
 function isBehindDelivered(o){
   if(o.paid_via_order_id) return null;
   const contract=o.contract_value!=null?Number(o.contract_value):null;
@@ -322,6 +324,24 @@ function isBehindDelivered(o){
   const f=PERIODS[o.payment_frequency]||PERIODS.weekly;
   const perAmt = (o.instalment_amount!=null && Number(o.instalment_amount)>0)
                  ? Number(o.instalment_amount) : contract/f.total;
+
+  // The behind/on-track maths comes from v_order_position (see customer-detail.html for
+  // the full reasoning). This page used to do its own version with a 1.5-instalment
+  // tolerance while the customer page used 1.0, so the two screens could disagree about
+  // the same person. Both now read the same row and the same one-instalment tolerance.
+  const v=POS[o.id];
+  if(v){
+    const behindBy=Number(v.behind_by||0);
+    const silent=!!v.silent;
+    // Two independent reasons to chase: the money is short, or the money has stopped.
+    // A late anchor can flatter the first; the second is immune to it.
+    if(v.cls!=="red" && v.cls!=="amber" && !silent) return null;
+    return {behindBy, periods:perAmt>0?behindBy/perAmt:0, word:f.word, bucket,
+            silent, periodsSilent:v.periods_since_payment,
+            note:o.arrears_contact_note||"", contactedBy:o.arrears_contacted_by||""};
+  }
+
+  // Fallback: the old local calculation, for when the view can't be read.
   const startStr = o.schedule_start_date || o.loan_start_date || o.first_payment_date || null;
   if(!startStr) return null;
   const start=new Date(String(startStr).slice(0,10)+"T00:00:00");
@@ -363,6 +383,15 @@ async function loadUrgent(){
     }
 
     const rows=[];
+    // One read of the shared position view, keyed by order id.
+    POS={};
+    { const oids=(orders||[]).map(o=>o.id);
+      for(let i=0;i<oids.length;i+=200){
+        const {data:pos}=await sb.from("v_order_position").select(
+          "order_id,cls,behind_by,periods_behind,silent,periods_since_payment,as_at")
+          .in("order_id",oids.slice(i,i+200));
+        (pos||[]).forEach(r=>{ POS[r.order_id]=r; });
+      } }
     for(const o of (orders||[])){ const b=isBehindDelivered(o); if(b) rows.push({o,b}); }
     const ids=[...new Set(rows.map(r=>r.o.customer_id).filter(Boolean))];
     const nm={};
@@ -393,7 +422,7 @@ async function loadUrgent(){
       const btn=`<button onclick="event.stopPropagation();markContacted('${r.o.id}','${(c.name||"").replace(/'/g,"\\'")}',${Number(r.o.amount_paid_to_date||0)})" style="${style};border-radius:7px;padding:4px 10px;font-size:12px;cursor:pointer;white-space:nowrap">${label}</button>`;
       return `<tr class="row" onclick="location.href='customer-detail.html?id=${r.o.id}'" style="cursor:pointer">
         <td>${esc(c.name||"")}${c.mobile?`<div style="color:#8593a5;font-size:11.5px">${esc(c.mobile)}</div>`:""}</td>
-        <td class="num" style="white-space:nowrap">${fmt(r.b.behindBy)}<div style="color:#8593a5;font-size:11.5px">${r.b.periods.toFixed(0)} ${r.b.word} behind</div></td>
+        <td class="num" style="white-space:nowrap">${fmt(r.b.behindBy)}<div style="color:#8593a5;font-size:11.5px">${r.b.silent&&r.b.periodsSilent!=null?`nothing for ${Number(r.b.periodsSilent).toFixed(0)} ${r.b.word}`:`${r.b.periods.toFixed(0)} ${r.b.word} behind`}</div></td>
         <td class="num">${btn}</td></tr>`;
     };
     const tableHtml=(list,withContact,emptyMsg)=> list.length
