@@ -1105,10 +1105,72 @@ window.printInvoice=(weekEnding)=>{
   window.print();
   setTimeout(()=>{document.title=orig;},1500);
 };
+// ── Former consultants ──────────────────────────────────────────────────────
+// A leaver disappears from every other screen on this page, but two amounts of
+// real money survive them: the retention we are still HOLDING, and anything they
+// still OWE. Until 13 Aug neither could be seen once they were switched inactive.
+// Only people with a non-zero figure on one side or the other are listed — a
+// leaver who is fully square doesn't need a row.
+// ⚠ There is deliberately no button here. Releasing retention or writing a
+// balance off is a money decision, and the only existing route is a pay run,
+// which a leaver will never appear on. This card reports; it does not move money.
+function formerCard(allCons,bal,RET){
+  const rows=(allCons||[]).filter(c=>!c.active).map(c=>{
+    const held=+RET[c.id]||0;
+    const owes=+((bal[c.id]||{}).balance)||0;
+    return {c,held,owes,net:held-owes};
+  }).filter(r=>Math.abs(r.held)>0.005||Math.abs(r.owes)>0.005)
+    .sort((a,b)=>b.net-a.net);
+  if(!rows.length) return '';
+
+  const totHeld=rows.reduce((a,r)=>a+r.held,0);
+  const totOwes=rows.reduce((a,r)=>a+r.owes,0);
+  return `
+    <h2 class="text-lg font-semibold mt-10 mb-1">Former consultants</h2>
+    <p class="text-sm text-slate-500 mb-4">People switched to inactive who still have money on one side or the other.
+      <b>Held</b> is retention the company is still holding for them; <b>Owed</b> is what they still owe.
+      <b>Net</b> is what would change hands if the two were settled against each other.</p>
+    <div class="card">
+      <table class="w-full text-sm">
+        <thead><tr class="text-left text-xs uppercase tracking-wide text-slate-500 border-b border-slate-700">
+          <th class="py-2">Consultant</th>
+          <th class="py-2 text-right">Retention held</th>
+          <th class="py-2 text-right">Still owed to us</th>
+          <th class="py-2 text-right">Net</th>
+          <th class="py-2 text-right">&nbsp;</th>
+        </tr></thead>
+        <tbody>
+        ${rows.map(r=>`<tr class="border-b border-slate-800">
+          <td class="py-2.5 font-medium">${esc(r.c.name)}</td>
+          <td class="py-2.5 text-right ${r.held?'text-slate-300':'text-slate-700'}">${r.held?fmt(r.held):'—'}</td>
+          <td class="py-2.5 text-right ${r.owes?'text-yellow-400':'text-slate-700'}">${r.owes?fmt(r.owes):'—'}</td>
+          <td class="py-2.5 text-right font-semibold ${r.net>0.005?'text-emerald-400':r.net<-0.005?'text-red-400':'text-slate-500'}">
+            ${fmt(r.net)}<div class="text-[11px] font-normal text-slate-500">${r.net>0.005?'we owe them':r.net<-0.005?'they owe us':'square'}</div></td>
+          <td class="py-2.5 text-right whitespace-nowrap">
+            ${r.owes>0?`<button class="text-xs text-emerald-400 hover:text-emerald-300 underline mr-3" onclick="repayModal('${r.c.id}')">Repayment</button>`:''}
+            <button class="text-xs text-slate-400 hover:text-white underline" onclick="givHistory('${r.c.id}')">History</button>
+          </td>
+        </tr>`).join('')}
+        </tbody>
+        <tfoot><tr class="text-slate-400">
+          <td class="py-2.5 font-medium">Total</td>
+          <td class="py-2.5 text-right">${fmt(totHeld)}</td>
+          <td class="py-2.5 text-right">${fmt(totOwes)}</td>
+          <td class="py-2.5 text-right font-semibold">${fmt(totHeld-totOwes)}</td>
+          <td></td>
+        </tr></tfoot>
+      </table>
+    </div>`;
+}
+
 // ── Giveaways (stock taken, running balance owed) ───────────────────────────
 async function showGiveaways(){
-  const[{data:cons},{data:givs},{data:repays},{data:finRuns},{data:direct}]=await Promise.all([
-    sb.from('commission_consultants').select('*').eq('active',true).order('name'),
+  const[{data:cons},{data:givs},{data:repays},{data:finRuns},{data:direct},{data:retRows}]=await Promise.all([
+    /* ALL consultants, not just active ones. A leaver still has a retention balance
+       we are holding and may still owe us money, and until 13 Aug neither was visible
+       anywhere in the System once they were switched off. Active people fill the main
+       table exactly as before; former ones get their own card underneath. */
+    sb.from('commission_consultants').select('*').order('name'),
     sb.from('commission_giveaways').select('*'),
     sb.from('commission_deductions').select('consultant_id,amount,pay_run_id').eq('deduction_type','giveaway_repayment'),
     sb.from('commission_pay_runs').select('id').eq('status','finalised'),
@@ -1117,8 +1179,11 @@ async function showGiveaways(){
        nothing ever marked repaid. A repayment may point at ONE loan/advance/
        giveaway, or at the total when it is just money off the balance. */
     sb.from('commission_repayments').select('*').order('paid_date',{ascending:false}),
+    sb.from('commission_retention').select('consultant_id,balance'),
   ]);
-  const active=cons||[], allGivs=givs||[], directs=direct||[];
+  const allCons=cons||[];
+  const active=allCons.filter(c=>c.active), allGivs=givs||[], directs=direct||[];
+  const RET={}; (retRows||[]).forEach(r=>{ RET[r.consultant_id]=+r.balance||0; });
   const bal=givBalances(allGivs,repays||[],(finRuns||[]).map(r=>r.id),directs);
   // what is still owing on each individual item
   const itemRepaid={}; directs.forEach(r=>{ if(r.giveaway_id) itemRepaid[r.giveaway_id]=(itemRepaid[r.giveaway_id]||0)+(+r.amount||0); });
@@ -1165,6 +1230,7 @@ async function showGiveaways(){
         </table>
         ${!active.length?'<p class="text-slate-500 text-sm text-center py-4">No active consultants.</p>':''}
       </div>
+      ${formerCard(allCons,bal,RET)}
     </div>`;
 
   // Money a consultant owes the company. All of it lives in commission_giveaways,
@@ -1240,7 +1306,9 @@ async function showGiveaways(){
 
   window.givHistory=(cid)=>{
     const rows=(byCons[cid]||[]).slice().sort((a,b)=>(b.taken_date||'').localeCompare(a.taken_date||''));
-    const c=active.find(x=>x.id===cid);
+    // allCons, not active — these two modals are now reachable from the Former
+    // consultants card, and looking in the active list only would blank the name.
+    const c=allCons.find(x=>x.id===cid);
     openMod(`<h3 class="font-semibold text-white mb-3">History — ${c?c.name:''}</h3>
       <div class="max-h-80 overflow-auto">
       ${rows.length?rows.map(g=>`<div class="flex items-center justify-between text-sm py-2 border-b border-slate-700/50">
@@ -1274,7 +1342,7 @@ async function showGiveaways(){
      amount is displayed". Allocating to one item is optional: pick the loan it
      pays off, or leave it against the total. */
   window.repayModal=(cid)=>{
-    const c=active.find(x=>x.id===cid);
+    const c=allCons.find(x=>x.id===cid);
     const b=bal[cid]||{balance:0};
     const items=(byCons[cid]||[])
       .map(g=>({...g, out:(+g.amount||0)-(itemRepaid[g.id]||0)}))
