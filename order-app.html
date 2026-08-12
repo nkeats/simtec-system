@@ -16,7 +16,7 @@
      reach the order app before go-live. When you roll out to consultants, add
      ",consultant" to data-roles below and add a New Order button to my-sales.html. -->
 <script src="auth.js?v=3" data-roles="admin,manager,office,consultant"></script>
-<script>window.SIMTEC_BUILD="2026-08-11-02";</script>
+<script>window.SIMTEC_BUILD="2026-08-12-01";</script>
 <script src="update.js?v=1"></script>
 
 
@@ -1560,10 +1560,20 @@ async function submitOrder(){
     const id=await savePayload(P);
     S.orderId=id; S.lastP=P;   // keep the payload; the summary PDF is regenerated with the Ezidebit schedule at the Done step
     if(S.referralId){ try{ await sb.rpc('convert_referral_for_order',{p_ref:S.referralId,p_order:id}); }catch(_e){} }
-    // Create the GHL contact NOW (contact-only) so the office has it even if the
-    // order is abandoned before Done. The welcome email — with the final Ezidebit
-    // schedule — is sent from finalizeOrder() when the order reaches the Done step.
-    pushOrderToGhl(id, {contactOnly:true});
+    /* ⚠ NOTHING GOES TO GHL HERE ANY MORE (12 Aug).
+       This used to push the contact the instant the order row saved — but the
+       push applies the GHL_APP_TAG, and the office's "Confirmation call
+       required" text is fired by a GHL workflow keyed to that tag. So the girls
+       were being texted while the consultant was still sitting with the
+       customer doing the Ezidebit form, and the confirmation call went out
+       mid-sale. (The old `contactOnly` flag was fiction: ghl-order-push ignores
+       it and applies the tag either way.)
+       The push now happens ONCE, in finalizeOrder(), when the order reaches
+       Done — the same moment the office banner fires.
+       The reason for pushing early was so the office had the contact even if
+       the order was abandoned; that is now covered by the "started but not
+       finished" card on the confirmation page, which is a better answer
+       because an abandoned order never reaches GHL at all. */
     setDoneSaved();
     renderCardPay();
     setBtn(btnLabel,false);
