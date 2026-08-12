@@ -16,7 +16,7 @@
      reach the order app before go-live. When you roll out to consultants, add
      ",consultant" to data-roles below and add a New Order button to my-sales.html. -->
 <script src="auth.js?v=3" data-roles="admin,manager,office,consultant"></script>
-<script>window.SIMTEC_BUILD="2026-08-12-01";</script>
+<script>window.SIMTEC_BUILD="2026-08-13-01";</script>
 <script src="update.js?v=1"></script>
 
 
@@ -573,6 +573,42 @@
           <canvas class="sig" id="sigEzi"></canvas>
         </div>
       </div>
+
+      <!-- ─────────────────────────────────────────────────────────────────
+           TEMPORARY (13 Aug 2026) — the Ezidebit form has been refusing some
+           customers and the order then had nowhere to go: it sat saved as a
+           draft, never reached Done, so no confirmation call, no welcome
+           email, no GHL push, nothing for the office to act on. Two orders
+           stalled that way before this existed.
+
+           This lets the consultant finish the order WITHOUT the direct debit.
+           It is deliberately ugly and deliberately last on the page — it is
+           not a shortcut, it is a fault report. Taking it hands the order to
+           the office with a loud note so they ring the customer and set the
+           debit up by phone.
+           REMOVE THIS PANEL once the Ezidebit fault is fixed.
+      ────────────────────────────────────────────────────────────────── -->
+      <div class="card" id="eziSkipCard" style="border:2px dashed #c0392b;background:#fdf3f2;">
+        <h3 style="color:#c0392b;margin-bottom:2px;">Ezidebit won't accept it?</h3>
+        <p class="sub" style="margin-top:2px">
+          Only use this if the form above has genuinely refused the customer and you have tried again.
+          If you simply have no signal, tap <b>Park</b> instead — that keeps the order on this iPad
+          and the office finishes it later.
+        </p>
+        <p class="sub" style="margin-top:6px">
+          The order will be completed and sent to the office straight away. <b>No direct debit will be
+          set up</b>, so nothing will be collected until the office rings the customer and sets it up
+          by phone. Fill in the payment schedule above first — the office needs it.
+        </p>
+        <div id="eziSkipDone" class="hidden" style="margin-top:10px;padding:12px;border-radius:10px;background:#fff;border:1px solid #e3b7b2;">
+          <b style="color:#c0392b;">Finishing without a direct debit.</b>
+          <div class="sub" id="eziSkipWhy" style="margin-top:4px"></div>
+        </div>
+        <button class="btn-sm" type="button" id="eziSkipBtn" onclick="skipEzidebit()"
+                style="background:#c0392b;color:#fff;margin-top:12px;">
+          The form won't accept it — finish without the direct debit
+        </button>
+      </div>
     </section>
 
     <!-- 9 DONE -->
@@ -801,7 +837,9 @@ async function bootLists(){
   console.warn('consultant list did not load — the fallback list is in use');
 }
 if(document.readyState!=='loading') bootLists(); else document.addEventListener('DOMContentLoaded', bootLists);
-const S = { step:0, saleType:'', pay:'', depositMethod:'ezidebit', fullMethod:'bank', a2:false, products:[], referralId:null, emailVerified:false, sentCode:null, tncRead:false, idPhotos:{A1:[],A2:[]} };
+const S = { step:0, saleType:'', pay:'', depositMethod:'ezidebit', fullMethod:'bank', a2:false, products:[], referralId:null, emailVerified:false, sentCode:null, tncRead:false, idPhotos:{A1:[],A2:[]},
+            /* TEMPORARY 13 Aug 2026 — set only by the red "Ezidebit won't accept it" button on step 8. */
+            eziSkipped:false, eziSkipWhy:'', eziSkipPlan:null };
 const STEP_LABELS = ['Start','Products','Details','Referees','Terms','ID','Payment','Sign','Ezidebit','Done'];
 
 function visibleSteps(){
@@ -884,11 +922,19 @@ async function validateStep(ds){
        consultant PARKS the order instead — that path already exists and the
        office finishes it. */
     const exempt = (S.saleType === 'solicited' && S.pay === 'full');
+    /* TEMPORARY 13 Aug 2026 — see the red panel at the end of step 8. A
+       consultant who has genuinely been refused by the Ezidebit form can
+       finish the order without a direct debit; it goes to the office with a
+       loud note instead of stalling as a draft nobody sees. Remove this
+       clause together with the panel once Ezidebit is fixed. */
+    if(S.eziSkipped) return true;
     if(!exempt && !S.eziRef){
       alert('The direct debit has not been set up.\n\n'
         + 'Every sale is collected by direct debit, apart from a solicited sale paid in full, '
         + 'so this order cannot be finished until it is done.\n\n'
-        + 'Set it up on this page. If you have no signal, use Park instead and the office will finish it.');
+        + 'Set it up on this page. If you have no signal, use Park instead and the office will finish it.\n\n'
+        + 'If the Ezidebit form is REFUSING the customer, use the red box at the bottom of this page '
+        + 'to finish the order and hand it to the office.');
       return false;
     }
     if(!exempt && isBlank('sigEzi')){
@@ -1665,6 +1711,53 @@ async function takeCardPayment(){
     msg.textContent=(data&&data.error)||(error&&error.message)||'Card payments aren\'t available right now.';
   }catch(e){ msg.textContent='Couldn\'t reach the payment service — check the connection and try again.'; }
 }
+/* TEMPORARY 13 Aug 2026 — Ezidebit refusing customers at the door.
+   Records WHY, captures the schedule the consultant had set so the office can
+   rebuild it on the phone, and lets the order finish. Nothing here weakens the
+   normal path: S.eziSkipped is only ever set by this button. */
+window.skipEzidebit = function(){
+  const why = prompt(
+    'What did the Ezidebit form do?\n\n'
+    + 'A short note — the office and Ezidebit both need it.\n'
+    + 'e.g. "rejected the bank account number", "stuck on loading", "said error after Submit".'
+  );
+  if(why === null) return;                       // cancelled — nothing happens
+  const reason = String(why||'').trim();
+  if(reason.length < 3){ alert('Please describe what happened, even briefly.'); return; }
+  if(!confirm(
+      'Finish this order WITHOUT a direct debit?\n\n'
+    + 'Nothing will be collected from this customer until the office rings them '
+    + 'and sets it up.\n\nThe order goes to the office now for the confirmation call.'
+  )) return;
+
+  S.eziSkipped   = true;
+  S.eziSkipWhy   = reason;
+  const g=id=>{ const el=document.getElementById(id); return el?String(el.value||'').trim():''; };
+  S.eziSkipPlan  = { oneoffAmount:g('eziOneoffAmount'), oneoffDate:g('eziOneoffDate'),
+                     planAmount:g('eziPlanAmount'), planFreq:g('eziPlanFreq'),
+                     planStart:g('eziPlanStart'), planCount:g('eziPlanCount') };
+
+  const box=document.getElementById('eziSkipDone'), btn=document.getElementById('eziSkipBtn');
+  if(box){ box.classList.remove('hidden');
+    document.getElementById('eziSkipWhy').textContent = 'Reported: '+reason; }
+  if(btn){ btn.disabled=true; btn.textContent='Reported — tap Next to finish the order'; btn.style.opacity='.6'; }
+};
+
+/* The note the office reads. Kept as one block so it stands out on the
+   confirmation call screen, with the schedule the consultant had set. */
+function eziSkipNote(){
+  const p=S.eziSkipPlan||{};
+  const bits=[];
+  if(p.oneoffAmount) bits.push('one-off $'+p.oneoffAmount+(p.oneoffDate?' on '+p.oneoffDate:''));
+  if(p.planAmount)   bits.push('then $'+p.planAmount+' '+(p.planFreq||'weekly')
+                              +(p.planStart?' from '+p.planStart:'')
+                              +(p.planCount?' × '+p.planCount+' payments':''));
+  return '⚠ NO DIRECT DEBIT SET UP. The Ezidebit form would not accept it at the door — '
+       + 'consultant reported: "'+(S.eziSkipWhy||'no detail given')+'". '
+       + 'Nothing will be collected until the office sets this up with the customer by phone.'
+       + (bits.length ? ' Schedule the consultant agreed: '+bits.join(', ')+'.' : '');
+}
+
 async function finalizeOrder(){
   if(!sb || !S.orderId || S.finalized) return;
   S.finalized=true;
@@ -1694,7 +1787,18 @@ async function finalizeOrder(){
   /* The order is genuinely finished now — Ezidebit done, signature captured,
      PDF regenerated. THIS is the moment the office should hear about it. */
   try{
-    await sb.from('sim_orders').update({confirmation_status:'pending'}).eq('id', S.orderId);
+    const upd = {confirmation_status:'pending'};
+    /* TEMPORARY 13 Aug 2026 — an order finished without a direct debit goes to
+       the office with the reason on it. consultant_account_note is the field the
+       confirmation-call screen already shows, so this needs no new plumbing; any
+       note the consultant typed earlier is kept underneath. */
+    if(S.eziSkipped){
+      const existing = (function(){ const el=document.getElementById('noteAccount');
+        const chk=document.getElementById('noteAccountChk');
+        return (chk&&chk.checked&&el&&el.value.trim())?el.value.trim():''; })();
+      upd.consultant_account_note = eziSkipNote() + (existing ? '\n\nConsultant\'s own note: '+existing : '');
+    }
+    await sb.from('sim_orders').update(upd).eq('id', S.orderId);
   }catch(e){ console.warn('could not hand the order to the office:', e&&e.message||e); }
 
   showPillowBox();
@@ -1982,6 +2086,15 @@ window.addEventListener('message', function(ev){
   const d=ev.data; if(!d || d.__simtec!=='ezidebit-return') return;
   applyEzidebitCallback(d.params||{}).then(()=>{
     S.eziRef = (d.params&&(d.params.cref||d.params.uref))||null;   // the direct debit really is set up
+    /* TEMPORARY 13 Aug 2026 — if the consultant reported a failure and then got
+       the form to work on a retry, the direct debit is real and the order must
+       NOT be flagged as having none. */
+    if(S.eziRef && S.eziSkipped){
+      S.eziSkipped=false; S.eziSkipWhy=''; S.eziSkipPlan=null;
+      const box=document.getElementById('eziSkipDone'); if(box) box.classList.add('hidden');
+      const btn=document.getElementById('eziSkipBtn');
+      if(btn){ btn.disabled=false; btn.style.opacity=''; btn.textContent="The form won't accept it — finish without the direct debit"; }
+    }
     document.getElementById('eziFrameWrap').classList.add('hidden');
     const done=document.getElementById('eziDone'); done.classList.remove('hidden');
     const p=d.params||{};
