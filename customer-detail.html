@@ -1893,8 +1893,20 @@ window.printStatement=async function(oid){
       return `<tr><td>${esc(i.product_name)}</td><td class="c">${qty}</td><td class="r">${i.unit_price!=null?money(i.unit_price):"—"}</td><td class="r">${lt!=null?money(lt):"—"}</td></tr>`;
     }).join("") : `<tr><td colspan="4" class="muted">No product lines recorded.</td></tr>`;
 
+  // How each line is described on the customer's statement. Manual payments carry the
+  // method the office chose in the Record extra payment box, so print that rather than
+  // a flat "Extra payment" — a customer reading this should recognise the payment they
+  // made. Older rows saved before the method box existed fall back to the generic label.
+  const PAYWORD={ "cash":"Cash payment",
+                  "bank transfer":"Bank transfer",
+                  "eftpos":"Eftpos / card payment",
+                  "deposit":"Deposit at point of sale",
+                  "other":"Extra payment" };
   const payType=p=>{ const s=String(p.source||"").toLowerCase();
-    return s==="manual" ? "Extra payment"+(p.notes?` — ${esc(p.notes)}`:"") : "Ezidebit direct debit"; };
+    if(s!=="manual") return "Ezidebit direct debit";
+    const m=String(p.method||"").toLowerCase();
+    const label=PAYWORD[m]||(m?m.charAt(0).toUpperCase()+m.slice(1):"Extra payment");
+    return label+(p.notes?` — ${esc(p.notes)}`:""); };
   const payRows=pays.length ? pays.map(p=>
       `<tr><td>${auDate(p.payment_date)}</td><td>${payType(p)}</td><td class="r">${money(p.amount)}</td></tr>`).join("")
     : `<tr><td colspan="3" class="muted">No payments recorded yet.</td></tr>`;
