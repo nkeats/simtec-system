@@ -41,12 +41,22 @@ tr:last-child td{border-bottom:none}
 </nav>
 
 <div class="max-w-5xl mx-auto p-6">
-  <div id="forward" class="mb-5"></div>
-  <div id="summary" class="mb-5"></div>
-  <div id="asofnote" class="k mb-4"></div>
-  <div id="body"></div>
+  <div class="flex gap-2 mb-5" id="tabs">
+    <button class="btn on" id="tabStock" onclick="setTab('stock')">Stock on hand</button>
+    <button class="btn" id="tabUnpack" onclick="setTab('unpack')">Unpack now <span id="unpackCount" class="pillc" style="margin-left:6px"></span></button>
+  </div>
+
+  <div id="paneStock">
+    <div id="forward" class="mb-5"></div>
+    <div id="summary" class="mb-5"></div>
+    <div id="asofnote" class="k mb-4"></div>
+    <div id="body"></div>
+    <div id="movlog" class="mt-8"></div>
+  </div>
+
+  <div id="paneUnpack" class="hidden"></div>
+
   <div id="state" class="text-center text-slate-500 py-20">Loading stock…</div>
-  <div id="movlog" class="mt-8"></div>
 </div>
 
 <!-- stock movement modal -->
@@ -171,6 +181,7 @@ async function load(){
     });
   });
 
+  await loadUnpack();      // needs MATTRESS_NAMES + ITEMS, both set above
   render();
 }
 
@@ -210,9 +221,131 @@ function renderForward(){
   $('forward').innerHTML=out;
 }
 
+/* ── Unpack now ───────────────────────────────────────────────────────────
+   The warehouse needs THREE WEEKS to get a mattress out of its vacuum pack and
+   let it expand before it can go on a truck. The trap is that a booked delivery
+   date gives no warning at all: the office only rings to book AFTER a customer
+   clears the payment gate, so by the time a date exists the mattress is needed
+   in days, not weeks.
+
+   So this list is built from CLEARANCE, not from delivery dates:
+     · already booked                      — a date exists, it is coming
+     · cleared and waiting to be booked    — the office could ring today
+     · clears on its own within 21 days    — will be ringable inside the window
+   Mattresses only. Bases and protectors don't need unpacking, so listing them
+   here would only bury the thing that does. */
+const UNPACK_DAYS = 21;
+let UNPACK = { rows:[], totals:{} };
+
+async function loadUnpack(){
+  const today = new Date(new Intl.DateTimeFormat('en-CA',{timeZone:'Pacific/Auckland'}).format(new Date())+'T00:00:00');
+  const horizon = new Date(today); horizon.setDate(horizon.getDate()+UNPACK_DAYS);
+  const hIso = horizon.toISOString().slice(0,10);
+
+  const {data:clr,error}=await sb.from('v_delivery_clearance')
+    .select('order_id,cleared,booked,clears_on,payments_to_go');
+  if(error){ console.warn('clearance:',error.message); return; }
+
+  const keep={};
+  (clr||[]).forEach(c=>{
+    let why=null, ord=9;
+    if(c.booked)                                    { why='Booked';        ord=0; }
+    else if(c.cleared)                              { why='Ready to book'; ord=1; }
+    else if(c.clears_on && c.clears_on<=hIso)       { why='Clears '+c.clears_on; ord=2; }
+    if(why) keep[c.order_id]={why,ord,clears_on:c.clears_on,toGo:c.payments_to_go};
+  });
+  const ids=Object.keys(keep);
+  if(!ids.length){ UNPACK={rows:[],totals:{}}; return; }
+
+  const rows=[];
+  for(let i=0;i<ids.length;i+=100){
+    const {data}=await sb.from('sim_orders')
+      .select('id,delivery_date,delivery_status,customer_id,sim_order_items(product_name,quantity,cancelled,delivered)')
+      .in('id',ids.slice(i,i+100)).eq('order_status','active').neq('delivery_status','delivered');
+    (data||[]).forEach(o=>rows.push(o));
+  }
+  // customer names, so the warehouse can match a pack to a job
+  const cids=[...new Set(rows.map(o=>o.customer_id).filter(Boolean))];
+  const NM={};
+  for(let i=0;i<cids.length;i+=200){
+    const {data:cs}=await sb.from('sim_customers').select('id,first_name,last_name').in('id',cids.slice(i,i+200));
+    (cs||[]).forEach(c=>NM[c.id]=[c.first_name,c.last_name].filter(Boolean).join(' ')||'(no name)');
+  }
+
+  const out=[], totals={};
+  rows.forEach(o=>{
+    const mats=(o.sim_order_items||[]).filter(it=>
+      it.product_name && MATTRESS_NAMES.has(it.product_name) && !it.cancelled && !it.delivered);
+    if(!mats.length) return;                       // no mattress on it → nothing to unpack
+    mats.forEach(it=>{ totals[it.product_name]=(totals[it.product_name]||0)+(+it.quantity||0); });
+    const k=keep[o.id];
+    out.push({ id:o.id, name:NM[o.customer_id]||'(no customer)', why:k.why, ord:k.ord,
+               when:o.delivery_date||k.clears_on||null, toGo:k.toGo,
+               items:mats.map(it=>({name:it.product_name, qty:+it.quantity||0})) });
+  });
+  out.sort((a,b)=>a.ord-b.ord || String(a.when||'').localeCompare(String(b.when||'')) || a.name.localeCompare(b.name));
+  UNPACK={rows:out, totals};
+}
+
+function renderUnpack(){
+  const {rows,totals}=UNPACK;
+  const units=Object.values(totals).reduce((a,b)=>a+b,0);
+  const badge=$('unpackCount'); if(badge) badge.textContent=units||'';
+
+  if(!rows.length){
+    $('paneUnpack').innerHTML='<div class="card text-slate-400">Nothing needs unpacking in the next three weeks.</div>';
+    return;
+  }
+  const names=Object.keys(totals).sort((a,b)=>totals[b]-totals[a]||a.localeCompare(b));
+  let html=`<div class="card mb-4" style="padding:0;overflow:hidden">
+    <div class="lbl" style="padding:12px 14px 6px">Unpack now — mattresses needed within ${UNPACK_DAYS} days</div>
+    <div class="k" style="padding:0 14px 10px">Everything already booked, already cleared and waiting on the office to ring, or clearing on its own inside three weeks. Bases and protectors aren't listed — they don't need the lead time.</div>
+    <table><thead><tr><th>Mattress</th><th class="num">On hand</th><th class="num">To unpack</th><th class="num">Short</th></tr></thead><tbody>`;
+  let tU=0,tS=0;
+  names.forEach(n=>{
+    const it=ITEMS.find(x=>x.product_name===n);
+    const oh=it?onHand(it):0, need=totals[n], short=Math.max(0,need-oh);
+    tU+=need; tS+=short;
+    html+=`<tr><td class="text-slate-100">${esc(n)}</td>
+      <td class="num text-slate-400">${NUM(oh)}</td>
+      <td class="num"><span class="pillc" style="color:#fbbf24;border-color:#5a4a24">${NUM(need)}</span></td>
+      <td class="num" style="color:${short>0?'#f87171':'#4ade80'};font-weight:600">${short>0?NUM(short):'—'}</td></tr>`;
+  });
+  html+=`<tr style="border-top:2px solid #334155;font-weight:700">
+      <td class="text-slate-100">Total</td><td class="num text-slate-400"></td>
+      <td class="num" style="color:#fbbf24">${NUM(tU)}</td>
+      <td class="num" style="color:${tS>0?'#f87171':'#4ade80'}">${tS>0?NUM(tS):'—'}</td>
+    </tr></tbody></table></div>`;
+
+  html+=`<div class="card" style="padding:0;overflow:hidden">
+    <div class="lbl" style="padding:12px 14px 6px">The ${rows.length} order${rows.length===1?'':'s'} behind that</div>
+    <table><thead><tr><th>Customer</th><th>Mattress</th><th>Why it's here</th></tr></thead><tbody>`;
+  rows.forEach(r=>{
+    const when=r.why==='Booked'&&r.when?('Booked '+r.when):r.why;
+    const colour=r.ord===0?'#7dd3fc':r.ord===1?'#4ade80':'#fbbf24';
+    html+=`<tr>
+      <td class="text-slate-100">${esc(r.name)}</td>
+      <td class="text-slate-300">${r.items.map(i=>esc(i.name)+(i.qty>1?' ×'+i.qty:'')).join('<br>')}</td>
+      <td><span class="pillc" style="color:${colour};border-color:#2a3a55">${esc(when)}</span>${
+        r.ord===2&&r.toGo?`<span class="k" style="margin-left:8px">${r.toGo} payment${r.toGo===1?'':'s'} to go</span>`:''}</td>
+    </tr>`;
+  });
+  html+='</tbody></table></div>';
+  $('paneUnpack').innerHTML=html;
+}
+
+function setTab(t){
+  const stock=t==='stock';
+  $('paneStock').classList.toggle('hidden',!stock);
+  $('paneUnpack').classList.toggle('hidden',stock);
+  $('tabStock').classList.toggle('on',stock);
+  $('tabUnpack').classList.toggle('on',!stock);
+}
+
 function render(){
   $('state').classList.add('hidden');
   renderForward();
+  renderUnpack();
 
   // summary totals per category
   const totals={}; CAT_ORDER.forEach(c=>totals[c]=0);

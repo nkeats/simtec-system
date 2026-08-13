@@ -16,7 +16,7 @@
      reach the order app before go-live. When you roll out to consultants, add
      ",consultant" to data-roles below and add a New Order button to my-sales.html. -->
 <script src="auth.js?v=3" data-roles="admin,manager,office,consultant"></script>
-<script>window.SIMTEC_BUILD="2026-08-13-01";</script>
+<script>window.SIMTEC_BUILD="2026-08-13-02";</script>
 <script src="update.js?v=1"></script>
 
 
@@ -538,25 +538,23 @@
         </div>
       </div>
 
-      <!-- hosted eDDR form -->
+      <!-- hosted eDDR form
+           NO IFRAME (13 Aug 2026). It used to be embedded at a fixed 900x2100 and
+           CSS-scaled to fit, which is why the form "floated" and why we kept adding
+           height to it. When Ezidebit's last step fell below that fixed height the
+           customer never reached the page that redirects back here — so the account
+           and the schedule WERE created at Ezidebit, but the app never heard about
+           it and flagged the order incomplete. Confirmed by Nigel in EziOnline.
+           The whole page now goes to Ezidebit and comes back. There is no frame to
+           size, so that entire class of fault is gone. -->
       <div class="card" id="eziFormCard">
         <div id="eziLaunch" style="text-align:center;padding:20px;border:2px dashed var(--line);border-radius:12px;background:#fafbfd;">
           <div style="font-size:34px;">🔒</div>
           <p style="font-weight:700;margin:8px 0 4px;">Ezidebit secure direct-debit form</p>
           <p class="sub" style="margin:0 auto 14px;max-width:460px;">Bank/card details and the direct-debit authority are captured directly by Ezidebit — nothing sensitive touches Simtec.</p>
+          <p class="sub" style="margin:0 auto 14px;max-width:460px;">The Ezidebit form opens on its own, full screen. Work through it to the very end — when Ezidebit finishes, this order comes back on screen by itself with the direct debit attached.</p>
           <button class="btn-sm" type="button" onclick="launchEzidebit()">Open secure Ezidebit form</button>
           <div id="eziMsg" class="sub" style="margin-top:10px;color:var(--danger)"></div>
-        </div>
-        <!-- The Ezidebit form is 900px wide internally, but the frame is SCALED to fit
-             the screen width (transform), so there is nothing to drag sideways and
-             vertical finger-pans pass straight through to the page. Tall enough that
-             their ENTIRE form — including their Submit — is on the page, directly
-             above the signature box. fitEzi() keeps the scale right on rotate. -->
-        <div id="eziFrameWrap" class="hidden" style="overflow:hidden;touch-action:pan-y;border:1px solid var(--line);border-radius:12px;background:#fff;position:relative;">
-          <iframe id="eziFrame" title="Ezidebit direct debit" style="width:900px;max-width:none;height:2100px;border:0;display:block;transform-origin:0 0;"></iframe>
-        </div>
-        <div id="eziTallerRow" class="hidden" style="text-align:center;margin-top:8px;">
-          <button class="btn-sm" type="button" onclick="eziTaller()" style="background:#fff;color:var(--navy);border:1px solid var(--line);">⬇ Can't see Ezidebit's Submit button? Tap to extend the window</button>
         </div>
         <div id="eziDone" class="hidden" style="text-align:center;padding:20px;border:2px solid var(--ok);border-radius:12px;background:var(--ok-soft);">
           <div style="font-size:34px;">✅</div>
@@ -2051,21 +2049,17 @@ function buildEddrUrl(){
   return EZI_EDDR_BASE + '?' + q.toString();
 }
 
-let EZI_H=2100;                                   // the frame's internal height
-function fitEzi(){
-  // Scale the 900px-wide Ezidebit form down to the wrapper's width so it always
-  // fits the screen exactly — no sideways movement, page scrolls freely.
-  const wrap=document.getElementById("eziFrameWrap"), fr=document.getElementById("eziFrame");
-  if(!wrap||!fr||wrap.classList.contains("hidden")) return;
-  const w=wrap.clientWidth||wrap.getBoundingClientRect().width; if(!w) return;
-  const scale=Math.min(1, w/900);
-  fr.style.height=EZI_H+"px";
-  fr.style.transform="scale("+scale+")";
-  wrap.style.height=Math.round(EZI_H*scale)+"px";  // wrapper hugs the scaled frame
-}
-function eziTaller(){ EZI_H+=600; fitEzi(); }      // each tap adds another 600px of window
-window.addEventListener("resize", fitEzi);
-window.addEventListener("orientationchange", ()=>setTimeout(fitEzi,250));
+/* ── Leaving for Ezidebit, and coming back ────────────────────────────────
+   The order itself is already saved in the database by this point (step 7), so
+   the only thing that has to survive the trip is enough to put the consultant
+   back where they were. That is what EZI_RESUME holds.
+   ⚠ We NAVIGATE rather than open a new tab: on the iPad the app runs from the
+   Home Screen icon, and a new tab lands in Safari, which keeps COMPLETELY
+   SEPARATE storage — the result would come back somewhere this app cannot see.
+   Same trap as pairing the delivery iPad. */
+const EZI_RESUME='simtec_ezi_resume';
+const EZI_RESUME_MAX_MIN=120;                    // an abandoned form must not resume tomorrow
+
 function launchEzidebit(){
   const msg=document.getElementById('eziMsg'); msg.textContent='';
   if(!S.orderId){ msg.textContent='Save the order first (go back and submit) before setting up the direct debit.'; return; }
@@ -2073,35 +2067,99 @@ function launchEzidebit(){
   if(rAmt==null && oAmt==null){ msg.textContent='Enter at least a one-off amount or a plan amount.'; return; }
   if(rAmt!=null && !val('eziPlanStart')){ msg.textContent='Enter a plan start date.'; return; }
   if(oAmt!=null && !val('eziOneoffDate')){ msg.textContent='Enter the one-off payment date.'; return; }
-  document.getElementById('eziFrame').src=buildEddrUrl();
-  document.getElementById('eziLaunch').classList.add('hidden');
-  document.getElementById('eziFrameWrap').classList.remove('hidden');
-  document.getElementById("eziTallerRow").classList.remove("hidden");
-  setTimeout(fitEzi,50);
+
+  try{
+    localStorage.setItem(EZI_RESUME, JSON.stringify({
+      at:Date.now(), orderId:S.orderId, saleType:S.saleType, pay:S.pay,
+      depositMethod:S.depositMethod, fullMethod:S.fullMethod,
+      plan:{ oneoffAmount:val('eziOneoffAmount'), oneoffDate:val('eziOneoffDate'),
+             planAmount:val('eziPlanAmount'), planFreq:val('eziPlanFreq'),
+             planStart:val('eziPlanStart'), planCount:val('eziPlanCount') }
+    }));
+  }catch(e){
+    msg.textContent='This iPad will not let the app save its place. Ask the office before carrying on.';
+    return;                                       // no marker = no way back; do not strand them
+  }
+  location.href = buildEddrUrl();                 // the whole page goes to Ezidebit
 }
 
-// The return page (same-origin) postMessages the eDDR callback params here.
-window.addEventListener('message', function(ev){
-  if(ev.origin!==location.origin) return;                    // only trust our own return page
-  const d=ev.data; if(!d || d.__simtec!=='ezidebit-return') return;
-  applyEzidebitCallback(d.params||{}).then(()=>{
-    S.eziRef = (d.params&&(d.params.cref||d.params.uref))||null;   // the direct debit really is set up
-    /* TEMPORARY 13 Aug 2026 — if the consultant reported a failure and then got
-       the form to work on a retry, the direct debit is real and the order must
-       NOT be flagged as having none. */
-    if(S.eziRef && S.eziSkipped){
-      S.eziSkipped=false; S.eziSkipWhy=''; S.eziSkipPlan=null;
-      const box=document.getElementById('eziSkipDone'); if(box) box.classList.add('hidden');
-      const btn=document.getElementById('eziSkipBtn');
-      if(btn){ btn.disabled=false; btn.style.opacity=''; btn.textContent="The form won't accept it — finish without the direct debit"; }
-    }
-    document.getElementById('eziFrameWrap').classList.add('hidden');
-    const done=document.getElementById('eziDone'); done.classList.remove('hidden');
-    const p=d.params||{};
-    document.getElementById('eziDoneMsg').textContent=
-      'Ezidebit customer '+(p.cref||p.uref||'')+' — schedule stored on the order.';
-  }).catch(e=>{ document.getElementById('eziMsg').textContent='Saved with Ezidebit, but storing on the order failed: '+(e.message||e); });
-});
+/* Called at start-up. If we have just come back from Ezidebit, put the order
+   back on screen with the direct debit attached. Everything here is best-effort:
+   if anything is missing the app simply starts normally. */
+async function resumeFromEzidebit(){
+  let mark=null, ret=null;
+  try{ mark=JSON.parse(localStorage.getItem(EZI_RESUME)||'null'); }catch(e){}
+  try{ ret =JSON.parse(localStorage.getItem('simtec_ezidebit_return')||'null'); }catch(e){}
+  if(!mark || !mark.orderId) return false;
+
+  const ageMin=(Date.now()-(mark.at||0))/60000;
+  if(ageMin>EZI_RESUME_MAX_MIN){                  // stale — an abandoned form yesterday
+    try{ localStorage.removeItem(EZI_RESUME); localStorage.removeItem('simtec_ezidebit_return'); }catch(e){}
+    return false;
+  }
+  try{ localStorage.removeItem(EZI_RESUME); }catch(e){}
+
+  S.orderId=mark.orderId; S.saleType=mark.saleType||S.saleType; S.pay=mark.pay||S.pay;
+  S.depositMethod=mark.depositMethod||S.depositMethod; S.fullMethod=mark.fullMethod||S.fullMethod;
+  const setv=(id,v)=>{ const el=document.getElementById(id); if(el&&v!=null&&v!=='') el.value=v; };
+  const p=mark.plan||{};
+  setv('eziOneoffAmount',p.oneoffAmount); setv('eziOneoffDate',p.oneoffDate);
+  setv('eziPlanAmount',p.planAmount);     setv('eziPlanFreq',p.planFreq);
+  setv('eziPlanStart',p.planStart);       setv('eziPlanCount',p.planCount);
+
+  const params=(ret&&ret.params)||null;
+  try{ localStorage.removeItem('simtec_ezidebit_return'); }catch(e){}
+
+  if(params && (params.cref||params.uref)){
+    await logEziCallback(params,'returned');
+    try{ await applyEzidebitCallback(params); }
+    catch(e){ await logEziCallback(params,'store_failed:'+(e.message||e)); }
+    S.eziRef=params.cref||params.uref||null;
+    clearEziSkipIfRealDebit();
+    showEziDone(params);
+  }else{
+    // Came back with nothing usable — say so plainly rather than pretend.
+    await logEziCallback(params||{},'came_back_empty');
+    const m=document.getElementById('eziMsg');
+    if(m) m.textContent='Ezidebit did not send the direct debit details back. If the customer did finish the form, ring the office before you leave — do not start it again.';
+  }
+  showStep(8);
+  return true;
+}
+
+function showEziDone(p){
+  const l=document.getElementById('eziLaunch'); if(l) l.classList.add('hidden');
+  const done=document.getElementById('eziDone'); if(done) done.classList.remove('hidden');
+  const msg=document.getElementById('eziDoneMsg');
+  if(msg) msg.textContent='Ezidebit customer '+((p&&(p.cref||p.uref))||'')+' — schedule stored on the order.';
+}
+
+/* Every return is recorded, good or bad, so the next time this misbehaves there
+   is something to read instead of another afternoon of guesswork. Never blocks. */
+async function logEziCallback(params,outcome){
+  try{
+    if(!sb) return;
+    await sb.from('ezidebit_callback_log').insert({
+      order_id:S.orderId||null, outcome:outcome,
+      cref:(params&&params.cref)||null, uref:(params&&params.uref)||null,
+      had_rdate:!!(params&&params.rdate), had_ramount:!!(params&&params.ramount),
+      params:params||{}
+    });
+  }catch(e){ console.warn('callback log failed:',e&&e.message||e); }
+}
+
+/* The return page is no longer framed, so there is no postMessage. It hands the
+   result over through localStorage and sends the consultant back here; the
+   handover is picked up by resumeFromEzidebit() at start-up.
+   ⚠ KEPT: the skip flag must clear if the direct debit turns out to be real, so
+   an order can never be filed as "no direct debit" when it has one. */
+function clearEziSkipIfRealDebit(){
+  if(!(S.eziRef && S.eziSkipped)) return;
+  S.eziSkipped=false; S.eziSkipWhy=''; S.eziSkipPlan=null;
+  const box=document.getElementById('eziSkipDone'); if(box) box.classList.add('hidden');
+  const btn=document.getElementById('eziSkipBtn');
+  if(btn){ btn.disabled=false; btn.style.opacity=''; btn.textContent="The form won't accept it — finish without the direct debit"; }
+}
 
 // STORE the returned payer ref + schedule on the order (never calculate).
 // eDDR callback fields: uref, cref (EzidebitCustomerID), ramount, rdate, freq(code),
@@ -2131,7 +2189,12 @@ document.querySelectorAll('canvas.sig').forEach(c=>{sizeCanvas(c);initSig(c);});
 window.addEventListener('resize',()=>document.querySelectorAll('section.step.on canvas.sig').forEach(sizeCanvas));
 function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));}
 (function(){const d=new Date();const p=n=>String(n).padStart(2,'0');document.getElementById('visitDate').value=d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate());})();
-addProduct(); showStep(0);
+addProduct();
+/* Coming back from Ezidebit takes priority over a fresh start — resumeFromEzidebit
+   puts the consultant back on step 8 with the direct debit attached. If there is
+   nothing to resume, or anything goes wrong, the app starts normally. */
+resumeFromEzidebit().then(function(resumed){ if(!resumed) showStep(0); })
+                    .catch(function(e){ console.warn('resume failed:',e&&e.message||e); showStep(0); });
 renderParked(); trySync();
 </script>
 <div id="loginQrModal" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(8,16,32,.72);align-items:center;justify-content:center;padding:20px;">
