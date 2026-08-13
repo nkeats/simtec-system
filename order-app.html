@@ -16,7 +16,7 @@
      reach the order app before go-live. When you roll out to consultants, add
      ",consultant" to data-roles below and add a New Order button to my-sales.html. -->
 <script src="auth.js?v=3" data-roles="admin,manager,office,consultant"></script>
-<script>window.SIMTEC_BUILD="2026-08-13-02";</script>
+<script>window.SIMTEC_BUILD="2026-08-13-03";</script>
 <script src="update.js?v=1"></script>
 
 
@@ -2068,17 +2068,38 @@ function launchEzidebit(){
   if(rAmt!=null && !val('eziPlanStart')){ msg.textContent='Enter a plan start date.'; return; }
   if(oAmt!=null && !val('eziOneoffDate')){ msg.textContent='Enter the one-off payment date.'; return; }
 
+  /* ⚠ EVERYTHING finalizeOrder() STILL NEEDS AFTER THE TRIP HAS TO TRAVEL IN HERE.
+     The page reloads while the customer is on Ezidebit's site, so anything left
+     only in memory is gone when they come back. Missed on the first build:
+     customerId — without it sendCustomerLoginLink() returns early and the
+     REWARDS-APP QR NEVER APPEARS, silently, at the very end of the sale.
+     lastP travels WITHOUT its `files` (signatures and ID photos are already in
+     storage, and the data URLs would blow the localStorage quota) — the summary
+     PDF only reads fields/flags/products, and it has to be regenerated after the
+     trip so the Ezidebit schedule lands on it. */
+  const slimP = S.lastP ? { v:S.lastP.v, savedAt:S.lastP.savedAt, customerName:S.lastP.customerName,
+                            fields:S.lastP.fields, flags:S.lastP.flags, products:S.lastP.products,
+                            wantDel:S.lastP.wantDel, referralId:S.lastP.referralId } : null;
+  const marker = {
+    at:Date.now(), orderId:S.orderId, customerId:S.customerId||null,
+    saleType:S.saleType, pay:S.pay, depositMethod:S.depositMethod, fullMethod:S.fullMethod,
+    lastP:slimP,
+    plan:{ oneoffAmount:val('eziOneoffAmount'), oneoffDate:val('eziOneoffDate'),
+           planAmount:val('eziPlanAmount'), planFreq:val('eziPlanFreq'),
+           planStart:val('eziPlanStart'), planCount:val('eziPlanCount') }
+  };
   try{
-    localStorage.setItem(EZI_RESUME, JSON.stringify({
-      at:Date.now(), orderId:S.orderId, saleType:S.saleType, pay:S.pay,
-      depositMethod:S.depositMethod, fullMethod:S.fullMethod,
-      plan:{ oneoffAmount:val('eziOneoffAmount'), oneoffDate:val('eziOneoffDate'),
-             planAmount:val('eziPlanAmount'), planFreq:val('eziPlanFreq'),
-             planStart:val('eziPlanStart'), planCount:val('eziPlanCount') }
-    }));
+    localStorage.setItem(EZI_RESUME, JSON.stringify(marker));
   }catch(e){
-    msg.textContent='This iPad will not let the app save its place. Ask the office before carrying on.';
-    return;                                       // no marker = no way back; do not strand them
+    // Quota, most likely. Drop the payload and keep the parts that matter most:
+    // the order, the customer (the QR) and the schedule.
+    try{
+      marker.lastP=null;
+      localStorage.setItem(EZI_RESUME, JSON.stringify(marker));
+    }catch(e2){
+      msg.textContent='This iPad will not let the app save its place. Ask the office before carrying on.';
+      return;                                     // no marker = no way back; do not strand them
+    }
   }
   location.href = buildEddrUrl();                 // the whole page goes to Ezidebit
 }
@@ -2101,6 +2122,8 @@ async function resumeFromEzidebit(){
 
   S.orderId=mark.orderId; S.saleType=mark.saleType||S.saleType; S.pay=mark.pay||S.pay;
   S.depositMethod=mark.depositMethod||S.depositMethod; S.fullMethod=mark.fullMethod||S.fullMethod;
+  S.customerId=mark.customerId||S.customerId||null;   // without this there is no rewards-app QR
+  if(mark.lastP) S.lastP=mark.lastP;                  // so the summary PDF can be regenerated
   const setv=(id,v)=>{ const el=document.getElementById(id); if(el&&v!=null&&v!=='') el.value=v; };
   const p=mark.plan||{};
   setv('eziOneoffAmount',p.oneoffAmount); setv('eziOneoffDate',p.oneoffDate);
