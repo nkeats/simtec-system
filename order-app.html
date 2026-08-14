@@ -16,7 +16,7 @@
      reach the order app before go-live. When you roll out to consultants, add
      ",consultant" to data-roles below and add a New Order button to my-sales.html. -->
 <script src="auth.js?v=3" data-roles="admin,manager,office,consultant"></script>
-<script>window.SIMTEC_BUILD="2026-08-13-03";</script>
+<script>window.SIMTEC_BUILD="2026-08-13-04";</script>
 <script src="update.js?v=1"></script>
 
 
@@ -629,6 +629,36 @@
           <div id="cardPayOff" class="sub hidden" style="margin-top:6px;color:#8a6d1a"><b>Not available for this order.</b> Unsolicited sale — the 5-working-day cooling-off period means no payment can be taken today.</div>
         </div>
 
+        <!-- CASH TAKEN AT THE DOOR (13 Aug 2026)
+             Solicited sales only, same as the card panel above: an unsolicited sale
+             is inside the 5-working-day cooling-off period, when no money may be
+             taken at all.
+             ⚠ The box starts EMPTY on purpose. Cash is the one payment with no
+             gateway, no receipt and no bank feed to reconcile against later — the
+             only record of it is what the consultant types, so it is typed, not
+             assumed. The two buttons fill the common amounts; anything else is
+             keyed in by hand, and the amount is confirmed before it is recorded. -->
+        <div id="cashPayBox" class="hidden" style="max-width:430px;margin:20px auto 0;border:1.5px solid #cfe6d4;border-radius:14px;padding:16px 18px;background:#f4fbf6;text-align:center">
+          <div style="font-weight:800;font-size:15px;">💵 Cash received</div>
+          <div id="cashPayInner">
+            <div class="sub" style="margin:6px 0 10px">Only if the customer has handed over cash today. It is recorded against this order straight away and appears on their statement.</div>
+            <div style="display:flex;gap:8px;justify-content:center;margin-bottom:10px;flex-wrap:wrap">
+              <button type="button" id="cashFull" class="btn-sm" style="background:#fff;color:var(--navy);border:1px solid var(--line);" onclick="cashFill('full')">Full amount</button>
+              <button type="button" id="cashHalf" class="btn-sm" style="background:#fff;color:var(--navy);border:1px solid var(--line);" onclick="cashFill('half')">50%</button>
+            </div>
+            <input id="cashPayAmt" type="number" inputmode="decimal" min="1" step="0.01"
+                   style="width:170px;text-align:center;font-size:17px;font-weight:700;padding:10px;border:1.5px solid var(--line);border-radius:10px"
+                   placeholder="Amount $">
+            <div><button type="button" class="btn next" style="max-width:300px;margin:12px auto 0;display:block;background:#1c6b34" onclick="recordCash()">Record cash received</button></div>
+            <div id="cashPayMsg" class="sub" style="margin-top:8px"></div>
+          </div>
+          <div id="cashPayDone" class="hidden" style="margin-top:8px;padding:12px;border-radius:10px;background:#fff;border:1px solid #bcdcc4">
+            <b style="color:#1c6b34">Cash recorded</b>
+            <div class="sub" id="cashPayDoneMsg" style="margin-top:4px;color:#2f6b53"></div>
+          </div>
+          <div id="cashPayOff" class="sub hidden" style="margin-top:6px;color:#8a6d1a"><b>Not available for this order.</b> Unsolicited sale — no money can be taken during the cooling-off period.</div>
+        </div>
+
         <!-- Referrals are collected on a PAPER sheet after the order is submitted,
              so this has to live here, after Done, rather than anywhere in the flow. -->
         <div id="pillowBox" class="hidden" style="max-width:430px;margin:20px auto 0;border:1.5px solid #f0dca8;border-radius:14px;padding:16px 18px;background:#fff8e8;text-align:center">
@@ -837,7 +867,8 @@ async function bootLists(){
 if(document.readyState!=='loading') bootLists(); else document.addEventListener('DOMContentLoaded', bootLists);
 const S = { step:0, saleType:'', pay:'', depositMethod:'ezidebit', fullMethod:'bank', a2:false, products:[], referralId:null, emailVerified:false, sentCode:null, tncRead:false, idPhotos:{A1:[],A2:[]},
             /* TEMPORARY 13 Aug 2026 — set only by the red "Ezidebit won't accept it" button on step 8. */
-            eziSkipped:false, eziSkipWhy:'', eziSkipPlan:null };
+            eziSkipped:false, eziSkipWhy:'', eziSkipPlan:null,
+            cashTaken:0 };
 const STEP_LABELS = ['Start','Products','Details','Referees','Terms','ID','Payment','Sign','Ezidebit','Done'];
 
 function visibleSteps(){
@@ -1620,6 +1651,7 @@ async function submitOrder(){
        because an abandoned order never reaches GHL at all. */
     setDoneSaved();
     renderCardPay();
+    renderCashPay();
     setBtn(btnLabel,false);
     done.textContent = S.pay==='ezidebit'
       ? 'Order saved. Complete the Ezidebit direct debit next.'
@@ -1754,6 +1786,66 @@ function eziSkipNote(){
        + 'consultant reported: "'+(S.eziSkipWhy||'no detail given')+'". '
        + 'Nothing will be collected until the office sets this up with the customer by phone.'
        + (bits.length ? ' Schedule the consultant agreed: '+bits.join(', ')+'.' : '');
+}
+
+/* ---- cash taken at the door (solicited only) ------------------------------
+   Deliberately NOT pre-filled. See the note on the panel: the only record of
+   cash is what the consultant types, so it gets typed and then confirmed. */
+function renderCashPay(){
+  const box=document.getElementById('cashPayBox'); if(!box) return;
+  box.classList.remove('hidden');
+  const solicited = S.saleType==='solicited';
+  document.getElementById('cashPayInner').classList.toggle('hidden', !solicited);
+  document.getElementById('cashPayOff').classList.toggle('hidden', solicited);
+  const amt=document.getElementById('cashPayAmt'); if(amt) amt.value='';
+  const done=document.getElementById('cashPayDone'); if(done) done.classList.add('hidden');
+}
+
+function cashGross(){
+  return Number((S.lastP && (S.lastP.contract_value||S.lastP.total||S.lastP.gross)) || 0)
+      || Number((S.lastP && S.lastP.products || []).reduce((s,p)=>s+((p.price||0)*(p.qty||0)),0)) || 0;
+}
+function cashFill(which){
+  const g=cashGross(), inp=document.getElementById('cashPayAmt'), msg=document.getElementById('cashPayMsg');
+  if(!(g>0)){ if(msg) msg.textContent="Couldn't work out the sale total — type the amount instead."; return; }
+  if(inp) inp.value=(which==='half' ? g/2 : g).toFixed(2);
+  if(msg) msg.textContent='';
+}
+
+async function recordCash(){
+  const msg=document.getElementById('cashPayMsg');
+  const inp=document.getElementById('cashPayAmt');
+  const amt=Math.round(Number((inp||{}).value||0)*100)/100;
+  msg.textContent='';
+  if(!S.orderId){ msg.textContent='Save the order first.'; return; }
+  if(!(amt>0)){ msg.textContent='Enter the amount of cash you have been handed.'; return; }
+  const g=cashGross();
+  if(g>0 && amt>g+0.005){ msg.textContent='That is more than the total sale value of $'+g.toFixed(2)+'.'; return; }
+
+  // Confirmed twice — cash has no gateway and no receipt behind it.
+  if(!confirm('Record $'+amt.toFixed(2)+' in cash received from this customer?')) return;
+  if(!confirm('Please check the amount once more.\n\n$'+amt.toFixed(2)+
+              ' in cash.\n\nThis goes on their account and on the welcome email. '
+              +'Only the office can change it afterwards.')) return;
+
+  const btn=document.querySelector('#cashPayInner .btn.next');
+  if(btn){ btn.disabled=true; btn.textContent='Recording…'; }
+  try{
+    const {data,error}=await sb.rpc('record_cash_at_sale',{p_order:S.orderId,p_amount:amt,p_note:null});
+    if(error) throw error;
+    S.cashTaken=(Number(S.cashTaken)||0)+amt;
+    document.getElementById('cashPayInner').classList.add('hidden');
+    const done=document.getElementById('cashPayDone');
+    done.classList.remove('hidden');
+    document.getElementById('cashPayDoneMsg').textContent =
+      '$'+amt.toFixed(2)+' cash. Paid to date $'+Number((data&&data.paid_to_date)||amt).toFixed(2)
+      + ((data&&data.paid_in_full) ? ' — this order is now paid in full.' : '.');
+    // The welcome email quotes the cash, so GHL needs the figure before it fires.
+    pushOrderToGhl(S.orderId, {contactOnly:true});
+  }catch(e){
+    msg.textContent = (e && (e.message||e.hint)) || 'The cash was not recorded. Try again, or ring the office.';
+    if(btn){ btn.disabled=false; btn.textContent='Record cash received'; }
+  }
 }
 
 async function finalizeOrder(){
@@ -2081,7 +2173,7 @@ function launchEzidebit(){
                             fields:S.lastP.fields, flags:S.lastP.flags, products:S.lastP.products,
                             wantDel:S.lastP.wantDel, referralId:S.lastP.referralId } : null;
   const marker = {
-    at:Date.now(), orderId:S.orderId, customerId:S.customerId||null,
+    at:Date.now(), orderId:S.orderId, customerId:S.customerId||null, cashTaken:S.cashTaken||0,
     saleType:S.saleType, pay:S.pay, depositMethod:S.depositMethod, fullMethod:S.fullMethod,
     lastP:slimP,
     plan:{ oneoffAmount:val('eziOneoffAmount'), oneoffDate:val('eziOneoffDate'),
@@ -2124,6 +2216,7 @@ async function resumeFromEzidebit(){
   S.depositMethod=mark.depositMethod||S.depositMethod; S.fullMethod=mark.fullMethod||S.fullMethod;
   S.customerId=mark.customerId||S.customerId||null;   // without this there is no rewards-app QR
   if(mark.lastP) S.lastP=mark.lastP;                  // so the summary PDF can be regenerated
+  S.cashTaken=Number(mark.cashTaken)||0;
   const setv=(id,v)=>{ const el=document.getElementById(id); if(el&&v!=null&&v!=='') el.value=v; };
   const p=mark.plan||{};
   setv('eziOneoffAmount',p.oneoffAmount); setv('eziOneoffDate',p.oneoffDate);
