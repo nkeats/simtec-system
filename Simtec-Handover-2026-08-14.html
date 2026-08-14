@@ -1,0 +1,169 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Simtec — Handover 14 August 2026</title><style>
+:root{--navy:#122347;--gold:#c6a15b;--ink:#1f2733;--line:#dbe2ec;--red:#b3261e;--bg:#f5f7fa}
+*{box-sizing:border-box}
+body{font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;line-height:1.62;
+ color:var(--ink);background:var(--bg);margin:0;padding:40px 20px}
+.wrap{max-width:920px;margin:0 auto;background:#fff;border:1px solid var(--line);
+ border-radius:14px;padding:46px 54px;box-shadow:0 2px 18px rgba(18,35,71,.07)}
+h1{color:var(--navy);font-size:29px;margin:0 0 6px;border-bottom:3px solid var(--gold);padding-bottom:12px}
+h2{color:var(--navy);font-size:21px;margin:38px 0 12px;border-bottom:1px solid var(--line);padding-bottom:7px}
+h3{color:var(--navy);font-size:17px;margin:26px 0 8px}
+h4{color:#3c4a63;font-size:15px;margin:20px 0 6px}
+p{margin:11px 0}
+code{background:#eef2f7;padding:1.5px 6px;border-radius:4px;font-size:13.5px;
+ font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+pre{background:#0e2038;color:#e8eef7;padding:16px 18px;border-radius:10px;overflow-x:auto}
+pre code{background:none;color:inherit;padding:0;font-size:13px}
+table{border-collapse:collapse;width:100%;margin:16px 0;font-size:14.5px}
+th{background:var(--navy);color:#fff;text-align:left;padding:9px 12px;font-weight:600}
+td{border-bottom:1px solid var(--line);padding:9px 12px;vertical-align:top}
+tr:nth-child(even) td{background:#fafbfd}
+ul,ol{margin:11px 0;padding-left:24px}
+li{margin:5px 0}
+blockquote{border-left:4px solid var(--gold);background:#fdfaf3;margin:14px 0;
+ padding:12px 18px;border-radius:0 8px 8px 0}
+hr{border:0;border-top:1px solid var(--line);margin:34px 0}
+strong{color:#0f1b30}
+@media print{body{background:#fff;padding:0}.wrap{border:0;box-shadow:none;padding:0}}
+</style></head><body><div class="wrap"><h1>Simtec — handover, Friday 14 August 2026</h1>
+<p>Supersedes every previous handover, including 10 August (evening).</p>
+<p>System: <code>nkeats.github.io/simtec-system</code> · Supabase project <code>jvqjoenaungubpoegyvf</code> GHL location <code>s78O4hTnREBpEQAmR2aI</code> Book: <strong>411 active orders, 568 customers.</strong></p>
+<hr>
+<h1>PART 1 — STANDING RULES</h1>
+<p>These carry into every session and must appear in every future handover.</p>
+<h3>1. ⚠ ASK FIRST. NEVER ASSUME.</h3>
+<p>Do not build, change, deploy or "improve" anything without asking — even when the next step looks obvious, even for a small extra alongside what was asked. Confirm what Nigel wants built <strong>before</strong> building it.</p>
+<h3>2. ROBUST AND SECURE, ABOVE ALL ELSE.</h3>
+<p><strong>Simtec runs its entire business on this system.</strong> A silent failure costs real money and real customers. Where there is a choice, take the more robust and more secure option even at cost: server-side over client-side, least-privilege RLS, validated migrations, code that degrades gracefully and says so when it fails.</p>
+<h3>3. THEN SIMPLE.</h3>
+<p>Where two options are equally robust: fewer moving parts, fewer keys, less new code. Prefer reusing what already works. Check for the simple option <em>before</em> building.</p>
+<h3>4. NEVER ASSUME — CHECK.</h3>
+<p>The actual file, the actual data, the actual <strong>live deployed</strong> code. Not what a comment, a memory or a previous handover says.</p>
+<h3>5. BUMP <code>SIMTEC_BUILD</code> WHENEVER YOU EDIT A PAGE THAT CARRIES IT.</h3>
+<p>Format <code>YYYY-MM-DD-NN</code>. This is what tells an iPad its saved copy is stale. On <code>rewards.html</code> bump <strong>both</strong> <code>SIMTEC_BUILD</code> and <code>APP_VER</code>.</p>
+<h3>6. A TEST RECORD IS NEVER DELETED FROM ONE TABLE ALONE.</h3>
+<p>Sweep everything and verify residue is zero.</p>
+<h3>7. NEVER TEST WITH A REAL PERSON'S NAME, MOBILE OR EMAIL.</h3>
+<p>A completed test order fires the GHL push, the staff SMS and the welcome email.</p>
+<h3>8. NAMING.</h3>
+<p><em>System</em> = office pages · <em>Sales App</em> = the iPad order app · <em>Games App</em> = the customer rewards app.</p>
+<p><strong>Office hours 9–5, Mon–Fri. Exit plan: selling within 18–24 months.</strong></p>
+<hr>
+<h1>PART 2 — ⚠⚠ DEPLOY SAFETY — READ BEFORE TOUCHING AN EDGE FUNCTION</h1>
+<p><strong>This section exists because of what happened this week.</strong></p>
+<p>On 7 and 10 August two fixes were deployed to <code>ghl-order-push</code>: the customer welcome email (v30) and the fix that lets GHL's dialler ring a customer (v29). Some time before 13 August, versions v31–v34 were deployed <strong>from an older copy of the file</strong>. Both fixes were silently wiped. Nobody noticed for a week.</p>
+<p><strong>The cost: about 40 customers received no welcome email — no terms, no 15-year warranty, no care sheets.</strong> Clause 3 of the Terms promises the comfort guarantee by email on confirmation of sale, so this was a contractual gap, not a courtesy.</p>
+<h3>The rules that follow from it</h3>
+<p><strong>R1. ALWAYS READ THE LIVE FUNCTION BEFORE YOU DEPLOY OVER IT.</strong> Fetch the deployed source, diff it against what you are about to send, and account for <strong>every</strong> line you are removing. Never paste from a chat, a note or a memory of what it used to contain.</p>
+<p><strong>R2. EVERY CRITICAL FUNCTION CARRIES A "DO NOT REMOVE" HEADER.</strong> <code>ghl-order-push</code> now opens with a numbered list of the five blocks that must never disappear, each with the fault it fixes. Add to that list whenever something important goes in. If a header block ever disappears, that is the regression.</p>
+<p><strong>R3. A SILENT FAILURE IS A BUG, EVEN WHEN THE CODE "WORKS".</strong> The welcome email was written to tolerate a missing document URL — log a warning and send anyway. Reasonable, and exactly how it hid. Anything that can quietly do nothing must either <strong>shout</strong> (<code>console.error</code>) or <strong>report</strong> what it did. <code>ghl-order-push</code> now returns an <code>attached</code> list naming the documents that actually went. Check it after any change.</p>
+<p><strong>R4. IF IT MATTERS, PROVE IT IN THE DATA, NOT THE CODE.</strong> <code>ghl_pushed_at</code> is set on only 4 of 571 orders — that single query would have caught this in seconds at any point in the week. For anything that must happen on every order, know the column or table that proves it happened.</p>
+<p><strong>R5. VERIFY <code>verify_jwt</code> AFTER EVERY MCP DEPLOY.</strong> Redeploying through the MCP can flip it. Check it matches what the function needs, every time.</p>
+<p><strong>R6. AFTER DEPLOYING, READ IT BACK.</strong> Fetch the function again and confirm what you intended is actually there.</p>
+<h3>The weekly two-minute check (do this every Monday)</h3>
+<pre><code>-- Welcome emails: should be roughly one per order taken.
+select date(created_at at time zone 'Pacific/Auckland') as day,
+       count(*) as orders, count(ghl_pushed_at) as emails_sent
+from sim_orders
+where created_at &gt; now() - interval '14 days'
+  and coalesce(order_status,'active') &lt;&gt; 'cancelled'
+group by 1 order by 1 desc;</code></pre>
+<p>If <code>emails_sent</code> is materially below <code>orders</code> on any day, something is broken.</p>
+<hr>
+<h1>PART 3 — WHAT CHANGED TODAY (14 August)</h1>
+<h2>3.1 The welcome email — restored, and made safe</h2>
+<p><strong><code>ghl-order-push</code> is now v37.</strong> It contains, and must always contain:</p>
+<table><thead><tr><th>#</th><th>Block</th><th>What breaks without it</th></tr></thead><tbody><tr><td>1</td><td>Dialling — <code>toE164NZ</code>, country, timezone, city</td><td>GHL's dialler will not ring the customer</td></tr><tr><td>2</td><td>Welcome email — Resend, 5 documents, send-once claim</td><td>Customers get nothing; contractual gap</td></tr><tr><td>3</td><td>Joint applicant — second name/mobile/email</td><td>Second person invisible to the office</td></tr><tr><td>4</td><td>Cash at the door — <code>cash_paid</code> from the ledger</td><td>Cash never confirmed in writing</td></tr><tr><td>5</td><td>Sweeper auth — the <code>x-simtec-key</code> path</td><td>The safety net cannot run</td></tr></tbody></table>
+<p><strong>The email itself</strong> — from <code>noreply@simtectp.com</code> via Resend, subject "Your Simtec order confirmation", attaching:</p>
+<ul><li>Order summary PDF (signed link, 180 days)</li><li>Terms and Conditions — every order</li><li>15-Year Warranty — every order</li><li>How to sleep on your mattress — every order</li><li>Caring for your bed base — <strong>only when a line matches <code>bed base</code></strong></li><li>30-Day Comfort Guarantee — <strong>only for a Mk III Queen or Super King</strong></li></ul>
+<p>Documents live in the public Supabase bucket <strong><code>email-assets</code></strong>, addressed by the secrets <code>WELCOME_DOC_TERMS / WARRANTY / GUARANTEE / SLEEPING / BASECARE</code>.</p>
+<p><strong>Cash now appears in the email</strong> when the consultant has recorded it:</p>
+<blockquote>We have received <strong>$200.00</strong> in cash, thank you. This has been applied to your</blockquote>
+<blockquote>account and appears on the order summary attached.</blockquote>
+<p>The amount is read <strong>server-side from the payment ledger</strong> — never from the iPad's request. What a customer is told they paid must be what was recorded.</p>
+<h2>3.2 How the email is now timed — and why</h2>
+<p>The cash panel sits on the Done screen, so the email must not go the instant the order finishes or cash would always miss it. It now works like this:</p>
+<ol><li><strong>At Done</strong>, the iPad pushes the GHL contact with <code>contactOnly: true</code>. The</li></ol>
+<p>   contact exists immediately — the office is never left waiting — but <strong>no    email goes</strong>.</p>
+<ol><li><strong>If cash is recorded</strong>, that releases the email straight away, with the</li></ol>
+<p>   amount in it.</p>
+<ol><li><strong>Otherwise</strong>, the database job <code>sweep_welcome_emails()</code> sends it. Runs every</li></ol>
+<p>   5 minutes; picks up any finished order still unsent after 4 minutes.</p>
+<p><strong>The sweeper is what makes this safe.</strong> Closing the app, losing signal or a dead battery cannot lose the email any more. The send-once claim (<code>sim_orders.ghl_pushed_at</code>) is taken atomically inside the edge function, so the iPad and the sweeper can never both send.</p>
+<p>⚠ <strong>The sweeper is deliberately limited to orders from the last 24 hours.</strong> Do not widen that window without deciding what to do about the backlog first — see 5.1.</p>
+<h2>3.3 Cash at the door (built yesterday, unchanged today)</h2>
+<p>Solicited sales only. Green "💵 Cash received" panel on the Done step. The box <strong>starts empty</strong> with Full amount / 50% quick-fill buttons, and the amount is <strong>confirmed twice</strong> — cash has no gateway, no receipt and no bank feed, so the only record is what the consultant types.</p>
+<p>Behind it, <code>record_cash_at_sale()</code> — only the consultant named on that order or the office; refuses an unsolicited sale, a negative amount, or more than the sale value; writes a real payment row and rebuilds the paid total <strong>from the ledger</strong>, never adding to it.</p>
+<h2>3.4 Ezidebit — the iframe is gone</h2>
+<p>The eDDR form used to sit in a fixed 900×2100 iframe scaled to fit. When Ezidebit's final step fell below that height the customer never reached the page that reports back — so the account was created and the order flagged incomplete. <strong>The whole page now goes to Ezidebit and comes back.</strong> There is no frame to size. A resume marker (2-hour expiry) carries the order, the customer, the schedule and the PDF payload across the trip.</p>
+<p>⚠ <strong>Anything <code>finalizeOrder</code> needs must travel in that resume marker</strong>, because the page reloads mid-order now. Missing <code>customerId</code> cost us the rewards QR code on the first live order after the change.</p>
+<p>Every Ezidebit return is now logged to <strong><code>ezidebit_callback_log</code></strong> — read that table first if a direct debit ever fails to attach.</p>
+<h2>3.5 Arrears — the "behind" figure was wrong</h2>
+<p>The chase list was flagging customers who were up to date. Two causes, both fixed in the single view <strong><code>v_order_position</code></strong>:</p>
+<ul><li>The schedule start recorded on the order matched the customer's **first real</li></ul>
+<p>  debit on only 82 of 349 orders** — median 14 days early, so "expected by now"   counted debits that were never due. It now anchors on the first real debit   attempt.</p>
+<ul><li>Ezidebit settles ~2 working days after it debits, so money in transit read as</li></ul>
+<p>  arrears. It now measures to the latest settlement date, not today.</p>
+<p>Plus a <strong>silence check</strong> — no payment for more than two periods — which catches a customer who has stopped paying even when the dates flatter them, and which now ignores anyone carrying more than two instalments of credit.</p>
+<p><strong>Chase list went from 127 to 76.</strong> 29 rows were removed from the arrears text sequence: 25 on track and paying, 4 whose orders are closed.</p>
+<p>⚠ The same calculation used to exist in <strong>three</strong> places and had drifted. It now lives once, in the database.</p>
+<h2>3.6 Other builds this week</h2>
+<ul><li><strong><code>order-check.html</code></strong> — new page, "Orders taken". Pick a date, see every order</li></ul>
+<p>  with its direct debit checked: missing reference, wrong-shaped reference, the   same reference on two orders, missing instalment or schedule, started-but-never-finished.</p>
+<ul><li><strong>Unpack now</strong> — new tab on the stock page. Mattresses needing to come out of</li></ul>
+<p>  their vacuum packs, three weeks ahead, built from <strong>clearance</strong> rather than   delivery dates (the office only books <em>after</em> a customer clears, so a delivery   date gives four days' notice, not three weeks).</p>
+<ul><li><strong>Former consultants card</strong> on Money Owed — retention held, still owed, and</li></ul>
+<p>  the net, for people who have left.</p>
+<ul><li><strong>Payment method on the statement</strong> — bank transfer / eftpos / cash instead of</li></ul>
+<p>  "Extra payment".</p>
+<ul><li><strong>Commission deductions</strong> — the check constraint refused <code>giveaway_repayment</code></li></ul>
+<p>  and <code>cash_advance</code>, so the Giveaways "Repay this run" box and the cash-week   posting had <strong>never once worked</strong>. Fixed; Yazan's $550 is now against his loan.</p>
+<ul><li><strong>Add-to-home-screen animations</strong> for the Games App video — iPhone and Android,</li></ul>
+<p>  MP4 and GIF.</p>
+<hr>
+<h1>PART 4 — ⚠ WHAT NIGEL MUST DO</h1>
+<table><thead><tr><th>#</th><th>Task</th><th>Why</th></tr></thead><tbody><tr><td>1</td><td><strong>Push <code>order-app.html</code></strong> (build 2026-08-14-01)</td><td>Holds the welcome email back so cash can appear in it</td></tr><tr><td>2</td><td><strong>Push the other pending files</strong> — <code>customer-detail.html</code>, <code>home.html</code>, <code>order-check.html</code>, <code>commissions.html</code>, <code>stock.html</code>, <code>ezidebit-return.html</code></td><td>Arrears fix, new pages, statement methods</td></tr><tr><td>3</td><td><strong>Watch the next order through</strong></td><td>The response now lists which documents went — check it rather than assume</td></tr><tr><td>4</td><td><strong>Decide the backlog</strong> (5.1)</td><td>~40 customers have had no welcome email</td></tr><tr><td>5</td><td><strong>Delete the two test-order folders</strong> in Supabase → Storage → <code>order-documents</code> (<code>d3890960…</code>, <code>11dca488…</code>)</td><td>16 orphaned files; SQL cannot remove them</td></tr><tr><td>6</td><td><strong>Delete <code>owe.ts</code></strong> from the public <code>email-assets</code> bucket</td><td>A TypeScript file sitting in a public bucket since 21 July</td></tr><tr><td>7</td><td><strong>Set the GHL webhook key</strong> — <code>select set_webhook_key('ghl','&lt;phrase&gt;');</code> then add <code>p_key</code> to both GHL webhook actions</td><td>Delivered/cancelled sync is still down</td></tr><tr><td>8</td><td><strong>Delete the stray repo files and 12 dead edge functions</strong></td><td>Still publicly served</td></tr><tr><td>9</td><td><strong>Date the referral terms</strong> — both <code>terms.html</code> and the PDF say <code>[DATE]</code></td><td>Cannot publish undated terms</td></tr></tbody></table>
+<hr>
+<h1>PART 5 — OPEN DECISIONS</h1>
+<h3>5.1 The ~40 customers with no welcome email</h3>
+<p>Orders from 6–13 August. Restoring the code does not backfill them — the sweeper only looks back 24 hours, deliberately, so they are not blasted a week late by accident. A catch-up run is one deliberate act, must skip the 4 who did receive one, and is <strong>Nigel's call</strong>.</p>
+<h3>5.2 What "behind" should mean</h3>
+<p>Cumulative shortfall (what they actually owe, which never heals unless they overpay) or recent behaviour (have they paid lately). Konthothong Trantip is the deciding case: bank trouble at setup, paid manually to catch up, perfect for five weeks, still $99 light on the record. If cumulative stays, the office must record manual catch-up payments or customers like him sit on the chase list forever.</p>
+<h3>5.3 The 1,144 payment rows with no result</h3>
+<p>287 customers, February–June, no settlement date. Counting them moves 219 of 406 start dates earlier and takes the chase list from 56 to 147 — which contradicts what the office sees. <strong>Nobody should "fix" this until we know what those rows mean.</strong></p>
+<h3>5.4 The customer video and app-link email</h3>
+<p>Parked at Nigel's request. Host the video and send <strong>one link to a small welcome page</strong> carrying the video, the written steps and an "Open my app" button — which also lets the page warn about the in-app-browser trap that stops Add to Home Screen working. Undecided: whether it goes out through GHL, and whether the page needs to know who the customer is (personalisation means a token in the link, which is real work and a security decision).</p>
+<h3>5.5 Smaller ones</h3>
+<ul><li>Anovale Tovio may be <strong>double-counted</strong> — a $160 "Pillows" opening balance and</li></ul>
+<p>  a separate $160 pillow giveaway five days later make up his entire $320.</p>
+<ul><li><strong>Tablets</strong>: the TCL Tab 8 fails on a <strong>fixed-focus camera</strong> — it cannot</li></ul>
+<p>  photograph a driver's licence. Samsung Galaxy Tab A9 LTE (autofocus) or a   second-hand iPad 7th gen or later. Minimum for the Sales App is <strong>iPadOS 14.5</strong>;   iPad 6 works but is capped at iPadOS 17 with 2GB RAM.</p>
+<ul><li><strong>Arrears sequence</strong> only drops someone when their paid figure <em>rises</em>, so</li></ul>
+<p>  anyone added on a bad number stays until they happen to pay.</p>
+<ul><li><strong>Practice mode for the Sales App</strong> — the driver app has one (invented</li></ul>
+<p>  customers, dated 2099, nothing sent). Two live test orders went through in one   afternoon this week, each firing the GHL push and leaving storage residue.</p>
+<hr>
+<h1>PART 6 — HOW THINGS ACTUALLY WORK</h1>
+<p><strong>An order reaches the system two ways.</strong> From the <strong>iPad</strong> (Sales App), or from the <strong>QR code / paper form</strong>, which creates a GHL contact that is imported. Both end at <code>ghl-order-push</code>, which is why the welcome email lives there — it is the one place that sees every order exactly once.</p>
+<p><strong>The office is told at Done, not before.</strong> The order is inserted as <code>draft</code> at step 7 and only promoted to <code>pending</code> when it reaches Done. Two separate paths used to announce it mid-sale — the live banner and the GHL staff text — and both were moved.</p>
+<p><strong>Delivery clearance</strong> is one view, <code>v_delivery_clearance</code>. A customer needs a clean run of payments <strong>and</strong> 10% of contract value. On a 156-week term, eight weekly payments is about 5% — so the 10% rule, not payment behaviour, is what usually holds an order back. 33 well-paying customers were individually authorised on 13 August; the rule itself is unchanged.</p>
+<p><strong>Arrears position</strong> is one view, <code>v_order_position</code>. Anchored on the first real debit, measured to the last settled payment date.</p>
+<p><strong>Scheduled jobs</strong> go through <code>cron_call</code> → <code>cron-dispatch</code>, which mints a single-use token so no secret is ever written into <code>cron.job</code>. Targets are on an allow-list. The welcome-email sweeper uses this path.</p>
+<hr>
+<h1>PART 7 — GOTCHAS WORTH KEEPING</h1>
+<ul><li><strong>A 200 response is not a success — check the body.</strong></li><li><strong>Check the test before believing it.</strong> One run said 36 pages were failing; the</li></ul>
+<p>  test waited 1.2 seconds for a 2.4-second timeout.</p>
+<ul><li><strong><code>cron.job_run_details</code> looks alarming until you compare it to <code>now()</code>.</strong> A</li></ul>
+<p>  job that "hasn't run" is often a job that isn't due for another 40 minutes.</p>
+<ul><li><strong>iOS keeps separate storage for Safari and a Home Screen app.</strong> Pair from the</li></ul>
+<p>  icon, not from Safari. And a Home Screen app serves a stale page for days —   kill it from the app switcher.</p>
+<ul><li><strong><code>current_date</code> in the database is UTC.</strong> Anything day-based in the NZ morning</li></ul>
+<p>  reports the previous NZ day. Pass an explicit NZ date.</p>
+<ul><li><strong><code>RAISE NOTICE</code> output is invisible through the MCP</strong> — collect results into a</li></ul>
+<p>  temp table and select it.</p>
+<ul><li><strong>The SQL editor has no <code>auth.uid()</code></strong> — impersonate with</li></ul>
+<p>  <code>set_config('request.jwt.claims', …)</code> or every security-definer function will   say "not signed in".</p>
+<ul><li>**A catch-all <code>exception when others</code> that does not RECORD is how a real fault</li></ul>
+<p>  hides for weeks.** Three were found in two days.</p>
+<ul><li><strong><code>loyalty_config.value</code> is NUMERIC.</strong> Anything with words needs its own table.</li><li><strong>Null is not false. The visible error is often not the fault.</strong></li><li>**When Nigel says "we spent a lot of time on this" — search the past</li></ul>
+<p>  conversations before concluding anything.** Two hours were lost this week   hunting for something that was documented in an earlier session.</p></div></body></html>

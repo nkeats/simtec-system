@@ -16,7 +16,7 @@
      reach the order app before go-live. When you roll out to consultants, add
      ",consultant" to data-roles below and add a New Order button to my-sales.html. -->
 <script src="auth.js?v=3" data-roles="admin,manager,office,consultant"></script>
-<script>window.SIMTEC_BUILD="2026-08-13-04";</script>
+<script>window.SIMTEC_BUILD="2026-08-14-01";</script>
 <script src="update.js?v=1"></script>
 
 
@@ -1840,8 +1840,10 @@ async function recordCash(){
     document.getElementById('cashPayDoneMsg').textContent =
       '$'+amt.toFixed(2)+' cash. Paid to date $'+Number((data&&data.paid_to_date)||amt).toFixed(2)
       + ((data&&data.paid_in_full) ? ' — this order is now paid in full.' : '.');
-    // The welcome email quotes the cash, so GHL needs the figure before it fires.
-    pushOrderToGhl(S.orderId, {contactOnly:true});
+    /* FULL push (not contactOnly): this is what releases the welcome email, now
+       that the cash figure exists for it to quote. If the sweeper happened to
+       get there first the claim blocks a second send — no duplicate. */
+    pushOrderToGhl(S.orderId);
   }catch(e){
     msg.textContent = (e && (e.message||e.hint)) || 'The cash was not recorded. Try again, or ring the office.';
     if(btn){ btn.disabled=false; btn.textContent='Record cash received'; }
@@ -1892,7 +1894,20 @@ async function finalizeOrder(){
   }catch(e){ console.warn('could not hand the order to the office:', e&&e.message||e); }
 
   showPillowBox();
-  pushOrderToGhl(S.orderId);
+  /* ⚠ contactOnly ON PURPOSE (14 Aug). The GHL contact is created NOW so the
+     office has it even if this iPad dies a second later — but the customer's
+     WELCOME EMAIL is deliberately held back, because the cash panel is on this
+     same Done screen and a cash payment must be able to appear in that email.
+     It is sent by ONE of two things, whichever happens first:
+       • recordCash() below, the moment cash is recorded — full push, email goes
+         out immediately with the amount named in it; or
+       • sweep_welcome_emails(), a database job every 5 minutes, for every
+         finished order still unsent after 4 minutes.
+     The sweeper is what makes this safe: closing the app cannot lose the email.
+     The send-once claim (sim_orders.ghl_pushed_at) is taken inside the edge
+     function, so the two paths can never both send.
+     DO NOT change this back to a full push without removing the cash panel. */
+  pushOrderToGhl(S.orderId, {contactOnly:true});
   try{ sendCustomerLoginLink(S.customerId); }catch(_e){}   // show the rewards-app QR now the whole order (incl. Ezidebit) is done
 }
 
