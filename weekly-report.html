@@ -118,6 +118,8 @@ async function load(){
   const x = data.extras || {};
   const split = x.by_consultant_split || {};
   const s = {
+    mattresses: x.mattresses_sold ?? 0,
+    mattresses_cancelled: x.mattresses_cancelled ?? 0,
     office_total_count: x.sold_count ?? 0,
     office_total_value: x.sold_value ?? 0,
     raised: data.sales?.orders ?? 0,
@@ -126,11 +128,11 @@ async function load(){
       const e = split[c.name] || {};
       return { name:c.name, booked:c.appts_booked||0, reappoint:c.reappointed||0,
                cancelled_appts:c.cancelled||0, presented:c.presented||0,
-               sold:e.sold ?? 0, value:e.sold_value ?? 0,
+               mattresses:e.mattresses ?? 0, sold:e.sold ?? 0, value:e.sold_value ?? 0,
                cancelled_sales:e.cancelled_sales ?? 0,
                logs_appointments: e.logs_appointments === true };
-    }).filter(c=>c.sold>0||c.cancelled_sales>0||c.booked>0||c.presented>0)
-      .sort((a,b)=>b.sold-a.sold||b.value-a.value)
+    }).filter(c=>c.mattresses>0||c.sold>0||c.cancelled_sales>0||c.booked>0||c.presented>0)
+      .sort((a,b)=>b.mattresses-a.mattresses||b.value-a.value)
   };
   const d = { count: data.delivered?.deliveries ?? 0,
               by_mattress: x.deliveries_by_mattress || [] };
@@ -151,28 +153,31 @@ async function load(){
   const anyAppts = cons.some(c=>c.logs_appointments);
   let salesHtml = `<div class="sec"><h2>1 &nbsp;Weekly sales</h2>
     <div class="tiles">
-      ${tile("Sold this week", s.office_total_count, money(s.office_total_value))}
-      ${tile("Raised this week", s.raised, s.cancelled_this_week+" since cancelled")}
-      ${tile("Average sale", s.office_total_count? money(s.office_total_value/s.office_total_count) : "—","")}
+      ${tile("Mattresses sold", s.mattresses, s.mattresses_cancelled? s.mattresses_cancelled+" more cancelled":"")}
+      ${tile("Orders", s.office_total_count, money(s.office_total_value))}
+      ${tile("Average order", s.office_total_count? money(s.office_total_value/s.office_total_count) : "—","")}
     </div>
     <h3>By consultant</h3>
     <table>
       <tr><th>Consultant</th><th class="num">Booked</th><th class="num">Reappoint</th>
           <th class="num">Cancelled appt</th><th class="num">Presented</th>
-          <th class="num">Sold</th><th class="num">Value</th><th class="num">Cancelled sales</th></tr>`
+          <th class="num">Mattresses</th><th class="num">Orders</th><th class="num">Closing</th>
+          <th class="num">Value</th><th class="num">Cancelled</th></tr>`
     + (cons.length ? cons.map(c=>`<tr>
         <td>${esc(c.name)}</td>
         <td class="num">${c.logs_appointments?c.booked:blank}</td>
         <td class="num">${c.logs_appointments?c.reappoint:blank}</td>
         <td class="num">${c.logs_appointments?c.cancelled_appts:blank}</td>
         <td class="num">${c.logs_appointments?c.presented:blank}</td>
-        <td class="num"><b>${c.sold}</b></td>
+        <td class="num"><b>${c.mattresses}</b></td>
+        <td class="num">${c.sold}</td>
+        <td class="num">${c.logs_appointments&&c.presented>0?((c.sold/c.presented)*100).toFixed(0)+"%":blank}</td>
         <td class="num">${c.value?money(c.value):"—"}</td>
         <td class="num">${c.cancelled_sales||"—"}</td></tr>`).join("")
-       : `<tr><td colspan="8" class="note">No sales or appointments recorded this week.</td></tr>`)
+       : `<tr><td colspan="10" class="note">No sales or appointments recorded this week.</td></tr>`)
     + `</table>`
-    + `<p class="note"><b>Sold</b> counts orders taken this week that are still standing.
-        ${s.cancelled_this_week?`${s.raised} were raised and ${s.cancelled_this_week} have since been cancelled, so the week nets ${s.office_total_count}.`:""}
+    + `<p class="note"><b>Mattresses</b> is the number the business runs on — an order for two mattresses counts as two. <b>Orders</b> is the count of sales, used only to work out the closing rate (orders \u00f7 presentations).
+        ${s.cancelled_this_week?`${s.raised} orders were raised and ${s.cancelled_this_week} have since been cancelled, so the week nets ${s.office_total_count}.`:""}
         A dash in the appointment columns means that consultant is not logging appointments yet — it is not a zero.
         ${anyAppts?"":"Nobody logged an appointment this week."}
         These columns fill in as the iPads come into use.</p>
