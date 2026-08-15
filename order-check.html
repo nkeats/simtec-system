@@ -151,7 +151,14 @@ function assess(o, refUse){
     return {worst: worst==="green" ? "grey" : worst, checks};
   }
 
-  if(!ref){ add("bad","No direct debit reference","The Ezidebit step never completed, or it did not report back."); }
+  if(!ref && o.ezidebit_customer_id){
+    // 15 Aug: the Sales App now REFUSES to store a malformed reference and files it
+    // as the customer id instead, so this is a known, recoverable state — not a
+    // failed sign-up. Say which it is, or the office chases the wrong thing.
+    add("bad","Reference not returned by Ezidebit - office must enter it",
+        "The direct debit IS set up (their id is "+esc(o.ezidebit_customer_id)+"). Look the customer up in EziOnline, copy the 9-digit reference, and enter it on the customer page under Amend order.");
+  }
+  else if(!ref){ add("bad","No direct debit reference","The Ezidebit step never completed, or it did not report back."); }
   else if(!/^\d+$/.test(ref)){ add("bad","Reference is not a number", esc(ref)); }
   else if(ref.length===8){ add("bad","Reference is Ezidebit's internal 8-digit id, not the settlement reference",
         "Payments will be taken but will never match this order. Read the 9-digit customer reference off EziOnline and correct it."); }

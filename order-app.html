@@ -16,7 +16,7 @@
      reach the order app before go-live. When you roll out to consultants, add
      ",consultant" to data-roles below and add a New Order button to my-sales.html. -->
 <script src="auth.js?v=3" data-roles="admin,manager,office,consultant"></script>
-<script>window.SIMTEC_BUILD="2026-08-14-01";</script>
+<script>window.SIMTEC_BUILD="2026-08-15-01";</script>
 <script src="update.js?v=1"></script>
 
 
@@ -868,7 +868,7 @@ if(document.readyState!=='loading') bootLists(); else document.addEventListener(
 const S = { step:0, saleType:'', pay:'', depositMethod:'ezidebit', fullMethod:'bank', a2:false, products:[], referralId:null, emailVerified:false, sentCode:null, tncRead:false, idPhotos:{A1:[],A2:[]},
             /* TEMPORARY 13 Aug 2026 — set only by the red "Ezidebit won't accept it" button on step 8. */
             eziSkipped:false, eziSkipWhy:'', eziSkipPlan:null,
-            cashTaken:0 };
+            cashTaken:0, eziRefBad:null };
 const STEP_LABELS = ['Start','Products','Details','Referees','Terms','ID','Payment','Sign','Ezidebit','Done'];
 
 function visibleSteps(){
@@ -2262,7 +2262,17 @@ function showEziDone(p){
   const l=document.getElementById('eziLaunch'); if(l) l.classList.add('hidden');
   const done=document.getElementById('eziDone'); if(done) done.classList.remove('hidden');
   const msg=document.getElementById('eziDoneMsg');
-  if(msg) msg.textContent='Ezidebit customer '+((p&&(p.cref||p.uref))||'')+' — schedule stored on the order.';
+  if(!msg) return;
+  if(S.eziRefBad){
+    // The debit IS set up — only the reference came back wrong, and the office
+    // has been told. Say so plainly rather than showing a silent tick.
+    msg.innerHTML = '<b>The direct debit is set up.</b><br>Ezidebit sent back their internal '
+      + 'number instead of the payment reference, so the office has been asked to add the '
+      + 'correct one. Nothing for you to do — carry on and finish the order.';
+    if(done) done.style.borderColor = '#b8860b';
+  }else{
+    msg.textContent='Ezidebit customer '+((p&&(p.cref||p.uref))||'')+' — schedule stored on the order.';
+  }
 }
 
 /* Every return is recorded, good or bad, so the next time this misbehaves there
@@ -2295,18 +2305,50 @@ function clearEziSkipIfRealDebit(){
 // STORE the returned payer ref + schedule on the order (never calculate).
 // eDDR callback fields: uref, cref (EzidebitCustomerID), ramount, rdate, freq(code),
 // oamount, odate, numpayments, totalamount, method.
+//
+// ⚠⚠ THE REFERENCE IS VALIDATED BEFORE IT IS STORED (15 Aug 2026).
+// Ezidebit's settlement reference — the number every payment arrives under, and
+// the number the whole book is keyed on — is NINE DIGITS. Since 12 Aug their
+// callback has sometimes returned the EIGHT-digit internal EzidebitCustomerID
+// instead: 5 of the 6 app orders after that date came back wrong, while all 394
+// office-keyed orders (a human copying it off EziOnline) are correct.
+// A wrong reference is worse than none — payments arrive and match nothing, and
+// the customer looks like they have never paid.
+// So: only a 9-digit value is accepted as the payer ref. Anything else is filed
+// as the customer id (which is what it actually is), the payer ref is left EMPTY,
+// and the order is flagged for the office to enter the real one by hand from
+// EziOnline (customer page → Amend order → Ezidebit Payer ID).
+// The direct debit itself IS set up at Ezidebit either way, so the sale still
+// completes — only the reference is missing.
+// REMOVE THIS once Ezidebit confirm the callback is fixed; keep the validation.
+function eziRefLooksRight(v){ return /^\d{9}$/.test(String(v||'').trim()); }
+
 async function applyEzidebitCallback(cb){
   if(!sb||!S.orderId) return;
   const freqMap={1:'weekly',2:'fortnightly',4:'monthly',8:'four_weekly',16:'quarterly',32:'half_yearly',64:'yearly'};
   const freq=freqMap[Number(cb.freq)]||null;
   const methodMap={weekly:'weekly_dd',fortnightly:'fortnightly_dd',monthly:'monthly_dd'};
   const rIso=eziDateToIso(cb.rdate);
+  const returned=String((cb.cref||cb.uref||'')||'').trim();
+  const good=eziRefLooksRight(returned);
+  S.eziRefBad = good ? null : (returned||null);
+
   const upd={
-    ezidebit_payer_ref:(cb.cref||cb.uref||'')||null,   // S.eziRef is set below once this saves
     payment_method:(methodMap[freq]||'weekly_dd'), payment_frequency:freq,
     instalment_amount:numOrNull(cb.ramount), term_periods:numOrNull(cb.numpayments),
     first_payment_date:rIso, schedule_start_date:rIso, next_payment_date:rIso
   };
+  if(good){
+    upd.ezidebit_payer_ref = returned;      // S.eziRef is set below once this saves
+  }else if(returned){
+    upd.ezidebit_customer_id = returned;    // it IS the customer id — file it correctly
+    upd.consultant_account_note =
+      '⚠ EZIDEBIT REFERENCE MISSING. Their form returned "'+returned+'", which is the '
+      + 'internal customer id, not the 9-digit payment reference. The direct debit IS set '
+      + 'up — but until the real reference is entered, this customer\u2019s payments will not '
+      + 'match their order. Look them up in EziOnline, copy the 9-digit reference, and put '
+      + 'it on the customer page under Amend order → Ezidebit Payer ID.';
+  }
   // If the 50% deposit was paid by BANK TRANSFER, deposit_amount already holds it —
   // don't let an Ezidebit one-off overwrite it. In every other case (full DD, or a
   // deposit collected AS the Ezidebit one-off), the one-off IS the deposit to record.
