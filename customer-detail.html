@@ -164,38 +164,55 @@ function position(o){
   const v=POS[o.id];
   if(!v) return positionLocal(o);
 
-  const freq=PERIODS[v.freq]||PERIODS.weekly;
+  /* ⚠ ONE SOURCE. Every figure below comes from order_financial_position() via
+     v_customer_position — the same function the customer's own app reads, so the
+     office and the customer can never be shown different numbers.
+     Read `certainty` before believing behind_by: 'no history' and 'unknown' mean
+     we cannot measure it yet, NOT that the customer is in arrears. Chasing those
+     is how good payers ended up on the arrears list. */
+  const freq=PERIODS[v.frequency]||PERIODS.weekly;
   const contract=v.contract!=null?Number(v.contract):null;
   const paid=Number(v.paid||0);
-  const per=Number(v.instalment||0);
   const behindBy=Number(v.behind_by||0);
-  const periodsBehind=Number(v.periods_behind||0);
-  const silent=!!v.silent;
-  const silentTxt=v.periods_since_payment!=null
-    ? `No payment for ${Number(v.periods_since_payment).toFixed(0)} ${freq.word}`
-    : "No payment received yet";
+  const aheadBy=Number(v.ahead_by||0);
+  const measured=v.certainty==="measured";
+  const periodsBehind=Math.abs(Number(v.periods_out||0));
 
-  let label;
-  if(contract==null||contract<=0)              label="No contract value";
-  else if(paid>=contract*0.999)                label="Paid up";
-  else if(!v.anchor)                           label=(o.delivery_status||"")==="delivered"
+  let cls="grey", label;
+  switch(v.state){
+    case "settled":               cls="green"; label="Paid up"; break;
+    case "paid on another order": cls="green"; label="Paid on another order"; break;
+    case "on hold":               cls="grey";  label="On hold"+(v.on_hold_since?" since "+auDate(v.on_hold_since):""); break;
+    case "not started yet":       cls="grey";  label="Payments have not started yet"; break;
+    case "nothing collected yet": cls="red";   label="Nothing has been collected"; break;
+    case "no schedule recorded":  cls="grey";  label=(o.delivery_status||"")==="delivered"
                                                      ? "Delivered, no schedule recorded"
-                                                     : "No payment schedule recorded";
-  else if(v.anchor>v.as_at)                    label="Payments start "+auDate(v.anchor);
-  else if(v.cls==="green")                     label=silent?silentTxt:"On track";
-  else if(v.cls==="red")                       label="Behind — DELIVERED";
-  else                                         label="Behind — not delivered";
+                                                     : "No payment schedule recorded"; break;
+    case "ahead":                 cls="green"; label="Ahead by "+fmt(aheadBy); break;
+    case "on track":              cls="green"; label="On track"; break;
+    case "behind":                cls=(o.delivery_status||"")==="delivered"?"red":"amber";
+                                  label="Behind by "+fmt(behindBy)
+                                        +((o.delivery_status||"")==="delivered"?" — DELIVERED":""); break;
+    default:                      label=v.state||"Unknown";
+  }
 
   return {
-    cls:v.cls, label, contract, paid,
-    expected:v.expected!=null?Number(v.expected):null,
-    behindBy, periodsBehind, freq,
-    balance:contract!=null?contract-paid:null,
-    estimated:false, dueCount:Number(v.due_count||0),
-    anchor:v.anchor, anchorIsReal:!!v.anchor_is_real, asAt:v.as_at,
-    lastPayment:v.last_payment, silent, silentTxt,
-    notStarted:!!(v.anchor&&v.anchor>v.as_at),
-    noSchedule:!v.anchor, fromView:true
+    cls, label, contract, paid,
+    expected:v.expected_by_now!=null?Number(v.expected_by_now):null,
+    behindBy, aheadBy, measured, state:v.state, certainty:v.certainty,
+    periodsBehind, freq,
+    balance:v.owed!=null?Number(v.owed):(contract!=null?contract-paid:null),
+    estimated:false,
+    dueCount:Number(v.debits_attempted||0),
+    attempts:Number(v.debits_attempted||0),
+    cleared:Number(v.debits_cleared||0),
+    bounced:Number(v.debits_bounced||0),
+    anchor:v.first_attempt, anchorIsReal:!!v.first_attempt, asAt:v.measured_to,
+    lastPayment:null,
+    silent:false, silentTxt:"",
+    notStarted:v.state==="not started yet",
+    noSchedule:v.state==="no schedule recorded",
+    fromView:true
   };
 }
 
@@ -439,7 +456,7 @@ async function run(quiet){
     POS={};
     { const oids=Object.keys(ORDERS);
       if(oids.length){
-        const {data:pos}=await sb.from("v_order_position").select("*").in("order_id",oids);
+        const {data:pos}=await sb.from("v_customer_position").select("*").in("order_id",oids);
         (pos||[]).forEach(r=>{ POS[r.order_id]=r; });
       } }
     { const {data}=await sb.from("sim_contacts").select("*").eq("customer_id",customerId).order("contacted_at",{ascending:false});
