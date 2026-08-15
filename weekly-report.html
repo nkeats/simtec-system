@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Simtec — Weekly report</title>
+<link rel="icon" href="icon-192.png">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.112.2/dist/umd/supabase.js"></script>
+<script src="auth.js?v=3" data-roles="admin,manager,office"></script>
+<style>
+  :root{--navy:#122347;--gold:#c6a15b;--ink:#1f2733;--muted:#6b7889;--line:#dbe2ec;
+        --bg:#f5f7fa;--band:#f6f8fb;--ok:#1c6b34;--bad:#b3261e;--warn:#8a6d1a}
+  *{box-sizing:border-box}
+  body{margin:0;padding:26px 18px;background:var(--bg);color:var(--ink);
+       font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;line-height:1.5}
+  .wrap{max-width:940px;margin:0 auto}
+  h1{color:var(--navy);font-size:25px;margin:0 0 2px}
+  .sub{color:var(--muted);font-size:13.5px;margin:0 0 18px}
+  .sec{background:#fff;border:1px solid var(--line);border-radius:14px;padding:20px 22px;margin-bottom:16px}
+  .sec > h2{color:var(--navy);font-size:17px;margin:0 0 3px;
+            border-bottom:2px solid var(--gold);padding-bottom:8px}
+  .sec .note{color:var(--muted);font-size:12.5px;margin:8px 0 14px}
+  h3{color:var(--navy);font-size:14px;margin:20px 0 8px;text-transform:uppercase;letter-spacing:.04em}
+  h3:first-of-type{margin-top:14px}
+  table{border-collapse:collapse;width:100%;font-size:14px}
+  th{text-align:left;color:#fff;background:var(--navy);font-weight:600;font-size:12px;
+     padding:8px 10px;text-transform:uppercase;letter-spacing:.03em}
+  th.num,td.num{text-align:right}
+  td{padding:7px 10px;border-bottom:1px solid var(--line);vertical-align:middle}
+  tr:nth-child(even) td{background:var(--band)}
+  td.num{font-variant-numeric:tabular-nums;white-space:nowrap}
+  .tiles{display:flex;gap:12px;flex-wrap:wrap;margin:14px 0 4px}
+  .tile{flex:1;min-width:150px;background:var(--band);border:1px solid var(--line);
+        border-radius:11px;padding:12px 14px}
+  .tile .k{color:var(--muted);font-size:11.5px;text-transform:uppercase;letter-spacing:.04em}
+  .tile .v{font-size:22px;font-weight:700;color:var(--navy);font-variant-numeric:tabular-nums;margin-top:2px}
+  .tile .s{color:var(--muted);font-size:12px}
+  .dash{color:#aab4c2}
+  .pill{display:inline-block;padding:1px 8px;border-radius:999px;font-size:11px;font-weight:700}
+  .pill.urgent{background:#fdecea;color:var(--bad)}
+  .pill.soon{background:#fdf6e3;color:var(--warn)}
+  .pill.ok{background:#eaf5ee;color:var(--ok)}
+  .bar{height:7px;border-radius:4px;background:var(--line);overflow:hidden;min-width:70px}
+  .bar > i{display:block;height:100%;background:var(--navy)}
+  .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:16px}
+  select,button{font-size:14px;padding:8px 12px;border-radius:9px;border:1px solid var(--line);background:#fff}
+  button.go{background:var(--navy);color:#fff;border:0;font-weight:700;cursor:pointer}
+  @media print{
+    body{background:#fff;padding:0}
+    .noprint{display:none!important}
+    .sec{border:1px solid #ccc;break-inside:avoid;page-break-inside:avoid;margin-bottom:12px}
+    th{background:#122347!important;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Weekly report</h1>
+  <p class="sub" id="period">—</p>
+
+  <div class="row noprint">
+    <label for="wk" style="color:var(--muted);font-size:13.5px">Week ending</label>
+    <select id="wk"></select>
+    <button class="go" onclick="load()">Show</button>
+    <button onclick="window.print()">Print</button>
+    <span id="state" style="color:var(--muted);font-size:13px"></span>
+  </div>
+
+  <div id="out"></div>
+</div>
+
+<script>
+const sb = supabase.createClient("https://jvqjoenaungubpoegyvf.supabase.co","sb_publishable_J4MYTdJJyEaWe-GadpwdYA_upPT2rKw");
+const $ = id => document.getElementById(id);
+const esc = s => String(s??"").replace(/[&<>"]/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[m]));
+const money = n => "$" + Number(n||0).toLocaleString("en-NZ",{minimumFractionDigits:0,maximumFractionDigits:0});
+const money2 = n => "$" + Number(n||0).toLocaleString("en-NZ",{minimumFractionDigits:2,maximumFractionDigits:2});
+const pct = (a,b) => b>0 ? (a/b*100) : 0;
+const nzDate = s => s ? new Date(s+"T00:00:00").toLocaleDateString("en-NZ",{day:"numeric",month:"short",year:"numeric"}) : "—";
+
+/* Offer the last 12 week-endings. Sunday is the natural close of a sales week. */
+(function weeks(){
+  const sel=$("wk"), t=new Date(); const opts=[];
+  const d=new Date(t); d.setDate(d.getDate() - ((d.getDay()+7)%7));  // most recent Sunday
+  for(let i=0;i<12;i++){ opts.push(new Date(d)); d.setDate(d.getDate()-7); }
+  sel.innerHTML = opts.map((m,i)=>{
+    const v=`${m.getFullYear()}-${String(m.getMonth()+1).padStart(2,"0")}-${String(m.getDate()).padStart(2,"0")}`;
+    return `<option value="${v}"${i===0?" selected":""}>week ending ${m.toLocaleDateString("en-NZ",{day:"numeric",month:"short"})}</option>`;
+  }).join("");
+})();
+
+function tile(k,v,s){ return `<div class="tile"><div class="k">${k}</div><div class="v">${v}</div>${s?`<div class="s">${s}</div>`:""}</div>`; }
+
+function mixTable(rows, label){
+  const total = rows.reduce((a,r)=>a+Number(r.qty||0),0);
+  if(!total) return `<p class="note">Nothing recorded.</p>`;
+  return `<table><tr><th>${label}</th><th class="num">Qty</th><th class="num">Share</th><th style="width:120px"></th></tr>`
+    + rows.map(r=>{
+        const p=pct(r.qty,total);
+        return `<tr><td>${esc(r.product)}</td><td class="num">${r.qty}</td>`
+             + `<td class="num">${p.toFixed(1)}%</td>`
+             + `<td><div class="bar"><i style="width:${p.toFixed(1)}%"></i></div></td></tr>`;
+      }).join("")
+    + `<tr><td><b>Total</b></td><td class="num"><b>${total}</b></td><td class="num">100%</td><td></td></tr></table>`;
+}
+
+async function load(){
+  $("state").textContent="Loading…"; $("out").innerHTML="";
+  const {data,error} = await sb.rpc("weekly_report",{p_week_ending:$("wk").value});
+  if(error){ $("state").textContent="";
+    $("out").innerHTML=`<div class="sec"><b style="color:var(--bad)">Could not load.</b><p class="note">${esc(error.message)}</p></div>`;
+    return; }
+  $("state").textContent="";
+  /* ONE data source: weekly_report(). `sales`/`by_consultant` etc are the
+     original keys the Monday email also reads; `extras` holds what was added
+     on 16 Aug. Nothing here recalculates anything — if a figure looks wrong,
+     fix the function, not this page. */
+  const x = data.extras || {};
+  const split = x.by_consultant_split || {};
+  const s = {
+    office_total_count: x.sold_count ?? 0,
+    office_total_value: x.sold_value ?? 0,
+    raised: data.sales?.orders ?? 0,
+    cancelled_this_week: data.sales?.cancelled_since ?? 0,
+    by_consultant: (data.by_consultant||[]).map(c=>{
+      const e = split[c.name] || {};
+      return { name:c.name, booked:c.appts_booked||0, reappoint:c.reappointed||0,
+               cancelled_appts:c.cancelled||0, presented:c.presented||0,
+               sold:e.sold ?? 0, value:e.sold_value ?? 0,
+               cancelled_sales:e.cancelled_sales ?? 0,
+               logs_appointments: e.logs_appointments === true };
+    }).filter(c=>c.sold>0||c.cancelled_sales>0||c.booked>0||c.presented>0)
+      .sort((a,b)=>b.sold-a.sold||b.value-a.value)
+  };
+  const d = { count: data.delivered?.deliveries ?? 0,
+              by_mattress: x.deliveries_by_mattress || [] };
+  const bk = x.book || {};
+  const o = { total_sales_count: bk.total_sales_count, total_sales_value: bk.total_sales_value,
+              total_cancelled_count: bk.total_cancelled_count, total_cancelled_value: bk.total_cancelled_value,
+              total_delivered: bk.total_delivered,
+              loan_book_actual: bk.loan_book_actual, loan_book_doubtful: bk.loan_book_doubtful,
+              ezidebit_expected_weekly: bk.ezidebit_expected_weekly,
+              mattress_mix: x.mattress_mix_all_time || [],
+              orders_with_a_base: x.base_attach || {with:0,total:0},
+              reorder: x.reorder || [] };
+  $("period").textContent = `${nzDate(data.week_start)} to ${nzDate(data.week_end)}`;
+
+  /* ---- 1. WEEKLY SALES ---- */
+  const cons = s.by_consultant;
+  const blank = '<span class="dash">—</span>';
+  const anyAppts = cons.some(c=>c.logs_appointments);
+  let salesHtml = `<div class="sec"><h2>1 &nbsp;Weekly sales</h2>
+    <div class="tiles">
+      ${tile("Sold this week", s.office_total_count, money(s.office_total_value))}
+      ${tile("Raised this week", s.raised, s.cancelled_this_week+" since cancelled")}
+      ${tile("Average sale", s.office_total_count? money(s.office_total_value/s.office_total_count) : "—","")}
+    </div>
+    <h3>By consultant</h3>
+    <table>
+      <tr><th>Consultant</th><th class="num">Booked</th><th class="num">Reappoint</th>
+          <th class="num">Cancelled appt</th><th class="num">Presented</th>
+          <th class="num">Sold</th><th class="num">Value</th><th class="num">Cancelled sales</th></tr>`
+    + (cons.length ? cons.map(c=>`<tr>
+        <td>${esc(c.name)}</td>
+        <td class="num">${c.logs_appointments?c.booked:blank}</td>
+        <td class="num">${c.logs_appointments?c.reappoint:blank}</td>
+        <td class="num">${c.logs_appointments?c.cancelled_appts:blank}</td>
+        <td class="num">${c.logs_appointments?c.presented:blank}</td>
+        <td class="num"><b>${c.sold}</b></td>
+        <td class="num">${c.value?money(c.value):"—"}</td>
+        <td class="num">${c.cancelled_sales||"—"}</td></tr>`).join("")
+       : `<tr><td colspan="8" class="note">No sales or appointments recorded this week.</td></tr>`)
+    + `</table>`
+    + `<p class="note"><b>Sold</b> counts orders taken this week that are still standing.
+        ${s.cancelled_this_week?`${s.raised} were raised and ${s.cancelled_this_week} have since been cancelled, so the week nets ${s.office_total_count}.`:""}
+        A dash in the appointment columns means that consultant is not logging appointments yet — it is not a zero.
+        ${anyAppts?"":"Nobody logged an appointment this week."}
+        These columns fill in as the iPads come into use.</p>
+    </div>`;
+
+  /* ---- 2. WEEKLY DELIVERIES ---- */
+  const delTotal = d.by_mattress.reduce((a,r)=>a+Number(r.qty||0),0);
+  let delHtml = `<div class="sec"><h2>2 &nbsp;Weekly deliveries</h2>
+    <div class="tiles">
+      ${tile("Deliveries", d.count, "orders delivered")}
+      ${tile("Mattresses out", delTotal, "units")}
+    </div>
+    <h3>By mattress</h3>
+    ${mixTable(d.by_mattress,"Mattress")}
+    </div>`;
+
+  /* ---- 3. BUSINESS OVERVIEW ---- */
+  const real = Number(o.loan_book_actual) - Number(o.loan_book_doubtful);
+  const basePct = pct(o.orders_with_a_base.with, o.orders_with_a_base.total);
+  const reorder = o.reorder || [];
+  const urgent = reorder.filter(r=>r.urgent);
+
+  let ovHtml = `<div class="sec"><h2>3 &nbsp;Business overview</h2>
+    <div class="tiles">
+      ${tile("Total sales", o.total_sales_count, money(o.total_sales_value))}
+      ${tile("Cancelled", o.total_cancelled_count, money(o.total_cancelled_value))}
+      ${tile("Delivered", o.total_delivered, "all time")}
+    </div>
+    <div class="tiles">
+      ${tile("Loan book — actual", money(o.loan_book_actual), "still owed on active orders")}
+      ${tile("Loan book — real", money(real), money(o.loan_book_doubtful)+" judged doubtful")}
+      ${tile("Ezidebit expected", money2(o.ezidebit_expected_weekly), "per week, all frequencies")}
+    </div>
+
+    <h3>Mattress mix — all sales</h3>
+    ${mixTable(o.mattress_mix,"Mattress")}
+
+    <h3>Sales including a bed base</h3>
+    <div class="tiles">
+      ${tile("With a base", basePct.toFixed(1)+"%", o.orders_with_a_base.with+" of "+o.orders_with_a_base.total+" orders")}
+    </div>
+
+    <h3>When to reorder</h3>
+    <p class="note">Based on the last 12 weeks of sales, allowing 3 months to make and ship.
+      "Free" is stock on hand less what is already sold and waiting to go out.
+      A date in the past means the order is already overdue.</p>
+    <table>
+      <tr><th>Mattress</th><th class="num">On hand</th><th class="num">Committed</th>
+          <th class="num">Free</th><th class="num">Sales/wk</th><th class="num">Cover</th>
+          <th>Order by</th></tr>`
+    + reorder.map(r=>{
+        const overdue = r.order_by && new Date(r.order_by) < new Date();
+        const badge = r.urgent
+          ? `<span class="pill urgent">${overdue?"OVERDUE":"order now"}</span>`
+          : (r.weeks_cover!=null && r.weeks_cover<26 ? `<span class="pill soon">watch</span>`
+                                                    : `<span class="pill ok">fine</span>`);
+        return `<tr>
+          <td>${esc(r.product)}</td>
+          <td class="num">${r.on_hand}</td>
+          <td class="num">${r.committed}</td>
+          <td class="num" ${r.free<0?'style="color:var(--bad);font-weight:700"':""}>${r.free}</td>
+          <td class="num">${Number(r.per_week).toFixed(1)}</td>
+          <td class="num">${r.weeks_cover==null?"—":Number(r.weeks_cover).toFixed(1)+" wk"}</td>
+          <td>${r.order_by?nzDate(r.order_by):"—"} ${badge}</td></tr>`;
+      }).join("")
+    + `</table>`
+    + (urgent.length
+        ? `<p class="note" style="color:var(--bad)"><b>${urgent.length} to order now:</b>
+             ${urgent.map(r=>esc(r.product)).join(", ")}.</p>`
+        : `<p class="note" style="color:var(--ok)">Nothing needs ordering this week.</p>`)
+    + `</div>`;
+
+  $("out").innerHTML = salesHtml + delHtml + ovHtml
+    + `<p class="sub" style="text-align:right">Generated ${new Date(data.generated_at).toLocaleString("en-NZ")}</p>`;
+}
+if(document.readyState!=="loading") load(); else document.addEventListener("DOMContentLoaded",load);
+</script>
+</body>
+</html>
