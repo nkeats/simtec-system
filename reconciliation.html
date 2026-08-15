@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Simtec — Monthly reconciliation</title>
+<link rel="icon" href="icon-192.png">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.112.2/dist/umd/supabase.js"></script>
+<script src="auth.js?v=3" data-roles="admin,manager,office"></script>
+<style>
+  :root{--navy:#122347;--gold:#c6a15b;--ink:#1f2733;--muted:#6b7889;--line:#dbe2ec;
+        --bg:#f5f7fa;--ok:#1c6b34;--bad:#b3261e;--warn:#8a6d1a}
+  *{box-sizing:border-box}
+  body{margin:0;padding:28px 18px;background:var(--bg);color:var(--ink);
+       font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;line-height:1.55}
+  .wrap{max-width:900px;margin:0 auto}
+  h1{color:var(--navy);font-size:24px;margin:0 0 4px}
+  .sub{color:var(--muted);font-size:13.5px;margin:0 0 18px}
+  .card{background:#fff;border:1px solid var(--line);border-radius:14px;padding:20px 22px;margin-bottom:16px}
+  .card h2{color:var(--navy);font-size:16px;margin:0 0 3px}
+  .card .hint{color:var(--muted);font-size:12.5px;margin:0 0 14px}
+  table{border-collapse:collapse;width:100%;font-size:14.5px}
+  th{text-align:left;color:var(--muted);font-weight:600;font-size:12.5px;
+     text-transform:uppercase;letter-spacing:.03em;padding:0 10px 7px 0}
+  td{padding:8px 10px 8px 0;border-top:1px solid var(--line);vertical-align:middle}
+  td.num{text-align:right;font-variant-numeric:tabular-nums;font-weight:600;white-space:nowrap}
+  .big{font-size:19px}
+  .writein{width:130px;padding:7px 9px;border:1.5px solid var(--line);border-radius:8px;
+           font-size:14.5px;text-align:right;font-variant-numeric:tabular-nums}
+  .diff{font-weight:700;font-variant-numeric:tabular-nums}
+  .ok{color:var(--ok)} .bad{color:var(--bad)} .warn{color:var(--warn)}
+  .pill{display:inline-block;padding:2px 9px;border-radius:999px;font-size:12px;font-weight:700}
+  .pill.ok{background:#eaf5ee;color:var(--ok)} .pill.bad{background:#fdecea;color:var(--bad)}
+  select,button{font-size:14.5px;padding:8px 12px;border-radius:9px;border:1px solid var(--line);background:#fff}
+  button.go{background:var(--navy);color:#fff;border:0;font-weight:700;cursor:pointer}
+  .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:16px}
+  .steps{counter-reset:s;padding-left:0;list-style:none;margin:0}
+  .steps li{counter-increment:s;position:relative;padding:9px 0 9px 38px;border-top:1px solid var(--line)}
+  .steps li:first-child{border-top:0}
+  .steps li:before{content:counter(s);position:absolute;left:0;top:9px;width:24px;height:24px;
+    border-radius:50%;background:var(--navy);color:#fff;font-size:12px;font-weight:700;
+    display:flex;align-items:center;justify-content:center}
+  .signoff{display:flex;gap:22px;flex-wrap:wrap;margin-top:8px}
+  .signoff div{flex:1;min-width:190px}
+  .signoff .lineout{border-bottom:1px solid var(--ink);height:30px;margin-top:22px}
+  .signoff span{font-size:12.5px;color:var(--muted)}
+  @media print{
+    body{background:#fff;padding:0}
+    .noprint{display:none!important}
+    .card{border:1px solid #ccc;break-inside:avoid;page-break-inside:avoid}
+    .writein{border:0;border-bottom:1px solid #333;border-radius:0}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Monthly reconciliation</h1>
+  <p class="sub">
+    An independent check on the System. The figures on the left come from the System;
+    you fill in the right from <b>Ezidebit's own settlement reports</b> and the bank statement.
+    If the two sides disagree, the System is wrong — and this is how we find out within a month.
+  </p>
+
+  <div class="row noprint">
+    <label for="mth" style="color:var(--muted);font-size:13.5px">Month</label>
+    <select id="mth"></select>
+    <button class="go" onclick="load()">Show</button>
+    <button onclick="window.print()">Print</button>
+    <span id="state" style="color:var(--muted);font-size:13px"></span>
+  </div>
+
+  <div id="out"></div>
+</div>
+
+<script>
+/* The System's side comes from monthly_reconciliation(). The other side is
+   typed in by whoever is doing the check, on purpose — a reconciliation that
+   fills in both columns for you is not a reconciliation. */
+const sb = supabase.createClient("https://jvqjoenaungubpoegyvf.supabase.co","sb_publishable_J4MYTdJJyEaWe-GadpwdYA_upPT2rKw");
+const $ = id => document.getElementById(id);
+const money = n => "$" + Number(n||0).toLocaleString("en-NZ",{minimumFractionDigits:2,maximumFractionDigits:2});
+const esc = s => String(s??"").replace(/[&<>"]/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[m]));
+
+/* Only months with a settlement date are reconcilable — the pre-API rows carry
+   none, so July 2026 is the earliest that means anything. */
+const FIRST = new Date(2026,6,1);
+(function months(){
+  const sel=$("mth"), now=new Date(); const d=new Date(now.getFullYear(),now.getMonth(),1);
+  const opts=[];
+  while(d>=FIRST){ opts.push(new Date(d)); d.setMonth(d.getMonth()-1); }
+  sel.innerHTML = opts.map((m,i)=>
+    `<option value="${m.getFullYear()}-${String(m.getMonth()+1).padStart(2,"0")}-01"${i===1?" selected":""}>`
+    + m.toLocaleDateString("en-NZ",{month:"long",year:"numeric"}) + `</option>`).join("");
+  if(opts.length===1) sel.selectedIndex=0;
+})();
+
+function diffCell(id){
+  return `<span class="diff" id="${id}">—</span>`;
+}
+function wire(sysVal, inputId, diffId){
+  const inp=$(inputId); if(!inp) return;
+  const upd=()=>{
+    const t=inp.value.trim();
+    const el=$(diffId);
+    if(t===""){ el.textContent="—"; el.className="diff"; return; }
+    const d=Math.round((Number(t.replace(/[^0-9.\-]/g,""))-Number(sysVal))*100)/100;
+    el.textContent = (d===0?"agrees":(d>0?"+":"")+money(d).replace("$",""));
+    el.className = "diff " + (d===0?"ok":"bad");
+  };
+  inp.addEventListener("input",upd); upd();
+}
+
+async function load(){
+  $("state").textContent="Loading…"; $("out").innerHTML="";
+  const {data,error} = await sb.rpc("monthly_reconciliation",{p_month:$("mth").value});
+  if(error){ $("state").textContent=""; $("out").innerHTML =
+    `<div class="card"><b class="bad">Could not load.</b><div class="hint">${esc(error.message)}</div></div>`; return; }
+  $("state").textContent="";
+  const m=data.money_in, d=data.dishonours, c=data.controls, b=data.book;
+  const ctlBad = c.payments_belonging_to_nobody.count>0 || c.balances_that_disagree_with_the_ledger>0
+              || c.same_payment_recorded_twice>0;
+
+  $("out").innerHTML = `
+  <div class="card">
+    <h2>${esc(data.month)} — what the System says came in</h2>
+    <p class="hint">Measured by <b>settlement date</b> (the day Ezidebit paid it into the bank),
+      which is what their settlement report shows. Ezidebit settles about two working days after it debits.</p>
+    <table>
+      <tr><th>&nbsp;</th><th style="text-align:right">System</th>
+          <th style="text-align:right">Ezidebit / bank</th><th style="text-align:right">Difference</th></tr>
+      <tr><td>Ezidebit collected <span style="color:var(--muted)">(${m.ezidebit_count} payments)</span></td>
+          <td class="num big">${money(m.ezidebit_total)}</td>
+          <td class="num"><input class="writein" id="inEzi" placeholder="from EziOnline"></td>
+          <td class="num">${diffCell("dEzi")}</td></tr>
+      <tr><td>Taken by the office <span style="color:var(--muted)">(cash, bank, eftpos — ${m.office_count})</span></td>
+          <td class="num big">${money(m.office_total)}</td>
+          <td class="num"><input class="writein" id="inOff" placeholder="from the bank"></td>
+          <td class="num">${diffCell("dOff")}</td></tr>
+      ${Number(m.refunds_total)!==0?`<tr><td>Refunds</td><td class="num">${money(m.refunds_total)}</td><td></td><td></td></tr>`:""}
+      <tr><td><b>Total received</b></td><td class="num big"><b>${money(m.all_in)}</b></td><td></td><td></td></tr>
+      <tr><td>Dishonoured <span style="color:var(--muted)">(${d.count} — did not clear)</span></td>
+          <td class="num">${money(d.total)}</td>
+          <td class="num"><input class="writein" id="inDis" placeholder="from EziOnline"></td>
+          <td class="num">${diffCell("dDis")}</td></tr>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>Controls <span class="pill ${ctlBad?"bad":"ok"}">${ctlBad?"needs attention":"all clear"}</span></h2>
+    <p class="hint">Every one of these should be zero. Anything else is a question to answer
+      <b>before</b> signing the month off — do not simply note it and move on.</p>
+    <table>
+      <tr><td>Payments belonging to no customer</td>
+          <td class="num ${c.payments_belonging_to_nobody.count?"bad":"ok"}">
+            ${c.payments_belonging_to_nobody.count} &nbsp;<span style="font-weight:400">${money(c.payments_belonging_to_nobody.total)}</span></td></tr>
+      <tr><td>Customer balances that disagree with the payment ledger</td>
+          <td class="num ${c.balances_that_disagree_with_the_ledger?"bad":"ok"}">${c.balances_that_disagree_with_the_ledger}</td></tr>
+      <tr><td>The same payment recorded twice by hand</td>
+          <td class="num ${c.same_payment_recorded_twice?"bad":"ok"}">${c.same_payment_recorded_twice}</td></tr>
+      <tr><td>Open money items on the daily health check</td>
+          <td class="num ${c.open_items_on_the_health_check?"warn":"ok"}">${c.open_items_on_the_health_check}</td></tr>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>How to do this check</h2>
+    <ol class="steps">
+      <li>In <b>EziOnline</b>, open the settlement report for ${esc(data.month)} and take the
+          <b>total settled</b> and the <b>total dishonoured</b>. Type them into the boxes above.</li>
+      <li>From the <b>bank statement</b>, add up what the office banked that month outside Ezidebit —
+          cash, direct bank transfers, eftpos. Type that in too.</li>
+      <li>Any difference that is not zero gets explained before the month is signed off.
+          A small one is usually timing at the month end; a large one is not.</li>
+      <li>Check every control above reads zero. If not, tell Nigel which one and the number beside it.</li>
+      <li>Print this page, sign it, and keep it with the month's records.</li>
+    </ol>
+  </div>
+
+  <div class="card">
+    <h2>The book at ${new Date(data.generated_at).toLocaleDateString("en-NZ")}</h2>
+    <table>
+      <tr><td>Active orders</td><td class="num">${b.active_orders}</td></tr>
+      <tr><td>Collected since records began</td><td class="num">${money(b.collected_all_time)}</td></tr>
+      <tr><td>Still owed on active orders</td><td class="num">${money(b.still_owed)}</td></tr>
+    </table>
+    <div class="signoff">
+      <div><div class="lineout"></div><span>Checked by</span></div>
+      <div><div class="lineout"></div><span>Date</span></div>
+      <div><div class="lineout"></div><span>Approved by</span></div>
+    </div>
+  </div>`;
+
+  wire(m.ezidebit_total,"inEzi","dEzi");
+  wire(m.office_total,"inOff","dOff");
+  wire(d.total,"inDis","dDis");
+}
+if(document.readyState!=="loading") load(); else document.addEventListener("DOMContentLoaded",load);
+</script>
+</body>
+</html>
