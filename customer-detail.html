@@ -2315,6 +2315,38 @@ async function savePay(){
 
   btn.disabled=true; btn.textContent="Recording…";
   try{
+    /* ⚠ DOUBLE-ENTRY CHECK (15 Aug 2026). Until today, 74 of 74 office-entered
+       payments had nothing stopping the same one being recorded twice — and two
+       already had been (Jennifer Dave $39.74, Maselina Liuaana $50). Over-
+       crediting is the direction that costs Simtec, and it shows on no screen.
+       The office is WARNED, not blocked: a genuine second payment of the same
+       amount on the same day is rare but real, and refusing it outright would
+       leave them no way through. */
+    const method=document.getElementById("payMethod").value;
+    let already=[];
+    try{
+      const {data:dup}=await sb.from("sim_payments")
+        .select("id,amount,method,recorded_by,created_at")
+        .eq("order_id",o.id).eq("payment_date",date).eq("source","manual")
+        .eq("amount",amt);
+      already = dup||[];
+    }catch(_e){ /* the check must never stop a real payment being recorded */ }
+    if(already.length){
+      const w=already[0];
+      const when=w.created_at?new Date(w.created_at).toLocaleString("en-NZ"):"earlier";
+      if(!confirm(
+        "This looks like one you have already recorded.\n\n"
+        + "$"+Math.abs(amt).toFixed(2)+" on "+date
+        + (w.recorded_by?(", entered by "+w.recorded_by):"")
+        + " "+when+".\n\n"
+        + "Recording it again will credit the customer twice.\n"
+        + "Only continue if this really is a SECOND payment of the same amount on the same day."
+      )){
+        btn.disabled=false; btn.textContent="Record payment";
+        return payErr("Nothing recorded — the payment already on the account was left as it is.");
+      }
+    }
+
     const {error}=await sb.from("sim_payments").insert({
       order_id:o.id,
       payer_ref:o.ezidebit_payer_ref||null,
@@ -2323,7 +2355,7 @@ async function savePay(){
       amount:amt,
       result: refund?"refund":"paid",
       source:"manual",
-      method:document.getElementById("payMethod").value,
+      method:method,
       notes:document.getElementById("payNotes").value||null,
       recorded_by:(window.SIMTEC_USER&&(window.SIMTEC_USER.full_name||window.SIMTEC_USER.email))||null
     });
