@@ -84,7 +84,19 @@ let day=1;                 // which day tab is showing
 let custByRef={};          // payer_ref -> customer/order info
 let orderById={};          // order_id  -> customer/order info
 let LISTS={1:[],2:[],3:[],4:[],5:[]};
-let DROPPED_PAID=0;        // how many fell off this load because they paid
+let POS={};
+let DROPPED_PAID=0;
+let DROPPED_OK=0;          // no longer behind on the shared measure
+
+/* Only a MEASURED "behind" gets chased. If we cannot measure it — no schedule,
+   no history, on hold, not started — we say nothing rather than accuse someone
+   of being in arrears. A bounce alone is NOT arrears: a customer who is ahead
+   overall already gets the separate "your payment didn't go through" notice. */
+function behindNow(order_id){
+  const v=POS[order_id];
+  if(!v) return false;
+  return v.state==='behind' && v.certainty==='measured' && Number(v.behind_by||0)>0;
+}
 
 // ── Load active customers + their current paid figure ──
 async function loadCustomers(){
@@ -98,6 +110,21 @@ async function loadCustomers(){
     const {data:cs}=await sb.from('sim_customers').select('id,first_name,last_name,mobile').in('id',ids.slice(i,i+200));
     (cs||[]).forEach(c=>cust[c.id]=c);
   }
+  /* ⚠ THE ONE SOURCE. Whether somebody is actually behind is decided by
+     order_financial_position() via v_customer_position — the same figures the
+     office screens and the customer's own app show. This page used to decide
+     for itself, which is how 25 customers who were up to date received arrears
+     texts on 7 August and needed apology calls. */
+  POS={};
+  const oids=(orders||[]).map(o=>o.id);
+  for(let i=0;i<oids.length;i+=200){
+    try{
+      const {data:pos}=await sb.from('v_customer_position')
+        .select('order_id,state,certainty,behind_by,owed').in('order_id',oids.slice(i,i+200));
+      (pos||[]).forEach(r=>{ POS[r.order_id]=r; });
+    }catch(_e){ /* leave POS empty — behindNow() then refuses to chase anyone */ }
+  }
+
   custByRef={}; orderById={};
   (orders||[]).forEach(o=>{
     if(o.paid_in_full) return;
@@ -123,12 +150,17 @@ async function loadAll(){
   const seq=seqRows||[];
 
   // auto-drop anyone whose paid figure has risen since they entered the sequence
-  DROPPED_PAID=0;
-  const paidOff=[];
+  DROPPED_PAID=0; DROPPED_OK=0;
+  const paidOff=[], caughtUp=[];
   seq.forEach(s=>{
     const o=orderById[s.order_id];
     if(!o) return;                                   // order gone/cancelled — leave it
-    if(o.paid > Number(s.paid_base||0) + 0.01){ paidOff.push(s.id); }
+    if(o.paid > Number(s.paid_base||0) + 0.01){ paidOff.push(s.id); return; }
+    /* ⚠ ALSO drop anyone who is no longer behind on the shared measure, even if
+       their paid figure has not moved. Before this, somebody added on a wrong
+       number stayed in the ladder until they happened to pay — which is exactly
+       how the 7 August apology calls happened. */
+    if(POS[s.order_id] && !behindNow(s.order_id)) caughtUp.push(s.id);
   });
   if(paidOff.length){
     await sb.from('sim_arrears_sequence')
@@ -136,7 +168,13 @@ async function loadAll(){
       .in('id',paidOff);
     DROPPED_PAID=paidOff.length;
   }
-  const live=seq.filter(s=>!paidOff.includes(s.id));
+  if(caughtUp.length){
+    await sb.from('sim_arrears_sequence')
+      .update({status:'removed',removed_at:new Date().toISOString(),removed_by:'auto (not behind)'})
+      .in('id',caughtUp);
+    DROPPED_OK=caughtUp.length;
+  }
+  const live=seq.filter(s=>!paidOff.includes(s.id) && !caughtUp.includes(s.id));
   const inSequence=new Set(live.map(s=>s.order_id));
 
   // ── Day 1: dishonours on the latest report, not already in an active sequence ──
@@ -152,6 +190,7 @@ async function loadAll(){
       if(!c || !c.mobile) return;
       if(inSequence.has(c.order_id)) return;         // already mid-sequence
       if(seen.has(c.order_id)) return;               // one text per customer
+      if(!behindNow(c.order_id)) return;             // bounced, but not actually behind
       seen.add(c.order_id);
       LISTS[1].push(Object.assign({},c,{seq_id:null}));
     });
@@ -172,6 +211,7 @@ async function loadAll(){
     if(!o || !o.mobile) return;
     const next=Number(s.day_sent||0)+1;
     if(!s.last_sent_at || dayStr(s.last_sent_at) >= todayStr) return;   // already texted today → wait for tomorrow
+    if(!behindNow(s.order_id)) return;                                  // caught up mid-ladder
     if(next>=2 && next<=5) LISTS[next].push(Object.assign({},o,{seq_id:s.id, last_sent_at:s.last_sent_at}));
   });
 
@@ -181,7 +221,8 @@ async function loadAll(){
 function render(){
   const tab=(n)=>`<button class="btn ${day===n?'on':''}" onclick="setDay(${n})">Day ${n}${LISTS[n].length?`<span class="pill" ${day===n?'style="background:#1a2438;color:#c9a84c"':''}>${LISTS[n].length}</span>`:''}</button>`;
   $('tabs').innerHTML=[1,2,3,4,5].map(tab).join('')
-    + (DROPPED_PAID?`<span class="k" style="margin-left:10px">${DROPPED_PAID} dropped off — payment received</span>`:'');
+    + (DROPPED_PAID?`<span class="k" style="margin-left:10px">${DROPPED_PAID} dropped off — payment received</span>`:'')
+    + (DROPPED_OK?`<span class="k" style="margin-left:10px">${DROPPED_OK} dropped off — no longer behind</span>`:'');
 
   $('msgcard').innerHTML=`<div class="lbl mb-2">Day ${day} message</div>
     <div class="text-slate-200 text-sm bg-slate-900 rounded-lg p-3">${esc(MESSAGES[day]('[first name]'))}</div>
