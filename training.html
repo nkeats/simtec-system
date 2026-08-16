@@ -8,7 +8,7 @@
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Simtec Training">
-<script>window.SIMTEC_BUILD="2026-08-16-01";</script>
+<script>window.SIMTEC_BUILD="2026-08-16-02";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.112.2/dist/umd/supabase.js"></script>
 <script src="auth.js?v=3" data-roles="admin,manager,office,consultant"></script>
 <script src="update.js?v=1"></script>
@@ -43,6 +43,9 @@
   .drift b{color:var(--red)}
   .prac{background:#eef4ff;border-radius:8px;padding:10px 12px;font-size:14px;margin-top:10px}
   .note{color:var(--muted);font-size:12.5px}
+  .diagram{margin:14px 0 6px;border:1px solid var(--line);border-radius:10px;padding:10px;background:#fff}
+  .diagram svg{display:block;width:100%;height:auto}
+  .diagram .cap{color:var(--muted);font-size:12px;text-align:center;margin-top:6px}
   /* the watermark — their name, on screen and on any print or screenshot */
   #wm{position:fixed;inset:0;z-index:0;pointer-events:none;overflow:hidden;opacity:.06}
   #wm div{position:absolute;white-space:nowrap;font-size:19px;font-weight:700;
@@ -110,6 +113,7 @@ function render(rows, name){
         <h3>Say this, word for word</h3>
         <div class="script">${esc(m.script||"")}</div>
         ${(m.body||[]).map(b=>`<h3>${esc(b.heading)}</h3><p>${esc(b.text)}</p>`).join("")}
+        ${m.diagram_svg?`<div class="diagram">${m.diagram_svg}${m.diagram_caption?`<div class="cap">${esc(m.diagram_caption)}</div>`:""}</div>`:""}
         ${m.drift?`<div class="drift"><b>Where people drift.</b> ${esc(m.drift)}</div>`:""}
         ${m.practice?`<div class="prac"><b>Practise:</b> ${esc(m.practice)}</div>`:""}
       </div>
@@ -134,7 +138,7 @@ async function load(){
   window.addEventListener("resize", ()=>watermark(name));
 
   const {data,error} = await sb.from("training_modules")
-    .select("seq,title,subtitle,script,body,drift,practice")
+    .select("seq,title,subtitle,script,body,drift,practice,diagram_svg,diagram_caption")
     .eq("course","cutaway").eq("active",true).order("seq");
   if(error){
     $("list").innerHTML = `<div class="card"><b style="color:var(--red)">Could not load the training material.</b>
