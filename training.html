@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<title>Simtec — Training</title>
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Simtec Training">
+<script>window.SIMTEC_BUILD="2026-08-16-01";</script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.112.2/dist/umd/supabase.js"></script>
+<script src="auth.js?v=3" data-roles="admin,manager,office,consultant"></script>
+<script src="update.js?v=1"></script>
+<style>
+  :root{--navy:#16376b;--gold:#c0a062;--ink:#1f2733;--muted:#6b7889;--line:#dbe2ec;
+        --bg:#f5f7fa;--script:#f7f4ec;--red:#b3261e}
+  *{box-sizing:border-box}
+  body{margin:0;padding:22px 16px 60px;background:var(--bg);color:var(--ink);
+       font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+       line-height:1.55;position:relative}
+  .wrap{max-width:760px;margin:0 auto;position:relative;z-index:1}
+  h1{color:var(--navy);font-size:23px;margin:0 0 2px}
+  .sub{color:var(--muted);font-size:13.5px;margin:0 0 16px}
+  .card{background:#fff;border:1px solid var(--line);border-radius:14px;
+        padding:16px 18px;margin-bottom:12px}
+  .mod{cursor:pointer;display:flex;align-items:center;gap:12px}
+  .mod .n{width:30px;height:30px;border-radius:50%;background:var(--navy);color:#fff;
+          font-weight:700;font-size:13px;display:flex;align-items:center;justify-content:center;flex:0 0 auto}
+  .mod .t{font-weight:700;color:var(--navy);font-size:15.5px}
+  .mod .s{color:var(--muted);font-size:12.5px}
+  .mod .chev{margin-left:auto;color:var(--muted);font-size:18px}
+  .open .chev{transform:rotate(90deg)}
+  .detail{display:none;padding-top:12px;margin-top:12px;border-top:1px solid var(--line)}
+  .open .detail{display:block}
+  .script{background:var(--script);border-left:3px solid var(--gold);border-radius:0 8px 8px 0;
+          padding:12px 14px;margin:6px 0 14px;font-size:15px;line-height:1.6;
+          font-weight:600;color:var(--navy)}
+  h3{font-size:13px;color:var(--navy);margin:14px 0 3px;text-transform:uppercase;letter-spacing:.03em}
+  p{margin:0 0 8px;font-size:14.5px}
+  .drift{background:#fdf6f5;border-left:3px solid var(--red);border-radius:0 8px 8px 0;
+         padding:10px 12px;margin:12px 0;font-size:14px}
+  .drift b{color:var(--red)}
+  .prac{background:#eef4ff;border-radius:8px;padding:10px 12px;font-size:14px;margin-top:10px}
+  .note{color:var(--muted);font-size:12.5px}
+  /* the watermark — their name, on screen and on any print or screenshot */
+  #wm{position:fixed;inset:0;z-index:0;pointer-events:none;overflow:hidden;opacity:.06}
+  #wm div{position:absolute;white-space:nowrap;font-size:19px;font-weight:700;
+          color:#16376b;transform:rotate(-28deg)}
+  .bar{background:#fff;border:1px solid var(--line);border-left:4px solid var(--gold);
+       border-radius:10px;padding:11px 14px;margin-bottom:16px;font-size:13px;color:var(--muted)}
+  .bar b{color:var(--ink)}
+  @media print{
+    body{background:#fff}
+    #wm{opacity:.16}
+    .detail{display:block!important}
+  }
+</style>
+</head>
+<body>
+<div id="wm"></div>
+<div class="wrap">
+  <h1>Training</h1>
+  <p class="sub" id="sub">The cutaway — seven modules</p>
+
+  <div class="bar" id="notice">
+    <b>This material is Simtec property and is confidential.</b>
+    It is not to be copied, shared or taken with you. Your name appears on every page,
+    and each module you open is recorded.
+  </div>
+
+  <div id="list"><p class="note">Loading…</p></div>
+</div>
+
+<script>
+/* ⚠ THE MATERIAL IS NOT A FILE. It is rows in training_modules, behind RLS, rendered
+   here for a signed-in consultant. There is nothing to download and nothing to forward,
+   access ends when the login is deactivated, and every opening is logged.
+   That does not stop a photograph of the screen — nothing can. What it does is raise
+   the effort and make any leak attributable, which is the honest limit of a technical
+   control. The confidentiality clause in the consultant agreement is what has teeth. */
+const sb = supabase.createClient("https://jvqjoenaungubpoegyvf.supabase.co","sb_publishable_J4MYTdJJyEaWe-GadpwdYA_upPT2rKw");
+const $ = id => document.getElementById(id);
+const esc = s => String(s??"").replace(/[&<>"]/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[m]));
+
+/* Watermark drawn from the session, never from anything typed in. */
+function watermark(name){
+  const when = new Date().toLocaleDateString("en-NZ");
+  const txt = `${name} · ${when} · Simtec confidential`;
+  let out = "";
+  for(let y=-60; y<window.innerHeight+300; y+=170)
+    for(let x=-200; x<window.innerWidth+400; x+=520)
+      out += `<div style="left:${x}px;top:${y}px">${esc(txt)}</div>`;
+  $("wm").innerHTML = out;
+}
+
+function render(rows, name){
+  if(!rows.length){ $("list").innerHTML = '<p class="note">No training material has been published yet.</p>'; return; }
+  $("list").innerHTML = rows.map(m=>`
+    <div class="card" id="m${m.seq}">
+      <div class="mod" onclick="toggle(${m.seq})">
+        <div class="n">${m.seq}</div>
+        <div>
+          <div class="t">${esc(m.title)}</div>
+          <div class="s">${esc(m.subtitle||"")}</div>
+        </div>
+        <div class="chev">›</div>
+      </div>
+      <div class="detail">
+        <h3>Say this, word for word</h3>
+        <div class="script">${esc(m.script||"")}</div>
+        ${(m.body||[]).map(b=>`<h3>${esc(b.heading)}</h3><p>${esc(b.text)}</p>`).join("")}
+        ${m.drift?`<div class="drift"><b>Where people drift.</b> ${esc(m.drift)}</div>`:""}
+        ${m.practice?`<div class="prac"><b>Practise:</b> ${esc(m.practice)}</div>`:""}
+      </div>
+    </div>`).join("");
+}
+
+function toggle(seq){
+  const el = $("m"+seq);
+  const opening = !el.classList.contains("open");
+  el.classList.toggle("open");
+  if(opening){
+    // record who studied what — wrapped so it can never stop somebody learning
+    try{ sb.rpc("log_training_view",{p_course:"cutaway",p_seq:seq}); }catch(_e){}
+    el.scrollIntoView({behavior:"smooth",block:"start"});
+  }
+}
+
+async function load(){
+  const u = window.SIMTEC_USER || {};
+  const name = u.full_name || u.consultant_name || u.email || "Simtec";
+  watermark(name);
+  window.addEventListener("resize", ()=>watermark(name));
+
+  const {data,error} = await sb.from("training_modules")
+    .select("seq,title,subtitle,script,body,drift,practice")
+    .eq("course","cutaway").eq("active",true).order("seq");
+  if(error){
+    $("list").innerHTML = `<div class="card"><b style="color:var(--red)">Could not load the training material.</b>
+      <p class="note">${esc(error.message)}</p></div>`;
+    return;
+  }
+  render(data||[], name);
+  $("sub").textContent = `The cutaway — ${(data||[]).length} modules · signed in as ${name}`;
+}
+
+/* auth.js reveals the page once the session is known; wait for it so the watermark
+   carries the right name rather than "Simtec". */
+(function start(n){
+  if(window.SIMTEC_USER || n>60) return load();
+  setTimeout(()=>start(n+1), 100);
+})(0);
+</script>
+</body>
+</html>

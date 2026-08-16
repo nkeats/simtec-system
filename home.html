@@ -143,6 +143,9 @@
       <div class="nav-grp"><div class="nav-gl">Commissions</div>
         <a href="commissions.html"><span class="ni"><svg viewBox="0 0 24 24"><path d="M12 2v20M17 6H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></span>Commissions</a>
         <a href="reports.html"><span class="ni"><svg viewBox="0 0 24 24"><path d="M3 3v18h18"/><rect x="7" y="10" width="3" height="7"/><rect x="12" y="6" width="3" height="11"/><rect x="17" y="13" width="3" height="4"/></svg></span>Reports</a>
+        <a href="training.html"><span class="ni"><svg viewBox="0 0 24 24"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg></span>Training</a>
+        <a href="weekly-report.html"><span class="ni"><svg viewBox="0 0 24 24"><path d="M4 4h16v16H4z"/><path d="M8 9h8"/><path d="M8 13h8"/><path d="M8 17h5"/></svg></span>Weekly report</a>
+        <a href="reconciliation.html"><span class="ni"><svg viewBox="0 0 24 24"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg></span>Monthly reconciliation</a>
       </div>
 
       <div class="nav-grp" id="navTeam" style="display:none"><div class="nav-gl">Team</div>
@@ -327,22 +330,19 @@ function isBehindDelivered(o){
   const perAmt = (o.instalment_amount!=null && Number(o.instalment_amount)>0)
                  ? Number(o.instalment_amount) : contract/f.total;
 
-  /* ⚠ ONE SOURCE — v_customer_position, i.e. order_financial_position(), the same
-     function the customer's own app reads. This page and the customer page cannot
-     disagree about a person any more.
-     Only a MEASURED position puts somebody on the chase list. 'no history' and
-     'unknown' mean we cannot tell yet — chasing those is exactly how customers who
-     were up to date ended up getting arrears texts. 'nothing collected yet' IS
-     chased, because that is nobody collecting rather than nobody knowing. */
+  // The behind/on-track maths comes from v_order_position (see customer-detail.html for
+  // the full reasoning). This page used to do its own version with a 1.5-instalment
+  // tolerance while the customer page used 1.0, so the two screens could disagree about
+  // the same person. Both now read the same row and the same one-instalment tolerance.
   const v=POS[o.id];
   if(v){
     const behindBy=Number(v.behind_by||0);
-    const nobody=v.state==="nothing collected yet";
-    if(v.state==="on hold" || v.state==="settled" || v.state==="paid on another order"
-       || v.state==="not started yet" || v.state==="no schedule recorded") return null;
-    if(!nobody && (v.certainty!=="measured" || !(behindBy>0))) return null;
+    const silent=!!v.silent;
+    // Two independent reasons to chase: the money is short, or the money has stopped.
+    // A late anchor can flatter the first; the second is immune to it.
+    if(v.cls!=="red" && v.cls!=="amber" && !silent) return null;
     return {behindBy, periods:perAmt>0?behindBy/perAmt:0, word:f.word, bucket,
-            silent:nobody, periodsSilent:null, nobody,
+            silent, periodsSilent:v.periods_since_payment,
             note:o.arrears_contact_note||"", contactedBy:o.arrears_contacted_by||""};
   }
 
@@ -392,8 +392,8 @@ async function loadUrgent(){
     POS={};
     { const oids=(orders||[]).map(o=>o.id);
       for(let i=0;i<oids.length;i+=200){
-        const {data:pos}=await sb.from("v_customer_position").select(
-          "order_id,state,certainty,behind_by,ahead_by,periods_out,owed,measured_to")
+        const {data:pos}=await sb.from("v_order_position").select(
+          "order_id,cls,behind_by,periods_behind,silent,periods_since_payment,as_at")
           .in("order_id",oids.slice(i,i+200));
         (pos||[]).forEach(r=>{ POS[r.order_id]=r; });
       } }
@@ -427,7 +427,7 @@ async function loadUrgent(){
       const btn=`<button onclick="event.stopPropagation();markContacted('${r.o.id}','${(c.name||"").replace(/'/g,"\\'")}',${Number(r.o.amount_paid_to_date||0)})" style="${style};border-radius:7px;padding:4px 10px;font-size:12px;cursor:pointer;white-space:nowrap">${label}</button>`;
       return `<tr class="row" onclick="location.href='customer-detail.html?id=${r.o.id}'" style="cursor:pointer">
         <td>${esc(c.name||"")}${c.mobile?`<div style="color:#8593a5;font-size:11.5px">${esc(c.mobile)}</div>`:""}</td>
-        <td class="num" style="white-space:nowrap">${fmt(r.b.behindBy)}<div style="color:#8593a5;font-size:11.5px">${r.b.nobody?"nothing has been collected":`${r.b.periods.toFixed(0)} ${r.b.word} behind`}</div></td>
+        <td class="num" style="white-space:nowrap">${fmt(r.b.behindBy)}<div style="color:#8593a5;font-size:11.5px">${r.b.silent&&r.b.periodsSilent!=null?`nothing for ${Number(r.b.periodsSilent).toFixed(0)} ${r.b.word}`:`${r.b.periods.toFixed(0)} ${r.b.word} behind`}</div></td>
         <td class="num">${btn}</td></tr>`;
     };
     const tableHtml=(list,withContact,emptyMsg)=> list.length
