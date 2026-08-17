@@ -104,6 +104,39 @@ function mixTable(rows, label){
     + `<tr><td><b>Total</b></td><td class="num"><b>${total}</b></td><td class="num">100%</td><td></td></tr></table>`;
 }
 
+/* ---- Ezidebit: the last 4 COMPLETE weeks --------------------------------
+   Nigel, 18 Aug: "the last 4 complete weeks of ezidebit payments received.
+   If the week is not yet complete dont include it."
+   The RPC only ever returns finished weeks, so there is nothing to filter
+   here - but we show the week dates plainly so that is visible on the page.
+   Bounced sits beside received deliberately: money in means little without
+   what failed next to it.
+-------------------------------------------------------------------------- */
+function eziTable(rows){
+  if(!rows || !rows.length) return `<p class="note">No settled payments recorded.</p>`;
+  const totIn  = rows.reduce((a,r)=>a+Number(r.received||0),0);
+  const totOut = rows.reduce((a,r)=>a+Number(r.bounced_value||0),0);
+  const totN   = rows.reduce((a,r)=>a+Number(r.payments||0),0);
+  const totB   = rows.reduce((a,r)=>a+Number(r.bounced||0),0);
+  const best   = Math.max(...rows.map(r=>Number(r.received||0)), 1);
+  return `<table><tr><th>Week</th><th class="num">Payments</th><th class="num">Received</th>
+      <th class="num">Bounced</th><th class="num">Value bounced</th><th style="width:120px"></th></tr>`
+    + rows.map(r=>{
+        const inn=Number(r.received||0), w=(inn/best*100).toFixed(1);
+        const attempts = Number(r.payments||0) + Number(r.bounced||0);
+        const failPct  = attempts ? (Number(r.bounced||0)/attempts*100) : 0;
+        return `<tr><td>${nzDate(r.week_start)} &ndash; ${nzDate(r.week_end)}</td>
+          <td class="num">${r.payments}</td>
+          <td class="num"><b>${money2(inn)}</b></td>
+          <td class="num"${failPct>=25?' style="color:var(--bad);font-weight:700"':''}>${r.bounced}</td>
+          <td class="num">${money2(r.bounced_value)}</td>
+          <td><div class="bar"><i style="width:${w}%"></i></div></td></tr>`;
+      }).join("")
+    + `<tr><td><b>4 weeks</b></td><td class="num"><b>${totN}</b></td>
+        <td class="num"><b>${money2(totIn)}</b></td><td class="num"><b>${totB}</b></td>
+        <td class="num"><b>${money2(totOut)}</b></td><td></td></tr></table>`;
+}
+
 async function load(){
   $("state").textContent="Loading…"; $("out").innerHTML="";
   const {data,error} = await sb.rpc("weekly_report",{p_week_ending:$("wk").value});
@@ -211,6 +244,12 @@ async function load(){
       ${tile("Loan book — real", money(real), money(o.loan_book_doubtful)+" judged doubtful")}
       ${tile("Ezidebit expected", money2(o.ezidebit_expected_weekly), "per week, all frequencies")}
     </div>
+
+    <h3>Ezidebit received — last 4 complete weeks</h3>
+    <p class="note">Counted on the day the money settled, refunds taken off.
+      Only finished Monday&ndash;Sunday weeks are shown, so a week still running never appears.
+      A bounce rate of a quarter or more is marked in red.</p>
+    ${eziTable(x.ezidebit_weeks)}
 
     <h3>Mattress mix — all sales</h3>
     ${mixTable(o.mattress_mix,"Mattress")}
