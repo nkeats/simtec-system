@@ -137,6 +137,32 @@ function eziTable(rows){
         <td class="num"><b>${money2(totOut)}</b></td><td></td></tr></table>`;
 }
 
+/* One reorder table, used for BOTH mattresses and bases, so the two can never
+   be calculated or coloured differently. */
+function reorderTable(rows,label){
+  if(!rows || !rows.length) return `<p class="note">Nothing to show.</p>`;
+  return `<table>
+      <tr><th>${label}</th><th class="num">On hand</th><th class="num">Committed</th>
+          <th class="num">Free</th><th class="num">Sales/wk</th><th class="num">Cover</th>
+          <th>Order by</th></tr>`
+    + rows.map(r=>{
+        const overdue = r.order_by && new Date(r.order_by) < new Date();
+        const badge = r.urgent
+          ? `<span class="pill urgent">${overdue?"OVERDUE":"order now"}</span>`
+          : (r.weeks_cover!=null && r.weeks_cover<26 ? `<span class="pill soon">watch</span>`
+                                                    : `<span class="pill ok">fine</span>`);
+        return `<tr>
+          <td>${esc(r.product)}</td>
+          <td class="num">${r.on_hand}</td>
+          <td class="num">${r.committed}</td>
+          <td class="num" ${r.free<0?'style="color:var(--bad);font-weight:700"':""}>${r.free}</td>
+          <td class="num">${Number(r.per_week).toFixed(1)}</td>
+          <td class="num">${r.weeks_cover==null?"—":Number(r.weeks_cover).toFixed(1)+" wk"}</td>
+          <td>${r.order_by?nzDate(r.order_by):"—"} ${badge}</td></tr>`;
+      }).join("")
+    + `</table>`;
+}
+
 async function load(){
   $("state").textContent="Loading…"; $("out").innerHTML="";
   const {data,error} = await sb.rpc("weekly_report",{p_week_ending:$("wk").value});
@@ -187,6 +213,7 @@ async function load(){
   let salesHtml = `<div class="sec"><h2>1 &nbsp;Weekly sales</h2>
     <div class="tiles">
       ${tile("Mattresses sold", s.mattresses, s.mattresses_cancelled? s.mattresses_cancelled+" more cancelled":"")}
+      ${tile("Bed bases sold", x.bases_sold ?? 0, (x.bases_cancelled?x.bases_cancelled+" cancelled":"units"))}
       ${tile("Orders", s.office_total_count, money(s.office_total_value))}
       ${tile("Average order", s.office_total_count? money(s.office_total_value/s.office_total_count) : "—","")}
     </div>
@@ -222,9 +249,12 @@ async function load(){
     <div class="tiles">
       ${tile("Deliveries", d.count, "orders delivered")}
       ${tile("Mattresses out", delTotal, "units")}
+      ${tile("Bases out", (x.deliveries_by_base||[]).reduce((a,r)=>a+Number(r.qty||0),0), "units")}
     </div>
     <h3>By mattress</h3>
     ${mixTable(d.by_mattress,"Mattress")}
+    <h3>By bed base</h3>
+    ${mixTable(x.deliveries_by_base||[],"Bed base")}
     </div>`;
 
   /* ---- 3. BUSINESS OVERVIEW ---- */
@@ -251,6 +281,9 @@ async function load(){
       A bounce rate of a quarter or more is marked in red.</p>
     ${eziTable(x.ezidebit_weeks)}
 
+    <h3>Bed bases sold this week</h3>
+    ${mixTable(x.bases_by_type||[],"Bed base")}
+
     <h3>Mattress mix — all sales</h3>
     ${mixTable(o.mattress_mix,"Mattress")}
 
@@ -259,33 +292,19 @@ async function load(){
       ${tile("With a base", basePct.toFixed(1)+"%", o.orders_with_a_base.with+" of "+o.orders_with_a_base.total+" orders")}
     </div>
 
-    <h3>When to reorder</h3>
+    <h3>When to reorder — mattresses</h3>
     <p class="note">Based on the last 12 weeks of sales, allowing 3 months to make and ship.
       "Free" is stock on hand less what is already sold and waiting to go out.
       A date in the past means the order is already overdue.</p>
-    <table>
-      <tr><th>Mattress</th><th class="num">On hand</th><th class="num">Committed</th>
-          <th class="num">Free</th><th class="num">Sales/wk</th><th class="num">Cover</th>
-          <th>Order by</th></tr>`
-    + reorder.map(r=>{
-        const overdue = r.order_by && new Date(r.order_by) < new Date();
-        const badge = r.urgent
-          ? `<span class="pill urgent">${overdue?"OVERDUE":"order now"}</span>`
-          : (r.weeks_cover!=null && r.weeks_cover<26 ? `<span class="pill soon">watch</span>`
-                                                    : `<span class="pill ok">fine</span>`);
-        return `<tr>
-          <td>${esc(r.product)}</td>
-          <td class="num">${r.on_hand}</td>
-          <td class="num">${r.committed}</td>
-          <td class="num" ${r.free<0?'style="color:var(--bad);font-weight:700"':""}>${r.free}</td>
-          <td class="num">${Number(r.per_week).toFixed(1)}</td>
-          <td class="num">${r.weeks_cover==null?"—":Number(r.weeks_cover).toFixed(1)+" wk"}</td>
-          <td>${r.order_by?nzDate(r.order_by):"—"} ${badge}</td></tr>`;
-      }).join("")
-    + `</table>`
-    + (urgent.length
-        ? `<p class="note" style="color:var(--bad)"><b>${urgent.length} to order now:</b>
-             ${urgent.map(r=>esc(r.product)).join(", ")}.</p>`
+    ${reorderTable(reorder,"Mattress")}
+
+    <h3>When to reorder — bed bases</h3>
+    <p class="note">Same maths and the same 3-month lead time as the mattresses above.</p>
+    ${reorderTable(x.reorder_bases||[],"Bed base")}
+    `
+    + (urgent.length || (x.reorder_bases||[]).filter(r=>r.urgent).length
+        ? `<p class="note" style="color:var(--bad)"><b>To order now:</b>
+             ${[...urgent.map(r=>r.product), ...(x.reorder_bases||[]).filter(r=>r.urgent).map(r=>r.product)].map(esc).join(", ")}.</p>`
         : `<p class="note" style="color:var(--ok)">Nothing needs ordering this week.</p>`)
     + `</div>`;
 
