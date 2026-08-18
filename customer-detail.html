@@ -1370,7 +1370,7 @@ async function openAmend(oid){
   // instead of quietly showing an empty list.
   try{
     const {data:its,error}=await sb.from("sim_order_items")
-      .select("id,product_name,quantity,unit_price,cancelled")
+      .select("id,product_name,quantity,unit_price,cancelled,line_no")
       .eq("order_id",o.id).order("line_no");
     if(error) throw new Error(error.message);
     window._ITEMS = its||[];
@@ -1745,6 +1745,19 @@ async function saveAmend(){
   if(!confirm(`Save this amendment?\n\n${summary}\n\nContract: ${money(o.contract_value)} → ${money(newV)}\n${payLine}`)) return;
 
   btn.disabled=true; btn.textContent="Saving…";
+  // ⚠ 18 Aug — A SAVE THAT HANGS MUST NEVER LOOK LIKE A SAVE THAT FAILED.
+  // Joe Pulevaka's amendment wrote EVERYTHING — products, contract value, instalment,
+  // term and the audit row — and then the screen sat on "Saving…". Anyone seeing that
+  // presses Save again, and on this screen that duplicates every product line.
+  // `committed` marks the point of no return; the watchdog speaks up while we are still
+  // waiting and says the only thing that matters: do not save again.
+  let committed=false;
+  const watchdog=setTimeout(function(){
+    if(committed) return;
+    amErr("<b>This is taking longer than usual.</b><br>Do <b>not</b> press Save again — the change "
+        + "may already have gone through. Reload the page and check the product list before trying "
+        + "anything else.");
+  },20000);
   try{
     // Is the commission already paid?  If so we must NOT reach into a closed pay run.
     const {data:cs,error:e0}=await sb.from("commission_sales").select("id,paid_date,pay_run_id").eq("sim_order_id",o.id).maybeSingle();
@@ -1760,7 +1773,12 @@ async function saveAmend(){
       if(error) throw new Error("Updating "+l.name+": "+error.message);
     }
     if(added.length){
-      const base=(window._ITEMS||[]).length+1;
+      // ⚠ NEVER GO BACK TO COUNTING THE ITEMS. line_no is UNIQUE per order, and a
+      // product removed in the past leaves a HOLE — Joe Pulevaka had lines 1, 3, 4,
+      // so counting gave 4, which was already the protector, and the whole amendment
+      // was refused (18 Aug). 13 live orders had such a hole. Always take the HIGHEST
+      // line number in use and go up from there. Requires line_no in the select above.
+      const base=Math.max(0,...(window._ITEMS||[]).map(l=>Number(l.line_no)||0))+1;
       const rows=added.map((l,ix)=>({order_id:o.id,line_no:base+ix,product_name:l.name,quantity:l.qty,unit_price:l.price}));
       const {error}=await sb.from("sim_order_items").insert(rows);
       if(error) throw new Error("Adding products: "+error.message);
@@ -1819,17 +1837,33 @@ async function saveAmend(){
     });
     if(e6) throw new Error("Recording the amendment: "+e6.message);
 
+    // ── EVERYTHING IS SAVED FROM HERE. Nothing below may report a failure to save.
+    committed=true; clearTimeout(watchdog);
     closeAmend();
-    let msg = (newInst>0)
-      ? "Amendment saved.\n\nUpdate Ezidebit to "+money(newInst)+" per "+freq+"."
-      : "Amendment saved. This order is paid in full, so there's no direct debit to change.";
-    if(commissionLocked) msg+="\n\n⚠ The commission for this sale was already PAID. It has not been changed — adjust it manually in the commission screen.";
-    alert(msg);
-    if(confirm("Print the Order Variation for the customer to sign?")) printVariation(o,summary,newV,newInst,freq,rem,nextDate);
-    run();
-  }catch(e){
-    amErr("<b>The amendment was not saved.</b><br>"+(e.message||e));
     btn.disabled=false; btn.textContent="Save amendment";
+
+    // The reminder, the printout and the refresh are conveniences. If one of them fails
+    // it must NOT masquerade as a failed amendment — that is exactly what sends the
+    // office back to press Save a second time.
+    try{
+      let msg = (newInst>0)
+        ? "Amendment saved.\n\nUpdate Ezidebit to "+money(newInst)+" per "+freq+"."
+        : "Amendment saved. This order is paid in full, so there's no direct debit to change.";
+      if(commissionLocked) msg+="\n\n⚠ The commission for this sale was already PAID. It has not been changed — adjust it manually in the commission screen.";
+      alert(msg);
+      if(confirm("Print the Order Variation for the customer to sign?")) printVariation(o,summary,newV,newInst,freq,rem,nextDate);
+    }catch(err){ console.warn("after-save step failed:",(err&&err.message)||err); }
+    try{ await run(); }
+    catch(err){ alert("The amendment saved. The page could not refresh itself — reload to see the change."); }
+  }catch(e){
+    clearTimeout(watchdog);
+    btn.disabled=false; btn.textContent="Save amendment";
+    if(committed){
+      amErr("<b>The amendment WAS saved.</b><br>Something after it failed: "+(e.message||e)
+          + "<br>Reload the page to see the change. <b>Do not save again.</b>");
+    }else{
+      amErr("<b>The amendment was not saved.</b><br>"+(e.message||e));
+    }
   }
 }
 
