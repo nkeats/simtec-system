@@ -174,7 +174,7 @@ async function loadUnfinished(){
         started ${age(o.minutes_ago)} ago \u00B7 ${o.items||0} item${o.items==1?'':'s'} \u00B7 ${o.has_direct_debit?'direct debit set up':'<b style="color:#8a6d1a">no direct debit</b>'}
       </td>
       <td style="padding:9px 8px;border-bottom:1px solid #eef1f5;text-align:right;white-space:nowrap">
-        <a href="customer-detail.html?order=${o.id}" style="color:#123c8a;font-size:12.5px;text-decoration:none">Open</a>
+        <a href="customer-detail.html?id=${o.id}" style="color:#123c8a;font-size:12.5px;text-decoration:none">Open</a>
       </td>
     </tr>`;
 
@@ -220,7 +220,7 @@ async function loadMissedCalls(){
         ${when}${old?' \u00B7 over a day ago':''}
       </td>
       <td style="padding:9px 8px;border-bottom:1px solid #eef1f5;text-align:right;white-space:nowrap">
-        ${c.customer_id ? `<a href="customer-detail.html?customer=${c.customer_id}" style="color:#123c8a;font-size:12.5px;margin-right:10px;text-decoration:none">Open</a>` : ''}
+        ${c.customer_id ? `<a href="customer-detail.html?cust=${c.customer_id}" style="color:#123c8a;font-size:12.5px;margin-right:10px;text-decoration:none">Open</a>` : ''}
         <button onclick="markCalled('${c.id}')" style="background:#1c6b34;color:#fff;border:none;border-radius:7px;padding:7px 13px;font-size:12.5px;font-weight:700;cursor:pointer">Called back</button>
       </td>
     </tr>`;
