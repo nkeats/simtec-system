@@ -98,6 +98,13 @@
 
 /* ---- needs-attention banner ---- */
 #alertBox{margin:0 0 18px}
+/* Clickable customer names inside an alert. Added 19 Aug 2026 so the office
+   can go straight from the warning to the customer instead of searching. */
+.alrt .lk{margin-top:6px;display:flex;flex-wrap:wrap;gap:6px}
+.alrt .lk a{display:inline-block;padding:3px 9px;border-radius:999px;
+  background:#fff;border:1px solid rgba(0,0,0,.15);color:#123c8a;
+  font-size:12px;font-weight:600;text-decoration:none;line-height:1.5}
+.alrt .lk a:hover{background:#123c8a;color:#fff;border-color:#123c8a}
 .alrt{border-radius:12px;padding:14px 16px;margin-bottom:10px;border:1px solid;display:flex;gap:12px;align-items:flex-start}
 .alrt .ic{font-size:20px;line-height:1;flex:0 0 auto;margin-top:1px}
 .alrt .bd{flex:1 1 auto;min-width:0}
@@ -567,6 +574,17 @@ async function loadAlerts(){
            +     '<div class="hd">'+esc(r.headline)+'</div>'
            +     '<div class="do">'+esc(r.what_to_do)+'</div>'
            +     (r.detail ? '<div class="dt">'+esc(r.detail)+'</div>' : '')
+           // ⚠ The links arrive as STRUCTURED DATA from home_alerts(), never as
+           // HTML inside detail — detail carries customer names and must stay
+           // escaped. Label and href are both escaped here too. An alert with
+           // nothing sensible to open (payments belonging to nobody) returns an
+           // empty list and simply shows no buttons.
+           +     ((Array.isArray(r.links) && r.links.length)
+                   ? '<div class="lk">'
+                     + r.links.map(l => '<a href="'+esc(l.href)+'" title="Open this customer">'
+                                      + esc(l.label)+' \u2192</a>').join('')
+                     + '</div>'
+                   : '')
            +   '</div>'
            + '</div>';
     }).join("");
