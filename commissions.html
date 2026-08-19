@@ -966,6 +966,33 @@ async function showInv(){
     sb.from('commission_retention').select('*').eq('consultant_id',consId).maybeSingle(),
     sb.from('commission_consultants').select('gst_registered,gst_rate').eq('id',consId).maybeSingle(),
   ]);
+  /* Clawbacks applied to the retention account in this pay-run week.
+     The consultant agreement lets Simtec apply the balance to a sale cancelled
+     before delivery, and the balance is their money, so the invoice must say
+     WHICH sale each amount relates to — not just move the closing figure.
+     ⚠ cancellation_clawback rows carry sale_id but NOT pay_run_id, so the only
+     way to scope them to a run is the date window. If a cancellation is recorded
+     AFTER the week ends but before the run is finalised it will appear on the
+     NEXT invoice, not this one. */
+  let clawbacks=[];
+  try{
+    if(run?.week_start&&run?.week_ending){
+      const{data:adjRows}=await sb.from('commission_retention_adjustments')
+        .select('amount,reason,sale_id,notes,adjustment_date,created_at')
+        .eq('consultant_id',consId)
+        .in('reason',['cancellation_clawback','sale_adjustment']);
+      const from=run.week_start, to=run.week_ending;
+      const inWeek=r=>{const d=(r.adjustment_date||r.created_at||'').slice(0,10);return d>=from&&d<=to;};
+      const rows=(adjRows||[]).filter(inWeek).filter(r=>Math.abs(+r.amount||0)>=0.005);
+      const ids=[...new Set(rows.map(r=>r.sale_id).filter(Boolean))];
+      let names={};
+      if(ids.length){
+        const{data:cs}=await sb.from('commission_sales').select('id,customer_name').in('id',ids);
+        (cs||[]).forEach(r=>{names[r.id]=r.customer_name;});
+      }
+      clawbacks=rows.map(r=>({name:names[r.sale_id]||'(sale not found)',amount:+r.amount||0}));
+    }
+  }catch(e){ clawbacks=[]; }
   const sales=(rawSales||[]).map(s=>({...s,items:(s.commission_sale_items||[]).map(i=>({...i,product:i.commission_products}))}));
   const retBal=await openingRetBal(+ret?.balance||0, run, consId);
   const cv=calc(sales,bons||[],deds||[],retBal,con.pay_basis);
@@ -1082,6 +1109,7 @@ async function showInv(){
             <tr><td style="padding:.8mm 0;color:#555">Opening balance</td><td style="text-align:right">${fmt(retBal)}</td></tr>
             <tr><td style="padding:.8mm 0;color:#555">Plus: withheld this week</td><td style="text-align:right">+${fmt(cv.ret)}</td></tr>
             ${cv.payout>0?`<tr><td style="padding:.8mm 0;color:#555">Less: released to consultant</td><td style="text-align:right;color:#c00">-${fmt(cv.payout)}</td></tr>`:''}
+            ${clawbacks.map(c=>`<tr><td style="padding:.8mm 0;color:#555">Less: applied — ${esc(c.name)}</td><td style="text-align:right;color:#c00">${fmt(c.amount)}</td></tr>`).join('')}
             <tr style="border-top:1pt solid #ddd;font-weight:bold">
               <td style="padding:1mm 0;color:#0f1e3c">Closing balance ${cv.retAfter>=s.retention_cap?'(CAP REACHED)':'/ '+fmt(s.retention_cap)+' cap'}</td>
               <td style="text-align:right;color:${cv.retAfter>=s.retention_cap?'#1a7a1a':'#0f1e3c'}">${fmt(cv.retAfter)}</td>
