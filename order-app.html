@@ -877,6 +877,41 @@ if(WALKTHROUGH && sb){
     bar.appendChild(txt); bar.appendChild(btn);
     document.body.appendChild(bar);
     document.body.style.paddingTop = '38px';
+
+    /* A cheat-sheet on the Ezidebit step, so the walkthrough can DEMONSTRATE
+       what the form accepts and what it rejects.
+       ⚠ THE SANDBOX RUNS A REAL NZ MODULUS CHECK — invented account numbers are
+       refused, which is exactly why a made-up number is no use for training and
+       why the working example below is Simtec's OWN advertised BNZ account (the
+       same one printed on the bank-transfer step of this app). It is the company's
+       own number, and the sandbox never moves money. */
+    const card = document.createElement('div');
+    card.className = 'card';
+    card.style.cssText = 'border:2px solid #b3261e;background:#fff7f6';
+    card.innerHTML =
+      '<h3 style="color:#b3261e;margin-top:0">Walkthrough — what the bank fields accept</h3>'
+    + '<p class="sub" style="margin-top:-4px">A New Zealand account is <b>16 digits in four parts</b>. '
+    + 'Ezidebit splits it across two boxes:</p>'
+    + '<div style="font:600 15px ui-monospace,Menlo,Consolas,monospace;background:#fff;border:1px solid #e4d5d3;'
+    + 'border-radius:8px;padding:12px;margin:10px 0;line-height:1.9">'
+    + '<span style="color:#b3261e">02-0200</span>-<span style="color:#0f2c57">0352393</span>-<span style="color:#0f2c57">000</span><br>'
+    + '<span style="font-weight:400;font-size:13px">'
+    + '<span style="color:#b3261e">bank + branch</span> &rarr; the <b>BSB</b> box, as <b>020200</b> (6 digits, no dash)<br>'
+    + '<span style="color:#0f2c57">body + suffix</span> &rarr; the <b>account number</b> box, as <b>0352393000</b> (9 or 10 digits, no dashes)'
+    + '</span></div>'
+    + '<p class="sub"><b style="color:#1c6b34">Try this and it works:</b> BSB <b>020200</b>, account <b>0352393000</b> '
+    + '&mdash; Simtec\'s own BNZ account. Nothing is debited: this is Ezidebit\'s sandbox.</p>'
+    + '<p class="sub"><b style="color:#b3261e">Try these and they fail:</b></p>'
+    + '<ul class="sub" style="margin-top:-6px">'
+    + '<li><b>02-0200-0352393-000</b> typed whole, with the dashes &mdash; the boxes take digits only</li>'
+    + '<li><b>0352393</b> alone in the account box &mdash; the suffix was dropped, so it is too short</li>'
+    + '<li><b>012003</b> in the BSB box &mdash; that is an <i>Australian</i> BSB, not a NZ bank code</li>'
+    + '<li>Any invented number &mdash; New Zealand account numbers carry a check digit, and Ezidebit tests it</li>'
+    + '</ul>'
+    + '<p class="sub" style="margin-bottom:0;color:#b3261e"><b>If the form rejects something, note the exact wording.</b> '
+    + 'That sentence is what Ezidebit will ask for.</p>';
+    const host = document.getElementById('eziFormCard');
+    if(host && host.parentNode) host.parentNode.insertBefore(card, host);
   });
 }
 
