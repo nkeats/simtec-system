@@ -726,6 +726,12 @@ const BASELINE_CATALOG = CATALOG.map(p => Object.assign({}, p));
 const BASELINE_DELIVERY = DELIVERY_FEE;
 let PRICE_SOURCE = 'fallback';
 let PRICE_AS_AT  = null;
+/* ⚠ WALKTHROUGH USES ITS OWN STORAGE. The rehearsal runs in the same browser and
+   the same origin as the real app, so without this a practice order could be
+   PARKED into the real parked-orders list, and "start again" could delete a
+   consultant's genuine parked work. The product cache is deliberately SHARED —
+   it is read-only reference data and sharing it keeps the rehearsal realistic. */
+const WT_SUFFIX = new URLSearchParams(location.search).has('walkthrough') ? '_walkthrough' : '';
 const CAT_KEY = 'simtec_catalogue_v1';
 
 async function loadCatalogue(){
@@ -792,13 +798,101 @@ const SUPABASE_URL="https://jvqjoenaungubpoegyvf.supabase.co";
 const SUPABASE_KEY="sb_publishable_J4MYTdJJyEaWe-GadpwdYA_upPT2rKw";
 let sb = window.supabase ? supabase.createClient(SUPABASE_URL,SUPABASE_KEY) : null;
 
+/* ══ WALKTHROUGH MODE ═══════════════════════════════════════════════════════
+   Add ?walkthrough=1 to the URL to walk the whole sale end to end — including
+   Ezidebit's own form — WITHOUT writing anything or creating a real direct debit.
+
+   It works by WRAPPING THE DATABASE CLIENT rather than by editing each save.
+   Reads still work (so products, prices and the terms all load exactly as they
+   really are); every insert, update, upsert, delete, rpc and file upload is
+   intercepted and answered with a believable fake. That way a save I did not
+   know about cannot slip through — which is the whole point of a safe rehearsal.
+
+   Ezidebit is pointed at their SANDBOX form, so bank details typed here never
+   reach a real bank and no customer is created in the live Ezidebit account. */
+const WALKTHROUGH = new URLSearchParams(location.search).has('walkthrough');
+if(WALKTHROUGH && sb){
+  const fakeId = () => 'demo-'+Math.random().toString(16).slice(2,10);
+  const ok = (row) => Promise.resolve({ data: row, error: null });
+  const chain = (row) => {                       // mimics .select().single() etc
+    const t = {
+      select: () => t, single: () => ok(row), maybeSingle: () => ok(row),
+      eq: () => t, in: () => t, order: () => t, limit: () => t,
+      then: (res, rej) => ok(row).then(res, rej)
+    };
+    return t;
+  };
+  const realFrom = sb.from.bind(sb);
+  sb.from = (table) => {
+    const q = realFrom(table);
+    ['insert','update','upsert','delete'].forEach(op => {
+      q[op] = (payload) => {
+        const row = Array.isArray(payload) ? {...payload[0], id: fakeId()}
+                                           : {...(payload||{}), id: fakeId()};
+        console.info('[walkthrough] blocked '+op+' on '+table, payload);
+        return chain(row);
+      };
+    });
+    return q;
+  };
+  const realRpc = sb.rpc.bind(sb);
+  sb.rpc = (fn, args) => { console.info('[walkthrough] blocked rpc '+fn, args);
+                           return ok(null); };
+  if(sb.storage && sb.storage.from){
+    const realStorage = sb.storage.from.bind(sb.storage);
+    sb.storage.from = (bucket) => {
+      const b = realStorage(bucket);
+      b.upload = (path) => { console.info('[walkthrough] blocked upload to '+bucket+'/'+path);
+                             return Promise.resolve({ data:{path}, error:null }); };
+      return b;
+    };
+  }
+  document.addEventListener('DOMContentLoaded', () => {
+    const bar = document.createElement('div');
+    bar.style.cssText = 'position:fixed;left:0;right:0;top:0;z-index:99999;background:#b3261e;'
+      + 'color:#fff;font:600 13px -apple-system,Segoe UI,Roboto,Arial,sans-serif;'
+      + 'text-align:center;padding:7px 10px;letter-spacing:.02em;'
+      + 'display:flex;align-items:center;justify-content:center;gap:14px';
+    const txt = document.createElement('span');
+    txt.textContent = 'WALKTHROUGH — nothing is saved and no direct debit is created';
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.textContent = 'Start again';
+    btn.style.cssText = 'background:#fff;color:#b3261e;border:0;border-radius:14px;'
+      + 'padding:4px 12px;font:600 12px inherit;cursor:pointer;flex:none';
+    /* A full reload is deliberate — it clears the in-memory sale, the parked
+       basket and the Ezidebit resume marker in one go, so "start again" really
+       does mean a blank sale rather than a half-cleared one. */
+    btn.onclick = () => {
+      try{
+        /* ONLY the walkthrough's own keys, plus the transient Ezidebit handoff.
+           Never touch simtec_parked_orders — that is a consultant's real work. */
+        Object.keys(localStorage).forEach(k=>{
+          if(k.endsWith('_walkthrough')) localStorage.removeItem(k);
+        });
+        localStorage.removeItem('simtec_ezidebit_return');
+      }catch(e){}
+      location.replace(location.pathname + '?walkthrough=1');
+    };
+    bar.appendChild(txt); bar.appendChild(btn);
+    document.body.appendChild(bar);
+    document.body.style.paddingTop = '38px';
+  });
+}
+
 // ----- Ezidebit (SANDBOX) -----------------------------------------------------
 // Public key ONLY. The Digital Key must NEVER live in the app — it stays a
 // server-side secret used only for reconciliation later. The eDDR hosted form
 // captures the customer's bank/card details directly (nothing sensitive touches
 // Simtec), sets up a once-off payment + a recurring plan, and redirects back.
-const EZI_EDDR_BASE  = "https://secure.ezidebit.com.au/webddr/Request.aspx"; // LIVE (flipped 4 Aug 2026 — sandbox was demo.ezidebit.com.au)
-const EZI_PUBLIC_KEY = "745DA227B547633D89A603CB3DCC309D";                   // LIVE eDDR form key from Ezidebit's go-live email (sandbox was 3097BB91-C589-44E4-8500-719B70EC3F27)
+const EZI_LIVE_BASE  = "https://secure.ezidebit.com.au/webddr/Request.aspx"; // LIVE (flipped 4 Aug 2026 — sandbox was demo.ezidebit.com.au)
+const EZI_LIVE_KEY   = "745DA227B547633D89A603CB3DCC309D";                   // LIVE eDDR form key from Ezidebit's go-live email
+const EZI_DEMO_BASE  = "https://demo.ezidebit.com.au/webddr/Request.aspx";   // sandbox
+const EZI_DEMO_KEY   = "3097BB91-C589-44E4-8500-719B70EC3F27";               // sandbox key
+/* In walkthrough mode we hand off to Ezidebit's SANDBOX, so anything typed on
+   their form is never sent to a bank and no customer appears in the live account. */
+const EZI_EDDR_BASE  = (new URLSearchParams(location.search).has('walkthrough')) ? EZI_DEMO_BASE : EZI_LIVE_BASE;
+const EZI_PUBLIC_KEY = (new URLSearchParams(location.search).has('walkthrough')) ? EZI_DEMO_KEY  : EZI_LIVE_KEY;
 // eDDR frequency codes: 1=Weekly 2=Fortnightly 4=Monthly 8=4-weekly 16=Qtrly 32=Half-yr 64=Yearly
 const EZI_FREQ = { weekly:1, fortnightly:2, monthly:4 };
 let TEAM={"Kenzie Lam Sam":"Kenzie Lam Sam","PJ Tonga":"Kenzie Lam Sam","Rita Neli":"Kenzie Lam Sam","Tame Cooper":"Kenzie Lam Sam","Yazan Othman":"Yazan Othman","Brooke Komene":"Yazan Othman","Stacey Numanga":"Yazan Othman","Batre Wilson-Harris":null,"Bill Sevele":null,"Celina Fitu":null,"Elias Manuel-Mehan":null,"Kaman Murthi":null,"Rea Patil":null,"Matt":null};  // fallback only — the live list from consultants.html replaces this at load
@@ -1957,7 +2051,7 @@ function setDoneParked(){
 }
 
 // ---------- Parked-order queue (localStorage) ----------
-const PARK_KEY='simtec_parked_orders';
+const PARK_KEY='simtec_parked_orders'+WT_SUFFIX;
 function loadParked(){ try{ return JSON.parse(localStorage.getItem(PARK_KEY)||'[]'); }catch(e){ return []; } }
 function writeParked(list){ try{ localStorage.setItem(PARK_KEY,JSON.stringify(list)); return true; }catch(e){ alert('Could not save offline — this iPad\'s storage may be full.'); return false; } }
 async function parkCurrent(){
@@ -2130,15 +2224,33 @@ function buildEddrUrl(){
   const {e164}=normNZ(val('mobile'));
   const q=new URLSearchParams();
   q.set('a', EZI_PUBLIC_KEY);
+  /* ⚠ ed=1 MAKES THE PRE-FILLED FIELDS EDITABLE. Ezidebit's default is that any
+     field we pass a value into is DISABLED on their form. That is why a rejection
+     could not be worked around on the doorstep: the consultant could see the bad
+     value but not touch it, the form failed on submit, and the office entering
+     the same customer fresh the next day succeeded every time. With ed=1 our
+     values are still pre-filled, but anything Ezidebit objects to can be
+     corrected on the spot. (20 Aug 2026 — the BSB rejections.) */
+  q.set('ed','1');
   q.set('uRef', S.orderId);                 // unique per order → reconciliation key
   q.set('uRefLabel','Simtec Order');
   q.set('businessOrPerson','1');
   q.set('fName', val('a1first')); q.set('lName', val('a1last'));
   if(val('email'))  q.set('email', val('email'));
-  if(e164)          q.set('mobile', e164.replace(/^\+/,''));
+  /* ⚠ NZ LOCAL FORMAT, NOT +64. Ezidebit's spec: a New Zealand mobile is up to
+     12 digits BEGINNING WITH 02. We were sending "64211234567" (the + stripped
+     off e164), which begins with 64 and is not what they validate against.
+     normNZ gives us +64 + national number, so drop the +64 and put the 0 back. */
+  if(e164){
+    const nsn = e164.replace(/^\+64/,'');        // national number, no leading 0
+    if(nsn) q.set('mobile', '0'+nsn);            // 0272741942
+  }
   if(val('street')) q.set('addr', val('street'));
   if(val('suburb')) q.set('suburb', val('suburb'));
-  if(val('city')) q.set('state', val('city'));   // eDDR's "state" field carries the NZ city
+  /* ⚠ DO NOT PUT THE CITY IN 'state'. Ezidebit's spec caps that field at THREE
+     characters; "Auckland" is eight. It was being pre-filled AND disabled, so it
+     could not be corrected either. The city is not needed by Ezidebit — the full
+     address is already on our own order — so we simply stop sending it. */
   if(val('postcode')) q.set('pCode', val('postcode'));
   // once-off
   const oAmt=numOrNull(val('eziOneoffAmount')), oDate=val('eziOneoffDate');
@@ -2151,6 +2263,18 @@ function buildEddrUrl(){
     const cnt=numOrNull(val('eziPlanCount'));
     if(cnt){ q.set('dur','4'); q.set('tPay', String(cnt)); } else { q.set('dur','1'); }  // 4=Total payments, 1=Ongoing
   }
+
+  /* ⚠⚠ TELL THE FORM WHICH SECTIONS TO SHOW. Ezidebit's spec: NOT providing
+     'debits' shows Once Off Debits AND Regular Debits BY DEFAULT. So a
+     weekly-only sale was being shown an empty "Once Off Debit" section that
+     nobody wanted, and the form then demanded an amount for it on submit —
+     which is exactly what happened to Kenzie's order (20 Aug): "it said it
+     needed a once only payment amount, which wasn't needed as they were doing
+     weekly payments, then it refused to submit again".
+       1 = Once Off only · 2 = Regular only · omit = both.                    */
+  if(oAmt!=null && rAmt!=null)      { /* both wanted — leave 'debits' unset */ }
+  else if(rAmt!=null)                 q.set('debits','2');   // weekly plan only
+  else if(oAmt!=null)                 q.set('debits','1');   // single payment only
   q.set('callback', new URL('ezidebit-return.html', location.href).href);
   q.set('cMethod','GET');
   return EZI_EDDR_BASE + '?' + q.toString();
@@ -2164,7 +2288,7 @@ function buildEddrUrl(){
    Home Screen icon, and a new tab lands in Safari, which keeps COMPLETELY
    SEPARATE storage — the result would come back somewhere this app cannot see.
    Same trap as pairing the delivery iPad. */
-const EZI_RESUME='simtec_ezi_resume';
+const EZI_RESUME='simtec_ezi_resume'+WT_SUFFIX;
 const EZI_RESUME_MAX_MIN=120;                    // an abandoned form must not resume tomorrow
 
 function launchEzidebit(){
