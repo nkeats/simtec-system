@@ -57,6 +57,15 @@ const CUTOFF="2026-06-01";
 // The day the spreadsheet migration ran. Orders created on or before this date
 // were imported, not entered, and never carried line prices.
 const MIGRATION_DAY="2026-07-02";
+
+/* A check may return a cell as {href,text} to make it clickable. Everything is
+   still escaped - the object form only chooses the tag, never the content. A
+   finding you cannot act on from the screen is a finding people learn to skip. */
+function cell(v){
+  if(v && typeof v==='object' && v.href)
+    return `<a href="${esc(v.href)}" style="color:#8ab4f8;text-decoration:underline">${esc(v.text)}</a>`;
+  return esc(v);
+}
 const onOrAfterCutoff=dt=>!!dt && String(dt).slice(0,10)>=CUTOFF;
 const $=id=>document.getElementById(id);
 const esc=s=>String(s==null?"":s).replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
@@ -177,18 +186,42 @@ const CHECKS=[
     id:"unpriced",
     title:"NEW orders saved without line prices",
     why:"An order whose product lines carry no money. The contract total is still right, but anything that adds up line items — product reporting, margins, priced dockets — reads zero. If this ever shows a row, the sale entry screen has stopped recording prices and every sale from now on inherits the problem.",
-    fix:"Open the customer, press Amend order, and enter the prices from their signed order form. The reconciliation strip tells you when the lines balance to the contract value.",
-    cols:["Consultant","Order date","Entered","Value","Unpriced lines"],
+    fix:"Click the customer, press Amend order, and enter the prices from their signed order form. The reconciliation strip tells you when the lines balance to the contract value.",
+    cols:["Customer","Consultant","Order date","Contract value","Lines add up to","Short by"],
     run:async(D)=>{
-      const bad={};
-      D.items.forEach(i=>{ if(!i.cancelled && !(Number(i.unit_price)>0)) bad[i.order_id]=(bad[i.order_id]||0)+1; });
+      /* Measure the MONEY, not the presence of a zero line. A giveaway - a free
+         pillow at the door, a protector thrown in - is legitimately $0, and the
+         old check flagged every one of them. What actually matters is whether
+         the lines carry the contract value. */
+      const lineTotal={};
+      D.items.forEach(i=>{
+        if(i.cancelled) return;
+        const q=Number(i.quantity); const qty=(q>0?q:1);
+        lineTotal[i.order_id]=(lineTotal[i.order_id]||0)+(Number(i.unit_price)||0)*qty;
+      });
+      const TOL=1;   // a dollar of rounding is not a fault
+      // customer names are not loaded on sim_orders, but commission_sales carries
+      // them keyed by order, which is enough to make the link recognisable
+      const nameByOrder={};
+      (D.sales||[]).forEach(x=>{ if(x.sim_order_id && x.customer_name) nameByOrder[x.sim_order_id]=x.customer_name; });
       // Only orders ENTERED after the spreadsheet migration. The migrated rows have
       // recent order_dates but were all created on 2 July and never had prices —
       // flagging them here is a warning that can never be cleared, and a check that
       // is always red is a check nobody reads.
-      return D.orders.filter(o=>(o.order_status||'active')!=='cancelled' && bad[o.id]
-                              && o.created_at && o.created_at.slice(0,10) > MIGRATION_DAY)
-        .map(o=>[o.consultant_name||'—',d(o.order_date),d(o.created_at),fmt(o.contract_value),bad[o.id]]);
+      return D.orders.filter(o=>{
+          if((o.order_status||'active')==='cancelled') return false;
+          if(!(o.created_at && o.created_at.slice(0,10) > MIGRATION_DAY)) return false;
+          const cv=Number(o.contract_value)||0;
+          if(cv<=0) return false;
+          const lt=lineTotal[o.id];
+          if(lt===undefined) return false;      // no lines at all is the check above
+          return (cv-lt) > TOL;
+        })
+        .map(o=>{
+          const cv=Number(o.contract_value)||0, lt=lineTotal[o.id]||0;
+          return [{href:'customer-detail.html?id='+o.id,text:(nameByOrder[o.id]||'Open order')},
+                  o.consultant_name||'—', d(o.order_date), fmt(cv), fmt(lt), fmt(cv-lt)];
+        });
     }
   },
   {
@@ -209,9 +242,9 @@ async function runAll(){
   let D;
   try{
     const [orders,sales,items,consultants]=await Promise.all([
-      all("sim_orders","id,order_date,created_at,contract_value,consultant_name,order_status"),
+      all("sim_orders","id,order_date,created_at,contract_value,consultant_name,order_status,customer_id"),
       all("commission_sales","id,sim_order_id,customer_name,sale_date,commission_paid,status,paid_date,is_historical"),
-      all("sim_order_items","order_id,product_name,unit_price,cancelled"),
+      all("sim_order_items","order_id,product_name,unit_price,quantity,cancelled"),
       all("commission_consultants","name"),
     ]);
     D={orders,sales,items,consultants};
@@ -236,7 +269,7 @@ async function runAll(){
     if(!clean){
       html+=`<p class="text-xs mt-2" style="color:#c6a15b"><b>What to do:</b> ${esc(c.fix)}</p>
         <table class="mt-3"><thead><tr>${c.cols.map(h=>`<th>${esc(h)}</th>`).join("")}</tr></thead><tbody>
-        ${rows.slice(0,50).map(r=>`<tr>${r.map(v=>`<td>${esc(v)}</td>`).join("")}</tr>`).join("")}
+        ${rows.slice(0,50).map(r=>`<tr>${r.map(v=>`<td>${cell(v)}</td>`).join("")}</tr>`).join("")}
         </tbody></table>
         ${rows.length>50?`<p class="muted mt-2">…and ${rows.length-50} more.</p>`:""}`;
     }
