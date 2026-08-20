@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Simtec — Former Consultants</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.112.2"></script>
+<script src="auth.js?v=3" data-roles="admin,manager"></script>
+<style>
+  :root{--navy:#122347;--navy2:#1c3363;--gold:#c6a15b;--ink:#1a2334;--line:#d9e0ea;--bg:#eef1f5;--ok:#1c6b34;--okbg:#e7f6ec;--err:#a02020;--errbg:#fdecec;--grey:#7a8798;}
+  *{box-sizing:border-box}
+  body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(--bg);color:var(--ink);margin:0}
+  header{background:var(--navy);color:#fff;padding:16px 22px;display:flex;align-items:center;gap:14px}
+  header a.back{color:#b9c6de;text-decoration:none;font-size:13px;font-weight:600} header a.back:hover{color:#fff}
+  header h1{font-size:18px;margin:0;font-weight:600}
+  .wrap{max-width:900px;margin:22px auto;padding:0 16px}
+  .card{background:#fff;border:1px solid var(--line);border-radius:12px;padding:20px 22px;margin-bottom:18px}
+  .card h2{font-size:13px;text-transform:uppercase;letter-spacing:.08em;color:var(--navy);margin:0 0 16px;padding-bottom:10px;border-bottom:2px solid var(--gold);display:inline-block}
+  .grid{display:grid;grid-template-columns:1.4fr 1fr auto;gap:14px;align-items:end}
+  label{display:block;font-weight:600;font-size:12.5px;margin-bottom:5px;color:#3a4759}
+  input,select{width:100%;padding:10px 11px;border:1px solid #cbd4df;border-radius:8px;font-size:15px;background:#fff}
+  input:focus,select:focus{outline:2px solid var(--navy2);border-color:var(--navy2)}
+  .chk{display:flex;align-items:center;gap:8px;font-size:14px;margin-top:8px}
+  .chk input{width:auto}
+  button{background:var(--navy);color:#fff;border:none;border-radius:9px;padding:11px 20px;font-size:14.5px;font-weight:600;cursor:pointer}
+  button:hover{background:var(--navy2)} button:disabled{opacity:.5;cursor:default}
+  button.mini{padding:6px 11px;font-size:12.5px;border-radius:7px}
+  button.ghost{background:#fff;color:var(--navy);border:1px solid #cbd4df}
+  table{width:100%;border-collapse:collapse;font-size:14px}
+  th,td{padding:10px 12px;text-align:left;border-bottom:1px solid var(--line);vertical-align:middle}
+  th{background:#f3f6fa;color:var(--navy);font-size:11.5px;text-transform:uppercase;letter-spacing:.04em}
+  td select{padding:6px 8px;font-size:13.5px}
+  .badge{display:inline-block;font-size:11px;font-weight:700;padding:3px 9px;border-radius:20px}
+  .tl{background:#efe7d2;color:#7a5c17} .con{background:#eef1f4;color:var(--grey)}
+  .muted{color:var(--grey);font-size:13px}
+  #msg{display:none;padding:12px 14px;border-radius:8px;font-size:14px;margin-bottom:16px}
+  .msgok{background:var(--okbg);color:var(--ok);border:1px solid #b6e0c4}
+  .msgerr{background:var(--errbg);color:var(--err);border:1px solid #f2bdbd}
+  @media(max-width:640px){.grid{grid-template-columns:1fr}}
+  /* ID card photo thumbnail */
+  .thumb{width:34px;height:41px;object-fit:cover;border:1.5px solid #c1272d;border-radius:3px;background:#e9edf2;vertical-align:middle}
+  .thumb.noph{display:inline-flex;align-items:center;justify-content:center;color:#9aa6b4;font-size:8px;text-align:center;line-height:1;border-style:dashed;border-color:#c7ccd4}
+  .newphotoprev{width:44px;height:53px;object-fit:cover;border:1.5px solid #c1272d;border-radius:4px;background:#e9edf2}
+  .newphotoprev.noph{display:inline-flex;align-items:center;justify-content:center;color:#9aa6b4;font-size:9px;text-align:center;border-style:dashed;border-color:#c7ccd4}
+</style>
+</head>
+<body>
+<header>
+  <a href="consultants.html" class="back">&lsaquo; Consultants &amp; Teams</a>
+  <h1>Former Consultants</h1>
+</header>
+
+<div class="wrap">
+  <div id="msg" style="display:none"></div>
+
+  <div class="card">
+    <h2>Former consultants</h2>
+    <p class="muted" style="margin:0 0 12px;font-size:12.5px">
+      Removed from the active list but kept on file. Their sales, commission history and
+      retention balance are unaffected. Reactivate to bring someone back to the main list.
+    </p>
+    <div id="listState" class="muted" style="font-size:12.5px">Loading…</div>
+    <table><tbody id="rows"></tbody></table>
+  </div>
+
+  <p class="muted" style="font-size:12.5px">
+    Retention still held for former consultants is shown on the
+    <a href="commissions.html">Money Owed</a> screen.
+  </p>
+</div>
+
+<script>
+const sb = supabase.createClient("https://jvqjoenaungubpoegyvf.supabase.co","sb_publishable_J4MYTdJJyEaWe-GadpwdYA_upPT2rKw");
+
+const $=id=>document.getElementById(id);
+const esc=s=>(s||"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+function show(t,ok){ const m=$("msg"); m.style.display="block"; m.className=ok?"msgok":"msgerr"; m.textContent=t; window.scrollTo({top:0,behavior:"smooth"}); }
+
+async function load(){
+  const { data, error } = await sb.from("commission_consultants")
+    .select("id,name,team_leader,is_team_leader,photo,id_card_no,phone,email,active")
+    .eq("active", false).order("name");
+  if(error){ $("listState").textContent="Couldn't load: "+error.message; return; }
+  const LIST=data||[];
+  if(!LIST.length){
+    $("listState").textContent="No former consultants — everyone on file is active.";
+    $("rows").innerHTML=""; return;
+  }
+  $("listState").style.display="none";
+  $("rows").innerHTML = LIST.map(c=>`<tr>
+      <td>${c.photo?`<img class="thumb" src="${c.photo}" alt="">`:`<span class="thumb noph">No<br>photo</span>`}</td>
+      <td><b>${esc(c.name)}</b><div class="muted" style="font-size:11.5px">${c.is_team_leader?"Team leader":"Consultant"} &middot; ID #: ${esc(c.id_card_no||"—")}</div>
+        ${(c.phone||c.email)?`<div class="muted" style="font-size:11.5px">${esc(c.phone||"")}${c.phone&&c.email?" &middot; ":""}${esc(c.email||"")}</div>`:""}</td>
+      <td style="white-space:nowrap"><button class="mini" onclick="setActive('${c.id}',true)">&#8617; Reactivate</button></td>
+    </tr>`).join("");
+}
+
+// Reactivate — the only action available here. Making someone inactive happens
+// on the main Consultants screen, so a leaver is never removed by accident from
+// a page you only visit to look someone up.
+window.setActive=async(id,on)=>{
+  const { error } = await sb.from("commission_consultants").update({active:on}).eq("id",id);
+  if(error){ show("Couldn't update: "+error.message,false); return; }
+  show("Consultant reactivated — they are back on the Consultants list.",true);
+  load();
+};
+
+load();
+</script>
+</body>
+</html>

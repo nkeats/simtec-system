@@ -86,17 +86,10 @@
     </table>
   </div>
 
-  <div style="margin:-6px 0 14px">
-    <button type="button" class="mini ghost" id="showInactiveBtn" onclick="toggleInactive()" style="display:none">Show inactive consultants (<span id="inactiveN">0</span>)</button>
-  </div>
-  <div class="card" id="inactiveCard" style="display:none">
-    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px">
-      <h2 style="margin-bottom:0">Inactive consultants</h2>
-      <button type="button" class="mini ghost" onclick="toggleInactive()">Hide</button>
-    </div>
-    <p class="muted" style="margin:0 0 12px;font-size:12.5px">Removed from the active list but kept on file. Reactivate to bring them back.</p>
-    <table><tbody id="inactiveRows"></tbody></table>
-  </div>
+  <p class="muted" id="formerLine" style="margin:-6px 0 14px;font-size:12.5px;display:none">
+    <a href="consultants-former.html">Former consultants (<span id="inactiveN">0</span>)</a>
+    — kept on file, off this list.
+  </p>
 </div>
 
 <input type="file" id="fileInput" accept="image/*" style="display:none">
@@ -163,25 +156,20 @@ async function load(){
     </tr>`;
   }).join("");
 
-  // inactive list — kept on file, hidden from the active list
-  if(INACTIVE.length){ $("showInactiveBtn").style.display=""; $("inactiveN").textContent=INACTIVE.length; }
-  else { $("showInactiveBtn").style.display="none"; $("inactiveCard").style.display="none"; }
-  $("inactiveRows").innerHTML = INACTIVE.map(c=>`<tr>
-      <td>${c.photo?`<img class="thumb" src="${c.photo}" alt="">`:`<span class="thumb noph">No<br>photo</span>`}</td>
-      <td><b>${esc(c.name)}</b><div class="muted" style="font-size:11.5px">${c.is_team_leader?"Team leader":"Consultant"} · ID #: ${esc(c.id_card_no||"—")}</div>
-        ${(c.phone||c.email)?`<div class="muted" style="font-size:11.5px">${esc(c.phone||"")}${c.phone&&c.email?" · ":""}${esc(c.email||"")}</div>`:""}</td>
-      <td style="white-space:nowrap"><button class="mini" onclick="setActive('${c.id}',true)">↩ Reactivate</button></td>
-    </tr>`).join("");
+  // Former consultants live on their own page — this list stays to current staff
+  // only, which is the whole point of the split.
+  if(INACTIVE.length){ $("formerLine").style.display=""; $("inactiveN").textContent=INACTIVE.length; }
+  else { $("formerLine").style.display="none"; }
+
 }
 
-function toggleInactive(){ const c=$("inactiveCard"); c.style.display = c.style.display==="none" ? "" : "none"; }
 
 // Make a consultant inactive (removed from the active list, kept on file) or reactivate.
 async function setActive(id, on){
   clearMsg();
   const { error } = await sb.from("commission_consultants").update({active:on}).eq("id",id);
   if(error){ show(error.message,false); return; }
-  show(on?"Consultant reactivated.":"Consultant made inactive — their details are kept on file.",true);
+  show(on?"Consultant reactivated.":"Consultant made inactive — moved to the Former consultants page, details kept on file.",true);
   load();
 }
 
@@ -226,7 +214,7 @@ async function addConsultant(){
   const name=$("name").value.trim();
   if(!name){ return show("Enter a name.",false); }
   const dupe=LIST.find(c=>c.name.toLowerCase()===name.toLowerCase());
-  if(dupe){ return show(dupe.active===false?"That name exists as an inactive consultant — use “Show inactive consultants” to reactivate them.":"A consultant with that name already exists.",false); }
+  if(dupe){ return show(dupe.active===false?"That name is on the Former consultants page — reactivate them there rather than adding a second record.":"A consultant with that name already exists.",false); }
   const btn=$("add"); btn.disabled=true;
   try{
     const isTL=$("isTL").checked;
