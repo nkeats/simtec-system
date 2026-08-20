@@ -51,9 +51,72 @@ let settings=null,consultants=[],products=[];
 
 // ── Defaults ───────────────────────────────────────────────────────────────
 const DEF={tier1_max:4,tier1_amount:200,tier2_max:9,tier2_amount:300,
-  tier3_amount:400,cash_bonus:100,retention_rate:0.25,retention_cap:5000,pillow_charge:40,override_rate:60};
+  tier3_amount:400,cash_bonus:100,retention_rate:0.25,retention_cap:5000,pillow_charge:40,override_rate:60,
+  start_wk1_units:2,start_wk1_amount:500,start_wk2_units:2,start_wk2_amount:400,
+  start_wk3_units:4,start_wk3_amount:300,start_wk4_units:2,start_wk4_amount:300};
 const S=()=>({...DEF,...settings}); // safe settings with defaults
 const GIVEAWAY_ITEMS=['Pillow','Mattress protector','Other']; // fixed list (stock system will key off this)
+
+/* ── STARTING RATES — a consultant's first four weeks ───────────────────────
+   Schedule 1 of the Independent Contractor Agreement. Wk1 first 2 mattresses
+   at $500, wk2 first 2 at $400, wk3 first 4 at $300, wk4 first 2 at $300, and
+   from wk5 ordinary tier rates only.
+   THE COUNT IS PER MATTRESS, not per order.
+   Week 1 is the first week BEGINNING AFTER accreditation, and weeks 2-4 run
+   whether or not a sale is made - the window is a clock, not four selling weeks.
+   The consultant may elect out early and the election is FINAL. We compare the
+   election date to the run's week_start rather than flipping a flag, so an
+   election made after a week is finalised takes effect the FOLLOWING week and
+   never rewrites a run that has already been paid.                           */
+function startingWeekNo(accreditedOn, weekStart){
+  if(!accreditedOn || !weekStart) return 0;
+  const acc=new Date(accreditedOn+'T00:00:00'), ws=new Date(weekStart+'T00:00:00');
+  if(isNaN(acc)||isNaN(ws)) return 0;
+  const day=new Date(acc); day.setDate(day.getDate()+1);
+  const dow=(day.getDay()+6)%7;
+  if(dow!==0) day.setDate(day.getDate()+(7-dow));
+  const weeks=Math.round((ws-day)/604800000);
+  return (weeks>=0 && weeks<=3) ? weeks+1 : 0;
+}
+/* Plain-language status for the admin screen. */
+function srLabel(c){
+  if(c.accreditation_required===false) return 'accreditation not required — engaged before the standard';
+  if(!c.accredited_on) return 'not yet accredited — ordinary rates until a date is entered';
+  if(c.starting_rates_ended_on) return 'ordinary rates from '+c.starting_rates_ended_on;
+  const mon=new Date(); const dow=(mon.getDay()+6)%7; mon.setDate(mon.getDate()-dow);
+  const today=mon.toISOString().slice(0,10);
+  const wk=startingWeekNo(c.accredited_on, today);
+  if(wk){
+    const r=startingRateFor(wk);
+    return 'starting week '+wk+' of 4 — first '+r.units+' mattresses at $'+r.amount;
+  }
+  /* No starting week THIS week: either the window has not opened yet, or it has
+     already finished. Say which, otherwise the office cannot tell the two apart. */
+  const acc=new Date(c.accredited_on+'T00:00:00');
+  const d=new Date(acc); d.setDate(d.getDate()+1);
+  const dd=(d.getDay()+6)%7; if(dd!==0) d.setDate(d.getDate()+(7-dd));
+  const first=d.toISOString().slice(0,10);
+  return (today < first)
+    ? 'starting rates begin the week of '+first
+    : 'starting rates finished — ordinary rates';
+}
+function startingRateFor(weekNo){
+  const s=S();
+  if(weekNo===1) return {units:+s.start_wk1_units||0, amount:+s.start_wk1_amount||0};
+  if(weekNo===2) return {units:+s.start_wk2_units||0, amount:+s.start_wk2_amount||0};
+  if(weekNo===3) return {units:+s.start_wk3_units||0, amount:+s.start_wk3_amount||0};
+  if(weekNo===4) return {units:+s.start_wk4_units||0, amount:+s.start_wk4_amount||0};
+  return null;
+}
+function srCtx(con, run){
+  if(!con || !run || !run.week_start) return null;
+  if(con.accreditation_required===false) return null;   // pre-standard consultant
+  if(con.starting_rates_ended_on && run.week_start >= con.starting_rates_ended_on) return null;
+  const wk=startingWeekNo(con.accredited_on, run.week_start);
+  if(!wk) return null;
+  const r=startingRateFor(wk);
+  return (r && r.units>0) ? {weekNo:wk, units:r.units, amount:r.amount} : null;
+}
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 const fmt=n=>'$'+(+n||0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,',');
@@ -79,7 +142,7 @@ function isMattress(name){
 }
 
 // ── Commission calc ────────────────────────────────────────────────────────
-function calc(sales,bonuses,deds,retBal,payBasis){
+function calc(sales,bonuses,deds,retBal,payBasis,sr){
   const s=S();
   let units=0;
   // Tier volume counts mattress units, INCLUDING zero-commission mattresses.
@@ -88,14 +151,24 @@ function calc(sales,bonuses,deds,retBal,payBasis){
   for(const sale of sales){if(sale.status==='cancelled')continue;for(const it of(sale.items||[]))
     if(it.product?.commission_type!=='zero' || isMattress(it.product?.name))units+=it.quantity;}
   const rate=units<=s.tier1_max?s.tier1_amount:units<=s.tier2_max?s.tier2_amount:s.tier3_amount;
-  let sc=0,ac=0;
+  let sc=0,ac=0,scOrdinary=0,srUsed=0,srValue=0;
+  let srLeft=sr?sr.units:0;
   for(const sale of sales){
     if(sale.status==='cancelled')continue;
     let elig=false;
     for(const it of(sale.items||[])){
       const p=it.product;if(!p)continue;
-      if(p.commission_type==='fixed'){sc+=p.fixed_amount*it.quantity;elig=true;}
-      if(p.commission_type==='tier'){sc+=rate*it.quantity;elig=true;}
+      if(p.commission_type==='fixed'){
+        sc+=p.fixed_amount*it.quantity; scOrdinary+=p.fixed_amount*it.quantity; elig=true;
+      }
+      if(p.commission_type==='tier'){
+        const q=+it.quantity||0;
+        scOrdinary+=rate*q;
+        const atStart=Math.min(srLeft,q);
+        if(atStart>0){ sc+=sr.amount*atStart; srLeft-=atStart; srUsed+=atStart; srValue+=sr.amount*atStart; }
+        if(q-atStart>0) sc+=rate*(q-atStart);
+        elig=true;
+      }
     }
     if(elig&&sale.paid_in_full)ac+=s.cash_bonus;
   }
@@ -107,7 +180,13 @@ function calc(sales,bonuses,deds,retBal,payBasis){
   // Retention only accrues for consultants on 'commission'. On 'retainer' → no retention withheld.
   if(payBasis!=='retainer' && retBal<s.retention_cap)ret=Math.min(gs*s.retention_rate,s.retention_cap-retBal);
   const td=(deds||[]).reduce((a,d)=>a+(+d.amount||0),0);
-  return{units,rate,sc,ac,mb,gs,gross,ret,td,payout:payoutAmt,net:gross-ret-td+payoutAmt,retAfter:retBal+ret-payoutAmt};
+  /* scOrdinary lets the office show the consultant BOTH figures each week, which
+     is what clause (a) of Schedule 1 requires before they can elect. */
+  const grossOrdinary=scOrdinary+ac+mb;
+  return{units,rate,sc,ac,mb,gs,gross,ret,td,payout:payoutAmt,net:gross-ret-td+payoutAmt,
+    retAfter:retBal+ret-payoutAmt,
+    srWeek:sr?sr.weekNo:0, srRate:sr?sr.amount:0, srUsed, srValue,
+    scOrdinary, grossOrdinary, ordinaryBetter: sr ? (grossOrdinary>gross) : false};
 }
 
 // For a FINALISED run, the stored retention balance ALREADY includes this run's
@@ -627,7 +706,7 @@ async function showRun(){
       sb.from('commission_deductions').select('*').eq('pay_run_id',runId).eq('consultant_id',c.id),
     ]);
     const sales=(sl||[]).map(s=>({...s,items:(s.commission_sale_items||[]).map(i=>({...i,product:i.commission_products}))}));
-    sums[c.id]=calc(sales,bo||[],de||[],retMap[c.id]||0,c.pay_basis);
+    sums[c.id]=calc(sales,bo||[],de||[],retMap[c.id]||0,c.pay_basis,srCtx(c,run));
   }));
 
   $('app').innerHTML=`
@@ -689,7 +768,7 @@ async function showCon(){
 
   function saleComm(sale){
     const s=S();let c=0,el=false;
-    const r=calc(sales,bonuses||[],deds||[],retBal,con.pay_basis).rate;
+    const r=calc(sales,bonuses||[],deds||[],retBal,con.pay_basis,srCtx(con,run)).rate;
     for(const it of sale.items){const p=it.product;if(!p)continue;
       if(p.commission_type==='fixed'){c+=p.fixed_amount*it.quantity;el=true;}
       if(p.commission_type==='tier'){c+=r*it.quantity;el=true;}
@@ -697,7 +776,7 @@ async function showCon(){
   }
 
   function render(){
-    const cv=calc(sales,bonuses||[],deds||[],retBal,con.pay_basis);
+    const cv=calc(sales,bonuses||[],deds||[],retBal,con.pay_basis,srCtx(con,run));
     const s=S();
     const locked=run?.status==='finalised';
     $('app').innerHTML=`
@@ -789,6 +868,8 @@ async function showCon(){
           <h3 class="font-semibold mb-4">Pay Summary</h3>
           <div class="grid grid-cols-2 gap-y-2 text-sm max-w-xs">
             <span class="text-slate-400">Sales commission</span><span class="text-right">${fmt(cv.sc)}</span>
+            ${cv.srWeek?`<span class="text-slate-400">Starting rates</span><span class="text-right text-amber-300">wk ${cv.srWeek}/4 &middot; ${cv.srUsed} @ ${fmt(cv.srRate)}</span>
+            <span class="text-slate-400">On ordinary rates</span><span class="text-right ${cv.ordinaryBetter?'text-amber-300':''}">${fmt(cv.grossOrdinary)}${cv.ordinaryBetter?' (better)':''}</span>`:''}
             <span class="text-slate-400">Cash bonuses</span><span class="text-right">${fmt(cv.ac)}</span>
             ${cv.mb>0?`<span class="text-slate-400">Extra bonuses</span><span class="text-right">${fmt(cv.mb)}</span>`:''}
             <span class="text-slate-400">Less: retention</span><span class="text-right text-red-400">-${fmt(cv.ret)}</span>
@@ -964,38 +1045,11 @@ async function showInv(){
     sb.from('commission_bonuses').select('*').eq('pay_run_id',runId).eq('consultant_id',consId),
     sb.from('commission_deductions').select('*').eq('pay_run_id',runId).eq('consultant_id',consId),
     sb.from('commission_retention').select('*').eq('consultant_id',consId).maybeSingle(),
-    sb.from('commission_consultants').select('gst_registered,gst_rate').eq('id',consId).maybeSingle(),
+    sb.from('commission_consultants').select('gst_registered,gst_rate,accredited_on,starting_rates_ended_on').eq('id',consId).maybeSingle(),
   ]);
-  /* Clawbacks applied to the retention account in this pay-run week.
-     The consultant agreement lets Simtec apply the balance to a sale cancelled
-     before delivery, and the balance is their money, so the invoice must say
-     WHICH sale each amount relates to — not just move the closing figure.
-     ⚠ cancellation_clawback rows carry sale_id but NOT pay_run_id, so the only
-     way to scope them to a run is the date window. If a cancellation is recorded
-     AFTER the week ends but before the run is finalised it will appear on the
-     NEXT invoice, not this one. */
-  let clawbacks=[];
-  try{
-    if(run?.week_start&&run?.week_ending){
-      const{data:adjRows}=await sb.from('commission_retention_adjustments')
-        .select('amount,reason,sale_id,notes,adjustment_date,created_at')
-        .eq('consultant_id',consId)
-        .in('reason',['cancellation_clawback','sale_adjustment']);
-      const from=run.week_start, to=run.week_ending;
-      const inWeek=r=>{const d=(r.adjustment_date||r.created_at||'').slice(0,10);return d>=from&&d<=to;};
-      const rows=(adjRows||[]).filter(inWeek).filter(r=>Math.abs(+r.amount||0)>=0.005);
-      const ids=[...new Set(rows.map(r=>r.sale_id).filter(Boolean))];
-      let names={};
-      if(ids.length){
-        const{data:cs}=await sb.from('commission_sales').select('id,customer_name').in('id',ids);
-        (cs||[]).forEach(r=>{names[r.id]=r.customer_name;});
-      }
-      clawbacks=rows.map(r=>({name:names[r.sale_id]||'(sale not found)',amount:+r.amount||0}));
-    }
-  }catch(e){ clawbacks=[]; }
   const sales=(rawSales||[]).map(s=>({...s,items:(s.commission_sale_items||[]).map(i=>({...i,product:i.commission_products}))}));
   const retBal=await openingRetBal(+ret?.balance||0, run, consId);
-  const cv=calc(sales,bons||[],deds||[],retBal,con.pay_basis);
+  const cv=calc(sales,bons||[],deds||[],retBal,con.pay_basis,srCtx(con,run));
   const gstReg=!!gstRow?.gst_registered;
   const gstRate=+gstRow?.gst_rate||15;
   const gstAmt=gstReg?cv.net*gstRate/100:0;
@@ -1046,6 +1100,14 @@ async function showInv(){
               <td colspan="3" style="padding:2mm 3mm">Sales Commission Subtotal</td>
               <td style="padding:2mm 3mm;text-align:right">${fmt(cv.sc)}</td>
             </tr>
+            ${cv.srWeek?`<tr>
+              <td colspan="4" style="padding:2mm 3mm;font-size:8pt;color:#444;background:#fbfbfb">
+                Starting rates, week ${cv.srWeek} of 4 &mdash; ${cv.srUsed} mattress${cv.srUsed===1?'':'es'} paid at ${fmt(cv.srRate)}.
+                On the ordinary rates alone this week would be <b>${fmt(cv.grossOrdinary)}</b>
+                against <b>${fmt(cv.gross)}</b> on the starting rates.
+                ${cv.ordinaryBetter?'You may choose to move to the ordinary rates for this week and from then on. Tell us in writing by the Tuesday after this week ends. The change is permanent.':'The starting rates pay more this week, so no change is needed.'}
+              </td>
+            </tr>`:''}
           </tbody>
         </table>
 
@@ -1109,7 +1171,6 @@ async function showInv(){
             <tr><td style="padding:.8mm 0;color:#555">Opening balance</td><td style="text-align:right">${fmt(retBal)}</td></tr>
             <tr><td style="padding:.8mm 0;color:#555">Plus: withheld this week</td><td style="text-align:right">+${fmt(cv.ret)}</td></tr>
             ${cv.payout>0?`<tr><td style="padding:.8mm 0;color:#555">Less: released to consultant</td><td style="text-align:right;color:#c00">-${fmt(cv.payout)}</td></tr>`:''}
-            ${clawbacks.map(c=>`<tr><td style="padding:.8mm 0;color:#555">Less: applied — ${esc(c.name)}</td><td style="text-align:right;color:#c00">${fmt(c.amount)}</td></tr>`).join('')}
             <tr style="border-top:1pt solid #ddd;font-weight:bold">
               <td style="padding:1mm 0;color:#0f1e3c">Closing balance ${cv.retAfter>=s.retention_cap?'(CAP REACHED)':'/ '+fmt(s.retention_cap)+' cap'}</td>
               <td style="text-align:right;color:${cv.retAfter>=s.retention_cap?'#1a7a1a':'#0f1e3c'}">${fmt(cv.retAfter)}</td>
@@ -1664,8 +1725,73 @@ async function showSetup(){
                 </select>
                 <span id="gstmsg_${c.id}" class="text-xs text-green-400 hidden">Saved</span>
               </div>
+              <!-- Starting rates: first four weeks after accreditation (Schedule 1). -->
+              <div class="flex items-center gap-3 mt-2 flex-wrap">
+                <label class="flex items-center gap-1.5 text-xs text-slate-400">
+                  <input type="checkbox" id="accexempt_${c.id}" ${c.accreditation_required===false?'checked':''} onchange="saveAccExempt('${c.id}')">
+                  Engaged before the accreditation standard — not required
+                </label>
+                <span class="text-xs text-slate-500">${srLabel(c)}</span>
+                <span id="aemsg_${c.id}" class="text-xs text-green-400 hidden">Saved</span>
+              </div>
+              <div class="flex items-center gap-3 mt-2 flex-wrap ${c.accreditation_required===false?'opacity-40':''}">
+                <label class="flex items-center gap-1.5 text-xs text-slate-400">Accredited on:
+                  <input type="date" id="acc_${c.id}" value="${c.accredited_on||''}" class="inp text-sm py-1 w-40" ${c.accreditation_required===false?'disabled':''}>
+                </label>
+                <button onclick="saveAccred('${c.id}')" class="btn dark text-xs py-1 px-3" ${c.accreditation_required===false?'disabled':''}>Save</button>
+                <span id="accmsg_${c.id}" class="text-xs text-green-400 hidden">Saved</span>
+              </div>
+              <div class="flex items-center gap-3 mt-2 flex-wrap">
+                <label class="flex items-center gap-1.5 text-xs text-slate-400">
+                  <input type="checkbox" id="srend_${c.id}" ${c.starting_rates_ended_on?'checked':''} onchange="toggleSrEnd('${c.id}')">
+                  Moved to ordinary rates early
+                </label>
+                <input type="date" id="srenddate_${c.id}" value="${c.starting_rates_ended_on||''}" class="inp text-sm py-1 w-40" ${c.starting_rates_ended_on?'':'disabled'}>
+                <button onclick="saveSrEnd('${c.id}')" class="btn dark text-xs py-1 px-3">Save</button>
+                <span class="text-xs text-slate-500">applies to weeks starting on or after this date</span>
+                <span id="srmsg_${c.id}" class="text-xs text-green-400 hidden">Saved</span>
+              </div>
             </div>`).join('')}
         </div>`;
+
+      /* Starting rates. The election is FINAL and dated: comparing the date to a
+         run's week_start means a run already finalised is never rewritten, and
+         an election made late simply takes effect the following week. */
+      window.saveAccred=async(id)=>{
+        const v=$('acc_'+id)?.value||null;
+        const{error}=await sb.from('commission_consultants').update({accredited_on:v||null}).eq('id',id);
+        if(error){err(error);return;}
+        const c=consultants.find(x=>x.id===id);if(c)c.accredited_on=v||null;
+        const m=$('accmsg_'+id);if(m){m.classList.remove('hidden');setTimeout(()=>m.classList.add('hidden'),2000);}
+      };
+      window.saveAccExempt=async(id)=>{
+        const exempt=$('accexempt_'+id)?.checked;
+        const upd={accreditation_required:!exempt};
+        if(exempt){ upd.accredited_on=null; upd.starting_rates_ended_on=null; }
+        const{error}=await sb.from('commission_consultants').update(upd).eq('id',id);
+        if(error){err(error);return;}
+        const c=consultants.find(x=>x.id===id);
+        if(c){ c.accreditation_required=!exempt; if(exempt){c.accredited_on=null;c.starting_rates_ended_on=null;} }
+        const m=$('aemsg_'+id);if(m){m.classList.remove('hidden');setTimeout(()=>m.classList.add('hidden'),2000);}
+        toast(exempt?'Accreditation not required for this consultant.':'Accreditation now required — enter the date once they pass.');
+      };
+      window.toggleSrEnd=(id)=>{
+        const on=$('srend_'+id)?.checked;
+        const d=$('srenddate_'+id);
+        if(!d)return;
+        d.disabled=!on;
+        if(on&&!d.value){ const t=new Date(); d.value=t.toISOString().slice(0,10); }
+        if(!on) d.value='';
+      };
+      window.saveSrEnd=async(id)=>{
+        const on=$('srend_'+id)?.checked;
+        const v=on?($('srenddate_'+id)?.value||null):null;
+        if(on&&!v){toast('Choose the date the ordinary rates start from.',false);return;}
+        const{error}=await sb.from('commission_consultants').update({starting_rates_ended_on:v}).eq('id',id);
+        if(error){err(error);return;}
+        const c=consultants.find(x=>x.id===id);if(c)c.starting_rates_ended_on=v;
+        const m=$('srmsg_'+id);if(m){m.classList.remove('hidden');setTimeout(()=>m.classList.add('hidden'),2000);}
+      };
 
       window.addCons=async()=>{
         const inp=$('newcons');
@@ -2106,7 +2232,7 @@ window.finaliseRun=async(rid)=>{
         sb.from('commission_deductions').select('*').eq('pay_run_id',rid).eq('consultant_id',c.id),
       ]);
       const sales=(sl||[]).map(x=>({...x,items:(x.commission_sale_items||[]).map(i=>({...i,product:i.commission_products}))}));
-      const cv=calc(sales,bo||[],de||[],retMap[c.id]||0,c.pay_basis);
+      const cv=calc(sales,bo||[],de||[],retMap[c.id]||0,c.pay_basis,srCtx(c,run));
       const rate=cv.rate;
       for(const sale of sales){
         if(sale.status==='cancelled')continue;
