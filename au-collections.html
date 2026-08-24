@@ -38,6 +38,7 @@
   .p-onhold{background:#e9eef6;color:#3c4a60}
   .p-ok{background:#e7f5ec;color:var(--ok)}
   .p-paysmart{background:#e8eefb;color:#2b4b8f}
+  .p-unlikely{background:#efe7f5;color:#5b3a7a}
   .p-closed{background:#eee;color:#777}
   .muted{color:var(--muted)}
   a.tel{color:var(--navy);text-decoration:none;font-weight:600}
@@ -197,6 +198,9 @@ const TABS = [
      cannot see them. Their own tab keeps them visible rather than letting them
      sit silently in "ok" looking collected. */
   ['paysmart','Paysmart',       r => r.provider==='paysmart'],
+  /* Their own tab so the judgement stays reviewable — a flag you can never see
+     again is a flag nobody trusts. */
+  ['unlikely','Unlikely to collect', r => r.unlikely],
   ['all',     'Everyone',       r => true]
 ];
 
@@ -210,20 +214,44 @@ async function load(){
 }
 
 function drawKpis(){
-  const live = ALL.filter(r => r.chase!=='closed');
-  const need = ALL.filter(r => ['chronic','serious','watch'].includes(r.chase));
-  const owed = live.reduce((a,b)=>a+(Number(b.balance_owing)||0),0);
-  const chasedOwed = need.reduce((a,b)=>a+(Number(b.balance_owing)||0),0);
+  /* TWO HEADLINE NUMBERS, side by side and deliberately both shown.
+     ⚠ THE BOOK is what is legally owed — it does not move because a collector
+       formed a view, and it is the figure that ties to the contract file.
+     ⚠ REALISTIC is the book LESS what Cherelee has marked won't collect. It is
+       an opinion, and it is labelled as one.
+     Showing only the first flatters the business; showing only the second
+     quietly writes debts off without anyone deciding to. Show both. */
+  const live  = ALL.filter(r => r.chase !== 'closed');
+  const book  = live.reduce((a,b)=>a+(Number(b.balance_owing)||0),0);
+  const unl   = live.filter(r => r.unlikely);
+  const gone  = unl.reduce((a,b)=>a+(Number(b.balance_owing)||0),0);
+  const real  = book - gone;
+  const pct   = book ? Math.round(gone/book*100) : 0;
+
+  const need  = ALL.filter(r => ['chronic','serious','watch'].includes(r.chase));
   const today = new Date().toISOString().slice(0,10);
-  const due = ALL.filter(r => r.next_action && r.next_action<=today);
-  $('kpis').innerHTML = [
-    ['#0f2c57', money(owed),      live.length+' live accounts', 'Still owed'],
-    ['#b3261e', need.length,      'customers',                  'Need chasing'],
-    ['#b3261e', money(chasedOwed),'at risk',                    'Owed by those customers'],
-    ['#8a5a00', due.length,       'promised call-backs',        'Due today or overdue']
-  ].map(([c,n,l,t]) =>
-    `<div class="kpi"><div class="n" style="color:${c}">${n}</div>
-     <div class="l"><b>${esc(t)}</b> — ${esc(l)}</div></div>`).join('');
+  const due   = ALL.filter(r => r.next_action && r.next_action <= today);
+
+  const ezi = live.filter(r => r.provider !== 'paysmart')
+                  .reduce((a,b)=>a+(Number(b.balance_owing)||0),0);
+  const pay = live.filter(r => r.provider === 'paysmart')
+                  .reduce((a,b)=>a+(Number(b.balance_owing)||0),0);
+
+  $('kpis').innerHTML =
+    `<div class="kpi" style="flex:1 1 260px;border-color:#c7d3e6;background:#f7faff">
+       <div class="l" style="margin:0 0 2px"><b>THE DEBT BOOK</b> — what is owed</div>
+       <div class="n" style="color:#0f2c57;font-size:27px">${money(book)}</div>
+       <div class="l">${live.length} live accounts &middot; Ezidebit ${money(ezi)} &middot; Paysmart ${money(pay)}</div>
+     </div>
+     <div class="kpi" style="flex:1 1 260px;border-color:#c3b3d6;background:#faf7fd">
+       <div class="l" style="margin:0 0 2px"><b>REALISTICALLY COLLECTABLE</b></div>
+       <div class="n" style="color:#5b3a7a;font-size:27px">${money(real)}</div>
+       <div class="l">less ${money(gone)} marked won&rsquo;t collect (${unl.length} account${unl.length===1?'':'s'}, ${pct}%)</div>
+     </div>
+     <div class="kpi"><div class="n" style="color:#b3261e">${need.length}</div>
+       <div class="l"><b>Need chasing</b> — customers with a missed payment</div></div>
+     <div class="kpi"><div class="n" style="color:#8a5a00">${due.length}</div>
+       <div class="l"><b>Call-backs due</b> — today or overdue</div></div>`;
 }
 
 function drawTabs(){
@@ -270,12 +298,20 @@ function draw(){
       <td class="num">${r.fails_60d||0}${r.failed_amt_60d?`<div class="muted" style="font-size:11.5px">${money(r.failed_amt_60d)}</div>`:''}</td>
       <td>${dt(r.last_paid)}${lp!=null?`<div class="muted" style="font-size:11.5px">${lp} days ago</div>`:''}</td>
       <td>${dt(r.next_payment_date)}</td>
-      <td>${r.last_contacted?`${esc(r.last_outcome||'')}<div class="muted" style="font-size:11.5px">${r.last_channel?esc(r.last_channel)+' · ':''}${dt(r.last_contacted)}${r.next_action?' · back on '+dt(r.next_action):''}</div>`:'<span class="muted">never</span>'}</td>
-      <td><button data-p="${esc(r.payer_id)}" class="logBtn">Log a call</button></td>
+      <td>${r.unlikely?`<div style="color:#5b3a7a;font-size:11.5px"><b>Won't collect</b>${r.unlikely_reason?' — '+esc(r.unlikely_reason):''}${r.unlikely_marked_by?'<br>'+esc(r.unlikely_marked_by):''}</div>`:''}${r.last_contacted?`${esc(r.last_outcome||'')}<div class="muted" style="font-size:11.5px">${r.last_channel?esc(r.last_channel)+' · ':''}${dt(r.last_contacted)}${r.next_action?' · back on '+dt(r.next_action):''}</div>`:'<span class="muted">never</span>'}</td>
+      <td style="white-space:nowrap">
+        <button data-p="${esc(r.payer_id)}" class="logBtn">Log a call</button>
+        <label title="Probably never going to collect this one"
+               style="display:inline-flex;align-items:center;gap:5px;margin-top:6px;font-size:11.5px;cursor:pointer">
+          <input type="checkbox" class="unlikelyBox" data-p="${esc(r.payer_id)}" ${r.unlikely?'checked':''}>
+          <span class="muted">Won't collect</span>
+        </label>
+      </td>
     </tr>`;
   }).join('');
 
   document.querySelectorAll('.logBtn').forEach(b => b.onclick = () => openLog(b.dataset.p));
+  wireUnlikely();
 }
 
 function openLog(payer){
@@ -321,6 +357,28 @@ $('saveNote').onclick = async () => {
   $('dlg').close();
   await load();
 };
+
+/* Ticking asks for a reason. It is optional, but the prompt is deliberate —
+   "won't collect" with no explanation is a dead end for whoever reads it next. */
+function wireUnlikely(){
+  document.querySelectorAll('.unlikelyBox').forEach(b => b.onchange = async () => {
+    const on = b.checked;
+    let reason = null;
+    if(on){
+      reason = prompt("Why is this one probably not collectable?\n\n"
+        + "(optional — but it saves the next person working it out again)");
+      if(reason === null){ b.checked = false; return; }   // cancelled
+    }
+    b.disabled = true;
+    try{
+      await auCall('unlikely', { payer_id: b.dataset.p, unlikely: on, reason: reason || null });
+      await load();
+    }catch(e){
+      b.checked = !on; b.disabled = false;
+      alert("Could not save that.\n\n" + (e.message || e));
+    }
+  });
+}
 
 document.querySelectorAll('th[data-k]').forEach(th => th.onclick = () => {
   const k=th.dataset.k;
