@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Simtec — Australian contract import</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="auth.js?v=3" data-roles="admin,manager,office"></script>
+<style>
+  :root{ --navy:#0f2c57; --gold:#8a6d1f; --muted:#6b7685; --line:#e3e8ef;
+         --ok:#1c6b34; --bad:#b3261e; --amber:#8a5a00; }
+  *{box-sizing:border-box}
+  body{margin:0;background:#f7f9fc;color:#1f2733;
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;}
+  header{background:var(--navy);color:#fff;padding:14px 18px;display:flex;align-items:center;gap:14px}
+  header a{color:#cfe0f7;text-decoration:none;font-size:13px}
+  header h1{margin:0;font-size:17px;font-weight:700}
+  .wrap{max-width:960px;margin:0 auto;padding:18px}
+  .card{background:#fff;border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:14px}
+  h2{font-size:15px;margin:0 0 8px}
+  p,li{font-size:13.5px;line-height:1.55}
+  .muted{color:var(--muted)}
+  .drop{border:2px dashed #b9c6d8;border-radius:12px;padding:34px;text-align:center;cursor:pointer;background:#fbfdff}
+  .drop:hover{border-color:var(--navy);background:#f4f8ff}
+  button{background:var(--navy);color:#fff;border:0;border-radius:9px;padding:11px 18px;
+    font-size:14px;font-weight:600;cursor:pointer}
+  button[disabled]{opacity:.45;cursor:default}
+  button.ghost{background:#fff;color:var(--navy);border:1px solid var(--navy)}
+  table{width:100%;border-collapse:collapse;font-size:12.5px;margin-top:10px}
+  th,td{border:1px solid var(--line);padding:6px 8px;text-align:left;vertical-align:top}
+  th{background:#eef2f7}
+  .num{text-align:right;font-variant-numeric:tabular-nums}
+  .ok{color:var(--ok);font-weight:700}
+  .bad{color:var(--bad);font-weight:700}
+  .amber{color:var(--amber);font-weight:700}
+  .note{border-left:4px solid var(--gold);background:#fffdf5;padding:10px 12px;border-radius:0 8px 8px 0;margin:10px 0}
+  #log{font:12px ui-monospace,Menlo,Consolas,monospace;white-space:pre-wrap;max-height:230px;overflow:auto;
+    background:#0f1720;color:#d6e2f0;border-radius:9px;padding:11px;margin-top:10px}
+</style>
+</head>
+<body>
+<header>
+  <a href="au-arrears.html">&lsaquo; AU arrears</a>
+  <h1>Australian contract import</h1>
+</header>
+
+<div class="wrap">
+
+  <div class="card">
+    <h2>What this is for</h2>
+    <p>Ezidebit's <b>contract export</b> (the <code>SR-…….csv</code> they send) is the only source that
+    carries <b>what each customer still owes</b>. The arrears report does not — it only shows what was
+    billed and collected, which is why the outstanding book could never be worked out from it.</p>
+    <p class="muted">Drop the file in below. Every payer is matched on their Ezidebit payer ID.
+    Someone already on file keeps their arrears history and simply gains the contract side;
+    someone new is added.</p>
+    <div class="note">
+      <b>It will not touch paid, arrears, expected or instalment.</b> Those come from the arrears
+      report and this file has no authority over them. It only writes the contract side —
+      balance owing, payments remaining, next payment, status and contact details.
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>1. Choose the file</h2>
+    <div class="drop" id="drop">
+      <div style="font-size:30px">📄</div>
+      <div><b>Click here, or drag the CSV in</b></div>
+      <div class="muted" style="margin-top:4px">Ezidebit contract export — SR-000000.csv</div>
+    </div>
+    <input type="file" id="file" accept=".csv,text/csv" style="display:none">
+  </div>
+
+  <div class="card" id="previewCard" style="display:none">
+    <h2>2. Check it before writing anything</h2>
+    <div id="preview"></div>
+    <p style="margin-top:14px">
+      <button id="apply">Import into the system</button>
+      <button class="ghost" id="cancel">Cancel</button>
+    </p>
+    <div id="log" style="display:none"></div>
+  </div>
+
+</div>
+
+<script>
+/* ⚠⚠ AUSTRALIA IS REACHED THROUGH AN EDGE FUNCTION, NOT DIRECTLY.
+   The AU database is a separate Supabase project. This site is PUBLIC GitHub
+   Pages, so any key written here is readable by anyone who views source — which
+   is why the AU tables are now locked to authenticated access and the browser
+   is not allowed to hold an AU key at all.
+   `au-gateway` runs on the NZ project with verify_jwt on: Supabase rejects
+   anyone not signed in, the function then checks their role, and only then
+   talks to Australia using a service key that never leaves the server. */
+const GW_URL = "https://jvqjoenaungubpoegyvf.supabase.co/functions/v1/au-gateway";
+const NZ_KEY = "sb_publishable_J4MYTdJJyEaWe-GadpwdYA_upPT2rKw";
+async function auCall(op, payload){
+  const sb = window.SIMTEC_SB;
+  if(!sb) throw new Error('Not signed in — refresh the page and sign in.');
+  const s = await sb.auth.getSession();
+  const token = s && s.data && s.data.session ? s.data.session.access_token : '';
+  if(!token) throw new Error('Your session has expired — refresh and sign in again.');
+  const r = await fetch(GW_URL, {
+    method:'POST',
+    headers:{ 'Content-Type':'application/json', Authorization:'Bearer '+token, apikey:NZ_KEY },
+    body: JSON.stringify(Object.assign({op}, payload||{}))
+  });
+  let d={}; try{ d = await r.json(); }catch(e){}
+  if(!r.ok || d.error) throw new Error(d.error || ('Server said '+r.status));
+  return d;
+}
+
+
+const $ = id => document.getElementById(id);
+const money = n => '$' + (Number(n)||0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
+const digits = s => String(s||'').replace(/\D/g,'');
+let PARSED = null;
+
+function log(msg){ const l=$('log'); l.style.display='block'; l.textContent += msg + "\n"; l.scrollTop = l.scrollHeight; }
+
+/* A CSV parser that copes with quoted fields containing commas — Ezidebit's
+   address lines do, and a naive split() silently shifts every later column. */
+function parseCSV(text){
+  const rows=[]; let row=[], cell='', q=false;
+  text = text.replace(/^\uFEFF/,'');
+  for(let i=0;i<text.length;i++){
+    const c=text[i];
+    if(q){
+      if(c==='"'){ if(text[i+1]==='"'){ cell+='"'; i++; } else q=false; }
+      else cell+=c;
+    }else{
+      if(c==='"') q=true;
+      else if(c===','){ row.push(cell); cell=''; }
+      else if(c==='\n'){ row.push(cell); rows.push(row); row=[]; cell=''; }
+      else if(c!=='\r') cell+=c;
+    }
+  }
+  if(cell!=='' || row.length){ row.push(cell); rows.push(row); }
+  return rows.filter(r => r.length>1);
+}
+
+const num = s => { const t=String(s||'').replace(/[^0-9.\-]/g,''); return t===''?null:Number(t); };
+const dat = s => { const t=String(s||'').slice(0,10); return /^\d{4}-\d{2}-\d{2}$/.test(t)?t:null; };
+
+function readFile(f){
+  const fr=new FileReader();
+  fr.onload = () => {
+    try{ build(parseCSV(fr.result)); }
+    catch(e){ alert("Couldn't read that file.\n\n"+(e.message||e)); }
+  };
+  fr.readAsText(f);
+}
+
+function build(rows){
+  const head = rows[0].map(h => String(h).trim());
+  const col = name => head.indexOf(name);
+  const need = ['Payer ID','Total Payable','Contract Status','Total Number of Payments'];
+  const missing = need.filter(n => col(n) < 0);
+  if(missing.length){
+    alert("That does not look like the Ezidebit contract export.\n\nMissing column(s): "
+      + missing.join(', ') + "\n\nThe arrears PDF will not work here — this needs the CSV that has "
+      + "a Total Payable column.");
+    return;
+  }
+  const out=[];
+  for(let i=1;i<rows.length;i++){
+    const r=rows[i]; const p=digits(r[col('Payer ID')]);
+    if(p.length!==9) continue;
+    out.push({
+      payer_id:p,
+      contract_id: r[col('Contract ID')]||null,
+      creation_date: dat(r[col('Creation Date')]),
+      balance_owing: num(r[col('Total Payable')]),
+      payments_remaining: num(r[col('Total Number of Payments')]),
+      next_payment_date: dat(r[col('Next Payment Date')]),
+      next_payment_amt: num(r[col('Next Payment Amount')]),
+      contract_status: (r[col('Contract Status')]||'').trim(),
+      first_name: (r[col('Person First Name')]||'').trim(),
+      last_name: (r[col('Person Last Name')]||'').trim(),
+      email: (r[col('Email Address')]||'').trim(),
+      mobile: (r[col('Mobile')]||'').trim(),
+      city: (r[col('City')]||'').trim(),
+      state: (r[col('State')]||'').trim(),
+      postcode: (r[col('Postal Code')]||'').trim(),
+      address1: (r[col('Address 1')]||'').trim()
+    });
+  }
+  PARSED = out;
+  showPreview(out);
+}
+
+async function showPreview(out){
+  const live = out.filter(r => !r.contract_status.startsWith('C'));
+  const canc = out.filter(r =>  r.contract_status.startsWith('C'));
+  const hold = live.filter(r => r.contract_status.startsWith('H'));
+  const owed = live.reduce((a,b)=>a+(b.balance_owing||0),0);
+
+  // which of these does the system already know?
+  let known = new Set();
+  try{
+    const res = await auCall('payers');
+    (res.rows||[]).forEach(c => known.add(digits(c.payer_id)));
+  }catch(e){}
+  const isNew = out.filter(r => !known.has(r.payer_id));
+  const newLive = isNew.filter(r => !r.contract_status.startsWith('C'));
+
+  $('preview').innerHTML =
+    '<table>'
+    + '<tr><th>What is in the file</th><th class="num">Contracts</th><th class="num">Still owed</th></tr>'
+    + `<tr><td><b>Live</b> (collecting or on hold)</td><td class="num">${live.length}</td><td class="num"><b>${money(owed)}</b></td></tr>`
+    + `<tr><td>&nbsp;&nbsp;of which <b>on hold</b> — owed but not collecting</td><td class="num amber">${hold.length}</td><td class="num amber">${money(hold.reduce((a,b)=>a+(b.balance_owing||0),0))}</td></tr>`
+    + `<tr><td>Cancelled</td><td class="num muted">${canc.length}</td><td class="num muted">${money(canc.reduce((a,b)=>a+(b.balance_owing||0),0))}</td></tr>`
+    + '</table>'
+    + '<table style="margin-top:12px">'
+    + '<tr><th>Against the system</th><th class="num">Contracts</th></tr>'
+    + `<tr><td>Already on file — will be updated</td><td class="num">${out.length-isNew.length}</td></tr>`
+    + `<tr><td><b>New — will be added</b></td><td class="num ok">${isNew.length}</td></tr>`
+    + `<tr><td>&nbsp;&nbsp;of those, <b>live and currently unwatched</b></td><td class="num bad">${newLive.length}</td></tr>`
+    + '</table>'
+    + `<p class="muted" style="margin-top:10px">${out.length} rows read from the file.</p>`;
+  $('previewCard').style.display='';
+  $('log').style.display='none'; $('log').textContent='';
+}
+
+$('drop').onclick = () => $('file').click();
+$('file').onchange = e => { if(e.target.files[0]) readFile(e.target.files[0]); };
+$('drop').ondragover = e => { e.preventDefault(); };
+$('drop').ondrop = e => { e.preventDefault(); if(e.dataTransfer.files[0]) readFile(e.dataTransfer.files[0]); };
+$('cancel').onclick = () => { PARSED=null; $('previewCard').style.display='none'; $('file').value=''; };
+
+$('apply').onclick = async () => {
+  if(!PARSED || !PARSED.length) return;
+  $('apply').disabled = true; $('cancel').disabled = true;
+  log('Starting — ' + PARSED.length + ' rows.');
+
+  /* Existing rows are UPDATED and new ones INSERTED separately, rather than a
+     blanket upsert. An upsert keyed on payer_id would overwrite our own
+     `status` (the archived/active decision the office has made) and could wipe
+     paid/arrears on any column we did not list. This way the arrears side is
+     never touched. */
+  /* One call. The gateway does the update-vs-insert split server-side, where
+     the service key lives — the browser never holds an Australian key. */
+  let res;
+  try{ res = await auCall('contracts', { rows: PARSED }); }
+  catch(e){ log('STOPPED — '+(e.message||e)); $('apply').disabled=false; $('cancel').disabled=false; return; }
+  const upd=res.updated||0, ins=res.inserted||0, failed=0;
+
+  log('');
+  log('DONE.  updated '+upd+'   added '+ins+(failed?('   FAILED '+failed):'   no failures'));
+  log('Open the AU arrears page to see the book.');
+  $('cancel').disabled=false;
+};
+</script>
+</body>
+</html>

@@ -98,6 +98,22 @@
 
     <div class="meta" id="meta" style="display:none"></div>
 
+    <!-- Saving is a DELIBERATE second step, not automatic on upload. Cherelee
+         sees the figures first and decides they look right; only then do they
+         go into the system. An import that happens silently is one nobody
+         checks. -->
+    <div id="saveBar" style="display:none;margin:14px 0;padding:14px 16px;border:1px solid #cfe0f7;
+         background:#f4f8ff;border-radius:12px">
+      <div style="font-weight:700;margin-bottom:4px">Save this report into the system</div>
+      <div style="font-size:13px;color:#6b7685;margin-bottom:10px">
+        Adds each payment and missed debit to the customer's record so the chase list stays up to date.
+        Loading the same report twice is safe — anything already recorded is skipped.
+      </div>
+      <button id="saveBtn" style="background:#0f2c57;color:#fff;border:0;border-radius:9px;
+        padding:10px 18px;font-size:14px;font-weight:600;cursor:pointer">Save into the system</button>
+      <span id="saveMsg" style="margin-left:12px;font-size:13px"></span>
+    </div>
+
     <div id="dash" style="display:none">
       <div class="kpis" id="kpis"></div>
       <div class="row2">
@@ -227,6 +243,77 @@ function parseRecords(records, metaText){
   render();
 }
 
+/* ⚠⚠ AUSTRALIA IS REACHED THROUGH AN EDGE FUNCTION, NOT DIRECTLY.
+   The AU database is a separate Supabase project. This site is PUBLIC GitHub
+   Pages, so any key written here is readable by anyone who views source — which
+   is why the AU tables are now locked to authenticated access and the browser
+   is not allowed to hold an AU key at all.
+   `au-gateway` runs on the NZ project with verify_jwt on: Supabase rejects
+   anyone not signed in, the function then checks their role, and only then
+   talks to Australia using a service key that never leaves the server. */
+const GW_URL = "https://jvqjoenaungubpoegyvf.supabase.co/functions/v1/au-gateway";
+const NZ_KEY = "sb_publishable_J4MYTdJJyEaWe-GadpwdYA_upPT2rKw";
+async function auCall(op, payload){
+  const sb = window.SIMTEC_SB;
+  if(!sb) throw new Error('Not signed in — refresh the page and sign in.');
+  const s = await sb.auth.getSession();
+  const token = s && s.data && s.data.session ? s.data.session.access_token : '';
+  if(!token) throw new Error('Your session has expired — refresh and sign in again.');
+  const r = await fetch(GW_URL, {
+    method:'POST',
+    headers:{ 'Content-Type':'application/json', Authorization:'Bearer '+token, apikey:NZ_KEY },
+    body: JSON.stringify(Object.assign({op}, payload||{}))
+  });
+  let d={}; try{ d = await r.json(); }catch(e){}
+  if(!r.ok || d.error) throw new Error(d.error || ('Server said '+r.status));
+  return d;
+}
+
+
+function isoOf(d){                       // 24/08/2026 -> 2026-08-24
+  const m=String(d||'').match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  return m ? m[3]+'-'+m[2]+'-'+m[1] : null;
+}
+
+async function saveToSystem(){
+  const btn=$('saveBtn'), out=$('saveMsg');
+  btn.disabled=true; out.textContent='Working…';
+  try{
+    /* Build one row per EVENT. The dedup key carries an ordinal so that a
+       genuine same-day double debit is kept, while re-importing yesterday's
+       report a second time changes nothing. */
+    const seen={}, rows=[];
+    for(const r of ROWS){
+      const payer=String(r.payer||'').replace(/\D/g,'');
+      for(const e of (r.events||[])){
+        const iso=isoOf(e.date);
+        const base=payer+'|'+(iso||'?')+'|'+e.type+'|'+Number(e.amt||0).toFixed(2);
+        seen[base]=(seen[base]||0)+1;
+        rows.push({ payer_id:payer, event_date:iso, event_type:e.type,
+                    amount:Number(e.amt||0), reason:e.reason||null,
+                    dedup_key: base+'|'+seen[base] });
+      }
+    }
+    if(!rows.length){ out.textContent='Nothing in this report to save.'; btn.disabled=false; return; }
+
+    /* The gateway does the de-duplicating server-side: re-importing an
+       overlapping day is free, because the unique dedup_key rejects what is
+       already recorded. */
+    out.textContent='Saving '+rows.length+' record'+(rows.length===1?'':'s')+'…';
+    const res = await auCall('payments', { rows });
+    const added=res.added||0, already=res.already||0;
+    out.innerHTML='<b style="color:#1c6b34">Saved.</b> '+added+' new payment record'+(added===1?'':'s')
+      + (already?(' · '+already+' already had been recorded'):'')
+      + ' · <a href="au-collections.html">open the chase list</a>';
+  }catch(e){
+    out.innerHTML='<b style="color:#b3261e">Could not save:</b> '+String(e.message||e)
+      + '<br><span style="color:#6b7685">Nothing was changed. The figures above are still correct on screen.</span>';
+    btn.disabled=false;
+  }
+}
+
+document.addEventListener('DOMContentLoaded',()=>{ const b=document.getElementById('saveBtn'); if(b) b.onclick=saveToSystem; });
+
 function render(){
   $('loading').style.display='none';
   if(!ROWS.length){ showErr('No payment records found. Is this the Ezidebit "Processed Payments Report"?'); return; }
@@ -235,6 +322,9 @@ function render(){
   const failed$=ROWS.reduce((s,r)=>s+r.failAmt,0);
   const paid$=ROWS.reduce((s,r)=>s+r.paidAmt,0);
   const chronic=failing.filter(r=>r.band==='Chronic');
+
+  const sb=$('saveBar');
+  if(sb){ sb.style.display='block'; $('saveMsg').textContent=''; $('saveBtn').disabled=false; }
 
   $('meta').style.display='flex';
   $('meta').innerHTML=[['Entity',META.entity],['Client ID',META.clientId||'—'],['Period',META.period||'—'],

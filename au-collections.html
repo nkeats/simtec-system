@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Simtec — Australian chase list</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.112.2"></script>
+<script src="auth.js?v=3" data-roles="admin,manager,office"></script>
+<style>
+  :root{ --navy:#0f2c57; --muted:#6b7685; --line:#e3e8ef; --ok:#1c6b34;
+         --bad:#b3261e; --amber:#8a5a00; --chip:#eef2f7; }
+  *{box-sizing:border-box}
+  body{margin:0;background:#f7f9fc;color:#1f2733;
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+  header{background:var(--navy);color:#fff;padding:14px 18px;display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+  header a{color:#cfe0f7;text-decoration:none;font-size:13px}
+  header h1{margin:0;font-size:17px;font-weight:700;flex:1}
+  .wrap{max-width:1240px;margin:0 auto;padding:16px}
+  .kpis{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:14px}
+  .kpi{flex:1 1 170px;background:#fff;border:1px solid var(--line);border-radius:12px;padding:13px}
+  .kpi .n{font-size:23px;font-weight:800;line-height:1.1}
+  .kpi .l{font-size:12px;color:var(--muted);margin-top:3px}
+  .card{background:#fff;border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:14px}
+  .tabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+  .tab{padding:8px 14px;border:1px solid var(--line);border-radius:999px;background:#fff;
+    cursor:pointer;font-size:13px;font-weight:600}
+  .tab.on{background:var(--navy);color:#fff;border-color:var(--navy)}
+  input[type=search]{padding:9px 12px;border:1px solid var(--line);border-radius:9px;font-size:14px;width:260px}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th,td{border-bottom:1px solid var(--line);padding:9px 8px;text-align:left;vertical-align:top}
+  th{background:#f3f6fa;position:sticky;top:0;font-size:12px;cursor:pointer;user-select:none}
+  tr:hover td{background:#fafcff}
+  .num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+  .pill{display:inline-block;padding:2px 9px;border-radius:999px;font-size:11.5px;font-weight:700}
+  .p-chronic{background:#fde8e6;color:var(--bad)}
+  .p-serious{background:#fdeede;color:var(--amber)}
+  .p-watch{background:#fff7e0;color:#7a5c00}
+  .p-onhold{background:#e9eef6;color:#3c4a60}
+  .p-ok{background:#e7f5ec;color:var(--ok)}
+  .p-closed{background:#eee;color:#777}
+  .muted{color:var(--muted)}
+  a.tel{color:var(--navy);text-decoration:none;font-weight:600}
+  button{background:var(--navy);color:#fff;border:0;border-radius:8px;padding:7px 13px;
+    font-size:12.5px;font-weight:600;cursor:pointer}
+  button.ghost{background:#fff;color:var(--navy);border:1px solid var(--navy)}
+  dialog{border:0;border-radius:14px;padding:0;width:min(560px,94vw);box-shadow:0 20px 60px rgba(0,0,0,.25)}
+  dialog .dh{background:var(--navy);color:#fff;padding:13px 16px;font-weight:700}
+  dialog .db{padding:16px}
+  dialog label{display:block;font-size:12.5px;font-weight:600;margin:10px 0 4px}
+  dialog select,dialog textarea,dialog input{width:100%;padding:9px;border:1px solid var(--line);
+    border-radius:8px;font-size:14px;font-family:inherit}
+  .empty{padding:34px;text-align:center;color:var(--muted)}
+</style>
+</head>
+<body>
+<header>
+  <a href="au-arrears.html">&lsaquo; Daily report</a>
+  <h1>Australian chase list</h1>
+  <a href="au-contracts-import.html">Contract import</a>
+</header>
+
+<div class="wrap">
+  <div class="kpis" id="kpis"></div>
+
+  <div class="card">
+    <div class="tabs" id="tabs"></div>
+    <input type="search" id="q" placeholder="Search name, phone or payer ID…">
+    <span class="muted" id="count" style="margin-left:10px;font-size:13px"></span>
+    <div style="overflow:auto;max-height:66vh;margin-top:10px">
+      <table id="tbl">
+        <thead><tr>
+          <th data-k="chase">Chase</th>
+          <th data-k="customer">Customer</th>
+          <th>Contact</th>
+          <th data-k="balance_owing" class="num">Owes</th>
+          <th data-k="fails_60d" class="num">Missed<br>(60d)</th>
+          <th data-k="last_paid">Last paid</th>
+          <th data-k="next_payment_date">Next due</th>
+          <th>Last contact</th>
+          <th></th>
+        </tr></thead>
+        <tbody id="rows"></tbody>
+      </table>
+      <div class="empty" id="empty" style="display:none"></div>
+    </div>
+  </div>
+</div>
+
+<dialog id="dlg">
+  <div class="dh" id="dlgName">Record a call</div>
+  <div class="db">
+    <label>How did you contact them</label>
+    <select id="channel">
+      <option value="call">Phone call</option>
+      <option value="text">Text message</option>
+      <option value="email">Email</option>
+      <option value="visit">Personal visit</option>
+      <option value="letter">Letter</option>
+    </select>
+
+    <label>What happened</label>
+    <select id="outcome">
+      <option value="called — no answer">Called — no answer</option>
+      <option value="spoke — promised to pay">Spoke — promised to pay</option>
+      <option value="spoke — arrangement made">Spoke — arrangement made</option>
+      <option value="spoke — refuses to pay">Spoke — refuses to pay</option>
+      <option value="spoke — disputes the debt">Spoke — disputes the debt</option>
+      <option value="wrong number">Wrong number / cannot reach</option>
+      <option value="left message">Left a message</option>
+      <option value="emailed">Emailed</option>
+      <option value="referred to collections">Referred to collections</option>
+      <optgroup label="Formal notices — record the date, it is the evidence">
+        <option value="sent overdue notice (s6Q)">Sent overdue payment notice</option>
+        <option value="sent intention to list (s21D)">Sent notice of intention to list on credit file</option>
+      </optgroup>
+    </select>
+    <div id="noticeHint" style="display:none;margin-top:8px;padding:9px 11px;border-left:4px solid #8a6d1f;
+         background:#fffdf5;border-radius:0 8px 8px 0;font-size:12.5px;line-height:1.5"></div>
+    <label>Amount promised (if any)</label>
+    <input type="number" id="promised" step="0.01" placeholder="leave blank if none">
+    <label>Come back to them on</label>
+    <input type="date" id="nextAction">
+    <label>Notes</label>
+    <textarea id="note" rows="4" placeholder="Anything worth the next person knowing…"></textarea>
+    <p style="margin-top:14px">
+      <button id="saveNote">Save</button>
+      <button class="ghost" id="closeDlg">Cancel</button>
+      <span id="noteMsg" class="muted" style="margin-left:10px;font-size:12.5px"></span>
+    </p>
+  </div>
+</dialog>
+
+<script>
+/* ⚠⚠ AUSTRALIA IS REACHED THROUGH AN EDGE FUNCTION, NOT DIRECTLY.
+   The AU database is a separate Supabase project. This site is PUBLIC GitHub
+   Pages, so any key written here is readable by anyone who views source — which
+   is why the AU tables are now locked to authenticated access and the browser
+   is not allowed to hold an AU key at all.
+   `au-gateway` runs on the NZ project with verify_jwt on: Supabase rejects
+   anyone not signed in, the function then checks their role, and only then
+   talks to Australia using a service key that never leaves the server. */
+const GW_URL = "https://jvqjoenaungubpoegyvf.supabase.co/functions/v1/au-gateway";
+const NZ_KEY = "sb_publishable_J4MYTdJJyEaWe-GadpwdYA_upPT2rKw";
+async function auCall(op, payload){
+  const sb = window.SIMTEC_SB;
+  if(!sb) throw new Error('Not signed in — refresh the page and sign in.');
+  const s = await sb.auth.getSession();
+  const token = s && s.data && s.data.session ? s.data.session.access_token : '';
+  if(!token) throw new Error('Your session has expired — refresh and sign in again.');
+  const r = await fetch(GW_URL, {
+    method:'POST',
+    headers:{ 'Content-Type':'application/json', Authorization:'Bearer '+token, apikey:NZ_KEY },
+    body: JSON.stringify(Object.assign({op}, payload||{}))
+  });
+  let d={}; try{ d = await r.json(); }catch(e){}
+  if(!r.ok || d.error) throw new Error(d.error || ('Server said '+r.status));
+  return d;
+}
+
+const $ = id => document.getElementById(id);
+const esc = s => String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const money = n => (n==null||n==='') ? '—' : '$'+Number(n).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
+const dt = s => s ? String(s).slice(0,10).split('-').reverse().join('/') : '—';
+const days = s => s ? Math.round((Date.now()-new Date(s+'T00:00:00').getTime())/864e5) : null;
+
+let ALL=[], TAB='chase', SORT={k:'fails_60d',dir:-1}, CURRENT=null;
+
+/* The order Cherelee should work in. "Everyone" is last on purpose — the point
+   of this page is the people who need chasing, not a customer directory. */
+const TABS = [
+  ['chase',   'Needs chasing',  r => ['chronic','serious','watch'].includes(r.chase)],
+  ['chronic', 'Chronic',        r => r.chase==='chronic'],
+  ['due',     'Call back today',r => r.next_action && r.next_action <= new Date().toISOString().slice(0,10)],
+  ['hold',    'On hold',        r => r.chase==='on hold'],
+  ['never',   'Never contacted',r => !r.last_contacted && ['chronic','serious','watch'].includes(r.chase)],
+  ['all',     'Everyone',       r => true]
+];
+
+async function load(){
+  let res;
+  try{ res = await auCall('list'); }
+  catch(e){ $('rows').innerHTML=''; $('empty').style.display='';
+    $('empty').textContent='Could not load: '+(e.message||e); return; }
+  ALL = res.rows||[];
+  drawKpis(); drawTabs(); draw();
+}
+
+function drawKpis(){
+  const live = ALL.filter(r => r.chase!=='closed');
+  const need = ALL.filter(r => ['chronic','serious','watch'].includes(r.chase));
+  const owed = live.reduce((a,b)=>a+(Number(b.balance_owing)||0),0);
+  const chasedOwed = need.reduce((a,b)=>a+(Number(b.balance_owing)||0),0);
+  const today = new Date().toISOString().slice(0,10);
+  const due = ALL.filter(r => r.next_action && r.next_action<=today);
+  $('kpis').innerHTML = [
+    ['#0f2c57', money(owed),      live.length+' live accounts', 'Still owed'],
+    ['#b3261e', need.length,      'customers',                  'Need chasing'],
+    ['#b3261e', money(chasedOwed),'at risk',                    'Owed by those customers'],
+    ['#8a5a00', due.length,       'promised call-backs',        'Due today or overdue']
+  ].map(([c,n,l,t]) =>
+    `<div class="kpi"><div class="n" style="color:${c}">${n}</div>
+     <div class="l"><b>${esc(t)}</b> — ${esc(l)}</div></div>`).join('');
+}
+
+function drawTabs(){
+  $('tabs').innerHTML = TABS.map(([k,label,f]) =>
+    `<div class="tab ${k===TAB?'on':''}" data-k="${k}">${esc(label)} <span class="muted">${ALL.filter(f).length}</span></div>`
+  ).join('');
+  document.querySelectorAll('.tab').forEach(t => t.onclick = () => { TAB=t.dataset.k; drawTabs(); draw(); });
+}
+
+function draw(){
+  const f = (TABS.find(t=>t[0]===TAB)||TABS[0])[2];
+  const q = $('q').value.trim().toLowerCase();
+  let rows = ALL.filter(f);
+  if(q) rows = rows.filter(r =>
+    (r.customer||'').toLowerCase().includes(q) ||
+    (r.mobile||'').includes(q) || (r.payer_id||'').includes(q) ||
+    (r.email||'').toLowerCase().includes(q));
+
+  const rank = {chronic:0, serious:1, watch:2, 'on hold':3, ok:4, closed:5};
+  rows.sort((a,b) => {
+    if(SORT.k==='chase') return (rank[a.chase]-rank[b.chase])*SORT.dir;
+    const x=a[SORT.k], y=b[SORT.k];
+    if(x==null) return 1; if(y==null) return -1;
+    return (typeof x==='number' ? x-y : String(x).localeCompare(String(y))) * SORT.dir;
+  });
+
+  $('count').textContent = rows.length + (rows.length===1?' customer':' customers');
+  $('empty').style.display = rows.length ? 'none' : '';
+  if(!rows.length) $('empty').textContent =
+    TAB==='chase' ? 'Nobody needs chasing — load the latest daily report to be sure.'
+                  : 'Nothing here.';
+
+  $('rows').innerHTML = rows.map(r => {
+    const cls = 'p-'+String(r.chase||'ok').replace(/\s/g,'');
+    const lp = days(r.last_paid);
+    return `<tr>
+      <td><span class="pill ${cls}">${esc(r.chase||'ok')}</span></td>
+      <td><b>${esc(r.customer||'(no name)')}</b>
+          <div class="muted" style="font-size:11.5px">${esc(r.payer_id||'')}${r.city?' · '+esc(r.city):''}${r.state?', '+esc(r.state):''}</div></td>
+      <td>${r.mobile?`<a class="tel" href="tel:${esc(r.mobile)}">${esc(r.mobile)}</a>`:'<span class="muted">no phone</span>'}
+          ${r.email?`<div class="muted" style="font-size:11.5px">${esc(r.email)}</div>`:''}</td>
+      <td class="num"><b>${money(r.balance_owing)}</b>
+          ${r.next_payment_amt?`<div class="muted" style="font-size:11.5px">${money(r.next_payment_amt)}/pmt</div>`:''}</td>
+      <td class="num">${r.fails_60d||0}${r.failed_amt_60d?`<div class="muted" style="font-size:11.5px">${money(r.failed_amt_60d)}</div>`:''}</td>
+      <td>${dt(r.last_paid)}${lp!=null?`<div class="muted" style="font-size:11.5px">${lp} days ago</div>`:''}</td>
+      <td>${dt(r.next_payment_date)}</td>
+      <td>${r.last_contacted?`${esc(r.last_outcome||'')}<div class="muted" style="font-size:11.5px">${r.last_channel?esc(r.last_channel)+' · ':''}${dt(r.last_contacted)}${r.next_action?' · back on '+dt(r.next_action):''}</div>`:'<span class="muted">never</span>'}</td>
+      <td><button data-p="${esc(r.payer_id)}" class="logBtn">Log a call</button></td>
+    </tr>`;
+  }).join('');
+
+  document.querySelectorAll('.logBtn').forEach(b => b.onclick = () => openLog(b.dataset.p));
+}
+
+function openLog(payer){
+  CURRENT = ALL.find(r => String(r.payer_id)===String(payer));
+  if(!CURRENT) return;
+  $('dlgName').textContent = 'Call: ' + (CURRENT.customer||CURRENT.payer_id);
+  $('promised').value=''; $('note').value=''; $('nextAction').value=''; $('noteMsg').textContent='';
+  $('dlg').showModal();
+}
+$('closeDlg').onclick = () => $('dlg').close();
+
+/* The 30-day rule is the sort of thing nobody remembers at the moment they need
+   it, so it is shown right where the choice is made rather than in a manual. */
+$('outcome').onchange = () => {
+  const v=$('outcome').value, h=$('noticeHint');
+  if(v==='sent overdue notice (s6Q)'){
+    h.style.display='';
+    h.innerHTML='<b>This starts the clock.</b> The second notice — intention to list on their '
+      + 'credit file — cannot be sent until <b>30 days</b> from today. Keep a copy of what was sent.';
+  }else if(v==='sent intention to list (s21D)'){
+    h.style.display='';
+    h.innerHTML='<b>Check the first notice went out at least 30 days ago</b>, and that this one is '
+      + 'a letter on its own — it cannot be bundled with a statement or anything else. '
+      + 'After sending: wait 14 days, then the default may be listed within 3 months.';
+  }else{ h.style.display='none'; }
+};
+
+$('saveNote').onclick = async () => {
+  if(!CURRENT) return;
+  $('saveNote').disabled=true; $('noteMsg').textContent='Saving…';
+  const row = {
+    payer_id: String(CURRENT.payer_id).replace(/\D/g,''),
+    channel: $('channel').value,
+    outcome: $('outcome').value,
+    note: $('note').value.trim() || null,
+    promised_amt: $('promised').value ? Number($('promised').value) : null,
+    next_action: $('nextAction').value || null
+  };
+  try{ await auCall('note', { note: row }); }
+  catch(e){ $('saveNote').disabled=false;
+    $('noteMsg').innerHTML='<span style="color:#b3261e">Could not save: '+esc(e.message||e)+'</span>'; return; }
+  $('saveNote').disabled=false;
+  $('dlg').close();
+  await load();
+};
+
+document.querySelectorAll('th[data-k]').forEach(th => th.onclick = () => {
+  const k=th.dataset.k;
+  SORT = (SORT.k===k) ? {k, dir:-SORT.dir} : {k, dir: (k==='customer'?1:-1)};
+  draw();
+});
+$('q').oninput = draw;
+
+load();
+</script>
+</body>
+</html>
