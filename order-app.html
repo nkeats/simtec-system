@@ -2348,8 +2348,28 @@ function buildEddrUrl(){
   if(rAmt!=null){
     q.set('rAmount', rAmt.toFixed(2)); if(rDate) q.set('rDate', isoToDMY(rDate));
     q.set('freq', String(EZI_FREQ[val('eziPlanFreq')]||1));
+    /* ⚠⚠ DURATION. Ezidebit's codes are 1 = Ongoing, 2 = TOTAL AMOUNT, 4 = Total Payments.
+       (NOT 1/2/3/4 — there is no 3. Checked against Ezidebit's own parameter table.)
+       We were sending dur=1 whenever no payment count was entered, which is why the
+       authority read "until further notice". A mattress is a fixed debt, so the
+       authority must be capped: "until I have paid a total of $X".
+       tAmount is the TOTAL the regular debits may collect — the contract value less
+       anything taken as a one-off, because the one-off is not part of the schedule. */
     const cnt=numOrNull(val('eziPlanCount'));
-    if(cnt){ q.set('dur','4'); q.set('tPay', String(cnt)); } else { q.set('dur','1'); }  // 4=Total payments, 1=Ongoing
+    if(cnt){
+      q.set('dur','4'); q.set('tPay', String(cnt));      // an explicit number of payments
+    }else{
+      const cap = Math.round((eziTotal() - (oAmt||0)) * 100) / 100;
+      if(cap > 0){
+        q.set('dur','2'); q.set('tAmount', cap.toFixed(2));  // until a total of $X is paid
+      }else{
+        q.set('dur','1');                                    // last resort only
+      }
+    }
+    /* aDur limits what the customer can pick, so they cannot quietly switch the
+       authority back to Ongoing on Ezidebit's form. 2 = Total Amount, 4 = Total
+       Payments; 2+4 = 6 shows both and hides Ongoing. */
+    q.set('aDur','6');
   }
 
   /* ⚠⚠ TELL THE FORM WHICH SECTIONS TO SHOW. Ezidebit's spec: NOT providing
