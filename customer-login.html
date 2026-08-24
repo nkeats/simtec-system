@@ -47,6 +47,14 @@
         border-radius:50%;animation:s .8s linear infinite;vertical-align:-4px}
   @keyframes s{to{transform:rotate(360deg)}}
   .center{text-align:center;padding:40px 0}
+  .note{background:#fff7e6;border:1px solid #f0dcae;color:#6b5320;border-radius:12px;
+        padding:13px 14px;font-size:14px;line-height:1.5;margin:0 0 16px}
+  .help{background:#f7f9fc;border:1px solid var(--line);border-radius:12px;padding:13px 14px;
+        margin-top:16px;font-size:13.5px;color:#51617a;line-height:1.55}
+  .help b{color:#42506a}
+  .help ul{margin:8px 0 0;padding-left:18px}
+  .help li{margin:4px 0}
+  .help a{color:var(--navy);font-weight:700;text-decoration:none}
 </style>
 </head>
 <body>
@@ -102,19 +110,31 @@ const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&g
 async function boot(){
   // 1) one-time sign-in token from a QR scan or an emailed link (?token=...)
   const token = new URLSearchParams(location.search).get("token");
+  let linkFailed = false;
   if(token){
     view.innerHTML=`<div class="center"><span class="spin"></span></div>`;
     const { error } = await sb.auth.verifyOtp({ token_hash: token, type: "email" });
     history.replaceState(null,"",location.pathname);   // strip the token from the address bar
     if(!error){ return wantsAccount()?showAccount():goRewards(); }
+    /* ------------------------------------------------------------------
+       24 Aug — A DEAD SIGN-IN LINK USED TO SAY NOTHING AT ALL.
+       These tokens are single-use and short-lived, so this happens
+       routinely: the customer opens the link a second time, or their mail
+       app pre-fetched it. The page then fell straight through to the phone
+       form with no explanation, so they assumed that was the normal way in
+       - and if their number also failed they had no idea why. That is the
+       call-generating path. We now say what happened.
+    ------------------------------------------------------------------ */
+    linkFailed = true;
   }
   const { data:{ session } } = await sb.auth.getSession();
   if(session){ return wantsAccount()?showAccount():goRewards(); }
-  showLogin();
+  showLogin(linkFailed);
 }
 
-function showLogin(){
+function showLogin(linkFailed){
   view.innerHTML=`
+    ${linkFailed?`<div class="note">That sign-in link has already been used, or it has expired. No problem &mdash; just sign in with your mobile below.</div>`:``}
     <h1>My Simtec account</h1>
     <p class="lead">Enter the mobile number on your Simtec order and we'll text you a 6-digit code to sign in. No password needed.</p>
     <label for="mob">Mobile number</label>
@@ -151,7 +171,17 @@ function showCodeEntry(mobile){
     <input id="code" type="tel" inputmode="numeric" maxlength="6" placeholder="123456" autocomplete="one-time-code" style="letter-spacing:8px;text-align:center;font-size:22px">
     <button id="go" class="btn">Sign in</button>
     <button class="btn ghost" onclick="location.href=location.pathname">Use a different number</button>
-    <div id="msg"></div>`;
+    <div id="msg"></div>
+    <div class="help">
+      <b>No text yet?</b> It can take a minute to arrive.
+      <ul>
+        <li>Try the number again with and without the leading 0.</li>
+        <li>Check your blocked or filtered messages.</li>
+        <li>It has to be the mobile number on your Simtec order.</li>
+      </ul>
+      Still stuck? Call the office on <a href="tel:+6498869897">09 886 9897</a>
+      or email <a href="mailto:info@simtectp.com">info@simtectp.com</a> and we'll get you in.
+    </div>`;
   $("go").onclick=async()=>{
     const code=$("code").value.trim();
     if(!/^\d{4,8}$/.test(code)){ $("msg").innerHTML='<div class="err">Enter the code from the text.</div>'; return; }
