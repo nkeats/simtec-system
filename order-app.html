@@ -2574,12 +2574,22 @@ async function applyEzidebitCallback(cb){
     upd.ezidebit_payer_ref = returned;      // S.eziRef is set below once this saves
   }else if(returned){
     upd.ezidebit_customer_id = returned;    // it IS the customer id — file it correctly
+    /* ⚠ WORDING CORRECTED 23 Aug 2026. This note used to say the customer's
+       payments "will not match their order" until the 9-digit reference was
+       entered. THAT IS NO LONGER TRUE and it caused unnecessary alarm — the
+       outstanding report even counted them as money we were not collecting.
+       Payments now match on the Ezidebit customer id as well (order_paid_total
+       and v_order_position both accept either). Ezidebit's eDDR does not return
+       the 9-digit reference at all — proved against their API on 23 Aug 2026:
+       GetCustomerDetails returns 24 fields and it is not among them — so this
+       is normal, not a fault. The reference is only still wanted for the office
+       PDF import, which is now the backup path. */
     upd.consultant_account_note =
-      '⚠ EZIDEBIT REFERENCE MISSING. Their form returned "'+returned+'", which is the '
-      + 'internal customer id, not the 9-digit payment reference. The direct debit IS set '
-      + 'up — but until the real reference is entered, this customer\u2019s payments will not '
-      + 'match their order. Look them up in EziOnline, copy the 9-digit reference, and put '
-      + 'it on the customer page under Amend order → Ezidebit Payer ID.';
+      'Ezidebit reference to be added. Their form returned "'+returned+'", which is the '
+      + 'Ezidebit customer id — their form does not give us the 9-digit payment reference. '
+      + 'The direct debit IS set up, and payments WILL be matched to this order '
+      + 'automatically. When someone is next in EziOnline, copy the 9-digit reference onto '
+      + 'the customer page under Amend order → Ezidebit Payer ID. Not urgent.';
   }
   // If the 50% deposit was paid by BANK TRANSFER, deposit_amount already holds it —
   // don't let an Ezidebit one-off overwrite it. In every other case (full DD, or a

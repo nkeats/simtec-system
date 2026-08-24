@@ -532,7 +532,7 @@ async function loadBook(){
     let orders=[], from=0;
     while(true){
       const res = await sb.from("sim_orders")
-        .select("id,customer_id,contract_value,amount_paid_to_date,instalment_amount,payment_frequency,ezidebit_payer_ref,order_status,paid_in_full,paid_via_order_id,order_date,delivery_status")
+        .select("id,customer_id,contract_value,amount_paid_to_date,instalment_amount,payment_frequency,ezidebit_payer_ref,ezidebit_customer_id,order_status,paid_in_full,paid_via_order_id,order_date,delivery_status")
         .eq("order_status","active")
         .range(from, from+999);
       if(res.error) throw new Error("Reading orders: "+res.error.message);
@@ -550,7 +550,16 @@ async function loadBook(){
       const paid=Number(o.amount_paid_to_date||0);
       const owing=Math.max(0, contract-paid);
       if(owing<=0.01) return;                       // settled, nothing left to collect
-      const onEzi = !!o.ezidebit_payer_ref && Number(o.instalment_amount||0)>0;
+      /* ⚠ A customer is "on Ezidebit" if EITHER identifier is present.
+         Ezidebit's eDDR returns their 8-digit customer id but NOT the 9-digit
+         payer reference (confirmed against their API 23 Aug 2026 — the field
+         simply is not in the response). The office copies that number out of
+         EziOnline afterwards, so between the sale and that keystroke an order
+         has a live direct debit and no payer_ref. Judging on payer_ref alone
+         reported those customers as money we are NOT COLLECTING, which was
+         wrong and alarming — they are collecting perfectly well. */
+      const eziId = o.ezidebit_payer_ref || o.ezidebit_customer_id;
+      const onEzi = !!eziId && Number(o.instalment_amount||0)>0;
       if(onEzi){
         outEzi+=owing; contractEzi+=contract; paidEzi+=paid; nEzi++;
         const wk=BOOK_PER[o.payment_frequency]||1;
@@ -559,8 +568,8 @@ async function loadBook(){
         outNoEzi+=owing;
         notCollected.push({id:o.id, customer_id:o.customer_id, order_date:o.order_date,
           owing, paid, contract,
-          reason: !o.ezidebit_payer_ref ? "no Ezidebit payer reference"
-                : "payer reference, but no payment schedule"});
+          reason: !eziId ? "no Ezidebit customer set up at all"
+                : "set up with Ezidebit, but no payment schedule"});
       }
     });
 
