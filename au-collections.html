@@ -50,13 +50,31 @@
   dialog select,dialog textarea,dialog input{width:100%;padding:9px;border:1px solid var(--line);
     border-radius:8px;font-size:14px;font-family:inherit}
   .empty{padding:34px;text-align:center;color:var(--muted)}
+
+  /* One consistent bar across all three Australian pages. Every page must have
+     a way HOME — a screen you can only leave with the back button is a screen
+     people stop opening. The current page is marked so it is obvious where you
+     are, because the three look similar at a glance. */
+  .aunav{display:flex;gap:6px;align-items:center;flex-wrap:wrap;
+    background:#0b2140;padding:8px 14px;border-bottom:1px solid rgba(255,255,255,.12)}
+  .aunav a{color:#cfe0f7;text-decoration:none;font-size:13px;font-weight:600;
+    padding:6px 12px;border-radius:999px}
+  .aunav a:hover{background:rgba(255,255,255,.10);color:#fff}
+  .aunav a.on{background:#fff;color:#0b2140}
+  .aunav .sp{flex:1}
+  .aunav .au{color:#8fb0dd;font-size:12px;letter-spacing:.04em}
 </style>
 </head>
 <body>
-<header>
-  <a href="au-arrears.html">&lsaquo; Daily report</a>
-  <h1>Australian chase list</h1>
+<div class="aunav">
+  <a href="home.html">&#8962; Home</a>
+  <a href="au-collections.html" class="on">Chase list</a>
+  <a href="au-arrears.html">Daily payments</a>
   <a href="au-contracts-import.html">Contract import</a>
+  <span class="sp"></span><span class="au">AUSTRALIA</span>
+</div>
+<header>
+  <h1>Australian chase list</h1>
 </header>
 
 <div class="wrap">

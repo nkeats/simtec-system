@@ -36,11 +36,30 @@
   .note{border-left:4px solid var(--gold);background:#fffdf5;padding:10px 12px;border-radius:0 8px 8px 0;margin:10px 0}
   #log{font:12px ui-monospace,Menlo,Consolas,monospace;white-space:pre-wrap;max-height:230px;overflow:auto;
     background:#0f1720;color:#d6e2f0;border-radius:9px;padding:11px;margin-top:10px}
+
+  /* One consistent bar across all three Australian pages. Every page must have
+     a way HOME — a screen you can only leave with the back button is a screen
+     people stop opening. The current page is marked so it is obvious where you
+     are, because the three look similar at a glance. */
+  .aunav{display:flex;gap:6px;align-items:center;flex-wrap:wrap;
+    background:#0b2140;padding:8px 14px;border-bottom:1px solid rgba(255,255,255,.12)}
+  .aunav a{color:#cfe0f7;text-decoration:none;font-size:13px;font-weight:600;
+    padding:6px 12px;border-radius:999px}
+  .aunav a:hover{background:rgba(255,255,255,.10);color:#fff}
+  .aunav a.on{background:#fff;color:#0b2140}
+  .aunav .sp{flex:1}
+  .aunav .au{color:#8fb0dd;font-size:12px;letter-spacing:.04em}
 </style>
 </head>
 <body>
+<div class="aunav">
+  <a href="home.html">&#8962; Home</a>
+  <a href="au-collections.html">Chase list</a>
+  <a href="au-arrears.html">Daily payments</a>
+  <a href="au-contracts-import.html" class="on">Contract import</a>
+  <span class="sp"></span><span class="au">AUSTRALIA</span>
+</div>
 <header>
-  <a href="au-arrears.html">&lsaquo; AU arrears</a>
   <h1>Australian contract import</h1>
 </header>
 
