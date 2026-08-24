@@ -37,6 +37,7 @@
   .p-watch{background:#fff7e0;color:#7a5c00}
   .p-onhold{background:#e9eef6;color:#3c4a60}
   .p-ok{background:#e7f5ec;color:var(--ok)}
+  .p-paysmart{background:#e8eefb;color:#2b4b8f}
   .p-closed{background:#eee;color:#777}
   .muted{color:var(--muted)}
   a.tel{color:var(--navy);text-decoration:none;font-weight:600}
@@ -71,6 +72,7 @@
   <a href="au-collections.html" class="on">Chase list</a>
   <a href="au-arrears.html">Daily payments</a>
   <a href="au-contracts-import.html">Contract import</a>
+  <a href="au-paysmart-import.html">Paysmart</a>
   <span class="sp"></span><span class="au">AUSTRALIA</span>
 </div>
 <header>
@@ -191,6 +193,10 @@ const TABS = [
   ['due',     'Call back today',r => r.next_action && r.next_action <= new Date().toISOString().slice(0,10)],
   ['hold',    'On hold',        r => r.chase==='on hold'],
   ['never',   'Never contacted',r => !r.last_contacted && ['chronic','serious','watch'].includes(r.chase)],
+  /* Paysmart customers have no Ezidebit event history, so the failure grading
+     cannot see them. Their own tab keeps them visible rather than letting them
+     sit silently in "ok" looking collected. */
+  ['paysmart','Paysmart',       r => r.provider==='paysmart'],
   ['all',     'Everyone',       r => true]
 ];
 
@@ -259,7 +265,7 @@ function draw(){
           <div class="muted" style="font-size:11.5px">${esc(r.payer_id||'')}${r.city?' · '+esc(r.city):''}${r.state?', '+esc(r.state):''}</div></td>
       <td>${r.mobile?`<a class="tel" href="tel:${esc(r.mobile)}">${esc(r.mobile)}</a>`:'<span class="muted">no phone</span>'}
           ${r.email?`<div class="muted" style="font-size:11.5px">${esc(r.email)}</div>`:''}</td>
-      <td class="num"><b>${money(r.balance_owing)}</b>
+      <td class="num"><b>${money(r.balance_owing)}</b>${r.provider==='paysmart'?'<div class="muted" style="font-size:11px">Paysmart</div>':''}
           ${r.next_payment_amt?`<div class="muted" style="font-size:11.5px">${money(r.next_payment_amt)}/pmt</div>`:''}</td>
       <td class="num">${r.fails_60d||0}${r.failed_amt_60d?`<div class="muted" style="font-size:11.5px">${money(r.failed_amt_60d)}</div>`:''}</td>
       <td>${dt(r.last_paid)}${lp!=null?`<div class="muted" style="font-size:11.5px">${lp} days ago</div>`:''}</td>

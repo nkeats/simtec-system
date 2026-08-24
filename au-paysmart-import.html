@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Simtec — Paysmart import</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.112.2"></script>
+<script src="auth.js?v=3" data-roles="admin,manager,office"></script>
+<style>
+  :root{ --navy:#0f2c57; --gold:#8a6d1f; --muted:#6b7685; --line:#e3e8ef;
+         --ok:#1c6b34; --bad:#b3261e; }
+  *{box-sizing:border-box}
+  body{margin:0;background:#f7f9fc;color:#1f2733;
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+  .aunav{display:flex;gap:6px;align-items:center;flex-wrap:wrap;
+    background:#0b2140;padding:8px 14px;border-bottom:1px solid rgba(255,255,255,.12)}
+  .aunav a{color:#cfe0f7;text-decoration:none;font-size:13px;font-weight:600;
+    padding:6px 12px;border-radius:999px}
+  .aunav a:hover{background:rgba(255,255,255,.10);color:#fff}
+  .aunav a.on{background:#fff;color:#0b2140}
+  .aunav .sp{flex:1}
+  .aunav .au{color:#8fb0dd;font-size:12px;letter-spacing:.04em}
+  header{background:var(--navy);color:#fff;padding:14px 18px}
+  header h1{margin:0;font-size:17px;font-weight:700}
+  .wrap{max-width:960px;margin:0 auto;padding:18px}
+  .card{background:#fff;border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:14px}
+  h2{font-size:15px;margin:0 0 8px}
+  p,li{font-size:13.5px;line-height:1.55}
+  .muted{color:var(--muted)}
+  .drop{border:2px dashed #b9c6d8;border-radius:12px;padding:34px;text-align:center;cursor:pointer;background:#fbfdff}
+  .drop:hover{border-color:var(--navy);background:#f4f8ff}
+  button{background:var(--navy);color:#fff;border:0;border-radius:9px;padding:11px 18px;
+    font-size:14px;font-weight:600;cursor:pointer}
+  button[disabled]{opacity:.45;cursor:default}
+  button.ghost{background:#fff;color:var(--navy);border:1px solid var(--navy)}
+  table{width:100%;border-collapse:collapse;font-size:12.5px;margin-top:10px}
+  th,td{border:1px solid var(--line);padding:6px 8px;text-align:left}
+  th{background:#eef2f7}
+  .num{text-align:right;font-variant-numeric:tabular-nums}
+  .ok{color:var(--ok);font-weight:700}
+  .note{border-left:4px solid var(--gold);background:#fffdf5;padding:10px 12px;border-radius:0 8px 8px 0;margin:10px 0}
+  #log{font:12px ui-monospace,Menlo,Consolas,monospace;white-space:pre-wrap;max-height:220px;overflow:auto;
+    background:#0f1720;color:#d6e2f0;border-radius:9px;padding:11px;margin-top:10px}
+</style>
+</head>
+<body>
+<div class="aunav">
+  <a href="home.html">&#8962; Home</a>
+  <a href="au-collections.html">Chase list</a>
+  <a href="au-arrears.html">Daily payments</a>
+  <a href="au-contracts-import.html">Contract import</a>
+  <a href="au-paysmart-import.html" class="on">Paysmart</a>
+  <span class="sp"></span><span class="au">AUSTRALIA</span>
+</div>
+<header><h1>Paysmart balance import</h1></header>
+
+<div class="wrap">
+
+  <div class="card">
+    <h2>What this is for</h2>
+    <p>Around 80 Australian customers still pay through <b>Paysmart</b> rather than Ezidebit.
+    They do not appear in the daily Ezidebit report, so nothing in the system knew about them.
+    This brings them in alongside the Ezidebit book.</p>
+    <p class="muted">Drop in Paysmart's balances export — the one with
+    <b>AccountReference, ContractValue, Paid, Balance</b>.</p>
+    <div class="note">
+      <b>Paysmart customers are kept separate.</b> They are flagged as their own provider and
+      matched only against other Paysmart records, so the two books never blur together and
+      you can always say what each company is collecting.
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>1. Choose the file</h2>
+    <div class="drop" id="drop">
+      <div style="font-size:30px">📄</div>
+      <div><b>Click here, or drag the file in</b></div>
+      <div class="muted" style="margin-top:4px">Paysmart balances — CurrentBalances.csv</div>
+    </div>
+    <input type="file" id="file" accept=".csv,text/csv" style="display:none">
+  </div>
+
+  <div class="card" id="previewCard" style="display:none">
+    <h2>2. Check it before writing anything</h2>
+    <div id="preview"></div>
+    <p style="margin-top:14px">
+      <button id="apply">Import into the system</button>
+      <button class="ghost" id="cancel">Cancel</button>
+    </p>
+    <div id="log" style="display:none"></div>
+  </div>
+
+</div>
+
+<script>
+/* ⚠⚠ AUSTRALIA IS REACHED THROUGH AN EDGE FUNCTION, NOT DIRECTLY.
+   The AU database is a separate Supabase project and this site is PUBLIC
+   GitHub Pages, so no AU key may live in this file. au-gateway runs on the NZ
+   project with verify_jwt on, checks the caller's role, and only then talks to
+   Australia with a service key that never leaves the server. */
+const GW_URL = "https://jvqjoenaungubpoegyvf.supabase.co/functions/v1/au-gateway";
+const NZ_KEY = "sb_publishable_J4MYTdJJyEaWe-GadpwdYA_upPT2rKw";
+async function auCall(op, payload){
+  const sb = window.SIMTEC_SB;
+  if(!sb) throw new Error('Not signed in — refresh the page and sign in.');
+  const s = await sb.auth.getSession();
+  const token = s && s.data && s.data.session ? s.data.session.access_token : '';
+  if(!token) throw new Error('Your session has expired — refresh and sign in again.');
+  const r = await fetch(GW_URL, {
+    method:'POST',
+    headers:{ 'Content-Type':'application/json', Authorization:'Bearer '+token, apikey:NZ_KEY },
+    body: JSON.stringify(Object.assign({op}, payload||{}))
+  });
+  let d={}; try{ d = await r.json(); }catch(e){}
+  if(!r.ok || d.error) throw new Error(d.error || ('Server said '+r.status));
+  return d;
+}
+
+const $ = id => document.getElementById(id);
+const money = n => (n==null||n==='') ? '—' : '$'+Number(n).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
+let PARSED = null;
+
+function log(m){ const l=$('log'); l.style.display='block'; l.textContent += m+"\n"; l.scrollTop=l.scrollHeight; }
+
+/* Same quote-aware parser as the Ezidebit import — a naive split on commas
+   shifts every later column the moment one field contains one. */
+function parseCSV(text){
+  const rows=[]; let row=[], cell='', q=false;
+  text = text.replace(/^\uFEFF/,'');
+  for(let i=0;i<text.length;i++){
+    const c=text[i];
+    if(q){ if(c==='"'){ if(text[i+1]==='"'){ cell+='"'; i++; } else q=false; } else cell+=c; }
+    else{
+      if(c==='"') q=true;
+      else if(c===','){ row.push(cell); cell=''; }
+      else if(c==='\n'){ row.push(cell); rows.push(row); row=[]; cell=''; }
+      else if(c!=='\r') cell+=c;
+    }
+  }
+  if(cell!=='' || row.length){ row.push(cell); rows.push(row); }
+  return rows.filter(r=>r.length>1);
+}
+const num = s => { const t=String(s||'').replace(/[^0-9.\-]/g,''); return t===''?null:Number(t); };
+const iso = s => {                       // 5/06/2025 -> 2025-06-05
+  const m=String(s||'').match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  return m ? `${m[3]}-${m[2].padStart(2,'0')}-${m[1].padStart(2,'0')}` : null;
+};
+
+function build(rows){
+  const head = rows[0].map(h=>String(h).trim());
+  const col = n => head.indexOf(n);
+  const need = ['AccountReference','ContractValue','Paid','Balance'];
+  const missing = need.filter(n => col(n) < 0);
+  if(missing.length){
+    alert("That does not look like the Paysmart balances file.\n\nMissing column(s): "
+      + missing.join(', '));
+    return;
+  }
+  const out=[];
+  for(let i=1;i<rows.length;i++){
+    const r=rows[i]; const ref=String(r[col('AccountReference')]||'').replace(/\D/g,'');
+    if(!ref) continue;
+    /* ⚠ PaymentsRemainning is NEGATIVE in Paysmart's export and is actually the
+       count of payments ALREADY MADE — verified against this file: paid divided
+       by it gives a sensible instalment ($20–$142, median $60). Stored as a
+       positive count so it reads as what it is. */
+    const pr = num(r[col('PaymentsRemainning')]);
+    out.push({
+      account_ref: ref,
+      first_name: (r[col('FirstName')]||'').trim(),
+      last_name: (r[col('LastName')]||'').trim(),
+      contract_start: iso(r[col('ContractStart')]),
+      account_type: (r[col('AccountType')]||'').trim(),
+      billing_period: (r[col('BillingPeriod')]||'').trim(),
+      contract_value: num(r[col('ContractValue')]),
+      paid: num(r[col('Paid')]),
+      balance: num(r[col('Balance')]),
+      payments_made: pr==null ? null : Math.abs(pr)
+    });
+  }
+  PARSED = out;
+  show(out);
+}
+
+function show(out){
+  const val = out.reduce((a,b)=>a+(b.contract_value||0),0);
+  const paid = out.reduce((a,b)=>a+(b.paid||0),0);
+  const bal = out.reduce((a,b)=>a+(b.balance||0),0);
+  const near = out.filter(r=>(r.balance||0) < 500).length;
+  const big  = out.filter(r=>(r.balance||0) > 2000).length;
+  const bad  = out.filter(r=>Math.abs((r.contract_value||0)-(r.paid||0)-(r.balance||0))>0.01).length;
+  const wk = {W:'weekly',F:'fortnightly',M:'monthly'};
+  const per = {}; out.forEach(r=>{ const k=wk[r.billing_period]||r.billing_period||'?'; per[k]=(per[k]||0)+1; });
+
+  $('preview').innerHTML =
+    '<table>'
+    + '<tr><th>Paysmart customers</th><th class="num">Count</th><th class="num">Amount</th></tr>'
+    + `<tr><td>In the file</td><td class="num">${out.length}</td><td class="num"></td></tr>`
+    + `<tr><td>Original contract value</td><td class="num"></td><td class="num">${money(val)}</td></tr>`
+    + `<tr><td>Paid so far</td><td class="num"></td><td class="num">${money(paid)}</td></tr>`
+    + `<tr><td><b>Still owing</b></td><td class="num"></td><td class="num"><b>${money(bal)}</b></td></tr>`
+    + `<tr><td>Nearly finished (under $500)</td><td class="num">${near}</td><td class="num"></td></tr>`
+    + `<tr><td>Owing more than $2,000</td><td class="num">${big}</td><td class="num"></td></tr>`
+    + '</table>'
+    + `<p class="muted" style="margin-top:10px">Billing: ${Object.entries(per).map(([k,v])=>v+' '+k).join(' · ')}.`
+    + (bad ? ` <b style="color:#b3261e">${bad} row(s) where value − paid does not equal the balance — worth a look.</b>`
+           : ' <span class="ok">Every row balances: value − paid = balance.</span>')
+    + '</p>';
+  $('previewCard').style.display='';
+  $('log').style.display='none'; $('log').textContent='';
+  $('apply').disabled=false; $('cancel').disabled=false;
+}
+
+function read(f){
+  const fr=new FileReader();
+  fr.onload=()=>{ try{ build(parseCSV(fr.result)); }
+                  catch(e){ alert("Couldn't read that file.\n\n"+(e.message||e)); } };
+  fr.readAsText(f);
+}
+$('drop').onclick=()=>$('file').click();
+$('file').onchange=e=>{ if(e.target.files[0]) read(e.target.files[0]); };
+$('drop').ondragover=e=>e.preventDefault();
+$('drop').ondrop=e=>{ e.preventDefault(); if(e.dataTransfer.files[0]) read(e.dataTransfer.files[0]); };
+$('cancel').onclick=()=>{ PARSED=null; $('previewCard').style.display='none'; $('file').value=''; };
+
+$('apply').onclick = async () => {
+  if(!PARSED || !PARSED.length) return;
+  $('apply').disabled=true; $('cancel').disabled=true;
+  log('Sending '+PARSED.length+' customers…');
+  try{
+    const res = await auCall('paysmart', { rows: PARSED });
+    log('');
+    log('DONE.  updated '+(res.updated||0)+'   added '+(res.inserted||0));
+    log('They now appear on the chase list under the Paysmart tab.');
+  }catch(e){
+    log('STOPPED — '+(e.message||e));
+    log('Nothing was changed.');
+    $('apply').disabled=false;
+  }
+  $('cancel').disabled=false;
+};
+</script>
+</body>
+</html>
