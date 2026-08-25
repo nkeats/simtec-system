@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="en-NZ">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>Simtec Rewards — put the app on your phone</title>
+<meta name="description" content="How to save your Simtec Rewards app to your phone's home screen.">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="robots" content="noindex">
+
+<!-- ─────────────────────────────────────────────────────────────────────────
+     SIMTEC WELCOME PAGE  ·  built 25 Aug 2026
+
+     WHAT THIS IS: the one link that goes out to every existing customer. It
+     carries the explainer video, the written steps, and a button that opens
+     the app. Public on purpose - no login, no customer data, no database, no
+     scripts beyond a single check described below. There is nothing here to
+     protect and nothing to break.
+
+     ⚠ THE ONE THING TO SET BEFORE PUSHING: fill in the video below. Set
+     EITHER a YouTube id OR an mp4 filename - not both. With neither filled
+     in, the page still works and simply shows a "video coming shortly" box,
+     so it is safe to push early.
+
+     ⚠ WHY THERE IS NO update.js / SIMTEC_BUILD HERE: this page is opened
+     fresh from a link in an email every time. It is not added to the home
+     screen, so there is no saved copy to go stale.
+────────────────────────────────────────────────────────────────────────── -->
+<script>
+  /* ── SET THE VIDEO HERE ─────────────────────────────────────────────── */
+  var VIDEO_YOUTUBE_ID = "";          /* e.g. "dQw4w9WgXcQ"  (unlisted is fine) */
+  var VIDEO_MP4        = "";          /* e.g. "simtec-app-setup.mp4" in the repo */
+  var VIDEO_POSTER     = "";          /* optional still image for the mp4       */
+  /* ───────────────────────────────────────────────────────────────────── */
+  var APP_URL   = "customer-login.html";
+  var OFFICE_TEL   = "+6498869897";
+  var OFFICE_LABEL = "09 886 9897";
+  var OFFICE_EMAIL = "info@simtectp.com";
+</script>
+
+<style>
+  :root{
+    --navy:#0e2038;
+    --gold:#c9a84c;
+    --ink:#0e1726;
+    --paper:#f4f6f9;
+    --line:#dfe5ec;
+    --muted:#5b6880;
+  }
+  *{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{
+    margin:0;background:var(--paper);color:var(--ink);
+    font:400 17px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;
+  }
+  .wrap{max-width:560px;margin:0 auto;padding:0 18px 64px}
+
+  /* ── masthead ─────────────────────────────────────────────────────── */
+  .top{background:var(--navy);margin:0 -18px 26px;padding:26px 18px 30px;text-align:center;color:#fff}
+  .top img{width:64px;height:64px;border-radius:16px;display:block;margin:0 auto 14px}
+  .kicker{font-size:13px;letter-spacing:.14em;text-transform:uppercase;color:var(--gold);font-weight:700;margin:0 0 8px}
+  h1{font-size:29px;line-height:1.2;font-weight:800;margin:0;letter-spacing:-.01em}
+  .top p{margin:12px 0 0;font-size:16px;color:#c9d4e6;line-height:1.5}
+
+  /* ── the in-app browser warning ───────────────────────────────────── */
+  .warn{
+    display:none;background:#fff7e6;border:1px solid #f0dcae;color:#6b5320;
+    border-radius:14px;padding:15px 16px;margin:0 0 24px;font-size:16px;line-height:1.5;
+  }
+  .warn.show{display:block}
+  .warn b{display:block;margin-bottom:4px;color:#5a4416}
+
+  /* ── the desktop gate ─────────────────────────────────────────────── */
+  .deskonly{display:none;background:#fff;border:1px solid var(--line);border-radius:18px;
+            padding:26px 22px;margin:0 0 26px;text-align:center;box-shadow:0 6px 20px rgba(14,32,56,.08)}
+  .deskonly.show{display:block}
+  .deskonly h2{font-size:23px;margin:0 0 8px}
+  .deskonly p{margin:0;color:var(--muted);font-size:16px;line-height:1.55}
+  .deskonly .qr{margin:20px auto 14px;width:190px;height:190px;padding:10px;background:#fff;
+                border:1px solid var(--line);border-radius:14px}
+  .deskonly .qr svg{display:block;width:100%;height:100%}
+  .deskonly .tiny{font-size:14px}
+  body.is-desktop .hideondesk{display:none}
+
+  /* ── video ────────────────────────────────────────────────────────── */
+  .film{background:#000;border-radius:16px;overflow:hidden;margin:0 0 30px;box-shadow:0 6px 20px rgba(14,32,56,.14)}
+  .film video,.film iframe{display:block;width:100%;aspect-ratio:16/9;border:0}
+  .film.pending{
+    background:#fff;border:1px dashed var(--line);color:var(--muted);
+    display:flex;align-items:center;justify-content:center;text-align:center;
+    aspect-ratio:16/9;padding:22px;font-size:16px;box-shadow:none;
+  }
+
+  /* ── steps ────────────────────────────────────────────────────────── */
+  h2{font-size:20px;font-weight:800;margin:0 0 4px;letter-spacing:-.01em}
+  .lede{margin:0 0 22px;color:var(--muted);font-size:16px}
+  ol{list-style:none;margin:0;padding:0;counter-reset:s}
+  li{
+    counter-increment:s;background:#fff;border:1px solid var(--line);border-radius:16px;
+    padding:18px 18px 18px 62px;margin:0 0 12px;position:relative;
+  }
+  li::before{
+    content:counter(s);position:absolute;left:16px;top:17px;
+    width:32px;height:32px;border-radius:50%;background:var(--navy);color:#fff;
+    font-size:16px;font-weight:800;display:flex;align-items:center;justify-content:center;
+  }
+  li h3{margin:0 0 5px;font-size:17px;font-weight:800}
+  li p{margin:0;font-size:16px;color:#39465e}
+  li p + p{margin-top:8px}
+
+  /* the buttons they are hunting for, drawn at the size they will see them */
+  .btns{display:flex;gap:12px;margin:14px 0 2px}
+  .btnbox{
+    flex:1;border:1px solid var(--line);border-radius:12px;padding:12px 8px 10px;
+    text-align:center;background:var(--paper);
+  }
+  .btnbox svg{display:block;margin:0 auto 8px}
+  .btnbox b{display:block;font-size:14px;color:var(--navy)}
+  .btnbox span{display:block;font-size:12.5px;color:var(--muted);line-height:1.35;margin-top:2px}
+
+  /* ── the action ───────────────────────────────────────────────────── */
+  .go{
+    display:block;margin:30px 0 10px;padding:19px 20px;border-radius:16px;
+    background:var(--navy);color:#fff;text-align:center;text-decoration:none;
+    font-size:19px;font-weight:800;box-shadow:0 6px 18px rgba(14,32,56,.22);
+  }
+  .go:active{transform:translateY(1px)}
+  .under{text-align:center;color:var(--muted);font-size:15px;margin:0 0 34px}
+
+  /* ── help ─────────────────────────────────────────────────────────── */
+  .help{background:#fff;border:1px solid var(--line);border-radius:16px;padding:18px}
+  .help h2{margin-bottom:10px}
+  .help ul{margin:0 0 14px;padding-left:20px;color:#39465e;font-size:16px}
+  .help li{all:unset;display:list-item;margin:0 0 6px}
+  .call{
+    display:flex;gap:10px;margin-top:4px;
+  }
+  .call a{
+    flex:1;text-align:center;text-decoration:none;padding:14px 10px;border-radius:12px;
+    border:1px solid var(--navy);color:var(--navy);font-weight:800;font-size:16px;background:#fff;
+  }
+  .call a.solid{background:var(--navy);color:#fff}
+
+  footer{text-align:center;color:var(--muted);font-size:13.5px;margin-top:30px;line-height:1.6}
+
+  a:focus-visible,.go:focus-visible{outline:3px solid var(--gold);outline-offset:3px}
+  @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+  @media (max-width:380px){ h1{font-size:25px} .btns{flex-direction:column} }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+
+  <header class="top">
+    <img src="icon-192.png" alt="">
+    <p class="kicker">Simtec Rewards</p>
+    <h1>Put your rewards app on your phone</h1>
+    <p>Earn points every time you pay, keep an eye on your balance, and bank 50,000 points when a mate buys a bed.</p>
+  </header>
+
+  <!-- ⚠ ON A COMPUTER, STOP. The app lives on a phone; following these steps on
+       a desktop saves it to the wrong device. Shown only when we are confident
+       this is NOT a phone (see the check at the foot of the file) - the bias is
+       deliberately towards assuming a phone, because a phone user who is shown
+       this panel is blocked for no reason. -->
+  <div class="deskonly" id="desk">
+    <h2>Open this on your phone</h2>
+    <p>Your rewards app lives on your phone, so the rest of this needs to happen
+       there. Point your phone's camera at this square and tap the link that pops up.</p>
+    <div class="qr"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 35 35" shape-rendering="crispEdges" width="180" height="180" role="img" aria-label="QR code for this page"><rect width="35" height="35" fill="#fff"/><path d="M1 1h1v1h-1zM2 1h1v1h-1zM3 1h1v1h-1zM4 1h1v1h-1zM5 1h1v1h-1zM6 1h1v1h-1zM7 1h1v1h-1zM10 1h1v1h-1zM11 1h1v1h-1zM12 1h1v1h-1zM17 1h1v1h-1zM19 1h1v1h-1zM20 1h1v1h-1zM23 1h1v1h-1zM24 1h1v1h-1zM27 1h1v1h-1zM28 1h1v1h-1zM29 1h1v1h-1zM30 1h1v1h-1zM31 1h1v1h-1zM32 1h1v1h-1zM33 1h1v1h-1zM1 2h1v1h-1zM7 2h1v1h-1zM12 2h1v1h-1zM13 2h1v1h-1zM16 2h1v1h-1zM19 2h1v1h-1zM22 2h1v1h-1zM23 2h1v1h-1zM25 2h1v1h-1zM27 2h1v1h-1zM33 2h1v1h-1zM1 3h1v1h-1zM3 3h1v1h-1zM4 3h1v1h-1zM5 3h1v1h-1zM7 3h1v1h-1zM9 3h1v1h-1zM11 3h1v1h-1zM12 3h1v1h-1zM13 3h1v1h-1zM15 3h1v1h-1zM16 3h1v1h-1zM17 3h1v1h-1zM20 3h1v1h-1zM22 3h1v1h-1zM23 3h1v1h-1zM27 3h1v1h-1zM29 3h1v1h-1zM30 3h1v1h-1zM31 3h1v1h-1zM33 3h1v1h-1zM1 4h1v1h-1zM3 4h1v1h-1zM4 4h1v1h-1zM5 4h1v1h-1zM7 4h1v1h-1zM9 4h1v1h-1zM11 4h1v1h-1zM13 4h1v1h-1zM16 4h1v1h-1zM19 4h1v1h-1zM23 4h1v1h-1zM25 4h1v1h-1zM27 4h1v1h-1zM29 4h1v1h-1zM30 4h1v1h-1zM31 4h1v1h-1zM33 4h1v1h-1zM1 5h1v1h-1zM3 5h1v1h-1zM4 5h1v1h-1zM5 5h1v1h-1zM7 5h1v1h-1zM9 5h1v1h-1zM13 5h1v1h-1zM15 5h1v1h-1zM16 5h1v1h-1zM17 5h1v1h-1zM18 5h1v1h-1zM21 5h1v1h-1zM22 5h1v1h-1zM24 5h1v1h-1zM27 5h1v1h-1zM29 5h1v1h-1zM30 5h1v1h-1zM31 5h1v1h-1zM33 5h1v1h-1zM1 6h1v1h-1zM7 6h1v1h-1zM9 6h1v1h-1zM10 6h1v1h-1zM12 6h1v1h-1zM13 6h1v1h-1zM15 6h1v1h-1zM18 6h1v1h-1zM20 6h1v1h-1zM27 6h1v1h-1zM33 6h1v1h-1zM1 7h1v1h-1zM2 7h1v1h-1zM3 7h1v1h-1zM4 7h1v1h-1zM5 7h1v1h-1zM6 7h1v1h-1zM7 7h1v1h-1zM9 7h1v1h-1zM11 7h1v1h-1zM13 7h1v1h-1zM15 7h1v1h-1zM17 7h1v1h-1zM19 7h1v1h-1zM21 7h1v1h-1zM23 7h1v1h-1zM25 7h1v1h-1zM27 7h1v1h-1zM28 7h1v1h-1zM29 7h1v1h-1zM30 7h1v1h-1zM31 7h1v1h-1zM32 7h1v1h-1zM33 7h1v1h-1zM9 8h1v1h-1zM10 8h1v1h-1zM15 8h1v1h-1zM17 8h1v1h-1zM19 8h1v1h-1zM20 8h1v1h-1zM21 8h1v1h-1zM22 8h1v1h-1zM23 8h1v1h-1zM24 8h1v1h-1zM1 9h1v1h-1zM3 9h1v1h-1zM4 9h1v1h-1zM5 9h1v1h-1zM6 9h1v1h-1zM7 9h1v1h-1zM10 9h1v1h-1zM13 9h1v1h-1zM14 9h1v1h-1zM15 9h1v1h-1zM17 9h1v1h-1zM18 9h1v1h-1zM20 9h1v1h-1zM24 9h1v1h-1zM27 9h1v1h-1zM28 9h1v1h-1zM29 9h1v1h-1zM30 9h1v1h-1zM31 9h1v1h-1zM3 10h1v1h-1zM9 10h1v1h-1zM10 10h1v1h-1zM11 10h1v1h-1zM14 10h1v1h-1zM17 10h1v1h-1zM18 10h1v1h-1zM19 10h1v1h-1zM20 10h1v1h-1zM21 10h1v1h-1zM22 10h1v1h-1zM24 10h1v1h-1zM27 10h1v1h-1zM28 10h1v1h-1zM30 10h1v1h-1zM31 10h1v1h-1zM32 10h1v1h-1zM33 10h1v1h-1zM1 11h1v1h-1zM2 11h1v1h-1zM3 11h1v1h-1zM4 11h1v1h-1zM7 11h1v1h-1zM8 11h1v1h-1zM13 11h1v1h-1zM14 11h1v1h-1zM15 11h1v1h-1zM16 11h1v1h-1zM17 11h1v1h-1zM18 11h1v1h-1zM21 11h1v1h-1zM22 11h1v1h-1zM23 11h1v1h-1zM26 11h1v1h-1zM27 11h1v1h-1zM29 11h1v1h-1zM31 11h1v1h-1zM32 11h1v1h-1zM3 12h1v1h-1zM5 12h1v1h-1zM10 12h1v1h-1zM13 12h1v1h-1zM14 12h1v1h-1zM16 12h1v1h-1zM17 12h1v1h-1zM18 12h1v1h-1zM19 12h1v1h-1zM21 12h1v1h-1zM22 12h1v1h-1zM23 12h1v1h-1zM25 12h1v1h-1zM26 12h1v1h-1zM27 12h1v1h-1zM29 12h1v1h-1zM30 12h1v1h-1zM31 12h1v1h-1zM32 12h1v1h-1zM33 12h1v1h-1zM1 13h1v1h-1zM3 13h1v1h-1zM7 13h1v1h-1zM9 13h1v1h-1zM12 13h1v1h-1zM15 13h1v1h-1zM17 13h1v1h-1zM25 13h1v1h-1zM26 13h1v1h-1zM28 13h1v1h-1zM29 13h1v1h-1zM30 13h1v1h-1zM3 14h1v1h-1zM4 14h1v1h-1zM6 14h1v1h-1zM8 14h1v1h-1zM9 14h1v1h-1zM10 14h1v1h-1zM11 14h1v1h-1zM12 14h1v1h-1zM13 14h1v1h-1zM16 14h1v1h-1zM18 14h1v1h-1zM19 14h1v1h-1zM24 14h1v1h-1zM26 14h1v1h-1zM27 14h1v1h-1zM28 14h1v1h-1zM32 14h1v1h-1zM33 14h1v1h-1zM2 15h1v1h-1zM3 15h1v1h-1zM4 15h1v1h-1zM5 15h1v1h-1zM7 15h1v1h-1zM9 15h1v1h-1zM13 15h1v1h-1zM14 15h1v1h-1zM15 15h1v1h-1zM16 15h1v1h-1zM17 15h1v1h-1zM19 15h1v1h-1zM23 15h1v1h-1zM26 15h1v1h-1zM27 15h1v1h-1zM30 15h1v1h-1zM31 15h1v1h-1zM32 15h1v1h-1zM3 16h1v1h-1zM4 16h1v1h-1zM5 16h1v1h-1zM6 16h1v1h-1zM11 16h1v1h-1zM13 16h1v1h-1zM15 16h1v1h-1zM16 16h1v1h-1zM21 16h1v1h-1zM22 16h1v1h-1zM24 16h1v1h-1zM25 16h1v1h-1zM26 16h1v1h-1zM27 16h1v1h-1zM29 16h1v1h-1zM30 16h1v1h-1zM31 16h1v1h-1zM1 17h1v1h-1zM2 17h1v1h-1zM4 17h1v1h-1zM6 17h1v1h-1zM7 17h1v1h-1zM11 17h1v1h-1zM12 17h1v1h-1zM16 17h1v1h-1zM18 17h1v1h-1zM20 17h1v1h-1zM21 17h1v1h-1zM23 17h1v1h-1zM25 17h1v1h-1zM26 17h1v1h-1zM28 17h1v1h-1zM29 17h1v1h-1zM30 17h1v1h-1zM33 17h1v1h-1zM1 18h1v1h-1zM3 18h1v1h-1zM9 18h1v1h-1zM10 18h1v1h-1zM13 18h1v1h-1zM15 18h1v1h-1zM17 18h1v1h-1zM19 18h1v1h-1zM20 18h1v1h-1zM21 18h1v1h-1zM24 18h1v1h-1zM27 18h1v1h-1zM28 18h1v1h-1zM30 18h1v1h-1zM31 18h1v1h-1zM32 18h1v1h-1zM33 18h1v1h-1zM2 19h1v1h-1zM4 19h1v1h-1zM6 19h1v1h-1zM7 19h1v1h-1zM9 19h1v1h-1zM11 19h1v1h-1zM13 19h1v1h-1zM14 19h1v1h-1zM15 19h1v1h-1zM16 19h1v1h-1zM17 19h1v1h-1zM19 19h1v1h-1zM23 19h1v1h-1zM26 19h1v1h-1zM28 19h1v1h-1zM29 19h1v1h-1zM31 19h1v1h-1zM32 19h1v1h-1zM1 20h1v1h-1zM3 20h1v1h-1zM5 20h1v1h-1zM6 20h1v1h-1zM9 20h1v1h-1zM10 20h1v1h-1zM11 20h1v1h-1zM13 20h1v1h-1zM14 20h1v1h-1zM15 20h1v1h-1zM16 20h1v1h-1zM22 20h1v1h-1zM26 20h1v1h-1zM27 20h1v1h-1zM28 20h1v1h-1zM29 20h1v1h-1zM30 20h1v1h-1zM31 20h1v1h-1zM32 20h1v1h-1zM1 21h1v1h-1zM2 21h1v1h-1zM4 21h1v1h-1zM7 21h1v1h-1zM8 21h1v1h-1zM10 21h1v1h-1zM11 21h1v1h-1zM14 21h1v1h-1zM19 21h1v1h-1zM20 21h1v1h-1zM23 21h1v1h-1zM25 21h1v1h-1zM26 21h1v1h-1zM28 21h1v1h-1zM29 21h1v1h-1zM30 21h1v1h-1zM32 21h1v1h-1zM33 21h1v1h-1zM1 22h1v1h-1zM2 22h1v1h-1zM10 22h1v1h-1zM11 22h1v1h-1zM12 22h1v1h-1zM13 22h1v1h-1zM14 22h1v1h-1zM16 22h1v1h-1zM17 22h1v1h-1zM18 22h1v1h-1zM20 22h1v1h-1zM21 22h1v1h-1zM22 22h1v1h-1zM24 22h1v1h-1zM27 22h1v1h-1zM31 22h1v1h-1zM33 22h1v1h-1zM1 23h1v1h-1zM4 23h1v1h-1zM7 23h1v1h-1zM9 23h1v1h-1zM10 23h1v1h-1zM13 23h1v1h-1zM14 23h1v1h-1zM18 23h1v1h-1zM21 23h1v1h-1zM23 23h1v1h-1zM25 23h1v1h-1zM26 23h1v1h-1zM27 23h1v1h-1zM30 23h1v1h-1zM32 23h1v1h-1zM1 24h1v1h-1zM3 24h1v1h-1zM4 24h1v1h-1zM5 24h1v1h-1zM6 24h1v1h-1zM8 24h1v1h-1zM12 24h1v1h-1zM13 24h1v1h-1zM15 24h1v1h-1zM17 24h1v1h-1zM21 24h1v1h-1zM22 24h1v1h-1zM23 24h1v1h-1zM27 24h1v1h-1zM30 24h1v1h-1zM31 24h1v1h-1zM32 24h1v1h-1zM33 24h1v1h-1zM1 25h1v1h-1zM4 25h1v1h-1zM7 25h1v1h-1zM9 25h1v1h-1zM12 25h1v1h-1zM14 25h1v1h-1zM18 25h1v1h-1zM19 25h1v1h-1zM20 25h1v1h-1zM23 25h1v1h-1zM24 25h1v1h-1zM25 25h1v1h-1zM26 25h1v1h-1zM27 25h1v1h-1zM28 25h1v1h-1zM29 25h1v1h-1zM30 25h1v1h-1zM9 26h1v1h-1zM10 26h1v1h-1zM13 26h1v1h-1zM17 26h1v1h-1zM18 26h1v1h-1zM19 26h1v1h-1zM20 26h1v1h-1zM21 26h1v1h-1zM25 26h1v1h-1zM29 26h1v1h-1zM31 26h1v1h-1zM33 26h1v1h-1zM1 27h1v1h-1zM2 27h1v1h-1zM3 27h1v1h-1zM4 27h1v1h-1zM5 27h1v1h-1zM6 27h1v1h-1zM7 27h1v1h-1zM14 27h1v1h-1zM15 27h1v1h-1zM16 27h1v1h-1zM17 27h1v1h-1zM18 27h1v1h-1zM22 27h1v1h-1zM24 27h1v1h-1zM25 27h1v1h-1zM27 27h1v1h-1zM29 27h1v1h-1zM31 27h1v1h-1zM1 28h1v1h-1zM7 28h1v1h-1zM9 28h1v1h-1zM10 28h1v1h-1zM11 28h1v1h-1zM18 28h1v1h-1zM19 28h1v1h-1zM21 28h1v1h-1zM22 28h1v1h-1zM24 28h1v1h-1zM25 28h1v1h-1zM29 28h1v1h-1zM30 28h1v1h-1zM31 28h1v1h-1zM32 28h1v1h-1zM33 28h1v1h-1zM1 29h1v1h-1zM3 29h1v1h-1zM4 29h1v1h-1zM5 29h1v1h-1zM7 29h1v1h-1zM9 29h1v1h-1zM12 29h1v1h-1zM16 29h1v1h-1zM17 29h1v1h-1zM23 29h1v1h-1zM25 29h1v1h-1zM26 29h1v1h-1zM27 29h1v1h-1zM28 29h1v1h-1zM29 29h1v1h-1zM30 29h1v1h-1zM1 30h1v1h-1zM3 30h1v1h-1zM4 30h1v1h-1zM5 30h1v1h-1zM7 30h1v1h-1zM9 30h1v1h-1zM11 30h1v1h-1zM13 30h1v1h-1zM14 30h1v1h-1zM15 30h1v1h-1zM16 30h1v1h-1zM18 30h1v1h-1zM19 30h1v1h-1zM20 30h1v1h-1zM21 30h1v1h-1zM23 30h1v1h-1zM24 30h1v1h-1zM26 30h1v1h-1zM29 30h1v1h-1zM30 30h1v1h-1zM31 30h1v1h-1zM32 30h1v1h-1zM33 30h1v1h-1zM1 31h1v1h-1zM3 31h1v1h-1zM4 31h1v1h-1zM5 31h1v1h-1zM7 31h1v1h-1zM9 31h1v1h-1zM10 31h1v1h-1zM12 31h1v1h-1zM14 31h1v1h-1zM16 31h1v1h-1zM17 31h1v1h-1zM18 31h1v1h-1zM22 31h1v1h-1zM27 31h1v1h-1zM28 31h1v1h-1zM31 31h1v1h-1zM1 32h1v1h-1zM7 32h1v1h-1zM10 32h1v1h-1zM12 32h1v1h-1zM13 32h1v1h-1zM15 32h1v1h-1zM16 32h1v1h-1zM21 32h1v1h-1zM22 32h1v1h-1zM23 32h1v1h-1zM26 32h1v1h-1zM29 32h1v1h-1zM30 32h1v1h-1zM31 32h1v1h-1zM1 33h1v1h-1zM2 33h1v1h-1zM3 33h1v1h-1zM4 33h1v1h-1zM5 33h1v1h-1zM6 33h1v1h-1zM7 33h1v1h-1zM9 33h1v1h-1zM10 33h1v1h-1zM11 33h1v1h-1zM13 33h1v1h-1zM15 33h1v1h-1zM16 33h1v1h-1zM17 33h1v1h-1zM18 33h1v1h-1zM21 33h1v1h-1zM23 33h1v1h-1zM24 33h1v1h-1zM25 33h1v1h-1zM26 33h1v1h-1zM28 33h1v1h-1zM32 33h1v1h-1z" fill="#0e2038"/></svg></div>
+    <p class="tiny">Or open your email on your phone and tap the same link you tapped here.</p>
+  </div>
+
+  <div class="hideondesk" id="film"></div>
+
+  <h2 class="hideondesk">How to save it, step by step</h2>
+  <p class="lede hideondesk">About thirty seconds. You only do this once.</p>
+
+  <ol class="hideondesk">
+    <li>
+      <h3>Tap the button below and sign in</h3>
+      <p>Put in your mobile number and we will text you a six-digit code. It has to
+         be the number that is on your Simtec order. No password, ever.</p>
+    </li>
+
+    <li>
+      <h3>Now save it to your phone</h3>
+      <p>You are in. The last thing is to put it on your home screen so it opens
+         with one tap.</p>
+      <!-- ⚠ THE BROWSER NOTE LIVES HERE, NOT AT THE TOP. Signing in works fine
+           inside Facebook's or Gmail's built-in browser; the ONLY thing missing
+           in there is Add to Home Screen. Said at the start it reads as a hurdle
+           before anything works, which is exactly the confusion it caused. -->
+      <div class="warn" id="inapp">
+        <b>Came here from Facebook or your email?</b>
+        Saving to the home screen only works in Safari or Chrome. Tap the three
+        dots (or the square) in the corner, choose <strong>Open in browser</strong>,
+        and carry on from here.
+      </div>
+    </li>
+
+    <li>
+      <h3>Find the Share button</h3>
+      <p>One of these two is on your screen. If you cannot see it, tap the three
+         dots first and you will find it in there.</p>
+      <div class="btns">
+        <div class="btnbox">
+          <svg width="46" height="46" viewBox="0 0 100 100" role="img" aria-label="Share button: a square with an arrow pointing up out of the top">
+            <g fill="none" stroke="#0e2038" stroke-width="7" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M37 45h-4a9 9 0 0 0-9 9v22a9 9 0 0 0 9 9h34a9 9 0 0 0 9-9V54a9 9 0 0 0-9-9h-4"/>
+              <path d="M50 58V22"/>
+              <path d="M38 33l12-12 12 12"/>
+            </g>
+          </svg>
+          <b>iPhone</b>
+          <span>usually along the bottom</span>
+        </div>
+        <div class="btnbox">
+          <svg width="46" height="46" viewBox="0 0 100 100" role="img" aria-label="Menu button: three dots stacked vertically">
+            <g fill="#0e2038">
+              <circle cx="50" cy="24" r="8"/><circle cx="50" cy="50" r="8"/><circle cx="50" cy="76" r="8"/>
+            </g>
+          </svg>
+          <b>Android</b>
+          <span>top right corner</span>
+        </div>
+      </div>
+    </li>
+
+    <li>
+      <h3>Tap “Add to Home Screen”</h3>
+      <p>A list slides up. Scroll down it until you see <strong>Add to Home
+         Screen</strong>. On some Android phones it says <strong>Install app</strong>
+         instead — same thing.</p>
+      <p>Then tap <strong>Add</strong> in the top corner, or <strong>Install</strong>
+         on an Android.</p>
+    </li>
+
+    <li>
+      <h3>That is it</h3>
+      <p>The Simtec coin is now on your home screen with your other apps. Open it
+         from there from now on.</p>
+    </li>
+  </ol>
+
+  <a class="go hideondesk" id="go" href="customer-login.html">Open my app</a>
+  <p class="under hideondesk">Sign in first — saving it to your phone comes straight after.</p>
+
+  <section class="help hideondesk">
+    <h2>If you get stuck</h2>
+    <ul>
+      <li>No text arriving? Try your number with and without the leading 0, and check your blocked messages.</li>
+      <li>It has to be the mobile number that is on your Simtec order.</li>
+      <li>Sharing a phone number with someone else in the house? Give us a call — we will sort it out.</li>
+    </ul>
+    <div class="call">
+      <a class="solid" id="tel" href="tel:+6498869897">Call the office</a>
+      <a id="mail" href="mailto:info@simtectp.com">Email us</a>
+    </div>
+  </section>
+
+  <footer>
+    Simtec Therapeutic Limited<br>
+    <span id="footline">09 886 9897 · info@simtectp.com</span>
+  </footer>
+
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  /* ── the video ────────────────────────────────────────────────────────
+     Whichever of the two settings is filled in wins. Neither filled in
+     leaves a plain "coming shortly" box, so the page is safe to push
+     before the video is finished.                                        */
+  var film = document.getElementById("film");
+  if (VIDEO_YOUTUBE_ID) {
+    var f = document.createElement("iframe");
+    f.src = "https://www.youtube-nocookie.com/embed/" + encodeURIComponent(VIDEO_YOUTUBE_ID) + "?rel=0&playsinline=1";
+    f.title = "How to put the Simtec Rewards app on your phone";
+    f.allow = "accelerometer; encrypted-media; picture-in-picture";
+    f.setAttribute("allowfullscreen", "");
+    film.className = "film";
+    film.appendChild(f);
+  } else if (VIDEO_MP4) {
+    var v = document.createElement("video");
+    v.controls = true;
+    v.playsInline = true;
+    v.preload = "metadata";
+    if (VIDEO_POSTER) v.poster = VIDEO_POSTER;
+    v.src = VIDEO_MP4;
+    film.className = "film";
+    film.appendChild(v);
+  } else {
+    film.className = "film pending";
+    film.textContent = "The short video is coming shortly. The steps below work on their own in the meantime.";
+  }
+
+  /* ── contact details, set in one place at the top of the file ───────── */
+  document.getElementById("tel").href = "tel:" + OFFICE_TEL;
+  document.getElementById("tel").textContent = "Call " + OFFICE_LABEL;
+  document.getElementById("mail").href = "mailto:" + OFFICE_EMAIL;
+  document.getElementById("footline").textContent = OFFICE_LABEL + " \u00b7 " + OFFICE_EMAIL;
+  document.getElementById("go").href = APP_URL;
+
+  /* ── in-app browser check ─────────────────────────────────────────────
+     Facebook, Messenger, Instagram and the like open links in a cut-down
+     browser where "Add to Home Screen" does not exist at all. People hunt
+     for a button that is not on their screen and conclude the app is
+     broken. We cannot get them out of there for them, but we can say so
+     plainly. Deliberately errs towards saying nothing: an unrecognised
+     browser shows no warning rather than a wrong one.                     */
+  try {
+    var ua = navigator.userAgent || "";
+    var inApp = /FBAN|FBAV|FB_IAB|Instagram|Messenger|Line\/|MicroMessenger|Twitter|LinkedInApp|Snapchat|Pinterest/i.test(ua);
+    if (inApp) document.getElementById("inapp").className = "warn show";
+  } catch (e) { /* never let this stop the page */ }
+
+  /* ── is this a computer? ───────────────────────────────────────────────
+     The app has to end up on a PHONE, so following these steps on a desktop
+     saves it to the wrong device. We only show the "open this on your phone"
+     panel when ALL THREE say computer: a precise pointer, no touch, and a wide
+     window. ⚠ THE BIAS IS DELIBERATE - a phone wrongly shown that panel is
+     completely blocked, while a desktop wrongly shown the steps just wastes a
+     minute. When unsure, assume phone.                                      */
+  try {
+    var finePointer = window.matchMedia && window.matchMedia("(pointer: fine)").matches;
+    var noTouch = !("ontouchstart" in window) && !(navigator.maxTouchPoints > 0);
+    var wide = (window.innerWidth || 0) >= 900;
+    if (finePointer && noTouch && wide) {
+      document.body.className += " is-desktop";
+      document.getElementById("desk").className = "deskonly show";
+    }
+  } catch (e) { /* if the check itself fails, show the phone steps */ }
+})();
+</script>
+
+</body>
+</html>
