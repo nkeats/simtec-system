@@ -214,6 +214,15 @@
       =================================================================== -->
       <div id="alertBox" style="display:none"></div>
 
+      <!-- ==================================================================
+           REWARDS TO FULFIL — the customer has chosen something and is now
+           WAITING ON A PERSON. Gift cards, referrer prizes and donations all
+           landed in the database with nothing pulling them into anyone's day,
+           so a customer could have redeemed and heard nothing back. Hidden
+           entirely when there is nothing owed. Filled by loadFulfil().
+      =================================================================== -->
+      <div id="fulfilBox" style="display:none"></div>
+
 
       <!-- NEW-ORDER SOUND: browsers will not play a chime until someone has
            clicked the page, so this is the one-off switch. It lives here on the
@@ -561,6 +570,72 @@ window.markContacted=async function(orderId, name, paidNow){
    rather than showing a reassuring blank — an empty banner and a broken
    banner must never look the same.
 --------------------------------------------------------------------------- */
+/* ---- rewards to fulfil ------------------------------------------------------
+   THREE things a customer can be left waiting on, all of which used to be
+   invisible here:
+     · a $50 reward card taken as a GIFT CARD  (v_reward_giftcards_pending)
+     · a 5th / 10th / 25th referrer PRIZE       (v_referral_prizes_due)
+     · a card DONATED to their group            (affiliation_donations, pending)
+   The "$50 off the plan" option is deliberately absent: it credits the order by
+   itself and needs nobody. Each row names the person and gives a tap-to-call,
+   because the next action is always a phone call. */
+async function loadFulfil(){
+  const box = document.getElementById("fulfilBox");
+  /* This page has no shared esc() - names and prize labels are customer-
+     entered, so they are escaped here rather than trusted. */
+  const esc = t => String(t==null?"":t).replace(/[&<>"]/g,
+                    c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c]));
+  try{
+    const [gc, pz, dn] = await Promise.all([
+      sb.from("v_reward_giftcards_pending").select("id,first_name,last_name,mobile,value,redeemed_at"),
+      sb.from("v_referral_prizes_due").select("customer_id,first_name,last_name,mobile,referral_number,prize,created_at"),
+      sb.from("affiliation_donations").select("id,customer_id,amount,created_at,status").eq("status","pending")
+    ]);
+    const money = n => "$" + Number(n||0).toFixed(2).replace(/\.00$/,"");
+    const nm = r => [r.first_name,r.last_name].filter(Boolean).join(" ") || "Customer";
+    const days = d => { if(!d) return ""; const n=Math.floor((Date.now()-new Date(d))/86400000);
+                        return n<=0?"today":(n===1?"1 day ago":n+" days ago"); };
+    const tel = m => m ? '<a href="tel:'+String(m).replace(/[^+\d]/g,"")+'" style="font-weight:700;text-decoration:none">'+esc(m)+'</a>' : '<span class="muted">no mobile on file</span>';
+
+    const rows = [];
+    (gc.data||[]).forEach(r=>rows.push({ when:r.redeemed_at,
+      what:"Gift card — "+money(r.value), who:nm(r), mob:r.mobile,
+      todo:"Arrange the gift card and hand it over." }));
+    (pz.data||[]).forEach(r=>rows.push({ when:r.created_at,
+      what:"Referrer prize — "+esc(r.prize), who:nm(r), mob:r.mobile,
+      todo:"Their "+r.referral_number+(r.referral_number==1?"st":r.referral_number==2?"nd":r.referral_number==3?"rd":"th")+" referral. Prize instead of the points." }));
+    (dn.data||[]).forEach(r=>rows.push({ when:r.created_at,
+      what:"Donation to their group — "+money(r.amount), who:"", mob:null,
+      todo:"Pay it across to the group and mark it paid." }));
+
+    if(!rows.length){ box.style.display="none"; return; }
+    rows.sort((a,b)=> String(a.when||"").localeCompare(String(b.when||"")));   // oldest first
+
+    box.innerHTML =
+      '<div class="alrt alrt-warn"><div class="ic">\u{1F381}</div><div class="bd">'
+      + '<div class="hd">Rewards to fulfil \u00b7 ' + rows.length + '</div>'
+      + '<div class="do">Each of these customers has chosen something and is waiting on us.</div>'
+      + rows.map(r =>
+          '<div style="margin-top:10px;padding-top:10px;border-top:1px solid rgba(0,0,0,.08)">'
+          + '<div style="font-weight:800">' + r.what + (r.who ? ' \u00b7 ' + esc(r.who) : '') + '</div>'
+          + '<div class="dt">' + r.todo + ' \u00b7 ' + days(r.when)
+          + (r.mob ? ' \u00b7 ' + tel(r.mob) : '') + '</div>'
+          + '</div>').join("")
+      + '</div></div>';
+    box.style.display="";
+  }catch(e){
+    /* Fails LOUD, not silent: an empty panel here is indistinguishable from
+       "nothing owed", and that is exactly how a waiting customer gets missed. */
+    box.innerHTML = '<div class="alrt alrt-critical"><div class="ic">\u26A0</div><div class="bd">'
+      + '<div class="hd">Could not check rewards owed</div>'
+      + '<div class="do">Gift cards, referrer prizes and donations could not be read, so somebody '
+      + 'may be waiting without showing here. Tell Nigel.</div>'
+      + '<div class="dt">' + String(e.message||e).replace(/[<>]/g,"") + '</div>'
+      + '</div></div>';
+    box.style.display="";
+  }
+}
+
 async function loadAlerts(){
   const box = document.getElementById("alertBox");
   if(!box) return;
@@ -616,6 +691,7 @@ async function loadAlerts(){
 loadUrgent();
 loadStrip();
 loadAlerts();
+loadFulfil();
 
 /* ---- new-order chime -------------------------------------------------------
    The switch lives on this page (the office leaves the home screen open). The

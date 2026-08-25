@@ -11,7 +11,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Simtec">
-<script>window.SIMTEC_BUILD="2026-08-25-01";</script>
+<script>window.SIMTEC_BUILD="2026-08-25-02";</script>
 <script src="update.js?v=2"></script>
 
 
@@ -267,6 +267,11 @@ function celebrate(icon,title,sub){
   ov.addEventListener("click",e=>{ if(e.target===ov) ov.remove(); });
 }
 function checkCelebrations(){
+  /* ⚠ THE REFERRAL PAYOUT GOES FIRST. It is the single biggest thing that can
+     happen to a customer in this app - 50,000 points, a $50 card - and until
+     25 Aug 2026 it arrived silently behind the bell while a 25-point spin win
+     got a full-screen animation. Priority here is deliberate. */
+  if(REFPAID){ OVERLAY='refpaid'; SFX.jackpot(); render(); return; }
   const L=DRAW&&DRAW.latest;
   if(L&&L.congrats_pending){ OVERLAY='starburst'; SFX.jackpot(); render(); return; }
   // the BIG congratulations when they cross the 10%-deposit finish line
@@ -340,13 +345,14 @@ async function boot(){
 }
 let APPST={state:"active",earning:true};   // plan state — cancelled / paid-in-full stops the game
 async function loadAll(){
-  const [r,s,c,d,u,pl,ms,lb,rf,np,ap]=await Promise.all([
-    sbrpc("my_rewards").catch(()=>({data:null})), sbrpc("my_status").catch(()=>({data:null})), sbrpc("my_cards").catch(()=>({data:null})), sbrpc("draw_status").catch(()=>({data:null})), sbrpc("unread_count").catch(()=>({data:null})), sbrpc("my_plan").catch(()=>({data:null})), sbrpc("my_milestones").catch(()=>({data:null})), sbrpc("leaderboard").catch(()=>({data:null})), sbrpc("my_referrals").catch(()=>({data:null})), sbrpc("get_notif_prefs").catch(()=>({data:null})), sbrpc("my_app_state").catch(()=>({data:null}))
+  const [r,s,c,d,u,pl,ms,lb,rf,np,ap,rr]=await Promise.all([
+    sbrpc("my_rewards").catch(()=>({data:null})), sbrpc("my_status").catch(()=>({data:null})), sbrpc("my_cards").catch(()=>({data:null})), sbrpc("draw_status").catch(()=>({data:null})), sbrpc("unread_count").catch(()=>({data:null})), sbrpc("my_plan").catch(()=>({data:null})), sbrpc("my_milestones").catch(()=>({data:null})), sbrpc("leaderboard").catch(()=>({data:null})), sbrpc("my_referrals").catch(()=>({data:null})), sbrpc("get_notif_prefs").catch(()=>({data:null})), sbrpc("my_app_state").catch(()=>({data:null})), sbrpc("my_unseen_referral_reward").catch(()=>({data:null}))
   ]);
   const arr=v=>Array.isArray(v)?v:[];
   R=r.data||{}; S=s.data||{}; CARDS=arr(c.data); DRAW=d.data||{}; UNREAD=u.data||0; PLAN=pl.data||{}; MS=arr(ms.data); LB=lb.data||{}; REFS=arr(rf.data);
   NP=(np.data&&np.data.ok)?np.data:{sms:true};   // notification prefs (default: texts on)
   APPST=(ap.data&&ap.data.ok)?ap.data:{state:"active",earning:true};
+  REFPAID=(rr&&rr.data&&rr.data.notification_id)?rr.data:null;   // unseen 50k referral payout
   LB.top=arr(LB.top);
   if(NAME==="there"){ try{
     const tok=await freshToken();
@@ -356,7 +362,7 @@ async function loadAll(){
 }
 
 function ratingLabel(){ return (S.rating||"AAA"); }
-const APP_VER="v15 — 10 Aug";
+const APP_VER="v16 — 25 Aug";
 let NP={sms:true};                                // notification prefs (sms reminder texts)
 // Black-box recorder: any error on the device reports itself home, with a
 // breadcrumb trail of the last taps — so "it froze" becomes a readable log.
@@ -371,7 +377,8 @@ const GEM=(sz)=>`<div class="shine" style="width:${sz}px;height:${sz}px;border-r
 const MASCOT=(sz)=>`<svg width="${sz}" height="${sz}" viewBox="0 0 64 64" class="bob" style="filter:drop-shadow(0 4px 8px rgba(255,180,60,.55));flex-shrink:0"><defs><linearGradient id="mg${sz}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFE886"/><stop offset="1" stop-color="#FF9A3D"/></linearGradient></defs><path d="M32 4l7 15 16 2-12 11 3 16-14-8-14 8 3-16L12 21l16-2z" fill="url(#mg${sz})" stroke="#FF7A2D" stroke-width="1.5" stroke-linejoin="round"/><circle cx="26" cy="28" r="2.5" fill="#5A3200"/><circle cx="38" cy="28" r="2.5" fill="#5A3200"/><path d="M25 34 q7 6 14 0" stroke="#5A3200" stroke-width="2.2" fill="none" stroke-linecap="round"/><circle cx="21" cy="32" r="2.1" fill="#FF6A9B" opacity=".55"/><circle cx="43" cy="32" r="2.1" fill="#FF6A9B" opacity=".55"/></svg>`;
 const b3=(bg,sh)=>`background:${bg};box-shadow:0 4px 0 ${sh};border:none;border-radius:16px;color:#fff;font-family:inherit;font-weight:800;cursor:pointer`;
 const barH=(v,from,to)=>`<div style="height:14px;background:rgba(255,255,255,.14);border-radius:10px;margin-top:10px;overflow:hidden;box-shadow:inset 0 1px 3px rgba(0,0,0,.25)"><div style="height:100%;width:${Math.min(v,1)*100}%;background:linear-gradient(90deg,${from},${to});border-radius:10px;transition:width 1.2s cubic-bezier(.34,1.2,.5,1);box-shadow:0 0 10px ${to}"></div></div>`;
-let SLOT={open:false,spinning:false,reels:["⭐","💎","🔥"],result:null}, TIPOPEN=false, OVERLAY=null, PAY={open:false};
+let SLOT={open:false,spinning:false,reels:["⭐","💎","🔥"],result:null}, TIPOPEN=false, OVERLAY=null, PAY={open:false}
+let REFPAID=null;                                 // the referral payout not yet celebrated
 const SYM=["⭐","💎","🔥","🎁","💰","7️⃣"];
 const PSYM={10:"⭐",25:"🍒",50:"🎁",100:"🔔",250:"🔥",1000:"💎"};
 let spinIv=null;
@@ -680,6 +687,22 @@ function overlaysHtml(){
       <button onclick="OVERLAY=null;render()" class="pulse" style="${b3('#fff','#C9A100')};color:#3A2000;padding:14px 44px;font-size:17px;font-weight:900;margin-top:22px">Awesome! 🎉</button>
     </div>`;
   }
+  if(OVERLAY==='refpaid'){
+    const pts=Number(REFPAID&&REFPAID.points||50000), who=esc((REFPAID&&REFPAID.referee)||'Your mate');
+    h+=`<div style="position:fixed;inset:0;z-index:57;background:radial-gradient(120% 70% at 50% 0%, #FF6A3D, #FF2D78 52%, #2A0E52);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;text-align:center;overflow:hidden">
+      <div style="position:relative;width:210px;height:210px;display:flex;align-items:center;justify-content:center">
+        <svg width="210" height="210" viewBox="0 0 200 200" style="position:absolute;animation:spin360 13s linear infinite">${Array.from({length:16},(_,i)=>`<rect x="96" y="4" width="8" height="42" rx="4" fill="${i%2?'rgba(255,210,63,.7)':'rgba(255,255,255,.4)'}" transform="rotate(${i*22.5} 100 100)"/>`).join("")}</svg>
+        <div class="pop" style="font-size:100px;filter:drop-shadow(0 8px 22px rgba(255,180,0,.6))">💥</div>
+      </div>
+      <div class="pop" style="color:#FFD23F;font-weight:900;font-size:14px;letter-spacing:3px;margin-top:2px">REFERRAL PAID</div>
+      <div style="color:#fff;font-weight:900;font-size:31px;line-height:1.1;margin-top:6px">Nice one, ${esc(NAME)}! 🎉</div>
+      <div style="color:#FFD23F;font-weight:900;font-size:40px;line-height:1;margin-top:12px">+${nf(pts)}</div>
+      <div style="color:#FFD23F;font-weight:900;font-size:15px;letter-spacing:2px">POINTS</div>
+      <div style="display:flex;gap:6px;margin-top:14px">${[0,1,2,3,4].map(i=>`<span style="font-size:26px;display:inline-block;animation:clap 1s ease-in-out ${i*0.12}s infinite">👏</span>`).join("")}</div>
+      <div style="color:rgba(255,255,255,.95);font-size:14.5px;font-weight:600;line-height:1.5;margin-top:14px;max-width:300px">${who} is up and running, so your points are in. Keep them coming — every mate who buys is another 50,000. 💪</div>
+      <button onclick="dismissRefPaid()" class="pulse" style="${b3('#fff','#C9A100')};color:#3A2000;padding:14px 40px;font-size:17px;font-weight:900;margin-top:22px">See my points 🎉</button>
+    </div>`;
+  }
   if(OVERLAY==='starburst'){
     const L=DRAW.latest||{};
     h+=`<div style="position:fixed;inset:0;z-index:56;background:radial-gradient(120% 70% at 50% 0%, #FFB43D, #FF4E9B 55%, #2A0E52);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;text-align:center;overflow:hidden">
@@ -695,6 +718,13 @@ function overlaysHtml(){
     </div>`;
   }
   return h;
+}
+function dismissRefPaid(){
+  /* Marking the notification read is what stops this firing again - it is
+     server-side, so it also will not re-appear on a second device. */
+  const n=REFPAID&&REFPAID.notification_id;
+  if(n){ try{ sbrpc("mark_notification_read",{ p_id:n }); }catch(e){} }
+  REFPAID=null; OVERLAY=null; TAB='points'; render();
 }
 function dismissStarburst(){
   const L=DRAW&&DRAW.latest;
