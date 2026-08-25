@@ -11,15 +11,29 @@
  * reads the version out of it. Different version = this device is behind, so
  * reload once from a slightly different address, which the cache cannot answer.
  *
- * ⚠ WHOEVER EDITS A PAGE MUST BUMP ITS SIMTEC_BUILD. If it is not bumped this
- * file simply does nothing — it never makes things worse, it just stops helping.
+ * ⚠⚠ v2, 25 Aug 2026 — WHY THE SECOND CHECK EXISTS. READ THIS BEFORE REMOVING IT.
+ * The version check alone is only as good as somebody remembering to bump the
+ * version. On 21 and 23 Aug order-app.html was fixed and pushed WITHOUT bumping
+ * its SIMTEC_BUILD. Every consultant iPad therefore compared "2026-08-15-01"
+ * against "2026-08-15-01", concluded it was current, and kept running the old
+ * copy for days — including the Ezidebit fault where the sign-up form demanded
+ * a once-off payment amount on a weekly-only sale and then refused to submit.
+ * The safeguard was in place and it did nothing, exactly as its own warning
+ * said it would.
+ *
+ * So this version ALSO fingerprints the copy on the server. If the fingerprint
+ * changes while the declared version does not, the file was edited without a
+ * bump, and the device reloads anyway. Bumping SIMTEC_BUILD is still the right
+ * habit — it acts on the very next launch — but forgetting it can no longer
+ * strand anybody. Worst case is a device picks the change up one launch later.
  *
  * THE SAFETY RULES, deliberately:
  *  - AT MOST ONE reload per launch, per page. A second attempt is impossible,
  *    so this can never loop.
- *  - Nothing downloaded is ever executed or put into the page. The only thing
- *    read out of the response is a version string, through a strict pattern
- *    that allows letters, digits, dot, dash and underscore.
+ *  - Nothing downloaded is ever executed or put into the page. The only things
+ *    read out of the response are a version string, through a strict pattern
+ *    that allows letters, digits, dot, dash and underscore, and a numeric
+ *    fingerprint of the text.
  *  - Only ever asks for the page it is already on, on the same site. No keys,
  *    no outside service, nothing new to configure.
  *  - If the check fails, times out, or the wi-fi is off, the app carries on
@@ -35,7 +49,8 @@
   var RUNNING = String(window.SIMTEC_BUILD || "");
   if (!RUNNING) return;                 // page has not opted in — do nothing
 
-  var KEY = "simtec_update_tried:" + location.pathname;
+  var KEY = "simtec_update_tried:" + location.pathname;   // this launch only
+  var FPKEY = "simtec_update_fp:" + location.pathname;    // survives launches
   var TIMEOUT_MS = 6000;
   var typed = false;
 
@@ -46,6 +61,21 @@
   function remember(v) { try { sessionStorage.setItem(KEY, v); } catch (e) {} }
   function recall()    { try { return sessionStorage.getItem(KEY) || ""; } catch (e) { return ""; } }
   function forget()    { try { sessionStorage.removeItem(KEY); } catch (e) {} }
+
+  function fpSaved()   { try { return localStorage.getItem(FPKEY) || ""; } catch (e) { return ""; } }
+  function fpSave(v)   { try { localStorage.setItem(FPKEY, v); } catch (e) {} }
+
+  /* A plain, dependency-free fingerprint of the served text (FNV-1a, 32 bit, as
+     hex, with the length appended). It is NOT security — nothing is trusted on
+     the strength of it — it only has to change when the file changes. */
+  function fingerprint(text) {
+    var h = 0x811c9dc5, i;
+    for (i = 0; i < text.length; i++) {
+      h ^= text.charCodeAt(i) & 0xff;
+      h = (h + ((h << 1) + (h << 4) + (h << 7) + (h << 8) + (h << 24))) >>> 0;
+    }
+    return ("0000000" + h.toString(16)).slice(-8) + ":" + text.length;
+  }
 
   function bar(text, buttonText, onTap) {
     function draw() {
@@ -73,7 +103,7 @@
       var x = document.createElement("button");
       x.type = "button";
       x.setAttribute("aria-label", "Hide this message");
-      x.textContent = "✕";
+      x.textContent = "\u2715";
       x.style.cssText = "background:none;border:none;color:#cfe0ff;font-size:18px;padding:4px 6px";
       x.onclick = function () { d.remove(); };
       d.appendChild(x);
@@ -83,15 +113,15 @@
     else document.addEventListener("DOMContentLoaded", draw);
   }
 
-  function reloadTo(version) {
+  function reloadTo(tag) {
     var u;
     try {
       u = new URL(location.href);
-      u.searchParams.set("v", version);
+      u.searchParams.set("v", tag);
       u.searchParams.delete("cb");
       location.replace(u.toString());
     } catch (e) {
-      location.replace(location.pathname + "?v=" + encodeURIComponent(version));
+      location.replace(location.pathname + "?v=" + encodeURIComponent(tag));
     }
   }
 
@@ -114,21 +144,38 @@
         if (!m) return;                       // cannot tell — leave well alone
         var onServer = m[1];
 
-        if (onServer === RUNNING) { forget(); return; }   // already current
+        var fpNow = fingerprint(text);
+        var fpWas = fpSaved();
 
-        if (recall() === onServer) {          // we already reloaded and it did not take
+        /* CHECK 1 — the declared version. Acts on the very next launch. */
+        var behind = (onServer !== RUNNING);
+
+        /* CHECK 2 — the fingerprint, which catches an edit pushed without a
+           bump. Only meaningful once this device has seen the page before; the
+           first launch simply records what it saw and does nothing. */
+        if (!behind && fpWas && fpWas !== fpNow) behind = true;
+
+        if (!behind) { fpSave(fpNow); forget(); return; }   // already current
+
+        /* The one-reload marker carries BOTH signals, so a second, different
+           edit under the same version counts as a fresh attempt rather than
+           being mistaken for the one that just failed. */
+        var tag = onServer + "-" + fpNow.split(":")[0];
+
+        if (recall() === tag) {                // already reloaded, still behind
           bar("This iPad is still showing an older version. Close the app from the app " +
               "switcher and open it again.", null, null);
           return;
         }
 
-        remember(onServer);
+        remember(tag);
+        fpSave(fpNow);
 
         if (typed) {
           bar("An update is ready. Finish what you are doing first.", "Update now",
-              function () { reloadTo(onServer); });
+              function () { reloadTo(tag); });
         } else {
-          reloadTo(onServer);
+          reloadTo(tag);
         }
       })
       .catch(function () { if (timer) clearTimeout(timer); });
