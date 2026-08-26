@@ -184,11 +184,31 @@ function draw(){
     : "";
 }
 
+/* ⚠ WHY THIS DOES NOT USE sb.functions.invoke().
+   invoke() throws "Edge Function returned a non-2xx status code" and DISCARDS
+   the response body — so the page can tell you something failed but never what.
+   On 27 Aug that turned a one-word problem (the send key was not set) into a
+   message nobody could act on. A plain fetch keeps the body, so the real reason
+   reaches the screen. */
 async function callInvite(body){
-  const { data, error } = await sb.functions.invoke("loyalty-invite", { body });
-  if (error) throw new Error(error.message || "the invite service did not answer");
-  if (data && data.error) throw new Error(data.error);
-  return data;
+  const { data:{ session } } = await sb.auth.getSession();
+  if (!session) throw new Error("you are not signed in any more — reload the page");
+  const r = await fetch("https://jvqjoenaungubpoegyvf.supabase.co/functions/v1/loyalty-invite", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": "Bearer " + session.access_token,
+      "apikey": "sb_publishable_J4MYTdJJyEaWe-GadpwdYA_upPT2rKw"
+    },
+    body: JSON.stringify(body)
+  });
+  let out = null;
+  try { out = await r.json(); } catch(e){ out = null; }
+  if (!r.ok || (out && out.error)) {
+    const why = (out && out.error) ? out.error : ("the service answered " + r.status);
+    throw new Error(why);
+  }
+  return out;
 }
 
 async function dryRun(){
