@@ -111,10 +111,11 @@
         </select>
       </div>
       <div style="width:150px">
-        <label for="take">How many</label>
+        <label for="take">Send in a batch of</label>
         <select id="take" onchange="draw()">
-          <option>20</option><option selected>40</option><option>60</option>
-          <option>100</option><option value="9999">Everyone</option>
+          <option value="20">first 20</option><option value="40" selected>first 40</option>
+          <option value="60">first 60</option><option value="100">first 100</option>
+          <option value="9999">everyone who matches</option>
         </select>
       </div>
       <div style="width:170px">
@@ -122,7 +123,8 @@
         <input id="campaign" value="app-invite" oninput="load()">
       </div>
     </div>
-    <div class="muted" style="margin-top:8px">
+    <div id="eligible" style="margin-top:10px;font-weight:800;font-size:15.5px;color:var(--navy)">&nbsp;</div>
+    <div class="muted" style="margin-top:4px">
       Newest customers first. Landlines are left out. Anyone already texted under
       this campaign name is left out, so you can stop and start safely.
     </div>
@@ -185,6 +187,7 @@ function draw(){
   const t = $("msg").value;
   const s = segments(t);
   $("count").textContent = `${t.length} characters · ${s.n} text${s.n>1?"s":""} each${s.unicode?" (special characters — costs more)":""}`;
+  drawEligible();
   $("preview").textContent = t ? render(t, (ROWS[0]&&ROWS[0].first_name) || "Mere") : "—";
   const n = picked().length;
   $("bsend").textContent = `Send to ${n} ${n===1?"person":"people"}`;
@@ -203,6 +206,20 @@ function draw(){
 function picked(){
   const take = Number($("take").value||0);
   return ROWS.slice(0, take);
+}
+
+/* ⚠ 26 Aug — THE BATCH-SIZE BOX WAS READ AS A HEADCOUNT. It sits beside the
+   group dropdown and defaulted to "40", so a group of 21 looked like a group of
+   40. The number of PEOPLE now has its own line, in its own right, above the
+   fine print - and the size box says "first 40" so it cannot be mistaken for a
+   total again. */
+function drawEligible(){
+  const el = $("eligible"); if(!el) return;
+  const n = ROWS.length, take = Number($("take").value||0), going = Math.min(n, take);
+  el.textContent = !n ? "Nobody matches this group right now."
+    : n === 1     ? "1 person matches — they will get it."
+    : n === going ? `${n} people match — all ${n} will get it.`
+                  : `${n} people match — the first ${going} will get it, the rest next time.`;
 }
 
 function drawList(){
