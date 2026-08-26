@@ -29,9 +29,17 @@
 ────────────────────────────────────────────────────────────────────────── -->
 <script>
   /* ── SET THE VIDEO HERE ─────────────────────────────────────────────── */
-  var VIDEO_YOUTUBE_ID = "";          /* e.g. "dQw4w9WgXcQ"  (unlisted is fine) */
-  var VIDEO_MP4        = "";          /* e.g. "simtec-app-setup.mp4" in the repo */
-  var VIDEO_POSTER     = "";          /* optional still image for the mp4       */
+  var VIDEO_EMBED_URL  = "https://share.synthesia.io/0219a1fa-9325-411d-9c93-9245912f05a0";
+                                      /* a hosted share page (Synthesia, Vimeo...) */
+  var VIDEO_YOUTUBE_ID = "";          /* e.g. "dQw4w9WgXcQ"  (unlisted is fine)   */
+  var VIDEO_MP4        = "";          /* e.g. "simtec-app-setup.mp4" in the repo  */
+  var VIDEO_POSTER     = "";          /* optional still image for the mp4         */
+
+  /* ⚠ THE VIDEO IS HOSTED BY SYNTHESIA, WHICH MEANS IT DEPENDS ON THAT ACCOUNT.
+     If the subscription lapses or the video is deleted, this box goes blank -
+     and by then the link is in hundreds of inboxes. The written steps below the
+     video are deliberately complete on their own for exactly that reason, and
+     moving to YouTube later is a one-line change here. */
   /* ───────────────────────────────────────────────────────────────────── */
   var APP_URL   = "customer-login.html";
   var OFFICE_TEL   = "+6498869897";
@@ -277,7 +285,16 @@
      leaves a plain "coming shortly" box, so the page is safe to push
      before the video is finished.                                        */
   var film = document.getElementById("film");
-  if (VIDEO_YOUTUBE_ID) {
+  if (VIDEO_EMBED_URL) {
+    var e = document.createElement("iframe");
+    e.src = VIDEO_EMBED_URL;
+    e.title = "How to put the Simtec Rewards app on your phone";
+    e.allow = "accelerometer; encrypted-media; picture-in-picture; fullscreen";
+    e.setAttribute("allowfullscreen", "");
+    e.setAttribute("loading", "lazy");
+    film.className = "film";
+    film.appendChild(e);
+  } else if (VIDEO_YOUTUBE_ID) {
     var f = document.createElement("iframe");
     f.src = "https://www.youtube-nocookie.com/embed/" + encodeURIComponent(VIDEO_YOUTUBE_ID) + "?rel=0&playsinline=1";
     f.title = "How to put the Simtec Rewards app on your phone";
