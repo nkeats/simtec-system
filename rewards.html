@@ -11,7 +11,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Simtec">
-<script>window.SIMTEC_BUILD="2026-08-25-02";</script>
+<script>window.SIMTEC_BUILD="2026-08-25-03";</script>
 <script src="update.js?v=2"></script>
 
 
@@ -362,7 +362,7 @@ async function loadAll(){
 }
 
 function ratingLabel(){ return (S.rating||"AAA"); }
-const APP_VER="v16 — 25 Aug";
+const APP_VER="v17 — 25 Aug";
 let NP={sms:true};                                // notification prefs (sms reminder texts)
 // Black-box recorder: any error on the device reports itself home, with a
 // breadcrumb trail of the last taps — so "it froze" becomes a readable log.
@@ -472,6 +472,59 @@ function missedCard(){
     </div>
   </div>`;
 }
+/* ============================ SAVE TO HOME SCREEN ============================
+   ⚠ WHY THIS LIVES IN THE APP AND NOT IN A VIDEO OR ON A WEB PAGE (25 Aug 2026).
+   We tried explaining this beforehand and it does not work, because the words
+   have to be different on every phone and we cannot know which phone somebody
+   is holding until they are here. Nigel's own iPhone shows THREE DOTS, not the
+   share square that every guide describes - the instructions said "that means
+   Android" and sent him down the wrong path.
+
+   In here we can see: whether it is already installed (then say nothing at all),
+   whether this is iOS or Android, and whether they are stuck in some other app's
+   cut-down browser where Add to Home Screen does not exist. So the prompt can
+   name the RIGHT button, at the RIGHT moment, on the RIGHT device.
+
+   ⚠ DELIBERATELY: it disappears for good once the app is opened from the home
+   screen, and "Not now" hides it for 7 days rather than forever - somebody who
+   dismisses it on the bus should still get the offer next week. */
+function installState(){
+  try{
+    var standalone = (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches)
+                     || window.navigator.standalone === true;
+    if(standalone) return {show:false};
+    var snoozed = Number(localStorage.getItem("simtec_install_snooze")||0);
+    if(snoozed && Date.now() < snoozed) return {show:false};
+    var ua = navigator.userAgent||"";
+    var inApp = /FBAN|FBAV|FB_IAB|Instagram|Messenger|Line\/|MicroMessenger|Twitter|LinkedInApp|Snapchat|Pinterest/i.test(ua);
+    var ios = /iPad|iPhone|iPod/.test(ua) || (navigator.platform==="MacIntel" && navigator.maxTouchPoints>1);
+    return {show:true, inApp:inApp, ios:ios};
+  }catch(e){ return {show:false}; }   // never let this break the app
+}
+function installCard(){
+  var st=installState();
+  if(!st.show) return "";
+  return `<div style="border-radius:20px;padding:15px 16px;background:linear-gradient(135deg,#2B7CFF,#6B2AB0);box-shadow:0 8px 22px rgba(43,124,255,.35)">
+    <div style="display:flex;align-items:center;gap:11px">
+      <div style="font-size:26px">📲</div>
+      <div style="flex:1">
+        <div style="color:#fff;font-weight:900;font-size:15.5px">Put this on your home screen</div>
+        <div style="color:rgba(255,255,255,.9);font-size:12.6px;font-weight:600;margin-top:2px">Then it's one tap, like your other apps — no email, no link.</div>
+      </div>
+    </div>
+    <div class="row" style="margin-top:11px">
+      <button onclick="showInstall()" style="${b3('#fff','#C4D2DC')};color:#123A7A;flex:1;padding:12px;font-size:14px;font-weight:900">Show me how</button>
+      <button onclick="snoozeInstall()" style="${b3('rgba(255,255,255,.16)','rgba(0,0,0,.25)')};color:#fff;padding:12px 14px;font-size:13.5px;font-weight:800">Not now</button>
+    </div>
+  </div>`;
+}
+function snoozeInstall(){
+  try{ localStorage.setItem("simtec_install_snooze", String(Date.now()+7*24*60*60*1000)); }catch(e){}
+  render();
+}
+function showInstall(){ OVERLAY='install'; render(); }
+function dismissInstall(){ OVERLAY=null; render(); }
+
 function homeView(){
   const consec=Number(S.current_streak||0);
   const greeting=`<div style="display:flex;align-items:center;gap:11px;background:linear-gradient(120deg,rgba(84,239,160,.2),rgba(84,239,160,.08));border:1px solid rgba(84,239,160,.4);border-radius:18px;padding:11px 14px">${MASCOT(40)}<div><div style="color:#fff;font-weight:900;font-size:15px">You're smashing it, ${esc(NAME)}!</div><div style="color:var(--sub);font-size:12px;font-weight:600">🔥 ${consec}-payment streak — keep it rolling</div></div></div>`;
@@ -517,7 +570,7 @@ function homeView(){
   const referBtn=`<button onclick="setTab('refer')" class="pulse" style="${b3('linear-gradient(120deg,#FF2D78,#FF6A3D)','#C41E5E')};padding:13px 16px;display:flex;align-items:center;gap:10px;width:100%"><span style="font-size:22px">💥</span><span style="flex:1;text-align:left;font-size:14.5px;font-weight:900">Refer a mate</span><span style="font-weight:900;font-size:15px">+50k ⭐</span></button>`;
   const extraBtn=(PLAN&&PLAN.has_order&&!PLAN.delivered)?`<button onclick="payExtra('extra')" style="${b3('linear-gradient(120deg,#25C97A,#54EFA0)','#159257')};padding:13px 15px;font-size:15px;color:#053019;display:flex;flex-direction:column;gap:1px;width:100%;align-items:center"><span>Make an extra payment 💳</span><span style="font-size:11px;font-weight:700;opacity:.82">Moves the truck · +1,000 pts on $50+ · earns a spin</span></button>`:"";
   if(!APPST.earning) return greeting+race+closedCard+referBtn;   // plan closed: no daily/spin/extra payment
-  return greeting+missedCard()+race+circles+referBtn+extraBtn;
+  return installCard()+greeting+missedCard()+race+circles+referBtn+extraBtn;
 }
 
 // ================= POINTS =================
@@ -685,6 +738,46 @@ function overlaysHtml(){
       <div style="color:#FFD23F;font-weight:900;font-size:15px;margin-top:8px">A round of applause! 🎉</div>
       <div style="color:rgba(255,255,255,.95);font-size:14.5px;font-weight:600;line-height:1.5;margin-top:14px;max-width:295px">Your bed's across the finish line. Our team will contact you shortly to arrange a delivery time that suits you — keep an eye on your phone! 📞</div>
       <button onclick="OVERLAY=null;render()" class="pulse" style="${b3('#fff','#C9A100')};color:#3A2000;padding:14px 44px;font-size:17px;font-weight:900;margin-top:22px">Awesome! 🎉</button>
+    </div>`;
+  }
+  if(OVERLAY==='install'){
+    const st=installState();
+    /* ⚠ NO "iPhone vs Android" HEADINGS. We already know which phone this is,
+       so we show ONE set of steps - the right one. Telling somebody who owns an
+       iPhone that three dots "means Android" is exactly the fault this replaces. */
+    const shareIcon = `<svg width="30" height="30" viewBox="0 0 100 100" style="vertical-align:-8px"><g fill="none" stroke="#FFD23F" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"><path d="M37 45h-4a9 9 0 0 0-9 9v22a9 9 0 0 0 9 9h34a9 9 0 0 0 9-9V54a9 9 0 0 0-9-9h-4"/><path d="M50 58V22"/><path d="M38 33l12-12 12 12"/></g></svg>`;
+    const dotsIcon  = `<svg width="30" height="30" viewBox="0 0 100 100" style="vertical-align:-8px"><g fill="#FFD23F"><circle cx="50" cy="24" r="9"/><circle cx="50" cy="50" r="9"/><circle cx="50" cy="76" r="9"/></g></svg>`;
+    let steps;
+    if(st.inApp){
+      steps = [
+        `You opened this from another app, and that little browser cannot save apps.`,
+        `Tap the ${dotsIcon} three dots in the corner, and choose <b>Open in browser</b>.`,
+        `Come back to this card and we'll carry on.`
+      ];
+    } else if(st.ios){
+      steps = [
+        `Look along the bottom of your screen for ${shareIcon} — a square with an arrow coming out of it. <b>If you can't see it, tap the</b> ${dotsIcon} <b>three dots first</b> and it's in there.`,
+        `A list slides up. <b>Scroll down that list</b> — it's further down than you'd think — until you see <b>Add to Home Screen</b>. Tap it.`,
+        `Tap <b>Add</b> in the top corner. Done.`
+      ];
+    } else {
+      steps = [
+        `Tap the ${dotsIcon} three dots in the top right corner of your screen.`,
+        `In the list, tap <b>Add to Home screen</b>. Some phones say <b>Install app</b> — same thing.`,
+        `Tap <b>Install</b>. Done.`
+      ];
+    }
+    h+=`<div style="position:fixed;inset:0;z-index:56;background:rgba(10,6,24,.93);display:flex;align-items:center;justify-content:center;padding:20px" onclick="dismissInstall()">
+      <div onclick="event.stopPropagation()" style="background:linear-gradient(160deg,#1B1140,#2A1A5E);border:1px solid rgba(255,210,63,.35);border-radius:22px;padding:20px;max-width:340px;width:100%">
+        <div style="text-align:center;font-size:32px">📲</div>
+        <div style="color:#fff;font-weight:900;font-size:18px;text-align:center;margin-top:4px">Save it to your home screen</div>
+        <div style="color:var(--sub);font-size:12.5px;font-weight:600;text-align:center;margin-top:4px">${st.inApp?'One thing first':'Three taps and it\'s done'}</div>
+        ${steps.map((t,i)=>`<div style="display:flex;gap:11px;margin-top:14px">
+          <div style="flex:none;width:26px;height:26px;border-radius:50%;background:#FFD23F;color:#3A2000;font-weight:900;font-size:14px;display:flex;align-items:center;justify-content:center">${i+1}</div>
+          <div style="color:#fff;font-size:13.6px;font-weight:600;line-height:1.55">${t}</div></div>`).join("")}
+        <button onclick="dismissInstall()" style="${b3('#FFD23F','#C9A100')};color:#3A2000;width:100%;padding:13px;font-size:15px;font-weight:900;margin-top:18px">Got it</button>
+        <div style="text-align:center;margin-top:10px"><a href="tel:${SIMTEC_PHONE.replace(/[^\d+]/g,"")}" style="color:var(--sub);font-size:12px">Stuck? Call us on ${SIMTEC_PHONE}</a></div>
+      </div>
     </div>`;
   }
   if(OVERLAY==='refpaid'){
