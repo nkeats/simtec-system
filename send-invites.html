@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en-NZ">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Simtec — Send App Invites</title>
+<link rel="icon" href="icon-192.png">
+<!-- ⚠ auth.js NEEDS THIS LOADED FIRST. Without it auth.js cannot find the
+     supabase library, gives up, and shows "Can't check your sign-in" —
+     which looks like a login problem but is a missing script tag. -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.112.2"></script>
+<script src="auth.js?v=3" data-roles="admin,manager"></script>
+
+<!-- ===========================================================================
+     SEND APP INVITES  ·  built 27 Aug 2026
+
+     Emails the Simtec Rewards welcome page to customers who do not yet have
+     the app. Calls the loyalty-invite edge function, which owns all the rules.
+
+     ⚠⚠ THE BRAKES, AND WHY EACH ONE IS HERE:
+       · DRY RUN FIRST, ALWAYS. The real send stays disabled until a dry run
+         has been read on screen. The dry run lists every person by name — not
+         a sample — because the whole point is that somebody looks before
+         hundreds of emails leave.
+       · The send needs a SECRET typed in. It is never stored in this page.
+       · Newest customers first, in batches. Never "everyone" in one go.
+       · Anyone on a SHARED email address is left out by default — two
+         customers on one address means one gets mail addressed to the other.
+       · Nobody is emailed twice: the function stamps invited_at on success.
+       · The function STOPS at the first failure rather than repeating it
+         hundreds of times.
+
+     ⚠ WHO IS ELIGIBLE IS NOT DECIDED HERE. It is v_invite_targets: a LIVE
+     order, never signed in, not already invited. That view was wrong until
+     27 Aug — it ignored order status and would have emailed ~181 cancelled or
+     completed customers. Do not loosen it.
+=========================================================================== -->
+
+<style>
+  :root{ --navy:#0e2038; --gold:#c9a84c; --ink:#0e1726; --paper:#f4f6f9;
+         --line:#dfe5ec; --muted:#5b6880; --warn:#b02a2a; --ok:#0f7b3f; }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--paper);color:var(--ink);
+       font:400 15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif}
+  .wrap{max-width:900px;margin:0 auto;padding:18px 16px 80px}
+  h1{font-size:23px;margin:0 0 2px}
+  .sub{color:var(--muted);margin:0 0 18px;font-size:14px}
+  .card{background:#fff;border:1px solid var(--line);border-radius:16px;padding:16px;margin:0 0 16px}
+  h2{font-size:16px;margin:0 0 10px}
+  label{display:block;font-weight:700;font-size:13.5px;margin:0 0 5px}
+  select,input{width:100%;padding:11px;border:1px solid var(--line);border-radius:10px;
+        font:inherit;font-size:16px;background:#fff}
+  .row{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end}
+  .muted{color:var(--muted);font-size:13px}
+  button{border:none;border-radius:10px;padding:12px 18px;font:inherit;font-weight:800;
+         font-size:15px;background:#eef1f6;color:var(--navy)}
+  button.primary{background:var(--navy);color:#fff}
+  button.danger{background:var(--warn);color:#fff}
+  button:disabled{opacity:.45}
+  table{width:100%;border-collapse:collapse;font-size:14px}
+  th,td{text-align:left;padding:7px 6px;border-bottom:1px solid var(--line)}
+  th{font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)}
+  .err{background:#fdeaea;border:1px solid #f2c4c4;color:var(--warn);border-radius:10px;
+       padding:11px;margin:0 0 12px;font-weight:600;display:none}
+  .note{background:#fff7e6;border:1px solid #f0dcae;color:#6b5320;border-radius:10px;padding:11px;margin:10px 0}
+  .okbox{background:#e6f4ec;border:1px solid #b9dfc9;color:var(--ok);border-radius:10px;
+         padding:11px;margin:0 0 12px;font-weight:700;display:none}
+  .scroll{max-height:420px;overflow:auto;border:1px solid var(--line);border-radius:12px;padding:10px;background:var(--paper)}
+  .big{font-weight:800;font-size:15.5px;color:var(--navy);margin:10px 0 2px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>Send app invites</h1>
+  <p class="sub">Emails the Rewards welcome page to customers who don't have the app yet.</p>
+
+  <div class="err" id="err"></div>
+  <div class="okbox" id="ok"></div>
+
+  <!-- ── 1. who ──────────────────────────────────────────────────────────── -->
+  <div class="card">
+    <h2>1 · Who this batch goes to</h2>
+    <div class="row">
+      <div style="width:190px">
+        <label for="limit">Batch size</label>
+        <select id="limit">
+          <option value="10">first 10</option>
+          <option value="20">first 20</option>
+          <option value="40" selected>first 40</option>
+          <option value="60">first 60</option>
+          <option value="100">first 100</option>
+        </select>
+      </div>
+      <div style="width:250px">
+        <label for="shared">Customers sharing an email address</label>
+        <select id="shared">
+          <option value="skip" selected>leave them out</option>
+          <option value="include">include them</option>
+        </select>
+      </div>
+    </div>
+    <div class="big" id="eligible">&nbsp;</div>
+    <div class="muted">
+      Newest customers first. Only people with a live order who have never signed
+      in and have not already been invited. Customers with no email address are
+      never in this list — they need a phone call.
+    </div>
+  </div>
+
+  <!-- ── 2. dry run ─────────────────────────────────────────────────────── -->
+  <div class="card">
+    <h2>2 · Dry run — see exactly who would get it</h2>
+    <div class="row">
+      <button class="primary" id="bdry" onclick="dryRun()">Run a dry run</button>
+      <span class="muted" id="drystate">nothing sent by a dry run</span>
+    </div>
+    <div id="drylist" style="margin-top:12px"></div>
+  </div>
+
+  <!-- ── 3. send ────────────────────────────────────────────────────────── -->
+  <div class="card">
+    <h2>3 · Send for real</h2>
+    <div class="note">
+      Read the dry-run list above first. Once an email is sent it cannot be taken
+      back, and each person is only ever invited once.
+    </div>
+    <div class="row">
+      <div style="flex:1;min-width:220px">
+        <label for="secret">Send key</label>
+        <input id="secret" type="password" placeholder="required to send" autocomplete="off" oninput="draw()">
+      </div>
+      <button class="danger" id="bsend" onclick="sendReal()" disabled>Send 0 emails</button>
+    </div>
+    <div class="muted" id="why" style="margin-top:8px"></div>
+    <div id="result" style="margin-top:12px"></div>
+  </div>
+
+</div>
+
+<script>
+/* ⚠ auth.js keeps its own private client and does NOT share it — every page
+   makes its own. Leaving this out gives "Can't check your sign-in" followed
+   by "sb is not defined". */
+const sb = supabase.createClient(
+  "https://jvqjoenaungubpoegyvf.supabase.co",
+  "sb_publishable_J4MYTdJJyEaWe-GadpwdYA_upPT2rKw"
+);
+
+const $ = id => document.getElementById(id);
+const esc = t => String(t==null?"":t).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+let DRY_DONE = false, BUSY = false, ELIGIBLE = 0;
+
+function showErr(m){ const e=$("err"); e.textContent=m||""; e.style.display=m?"block":"none"; }
+function showOk(m){ const e=$("ok"); e.textContent=m||""; e.style.display=m?"block":"none"; }
+
+function batchSize(){ return Number($("limit").value||40); }
+function skipShared(){ return $("shared").value === "skip"; }
+
+async function countEligible(){
+  let q = sb.from("v_invite_targets").select("id", { count:"exact", head:true }).eq("has_email", true);
+  if (skipShared()) q = q.eq("shared_email", false);
+  const { count, error } = await q;
+  if (error){ showErr("Couldn't count who is eligible: " + error.message); return; }
+  ELIGIBLE = count || 0;
+  const going = Math.min(ELIGIBLE, batchSize());
+  $("eligible").textContent = !ELIGIBLE
+    ? "Nobody is waiting for an invite right now."
+    : `${ELIGIBLE} ${ELIGIBLE===1?"person is":"people are"} waiting — this batch would take the first ${going}.`;
+  draw();
+}
+
+/* ⚠ Name the blocker. A greyed-out button that will not say why is the single
+   most common way a working page looks broken. */
+function draw(){
+  const n = Math.min(ELIGIBLE, batchSize());
+  $("bsend").textContent = `Send ${n} email${n===1?"":"s"}`;
+  const secret = $("secret").value.trim();
+  $("bsend").disabled = !(DRY_DONE && n && secret && !BUSY);
+  $("why").textContent = BUSY ? "working…"
+    : !n ? "Nobody is eligible for this batch."
+    : !DRY_DONE ? "Run a dry run first, and read the list."
+    : !secret ? "The send key is needed."
+    : "";
+}
+
+async function callInvite(body){
+  const { data, error } = await sb.functions.invoke("loyalty-invite", { body });
+  if (error) throw new Error(error.message || "the invite service did not answer");
+  if (data && data.error) throw new Error(data.error);
+  return data;
+}
+
+async function dryRun(){
+  showErr(""); showOk("");
+  BUSY = true; $("bdry").disabled = true; $("drystate").textContent = "checking…"; draw();
+  try{
+    const d = await callInvite({ dry_run:true, limit:batchSize(), skip_shared_email:skipShared() });
+    const list = d.would_email || [];
+    DRY_DONE = list.length > 0;
+    $("drystate").textContent = `${list.length} would be emailed · nothing was sent`;
+    $("drylist").innerHTML = !list.length
+      ? '<div class="muted">Nobody matched — check the batch settings above.</div>'
+      : `<div class="scroll"><table><thead><tr><th>Name</th><th>Email</th><th>Bought</th></tr></thead><tbody>${
+          list.map(r=>`<tr><td>${esc(r.name)}</td><td>${esc(r.email)}</td><td class="muted">${esc(r.bought||"")}</td></tr>`).join("")
+        }</tbody></table></div>
+        <div class="muted" style="margin-top:8px">Link they will receive: ${esc(d.link_sent||"")}</div>`;
+  }catch(e){
+    DRY_DONE = false;
+    $("drystate").textContent = "dry run failed";
+    showErr("The dry run failed, so nothing will be sent either: " + e.message);
+  }finally{
+    /* finally, not after the catch — anything thrown while drawing used to
+       leave the button dead until a reload. */
+    BUSY = false; $("bdry").disabled = false; draw();
+  }
+}
+
+async function sendReal(){
+  if (BUSY) return;
+  const n = Math.min(ELIGIBLE, batchSize());
+  if (!confirm(`Send the app invitation to ${n} customers?\n\nThis cannot be undone.`)) return;
+  showErr(""); showOk("");
+  BUSY = true; draw();
+  try{
+    const d = await callInvite({ dry_run:false, secret:$("secret").value.trim(),
+                                 limit:batchSize(), skip_shared_email:skipShared() });
+    showOk(`Sent ${d.emailed}. Failed ${d.failed}.`);
+    $("result").innerHTML = (d.problems && d.problems.length)
+      ? `<div class="scroll"><table><thead><tr><th>Name</th><th>Email</th><th>What went wrong</th></tr></thead><tbody>${
+          d.problems.map(p=>`<tr><td>${esc(p.name)}</td><td>${esc(p.email)}</td><td>${esc(p.why)}</td></tr>`).join("")
+        }</tbody></table></div>
+        <div class="muted" style="margin-top:8px">Sending stopped at the first failure on purpose. Fix it, then send again — everyone already emailed is skipped.</div>`
+      : '<div class="muted">No failures.</div>';
+    DRY_DONE = false;                 // a fresh dry run is required for the next batch
+    $("drylist").innerHTML = ""; $("drystate").textContent = "run another dry run for the next batch";
+    await countEligible();
+  }catch(e){
+    showErr("The send failed: " + e.message);
+  }finally{
+    BUSY = false; draw();
+  }
+}
+
+$("limit").addEventListener("change", () => { DRY_DONE=false; $("drylist").innerHTML=""; countEligible(); });
+$("shared").addEventListener("change", () => { DRY_DONE=false; $("drylist").innerHTML=""; countEligible(); });
+window.addEventListener("load", () => setTimeout(countEligible, 400));
+</script>
+</body>
+</html>
