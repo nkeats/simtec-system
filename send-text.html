@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="en-NZ">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Simtec — Send a Text</title>
+<link rel="icon" href="icon-192.png">
+<script src="auth.js?v=3" data-roles="admin,manager"></script>
+
+<!-- ===========================================================================
+     SEND A TEXT  ·  built 26 Aug 2026
+
+     WHAT IT IS FOR: typing one message and sending it to many customers at
+     once - the app invite going out to ~420 people, and anything like it later.
+
+     ⚠⚠ THE THINGS THAT MATTER MOST IN HERE ARE THE BRAKES, NOT THE SENDING.
+       · Nothing sends until the message has been sent to ONE test number first
+         and that test has come back OK. The button stays disabled until then.
+       · Anyone already texted this campaign is filtered out, so a second run
+         after a browser crash resumes rather than double-texts.
+       · Sends go one at a time with a pause, and STOP DEAD on the first
+         failure rather than carrying on into 400 unknown outcomes.
+       · Every attempt is written to sim_communications BEFORE the next one is
+         tried, so if this page is closed mid-send the record is still true.
+       · Landlines are excluded by the view, not by eye.
+
+     Sending is done by the same edge function the arrears texts use
+     (hyper-handler → TNZ). No new sending path, no new secret.
+=========================================================================== -->
+
+<style>
+  :root{ --navy:#0e2038; --gold:#c9a84c; --ink:#0e1726; --paper:#f4f6f9;
+         --line:#dfe5ec; --muted:#5b6880; --warn:#b02a2a; --ok:#0f7b3f; }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--paper);color:var(--ink);
+       font:400 15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif}
+  .wrap{max-width:900px;margin:0 auto;padding:18px 16px 80px}
+  h1{font-size:23px;margin:0 0 2px}
+  .sub{color:var(--muted);margin:0 0 18px;font-size:14px}
+  .card{background:#fff;border:1px solid var(--line);border-radius:16px;padding:16px;margin:0 0 16px}
+  h2{font-size:16px;margin:0 0 10px}
+  label{display:block;font-weight:700;font-size:13.5px;margin:0 0 5px}
+  textarea,select,input{width:100%;padding:11px;border:1px solid var(--line);border-radius:10px;
+        font:inherit;font-size:16px;background:#fff}
+  textarea{min-height:120px;resize:vertical}
+  .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+  .muted{color:var(--muted);font-size:13px}
+  button{border:none;border-radius:10px;padding:12px 16px;font:inherit;font-weight:800;
+         font-size:15px;background:#eef1f6;color:var(--navy)}
+  button.primary{background:var(--navy);color:#fff}
+  button.danger{background:var(--warn);color:#fff}
+  button:disabled{opacity:.45}
+  table{width:100%;border-collapse:collapse;font-size:14px}
+  th,td{text-align:left;padding:8px 6px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)}
+  .chip{display:inline-block;padding:2px 8px;border-radius:999px;font-size:11.5px;font-weight:800}
+  .chip.ok{background:#e6f4ec;color:var(--ok)}
+  .chip.no{background:#fdeaea;color:var(--warn)}
+  .chip.has{background:#eef1f6;color:var(--muted)}
+  .box{border:1px solid var(--line);border-radius:12px;padding:12px;background:var(--paper)}
+  .err{background:#fdeaea;border:1px solid #f2c4c4;color:var(--warn);border-radius:10px;
+       padding:11px;margin:0 0 12px;font-weight:600;display:none}
+  .note{background:#fff7e6;border:1px solid #f0dcae;color:#6b5320;border-radius:10px;padding:11px;margin:10px 0}
+  .preview{white-space:pre-wrap;background:#eaf1ff;border:1px solid #cfe0ff;border-radius:12px;
+           padding:12px;font-size:15px}
+  .scroll{max-height:340px;overflow:auto}
+  .log{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12.5px;white-space:pre-wrap;
+       background:#0e1726;color:#d6e2f0;border-radius:10px;padding:12px;max-height:260px;overflow:auto}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>Send a text</h1>
+  <p class="sub">One message, many customers. Read the whole page before you send.</p>
+
+  <div class="err" id="err"></div>
+
+  <!-- ── 1. the message ─────────────────────────────────────────────────── -->
+  <div class="card">
+    <h2>1 · The message</h2>
+    <label for="msg">Type it exactly as the customer will read it</label>
+    <textarea id="msg" oninput="draw()" placeholder="Kia ora {first_name}, ..."></textarea>
+    <div class="row" style="margin-top:8px">
+      <span class="muted" id="count">0 characters · 1 text each</span>
+      <span class="muted">Use <b>{first_name}</b> to put their name in.</span>
+    </div>
+    <div class="note">
+      Every text should say who it is from and give the office number, or it reads
+      like a scam. There is no unsubscribe wording added automatically — if this
+      message is promotional rather than about their own account, add one.
+    </div>
+    <label style="margin-top:10px">How it will look</label>
+    <div class="preview" id="preview">—</div>
+  </div>
+
+  <!-- ── 2. who ────────────────────────────────────────────────────────── -->
+  <div class="card">
+    <h2>2 · Who gets it</h2>
+    <div class="row">
+      <div style="flex:1;min-width:190px">
+        <label for="who">Group</label>
+        <select id="who" onchange="load()">
+          <option value="noapp">Customers without the app yet</option>
+          <option value="hasapp">Customers who already have the app</option>
+          <option value="all">Every live customer</option>
+        </select>
+      </div>
+      <div style="width:150px">
+        <label for="take">How many</label>
+        <select id="take" onchange="draw()">
+          <option>20</option><option selected>40</option><option>60</option>
+          <option>100</option><option value="9999">Everyone</option>
+        </select>
+      </div>
+      <div style="width:170px">
+        <label for="campaign">Campaign name</label>
+        <input id="campaign" value="app-invite" oninput="load()">
+      </div>
+    </div>
+    <div class="muted" style="margin-top:8px">
+      Newest customers first. Landlines are left out. Anyone already texted under
+      this campaign name is left out, so you can stop and start safely.
+    </div>
+    <div class="box scroll" id="list" style="margin-top:12px">Loading…</div>
+  </div>
+
+  <!-- ── 3. test ───────────────────────────────────────────────────────── -->
+  <div class="card">
+    <h2>3 · Send yourself one first</h2>
+    <div class="row">
+      <input id="testnum" placeholder="021 234 5678" style="flex:1;min-width:180px">
+      <button class="primary" onclick="sendTest()" id="btest">Send test</button>
+      <span id="teststate" class="muted">not sent yet</span>
+    </div>
+    <div class="muted" style="margin-top:8px">
+      The real send stays locked until a test has gone through. Read it on the
+      phone — check the link opens, and check it looks like it is from Simtec.
+    </div>
+  </div>
+
+  <!-- ── 4. send ───────────────────────────────────────────────────────── -->
+  <div class="card">
+    <h2>4 · Send</h2>
+    <div class="row">
+      <button class="danger" id="bsend" onclick="sendAll()" disabled>Send to 0 people</button>
+      <span class="muted" id="progress"></span>
+    </div>
+    <div class="log" id="log" style="margin-top:12px;display:none"></div>
+  </div>
+
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const esc = t => String(t==null?"":t).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+let ROWS = [], TESTED = false, BUSY = false;
+
+function showErr(m){ const e=$("err"); e.textContent=m||""; e.style.display=m?"block":"none"; }
+
+/* GSM-7 messages are 160 characters, or 153 each once it splits. Anything with
+   a non-GSM character (a real dash, curly quotes, an emoji) drops to 70/67 -
+   which is why the count is worked out from the text, not guessed. */
+function segments(t){
+  const unicode = /[^\u0000-\u007F£¥èéùìòÇØøÅåΔ_ΦΓΛΩΠΨΣΘΞÆæßÉ !"#¤%&'()*+,\-./0-9:;<=>?¡A-ZÄÖÑÜ§¿a-zäöñüà\n\r]/.test(t);
+  const one = unicode ? 70 : 160, many = unicode ? 67 : 153;
+  if (!t.length) return {n:1, unicode};
+  return { n: t.length <= one ? 1 : Math.ceil(t.length/many), unicode };
+}
+function render(t, name){ return String(t||"").replace(/\{first_name\}/g, name || "there"); }
+
+function draw(){
+  const t = $("msg").value;
+  const s = segments(t);
+  $("count").textContent = `${t.length} characters · ${s.n} text${s.n>1?"s":""} each${s.unicode?" (special characters — costs more)":""}`;
+  $("preview").textContent = t ? render(t, (ROWS[0]&&ROWS[0].first_name) || "Mere") : "—";
+  const n = picked().length;
+  $("bsend").textContent = `Send to ${n} ${n===1?"person":"people"}`;
+  $("bsend").disabled = !(TESTED && n && t.trim() && !BUSY);
+  drawList();
+}
+
+function picked(){
+  const take = Number($("take").value||0);
+  return ROWS.slice(0, take);
+}
+
+function drawList(){
+  const take = Number($("take").value||0);
+  const rows = ROWS.slice(0, take);
+  if (!ROWS.length){ $("list").innerHTML = '<div class="muted">Nobody matches — everyone in this group has already been texted under this campaign name.</div>'; return; }
+  $("list").innerHTML = `<table><thead><tr><th>Name</th><th>Mobile</th><th>Bought</th><th>App</th></tr></thead><tbody>${
+    rows.map(r=>`<tr><td>${esc(r.full_name)}</td><td>${esc(r.mobile)}</td>
+      <td class="muted">${r.order_date||""}</td>
+      <td>${r.has_the_app?'<span class="chip has">has it</span>':'<span class="chip ok">not yet</span>'}</td></tr>`).join("")
+  }</tbody></table><div class="muted" style="margin-top:8px">Showing the first ${rows.length} of ${ROWS.length} eligible.</div>`;
+}
+
+async function load(){
+  showErr("");
+  const who = $("who").value, camp = $("campaign").value.trim() || "app-invite";
+  let q = sb.from("v_text_recipients").select("*").eq("textable", true).order("order_date",{ascending:false});
+  if (who === "noapp")  q = q.eq("has_the_app", false);
+  if (who === "hasapp") q = q.eq("has_the_app", true);
+  const { data, error } = await q;
+  if (error){ showErr("Couldn't load the customer list: " + error.message); ROWS=[]; draw(); return; }
+
+  /* Already texted under this campaign? Leave them out. This is what makes a
+     second run after a crash safe rather than a double-send. */
+  const { data: done, error: e2 } = await sb.from("sim_communications")
+    .select("customer_id").eq("channel","sms").eq("comm_type","bulk").eq("subject", camp);
+  if (e2){ showErr("Couldn't check who has already been texted — not sending. " + e2.message); ROWS=[]; draw(); return; }
+  const already = new Set((done||[]).map(r=>r.customer_id));
+  ROWS = (data||[]).filter(r => !already.has(r.customer_id));
+  draw();
+}
+
+async function postOne(mobile, message){
+  const { data, error } = await sb.functions.invoke("hyper-handler", { body:{ mobile, message } });
+  if (error) throw new Error(error.message || "Send failed");
+  if (data && data.error) throw new Error(data.error);
+  return data;
+}
+
+async function sendTest(){
+  showErr("");
+  const num = $("testnum").value.trim(), t = $("msg").value.trim();
+  if (!num) return showErr("Put a mobile number in first.");
+  if (!t)   return showErr("Type the message first.");
+  $("btest").disabled = true; $("teststate").textContent = "sending…";
+  try{
+    await postOne(num, render(t, (ROWS[0]&&ROWS[0].first_name) || "there"));
+    TESTED = true;
+    $("teststate").innerHTML = '<span class="chip ok">test sent — check your phone</span>';
+  }catch(e){
+    TESTED = false;
+    $("teststate").innerHTML = '<span class="chip no">test failed</span>';
+    showErr("The test did not send, so nothing else will be sent either: " + e.message);
+  }
+  $("btest").disabled = false; draw();
+}
+
+function logLine(s){ const l=$("log"); l.style.display="block"; l.textContent += s + "\n"; l.scrollTop = l.scrollHeight; }
+
+async function sendAll(){
+  if (BUSY) return;
+  const list = picked(), t = $("msg").value.trim(), camp = $("campaign").value.trim() || "app-invite";
+  if (!TESTED) return showErr("Send yourself a test first.");
+  if (!list.length || !t) return;
+  if (!confirm(`Send this text to ${list.length} people?\n\nThis cannot be undone once it starts.`)) return;
+
+  BUSY = true; draw(); $("log").textContent = "";
+  let sent = 0, failed = 0;
+
+  for (let i = 0; i < list.length; i++){
+    const r = list[i];
+    const body = render(t, r.first_name);
+    $("progress").textContent = `${i+1} of ${list.length}…`;
+    try{
+      const res = await postOne(r.mobile, body);
+      /* Written BEFORE the next send, so a closed browser still leaves a true
+         record of exactly who received it. */
+      await sb.from("sim_communications").insert({
+        customer_id: r.customer_id, channel: "sms", direction: "out", comm_type: "bulk",
+        subject: camp, body, status: "sent", mobile: r.mobile,
+        provider_response: JSON.stringify(res||{}), source: "send-text page"
+      });
+      sent++; logLine(`✓ ${r.full_name} — ${r.mobile}`);
+    }catch(e){
+      failed++;
+      await sb.from("sim_communications").insert({
+        customer_id: r.customer_id, channel: "sms", direction: "out", comm_type: "bulk",
+        subject: camp, body, status: "failed", mobile: r.mobile,
+        provider_response: String(e.message||e), source: "send-text page"
+      }).then(()=>{},()=>{});
+      logLine(`✗ ${r.full_name} — ${r.mobile} — ${e.message}`);
+      /* ⚠ STOP ON THE FIRST FAILURE. One failure is usually the credit running
+         out or the token expiring - carrying on would mean 300 more failures
+         and no idea which of them actually went. */
+      logLine(`\nSTOPPED after a failure. ${sent} sent, ${failed} failed.\nFix the problem, then press Send again — everyone already sent is skipped.`);
+      break;
+    }
+    await new Promise(r => setTimeout(r, 400));   // gentle on the gateway
+  }
+
+  $("progress").textContent = `Finished — ${sent} sent, ${failed} failed.`;
+  BUSY = false;
+  await load();
+}
+
+window.addEventListener("load", () => setTimeout(load, 400));
+</script>
+</body>
+</html>
