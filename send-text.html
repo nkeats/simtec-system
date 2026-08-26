@@ -5,6 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Simtec — Send a Text</title>
 <link rel="icon" href="icon-192.png">
+<!-- ⚠ auth.js NEEDS THIS LOADED FIRST. Without it auth.js cannot find the
+     supabase library, gives up, and shows "Can't check your sign-in" -
+     which looks like a login problem but is a missing script tag. -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.112.2"></script>
 <script src="auth.js?v=3" data-roles="admin,manager"></script>
 
 <!-- ===========================================================================
@@ -152,6 +156,14 @@
 </div>
 
 <script>
+/* ⚠ auth.js keeps its own private client and does NOT share it - every page
+   makes its own. Leaving this out is what produced "Can't check your sign-in"
+   followed by "sb is not defined". */
+const sb = supabase.createClient(
+  "https://jvqjoenaungubpoegyvf.supabase.co",
+  "sb_publishable_J4MYTdJJyEaWe-GadpwdYA_upPT2rKw"
+);
+
 const $ = id => document.getElementById(id);
 const esc = t => String(t==null?"":t).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 let ROWS = [], TESTED = false, BUSY = false;
