@@ -29,8 +29,15 @@
 ────────────────────────────────────────────────────────────────────────── -->
 <script>
   /* ── SET THE VIDEO HERE ─────────────────────────────────────────────── */
-  var VIDEO_EMBED_URL  = "https://share.synthesia.io/0219a1fa-9325-411d-9c93-9245912f05a0";
-                                      /* a hosted share page (Synthesia, Vimeo...) */
+  var VIDEO_EMBED_URL  = "https://share.synthesia.io/embeds/videos/0219a1fa-9325-411d-9c93-9245912f05a0";
+      /* ⚠ THIS MUST BE THE **EMBED** URL, NOT THE SHARE LINK.
+         share.synthesia.io/<id>            = a whole web page, with its own
+                                              header and its own scrolling. Put
+                                              in a frame it scrolls INSIDE the
+                                              frame and the video will not sit
+                                              still - which is exactly what
+                                              happened on 26 Aug.
+         share.synthesia.io/embeds/videos/<id> = the player on its own. Correct. */
   var VIDEO_YOUTUBE_ID = "";          /* e.g. "dQw4w9WgXcQ"  (unlisted is fine)   */
   var VIDEO_MP4        = "";          /* e.g. "simtec-app-setup.mp4" in the repo  */
   var VIDEO_POSTER     = "";          /* optional still image for the mp4         */
@@ -289,7 +296,7 @@
     var e = document.createElement("iframe");
     e.src = VIDEO_EMBED_URL;
     e.title = "How to put the Simtec Rewards app on your phone";
-    e.allow = "accelerometer; encrypted-media; picture-in-picture; fullscreen";
+    e.allow = "encrypted-media; fullscreen; picture-in-picture; screen-wake-lock";
     e.setAttribute("allowfullscreen", "");
     e.setAttribute("loading", "lazy");
     film.className = "film";
