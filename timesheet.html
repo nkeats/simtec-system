@@ -68,8 +68,16 @@ const $ = id => document.getElementById(id);
 const esc = s => (s||"").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const showErr = m => { const e=$("err"); e.style.display = m ? "block" : "none"; e.textContent = m||""; };
 const hrs = n => (Number(n)||0).toFixed(2);
-const nzDate = d => new Date(d).toLocaleDateString("en-NZ",{weekday:"short",day:"numeric",month:"short"});
-const nzTime = d => d ? new Date(d).toLocaleTimeString("en-NZ",{hour:"2-digit",minute:"2-digit"}) : "—";
+let PERSON = "";                       // whose week the office is looking at
+/* ⚠ ALWAYS Pacific/Auckland, never the device's own zone. Without this pin a
+   laptop set to the wrong timezone - or anyone looking at the roster from
+   Australia - reads every shift shifted by hours and has no way to tell. */
+const NZ = "Pacific/Auckland";
+const nzDate = d => new Date(d).toLocaleDateString("en-NZ",{weekday:"short",day:"numeric",month:"short",timeZone:NZ});
+const nzTime = d => d ? new Date(d).toLocaleTimeString("en-NZ",{hour:"2-digit",minute:"2-digit",hour12:false,timeZone:NZ}) : "—";
+/* The working day everyone is rostered for. Used only to FLAG a shift worth a
+   second look - it never changes a recorded time. */
+const DAY_START="08:00", DAY_END="17:00";
 function todayNZ(){
   const p = new Intl.DateTimeFormat("en-CA",{timeZone:"Pacific/Auckland",year:"numeric",month:"2-digit",day:"2-digit"}).format(new Date());
   return p;
@@ -411,7 +419,75 @@ async function renderOffice(){
                onclick="fixTimes('${r.id}','${esc(r.staff_name||"").replace(/'/g,"\\'")}','${(r.clock_in||"").slice(11,16)}','${(r.clock_out||"").slice(11,16)}',${r.break_minutes||0})">Fix times</button></div>`}</td>
     </tr>`).join("") || `<tr><td colspan="4" class="muted">No shifts this week.</td></tr>`;
 
+  /* ============================ ONE PERSON'S WEEK ==========================
+     ⚠ WHY THIS EXISTS (26 Aug 2026). The office could see a flat list of every
+     shift by everybody, which answers "what happened this week" but NOT the
+     question actually being asked - "how many hours did Lorenz do?" You had to
+     read down the list picking out one name. This card answers that directly:
+     pick a person, see their week a day at a time, with a total.
+
+     It shows EVERY day Monday to Sunday, including days with nothing on them,
+     because a missing day is exactly what the office needs to notice. */
+  const names = [...new Set(rows.map(r => r.staff_name).filter(Boolean))].sort();
+  if (PERSON && !names.includes(PERSON)) PERSON = "";
+  const mine = PERSON ? rows.filter(r => r.staff_name === PERSON) : [];
+
+  const dayRows = [];
+  let personTotal = 0;
+  if (PERSON) {
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(WEEK + "T12:00:00"); d.setDate(d.getDate() + i);
+      const iso = d.toISOString().slice(0,10);
+      const shifts = mine.filter(r => r.work_date === iso);
+      const dayHours = shifts.reduce((t,r) => t + Number(r.hours||0), 0);
+      personTotal += dayHours;
+
+      if (!shifts.length) {
+        dayRows.push(`<tr><td>${nzDate(iso)}</td><td colspan="3" class="muted">nothing recorded</td>
+          <td style="text-align:right" class="muted">—</td></tr>`);
+        continue;
+      }
+      shifts.forEach(r => {
+        /* Flags, not corrections: something worth a look, never an assumption
+           about what the person actually did. */
+        const flags = [];
+        const st = r.started_nz || "", fi = r.finished_nz || "";
+        if (r.open_now)            flags.push('<span class="chip live">still on</span>');
+        if (r.auto_closed)         flags.push('<span class="chip wait">closed automatically — check</span>');
+        if (st && st > "08:15")    flags.push('<span class="chip wait">late start</span>');
+        if (fi && !r.open_now && fi < "16:45") flags.push('<span class="chip wait">early finish</span>');
+        if (Number(r.hours||0) > 10) flags.push('<span class="chip wait">long day</span>');
+        if (r.source === "manual") flags.push('<span class="chip wait">added by hand</span>');
+        dayRows.push(`<tr>
+          <td>${nzDate(r.work_date)}</td>
+          <td>${st || "—"}</td>
+          <td>${r.open_now ? "still on" : (fi || "—")}</td>
+          <td>${r.break_minutes ? r.break_minutes + "m" : "—"}</td>
+          <td style="text-align:right;font-weight:700">${r.open_now ? "—" : hrs(r.hours)}</td>
+        </tr>
+        ${flags.length ? `<tr><td colspan="5" style="padding-top:0">${flags.join(" ")}</td></tr>` : ""}`);
+      });
+    }
+  }
+
+  const personCard = `
+    <div class="card">
+      <h2>One person's week</h2>
+      <div class="muted" style="margin-bottom:10px">Rostered ${DAY_START}–${DAY_END}. Anything unusual is flagged, not changed.</div>
+      <select onchange="pickPerson(this.value)" style="width:100%;padding:12px;font-size:16px;border-radius:10px">
+        <option value="">— choose a person —</option>
+        ${names.map(n => `<option value="${esc(n)}"${n===PERSON?" selected":""}>${esc(n)}</option>`).join("")}
+      </select>
+      ${PERSON ? `
+        <table style="margin-top:12px"><thead><tr>
+          <th>Day</th><th>Started</th><th>Finished</th><th>Break</th><th style="text-align:right">Hours</th>
+        </tr></thead><tbody>${dayRows.join("")}</tbody></table>
+        <div class="tot" style="margin-top:10px"><span><b>${esc(PERSON)}</b> — week total</span><b>${hrs(personTotal)} h</b></div>
+      ` : ""}
+    </div>`;
+
   $("office").innerHTML = `
+    ${personCard}
     <div class="card">
       <div class="weeknav">
         <button onclick="shiftWeek(-1)">‹ Prev</button>
@@ -428,6 +504,8 @@ async function renderOffice(){
       <tbody>${list}</tbody></table>
     </div>`;
 }
+
+function pickPerson(n){ PERSON = n; renderOffice(); }
 
 async function approve(id, yes){
   showErr("");
