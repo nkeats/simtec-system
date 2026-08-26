@@ -189,6 +189,14 @@ function draw(){
   const n = picked().length;
   $("bsend").textContent = `Send to ${n} ${n===1?"person":"people"}`;
   $("bsend").disabled = !(TESTED && n && t.trim() && !BUSY);
+  /* Name the blocker. A greyed-out button with no reason is the single most
+     common way a working page looks broken. */
+  const why = BUSY ? "sending…"
+            : !t.trim() ? "Type the message first."
+            : !n ? "Nobody is selected — check the group above."
+            : !TESTED ? "Send yourself a test first."
+            : "";
+  const p = $("progress"); if (p && !BUSY) p.textContent = why;
   drawList();
 }
 
@@ -228,7 +236,14 @@ async function load(){
 }
 
 async function postOne(mobile, message){
-  const { data, error } = await sb.functions.invoke("hyper-handler", { body:{ mobile, message } });
+  /* ⚠ A TIMEOUT, BECAUSE A HANG IS WORSE THAN A FAILURE. Without this, a call
+     that never comes back leaves the button disabled and the page reading
+     "sending..." for ever, with no way to tell whether the text went. A failure
+     you can see is recoverable; a silent hang is not. */
+  const call = sb.functions.invoke("hyper-handler", { body:{ mobile, message } });
+  const guard = new Promise((_, rej) =>
+    setTimeout(() => rej(new Error("No answer from the sender after 25 seconds — it may or may not have gone. Check the phone before sending again.")), 25000));
+  const { data, error } = await Promise.race([call, guard]);
   if (error) throw new Error(error.message || "Send failed");
   if (data && data.error) throw new Error(data.error);
   return data;
@@ -248,8 +263,12 @@ async function sendTest(){
     TESTED = false;
     $("teststate").innerHTML = '<span class="chip no">test failed</span>';
     showErr("The test did not send, so nothing else will be sent either: " + e.message);
+  }finally{
+    /* ⚠ finally, NOT after the catch. Anything thrown while updating the screen
+       used to skip this line and leave the button dead until a reload. */
+    $("btest").disabled = false;
+    try{ draw(); }catch(e2){ showErr("The page could not redraw: " + (e2.message||e2)); }
   }
-  $("btest").disabled = false; draw();
 }
 
 function logLine(s){ const l=$("log"); l.style.display="block"; l.textContent += s + "\n"; l.scrollTop = l.scrollHeight; }
