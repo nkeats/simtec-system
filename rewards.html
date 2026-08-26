@@ -11,7 +11,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Simtec">
-<script>window.SIMTEC_BUILD="2026-08-25-03";</script>
+<script>window.SIMTEC_BUILD="2026-08-26-01";</script>
 <script src="update.js?v=2"></script>
 
 
@@ -362,7 +362,7 @@ async function loadAll(){
 }
 
 function ratingLabel(){ return (S.rating||"AAA"); }
-const APP_VER="v17 — 25 Aug";
+const APP_VER="v18 — 26 Aug";
 let NP={sms:true};                                // notification prefs (sms reminder texts)
 // Black-box recorder: any error on the device reports itself home, with a
 // breadcrumb trail of the last taps — so "it froze" becomes a readable log.
@@ -501,23 +501,58 @@ function installState(){
     return {show:true, inApp:inApp, ios:ios};
   }catch(e){ return {show:false}; }   // never let this break the app
 }
+/* ⚠ ONE PLACE OWNS THE WORDING (26 Aug). The big card and the pop-up both show
+   these steps. When they were written out twice they drifted within a day. */
+function installSteps(st){
+  const shareIcon = `<svg width="26" height="26" viewBox="0 0 100 100" style="vertical-align:-7px"><g fill="none" stroke="#FFD23F" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"><path d="M37 45h-4a9 9 0 0 0-9 9v22a9 9 0 0 0 9 9h34a9 9 0 0 0 9-9V54a9 9 0 0 0-9-9h-4"/><path d="M50 58V22"/><path d="M38 33l12-12 12 12"/></g></svg>`;
+  const dotsIcon  = `<svg width="26" height="26" viewBox="0 0 100 100" style="vertical-align:-7px"><g fill="#FFD23F"><circle cx="50" cy="24" r="9"/><circle cx="50" cy="50" r="9"/><circle cx="50" cy="76" r="9"/></g></svg>`;
+  if(st.inApp) return [
+    `You opened this from another app, and that little browser cannot save apps.`,
+    `Tap the ${dotsIcon} three dots in the corner and choose <b>Open in browser</b>.`,
+    `Come straight back here and we'll carry on.`
+  ];
+  if(st.ios) return [
+    `Look along the bottom of your screen for ${shareIcon} — a square with an arrow coming out of it. <b>If you can't see it, tap the</b> ${dotsIcon} <b>three dots first</b> and it's in there.`,
+    `A list slides up. <b>Scroll down that list</b> — it's further down than you'd think — until you see <b>Add to Home Screen</b>. Tap it.`,
+    `Tap <b>Add</b> in the top corner. Done.`
+  ];
+  return [
+    `Tap the ${dotsIcon} three dots in the top right corner of your screen.`,
+    `In the list, tap <b>Add to Home screen</b>. Some phones say <b>Install app</b> — same thing.`,
+    `Tap <b>Install</b>. Done.`
+  ];
+}
+
 function installCard(){
   var st=installState();
   if(!st.show) return "";
-  return `<div style="border-radius:20px;padding:15px 16px;background:linear-gradient(135deg,#2B7CFF,#6B2AB0);box-shadow:0 8px 22px rgba(43,124,255,.35)">
+  /* ⚠ DELIBERATELY LARGE, AND THE STEPS ARE ALREADY OPEN (26 Aug, Nigel: "can we
+     make it bigger until they have followed the instructions, and then it
+     disappears"). The small card needed a tap to reveal the steps, and a tap you
+     have to guess at is a tap most people never make. This is the one job a new
+     customer has, so it takes the top of the screen until it is done - and the
+     moment the app is opened from the home screen, installState() returns
+     nothing and the whole thing is gone for good. */
+  const steps = installSteps(st);
+  return `<div style="border-radius:22px;padding:18px 17px 16px;background:linear-gradient(150deg,#2B7CFF,#6B2AB0);box-shadow:0 10px 26px rgba(43,124,255,.4)">
     <div style="display:flex;align-items:center;gap:11px">
-      <div style="font-size:26px">📲</div>
+      <div style="font-size:30px">📲</div>
       <div style="flex:1">
-        <div style="color:#fff;font-weight:900;font-size:15.5px">Put this on your home screen</div>
-        <div style="color:rgba(255,255,255,.9);font-size:12.6px;font-weight:600;margin-top:2px">Then it's one tap, like your other apps — no email, no link.</div>
+        <div style="color:#fff;font-weight:900;font-size:18px;line-height:1.2">${st.inApp?'One thing first':'Put this on your phone'}</div>
+        <div style="color:rgba(255,255,255,.92);font-size:13px;font-weight:600;margin-top:3px">${st.inApp?'Then we can save your app.':'Takes three taps. Then it opens like any other app.'}</div>
       </div>
     </div>
-    <div class="row" style="margin-top:11px">
-      <button onclick="showInstall()" style="${b3('#fff','#C4D2DC')};color:#123A7A;flex:1;padding:12px;font-size:14px;font-weight:900">Show me how</button>
-      <button onclick="snoozeInstall()" style="${b3('rgba(255,255,255,.16)','rgba(0,0,0,.25)')};color:#fff;padding:12px 14px;font-size:13.5px;font-weight:800">Not now</button>
+    ${steps.map((t,i)=>`<div style="display:flex;gap:11px;margin-top:13px">
+        <div style="flex:none;width:26px;height:26px;border-radius:50%;background:#FFD23F;color:#3A2000;font-weight:900;font-size:14px;display:flex;align-items:center;justify-content:center">${i+1}</div>
+        <div style="color:#fff;font-size:14px;font-weight:600;line-height:1.55">${t}</div>
+      </div>`).join("")}
+    <div style="display:flex;align-items:center;gap:10px;margin-top:15px">
+      <div style="flex:1;color:rgba(255,255,255,.8);font-size:12.5px;font-weight:600">This disappears by itself once it's saved.</div>
+      <button onclick="snoozeInstall()" style="background:rgba(0,0,0,.18);border:none;border-radius:9px;color:#fff;padding:9px 13px;font:inherit;font-size:12.5px;font-weight:800">Not now</button>
     </div>
   </div>`;
 }
+
 function snoozeInstall(){
   try{ localStorage.setItem("simtec_install_snooze", String(Date.now()+7*24*60*60*1000)); }catch(e){}
   render();
@@ -741,37 +776,11 @@ function overlaysHtml(){
     </div>`;
   }
   if(OVERLAY==='install'){
-    const st=installState();
-    /* ⚠ NO "iPhone vs Android" HEADINGS. We already know which phone this is,
-       so we show ONE set of steps - the right one. Telling somebody who owns an
-       iPhone that three dots "means Android" is exactly the fault this replaces. */
-    const shareIcon = `<svg width="30" height="30" viewBox="0 0 100 100" style="vertical-align:-8px"><g fill="none" stroke="#FFD23F" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"><path d="M37 45h-4a9 9 0 0 0-9 9v22a9 9 0 0 0 9 9h34a9 9 0 0 0 9-9V54a9 9 0 0 0-9-9h-4"/><path d="M50 58V22"/><path d="M38 33l12-12 12 12"/></g></svg>`;
-    const dotsIcon  = `<svg width="30" height="30" viewBox="0 0 100 100" style="vertical-align:-8px"><g fill="#FFD23F"><circle cx="50" cy="24" r="9"/><circle cx="50" cy="50" r="9"/><circle cx="50" cy="76" r="9"/></g></svg>`;
-    let steps;
-    if(st.inApp){
-      steps = [
-        `You opened this from another app, and that little browser cannot save apps.`,
-        `Tap the ${dotsIcon} three dots in the corner, and choose <b>Open in browser</b>.`,
-        `Come back to this card and we'll carry on.`
-      ];
-    } else if(st.ios){
-      steps = [
-        `Look along the bottom of your screen for ${shareIcon} — a square with an arrow coming out of it. <b>If you can't see it, tap the</b> ${dotsIcon} <b>three dots first</b> and it's in there.`,
-        `A list slides up. <b>Scroll down that list</b> — it's further down than you'd think — until you see <b>Add to Home Screen</b>. Tap it.`,
-        `Tap <b>Add</b> in the top corner. Done.`
-      ];
-    } else {
-      steps = [
-        `Tap the ${dotsIcon} three dots in the top right corner of your screen.`,
-        `In the list, tap <b>Add to Home screen</b>. Some phones say <b>Install app</b> — same thing.`,
-        `Tap <b>Install</b>. Done.`
-      ];
-    }
+    const st=installState(); const steps=installSteps(st);
     h+=`<div style="position:fixed;inset:0;z-index:56;background:rgba(10,6,24,.93);display:flex;align-items:center;justify-content:center;padding:20px" onclick="dismissInstall()">
       <div onclick="event.stopPropagation()" style="background:linear-gradient(160deg,#1B1140,#2A1A5E);border:1px solid rgba(255,210,63,.35);border-radius:22px;padding:20px;max-width:340px;width:100%">
         <div style="text-align:center;font-size:32px">📲</div>
         <div style="color:#fff;font-weight:900;font-size:18px;text-align:center;margin-top:4px">Save it to your home screen</div>
-        <div style="color:var(--sub);font-size:12.5px;font-weight:600;text-align:center;margin-top:4px">${st.inApp?'One thing first':'Three taps and it\'s done'}</div>
         ${steps.map((t,i)=>`<div style="display:flex;gap:11px;margin-top:14px">
           <div style="flex:none;width:26px;height:26px;border-radius:50%;background:#FFD23F;color:#3A2000;font-weight:900;font-size:14px;display:flex;align-items:center;justify-content:center">${i+1}</div>
           <div style="color:#fff;font-size:13.6px;font-weight:600;line-height:1.55">${t}</div></div>`).join("")}
