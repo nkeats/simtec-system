@@ -637,11 +637,34 @@ async function loadFulfil(){
   }
 }
 
+/* ---- ticking an alert off -------------------------------------------------
+   ⚠ THE REASON IS COMPULSORY, and it is not bureaucracy. An alert that can be
+   silenced with one tap and no note turns this panel into a place where
+   warnings go to die - somebody clears it, nobody knows what was done, and the
+   next person cannot tell "handled" from "ignored". The note is the record.
+
+   ⚠ IT HIDES THIS ONE, NOT THIS KIND. The key is built from the headline AND
+   the detail line, so if more money lands tomorrow the alert comes straight
+   back. Marking today's $267.50 as done can never hide next week's. */
+async function alertDone(key, headline){
+  const why = prompt("What was done about it?\n\nThis is the record — a name, an action, anything real.\n\n" + headline);
+  if(why === null) return;                       // cancelled — change nothing
+  if(!why.trim()){ alert("Nothing was recorded, so the alert stays."); return; }
+  try{
+    const { error } = await sb.rpc("acknowledge_home_alert",
+      { p_key:key, p_headline:headline, p_reason:why.trim(), p_days:30 });
+    if(error) throw error;
+    await loadAlerts();
+  }catch(e){
+    alert("It could not be marked done, so it is still showing: " + (e.message||e));
+  }
+}
+
 async function loadAlerts(){
   const box = document.getElementById("alertBox");
   if(!box) return;
   try{
-    const { data, error } = await sb.rpc("home_alerts");
+    const { data, error } = await sb.rpc("home_alerts_v2");   // v2 = the same alerts, minus anything ticked off
     if(error) throw error;
     const rows = (data||[]).slice().sort((a,b)=>(a.sort_order||0)-(b.sort_order||0));
     if(!rows.length){ box.style.display="none"; box.innerHTML=""; return; }
@@ -674,6 +697,12 @@ async function loadAlerts(){
                                       + esc(l.label)+' \u2192</a>').join('')
                      + '</div>'
                    : '')
+           +     '<div class="lk" style="margin-top:8px">'
+           +       '<button onclick="alertDone(\''+esc(r.alert_key)+'\',\''+esc(r.headline).replace(/'/g,"&#39;")+'\')" '
+           +          'style="border:1px solid currentColor;background:transparent;color:inherit;'
+           +          'border-radius:8px;padding:6px 12px;font:inherit;font-weight:800;font-size:12.5px">'
+           +          'Done \u2713</button>'
+           +     '</div>'
            +   '</div>'
            + '</div>';
     }).join("");
