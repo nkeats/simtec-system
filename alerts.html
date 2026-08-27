@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="en-NZ">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Simtec — Sale &amp; Booking Alerts</title>
+<link rel="icon" href="icon-192.png">
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#0e2038">
+<!-- ⚠ the library MUST load before auth.js, or auth.js cannot find it and
+     shows "Can't check your sign-in", which looks like a login fault. -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.112.2"></script>
+<script src="auth.js?v=3" data-roles="admin,manager,office"></script>
+
+<!-- ===========================================================================
+     SALE & BOOKING ALERTS  ·  built 28 Aug 2026
+
+     Matt saves this to his home screen once and taps "Turn alerts on". After
+     that his phone buzzes every time a consultant books an appointment or
+     completes a sale on the iPad — consultant's name first, so he can send the
+     congratulations without opening anything.
+
+     ⚠ THE LOUDNESS IS AN ANDROID SETTING, NOT CODE. Chrome ignores a sound
+     requested by a website. The page says so on screen rather than leaving
+     anyone hunting.
+
+     ⚠ ONE ROW PER DEVICE. A new phone is a new row; the old one stops working
+     by itself when the browser drops the subscription.
+=========================================================================== -->
+
+<style>
+  :root{ --navy:#0e2038; --gold:#c9a84c; --ink:#0e1726; --paper:#f4f6f9;
+         --line:#dfe5ec; --muted:#5b6880; --warn:#b02a2a; --ok:#0f7b3f; }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--paper);color:var(--ink);
+       font:400 16px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif}
+  .wrap{max-width:560px;margin:0 auto;padding:18px 16px 70px}
+  h1{font-size:24px;margin:0 0 2px}
+  .sub{color:var(--muted);margin:0 0 18px;font-size:14.5px}
+  .card{background:#fff;border:1px solid var(--line);border-radius:16px;padding:18px;margin:0 0 14px}
+  h2{font-size:17px;margin:0 0 10px}
+  button{border:none;border-radius:12px;padding:16px 20px;font:inherit;font-weight:800;
+         font-size:16.5px;background:var(--navy);color:#fff;width:100%}
+  button.ghost{background:#eef1f6;color:var(--navy)}
+  button:disabled{opacity:.45}
+  .row{display:flex;gap:10px;margin-top:10px}
+  .status{font-weight:800;font-size:16px;margin:0 0 8px}
+  .on{color:var(--ok)} .off{color:var(--warn)}
+  .muted{color:var(--muted);font-size:14px}
+  .err{background:#fdeaea;border:1px solid #f2c4c4;color:var(--warn);border-radius:12px;
+       padding:12px;margin:0 0 12px;font-weight:600;display:none}
+  .okbox{background:#e6f4ec;border:1px solid #b9dfc9;color:var(--ok);border-radius:12px;
+         padding:12px;margin:0 0 12px;font-weight:700;display:none}
+  ol{margin:8px 0 0;padding-left:20px} li{margin:0 0 7px}
+  .note{background:#fff7e6;border:1px solid #f0dcae;color:#6b5320;border-radius:12px;padding:12px;margin:12px 0 0;font-size:14.5px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>Sale &amp; booking alerts</h1>
+  <p class="sub">Your phone buzzes the moment a consultant makes a sale or books an appointment.</p>
+
+  <div class="err" id="err"></div>
+  <div class="okbox" id="ok"></div>
+
+  <div class="card">
+    <div class="status" id="status">Checking…</div>
+    <div class="muted" id="detail">&nbsp;</div>
+    <div class="row"><button id="btnOn" onclick="turnOn()">Turn alerts on</button></div>
+    <div class="row"><button class="ghost" id="btnTest" onclick="sendTest()" disabled>Send me a test alert</button></div>
+    <div class="row"><button class="ghost" id="btnOff" onclick="turnOff()" disabled>Turn alerts off on this phone</button></div>
+  </div>
+
+  <div class="card">
+    <h2>Making it loud</h2>
+    <p class="muted" style="margin:0">
+      Android decides the sound, not this page. To make it a proper bell:
+    </p>
+    <ol class="muted">
+      <li>Android <b>Settings</b> → <b>Apps</b> → <b>Chrome</b> → <b>Notifications</b></li>
+      <li>Find <b>app.simtectp.com</b> in the list</li>
+      <li>Set it to <b>Alerting</b>, pick a loud tone, turn the volume up</li>
+      <li>Turn on <b>Override Do Not Disturb</b> if you want it after hours</li>
+    </ol>
+    <div class="note">
+      Save this page to your home screen first (Chrome menu → <b>Add to Home screen</b>).
+      Alerts keep working with the page closed.
+    </div>
+  </div>
+
+</div>
+
+<script>
+/* auth.js keeps its own private client, so this page makes its own. */
+const sb = supabase.createClient(
+  "https://jvqjoenaungubpoegyvf.supabase.co",
+  "sb_publishable_J4MYTdJJyEaWe-GadpwdYA_upPT2rKw"
+);
+
+/* The public half of the signing pair. Safe to sit in a page — it only lets a
+   phone verify that a push really came from Simtec. The private half never
+   leaves the server. */
+const VAPID_PUBLIC = "BIorrkinMT-H5tODYYU7oygd2wSPb8mVqzO7Rd04l4JtCuoPset3J39w0wrPLoXmMphceNlzNN7qf8zQcqA6hWc";
+
+const $ = id => document.getElementById(id);
+function showErr(m){ const e=$("err"); e.textContent=m||""; e.style.display=m?"block":"none"; }
+function showOk(m){ const e=$("ok"); e.textContent=m||""; e.style.display=m?"block":"none";
+                    if(m) setTimeout(()=>{ e.style.display="none"; }, 6000); }
+
+/* base64url → the byte array the browser wants */
+function keyBytes(b64){
+  const pad = "=".repeat((4 - b64.length % 4) % 4);
+  const raw = atob((b64 + pad).replace(/-/g,"+").replace(/_/g,"/"));
+  const out = new Uint8Array(raw.length);
+  for (let i=0;i<raw.length;i++) out[i]=raw.charCodeAt(i);
+  return out;
+}
+const b64 = buf => btoa(String.fromCharCode.apply(null, new Uint8Array(buf)))
+                     .replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
+
+let SUB = null;
+
+/* ⚠ Say WHY it cannot work, never just grey a button out. */
+function unsupportedReason(){
+  if (!("serviceWorker" in navigator)) return "This browser can't do alerts. Use Chrome.";
+  if (!("PushManager" in window))     return "This browser can't do alerts. Use Chrome.";
+  if (!window.isSecureContext)        return "Alerts need a secure connection — open this page at app.simtectp.com.";
+  if (Notification.permission === "denied")
+    return "Notifications are blocked for this site. In Chrome: tap the padlock in the address bar → Permissions → allow Notifications, then reload.";
+  return null;
+}
+
+async function refresh(){
+  const why = unsupportedReason();
+  if (why){
+    $("status").textContent = "Alerts are off";
+    $("status").className = "status off";
+    $("detail").textContent = why;
+    $("btnOn").disabled = true;
+    return;
+  }
+  const reg = await navigator.serviceWorker.getRegistration();
+  SUB = reg ? await reg.pushManager.getSubscription() : null;
+  if (SUB){
+    const { data } = await sb.from("staff_push").select("id,label,active").eq("endpoint", SUB.endpoint).maybeSingle();
+    const live = data && data.active;
+    $("status").textContent = live ? "Alerts are ON for this phone" : "This phone is set up but switched off";
+    $("status").className = "status " + (live ? "on" : "off");
+    $("detail").textContent = live ? "You'll be told every sale and every booking." : "Tap Turn alerts on.";
+    $("btnOn").disabled = !!live;
+    $("btnTest").disabled = !live;
+    $("btnOff").disabled = !live;
+  } else {
+    $("status").textContent = "Alerts are off";
+    $("status").className = "status off";
+    $("detail").textContent = "Tap the button below and allow notifications when asked.";
+    $("btnOn").disabled = false;
+    $("btnTest").disabled = true;
+    $("btnOff").disabled = true;
+  }
+}
+
+async function turnOn(){
+  showErr(""); showOk("");
+  $("btnOn").disabled = true;
+  try{
+    const perm = await Notification.requestPermission();
+    if (perm !== "granted"){
+      showErr("You didn't allow notifications, so nothing can come through. Tap the button again and choose Allow.");
+      $("btnOn").disabled = false; return;
+    }
+    const reg = await navigator.serviceWorker.register("alerts-sw.js");
+    await navigator.serviceWorker.ready;
+    SUB = await reg.pushManager.getSubscription();
+    if (!SUB){
+      SUB = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: keyBytes(VAPID_PUBLIC),
+      });
+    }
+    const { data: { user } } = await sb.auth.getUser();
+    const json = SUB.toJSON();
+    const { error } = await sb.from("staff_push").upsert({
+      label: (user && user.email ? user.email : "this phone"),
+      profile_id: user ? user.id : null,
+      endpoint: SUB.endpoint,
+      p256dh: json.keys.p256dh,
+      auth: json.keys.auth,
+      active: true,
+    }, { onConflict: "endpoint" });
+    if (error) throw new Error(error.message);
+    showOk("Alerts are on. Send yourself a test to be sure.");
+  }catch(e){
+    showErr("Couldn't turn alerts on: " + e.message);
+  }finally{
+    await refresh();
+  }
+}
+
+async function turnOff(){
+  showErr(""); showOk("");
+  try{
+    if (SUB){
+      await sb.from("staff_push").update({ active:false }).eq("endpoint", SUB.endpoint);
+      await SUB.unsubscribe();
+      SUB = null;
+    }
+    showOk("Alerts are off on this phone.");
+  }catch(e){ showErr("Couldn't turn them off: " + e.message); }
+  await refresh();
+}
+
+async function sendTest(){
+  showErr(""); showOk("");
+  $("btnTest").disabled = true;
+  try{
+    const { data:{ session } } = await sb.auth.getSession();
+    const r = await fetch("https://jvqjoenaungubpoegyvf.supabase.co/functions/v1/staff-push", {
+      method:"POST",
+      headers:{ "Content-Type":"application/json",
+                "Authorization":"Bearer " + session.access_token,
+                "apikey":"sb_publishable_J4MYTdJJyEaWe-GadpwdYA_upPT2rKw" },
+      body: JSON.stringify({ test:true, endpoint: SUB ? SUB.endpoint : null })
+    });
+    const out = await r.json().catch(()=>null);
+    if (!r.ok || (out && out.error)) throw new Error((out && out.error) || ("the service answered " + r.status));
+    showOk("Sent. It should arrive within a few seconds — lock the phone and watch.");
+  }catch(e){
+    showErr("Test failed: " + e.message);
+  }finally{
+    $("btnTest").disabled = false;
+  }
+}
+
+window.addEventListener("load", () => setTimeout(refresh, 300));
+</script>
+</body>
+</html>
