@@ -273,11 +273,19 @@ async function sendTest(){
       headers:{ "Content-Type":"application/json",
                 "Authorization":"Bearer " + session.access_token,
                 "apikey":"sb_publishable_J4MYTdJJyEaWe-GadpwdYA_upPT2rKw" },
-      body: JSON.stringify({ test:true, endpoint: SUB ? SUB.endpoint : null })
+      /* ⚠ NO endpoint — send to EVERY paired phone.
+         Passing this browser's own endpoint meant the office pressing "test"
+         only ever tested the office's own machine. Matt's phone was paired,
+         active, and never sent a thing; the screen said "sent" and nobody could
+         tell whose phone had been tested. */
+      body: JSON.stringify({ test:true })
     });
     const out = await r.json().catch(()=>null);
     if (!r.ok || (out && out.error)) throw new Error((out && out.error) || ("the service answered " + r.status));
-    showOk("Sent. It should arrive within a few seconds — lock the phone and watch.");
+    /* Say WHICH phones, and how many actually took it. "Sent" on its own hid
+       the fact that only one device was ever involved. */
+    const names = (out.results || []).map(r => (r.ok ? "\u2713 " : "\u2717 ") + (r.label || "a phone")).join(",  ");
+    showOk("Sent to " + out.sent + " of " + out.of + " phones:  " + names);
   }catch(e){
     showErr("Test failed: " + e.message);
   }finally{
