@@ -16,7 +16,7 @@
      reach the order app before go-live. When you roll out to consultants, add
      ",consultant" to data-roles below and add a New Order button to my-sales.html. -->
 <script src="auth.js?v=3" data-roles="admin,manager,office,consultant"></script>
-<script>window.SIMTEC_BUILD="2026-08-25-01";</script>
+<script>window.SIMTEC_BUILD="2026-08-27-01";</script>
 <script src="update.js?v=2"></script>
 
 
@@ -950,6 +950,12 @@ if(WALKTHROUGH && sb){
     + '</span></div>'
     + '<p class="sub"><b style="color:#1c6b34">Try this and it works:</b> BSB <b>020200</b>, account <b>0352393000</b> '
     + '&mdash; Simtec\'s own BNZ account. Nothing is debited: this is Ezidebit\'s sandbox.</p>'
+    /* Copy buttons: the numbers are long, the boxes are fussy, and a mistyped
+       digit fails the modulus check and looks like a fault in the app. */
+    + '<div style="display:flex;gap:8px;flex-wrap:wrap;margin:2px 0 12px">'
+    +   '<button type="button" class="clr" data-wtcopy="020200">Copy BSB 020200</button>'
+    +   '<button type="button" class="clr" data-wtcopy="0352393000">Copy account 0352393000</button>'
+    + '</div>'
     + '<p class="sub"><b style="color:#b3261e">Try these and they fail:</b></p>'
     + '<ul class="sub" style="margin-top:-6px">'
     + '<li><b>02-0200-0352393-000</b> typed whole, with the dashes &mdash; the boxes take digits only</li>'
@@ -959,6 +965,21 @@ if(WALKTHROUGH && sb){
     + '</ul>'
     + '<p class="sub" style="margin-bottom:0;color:#b3261e"><b>If the form rejects something, note the exact wording.</b> '
     + 'That sentence is what Ezidebit will ask for.</p>';
+    card.addEventListener('click', (ev) => {
+      const b = ev.target.closest('[data-wtcopy]');
+      if(!b) return;
+      const v = b.getAttribute('data-wtcopy');
+      const done = () => { const t=b.textContent; b.textContent='Copied ✓';
+                           setTimeout(()=>{ b.textContent=t; }, 1400); };
+      if(navigator.clipboard && navigator.clipboard.writeText){
+        navigator.clipboard.writeText(v).then(done, ()=>{});
+      } else {
+        /* Older iPads: no clipboard API. Select it so a long-press can copy. */
+        const ta=document.createElement('textarea'); ta.value=v; document.body.appendChild(ta);
+        ta.select(); try{ document.execCommand('copy'); done(); }catch(e){}
+        document.body.removeChild(ta);
+      }
+    });
     const host = document.getElementById('eziFormCard');
     if(host && host.parentNode) host.parentNode.insertBefore(card, host);
   });
@@ -2440,7 +2461,24 @@ function launchEzidebit(){
       return;                                     // no marker = no way back; do not strand them
     }
   }
-  location.href = buildEddrUrl();                 // the whole page goes to Ezidebit
+  const eziUrl = buildEddrUrl();
+  /* ⚠ WALKTHROUGH ONLY — see the note on the cheat-sheet card above.
+     In a real sale the whole page goes to Ezidebit, which is right: one screen,
+     no stray tabs on a consultant's iPad. But in the walkthrough that takes the
+     card listing the ACCEPTABLE BANK NUMBERS off the screen at the exact moment
+     somebody needs to read it, and we cannot put it on Ezidebit's page because
+     it is not our page. So here we open their form in a SECOND TAB and leave
+     this one — with the numbers — sitting behind it.
+     If the browser blocks the pop-up we fall back to the normal handoff rather
+     than stranding anyone. */
+  if (WALKTHROUGH) {
+    const w = window.open(eziUrl, '_blank');
+    if (w) {
+      msg.textContent = 'Ezidebit opened in a second tab. The bank numbers are still on this tab — switch back any time.';
+      return;
+    }
+  }
+  location.href = eziUrl;                          // the whole page goes to Ezidebit
 }
 
 /* Called at start-up. If we have just come back from Ezidebit, put the order
