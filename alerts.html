@@ -10,7 +10,10 @@
 <!-- ⚠ the library MUST load before auth.js, or auth.js cannot find it and
      shows "Can't check your sign-in", which looks like a login fault. -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.112.2"></script>
-<script src="auth.js?v=3" data-roles="admin,manager,office"></script>
+<!-- ⚠ NO auth.js ON PURPose. Matt has no System account and does not need
+     one to receive alerts. The page pairs with a one-use code from the
+     office instead. The office-only card below appears only when a
+     signed-in staff session happens to exist. -->
 
 <!-- ===========================================================================
      SALE & BOOKING ALERTS  ·  built 28 Aug 2026
@@ -67,9 +70,31 @@
   <div class="card">
     <div class="status" id="status">Checking…</div>
     <div class="muted" id="detail">&nbsp;</div>
-    <div class="row"><button id="btnOn" onclick="turnOn()">Turn alerts on</button></div>
+    <div class="row"><button id="btnOn" onclick="turnOn()" style="display:none">Turn alerts on</button></div>
     <div class="row"><button class="ghost" id="btnTest" onclick="sendTest()" disabled>Send me a test alert</button></div>
     <div class="row"><button class="ghost" id="btnOff" onclick="turnOff()" disabled>Turn alerts off on this phone</button></div>
+  </div>
+
+  <div class="card" id="pairCard" style="display:none">
+    <h2>First time on this phone</h2>
+    <p class="muted" style="margin:0 0 10px">
+      Type the 6-letter code the office gave you. It only works once.
+    </p>
+    <input id="code" inputmode="latin" autocapitalize="characters" autocomplete="off"
+           placeholder="e.g. KMPT47"
+           style="width:100%;padding:16px;border:1px solid var(--line);border-radius:12px;
+                  font:inherit;font-size:26px;letter-spacing:6px;text-align:center;
+                  text-transform:uppercase;background:#fff">
+    <div class="row"><button onclick="pairAndOn()">Pair this phone &amp; turn alerts on</button></div>
+  </div>
+
+  <div class="card" id="officeCard" style="display:none">
+    <h2>Office — pair someone's phone</h2>
+    <p class="muted" style="margin:0 0 10px">Make a code, read it to them down the phone.</p>
+    <input id="who" placeholder="Whose phone? e.g. Matt's phone"
+           style="width:100%;padding:13px;border:1px solid var(--line);border-radius:12px;font:inherit">
+    <div class="row"><button class="ghost" onclick="makeCode()">Make a pairing code</button></div>
+    <div id="codeOut" style="margin-top:10px"></div>
   </div>
 
   <div class="card">
@@ -143,8 +168,8 @@ async function refresh(){
   const reg = await navigator.serviceWorker.getRegistration();
   SUB = reg ? await reg.pushManager.getSubscription() : null;
   if (SUB){
-    const { data } = await sb.from("staff_push").select("id,label,active").eq("endpoint", SUB.endpoint).maybeSingle();
-    const live = data && data.active;
+    const { data } = await sb.rpc("staff_push_status", { p_endpoint: SUB.endpoint });
+    const live = data && data.paired && data.active;
     $("status").textContent = live ? "Alerts are ON for this phone" : "This phone is set up but switched off";
     $("status").className = "status " + (live ? "on" : "off");
     $("detail").textContent = live ? "You'll be told every sale and every booking." : "Tap Turn alerts on.";
@@ -161,7 +186,27 @@ async function refresh(){
   }
 }
 
-async function turnOn(){
+/* ⚠ PAIRING REPLACES THE LOGIN. The code is the only thing that lets a phone
+   join the list; it is one-use and short-lived, checked in the database. */
+async function pairAndOn(){
+  showErr(""); showOk("");
+  const code = ($("code").value || "").trim().toUpperCase();
+  if (code.length < 6){ showErr("Type the 6-letter code from the office."); return; }
+  await turnOn(code);
+}
+
+async function makeCode(){
+  showErr(""); showOk("");
+  const label = ($("who").value || "").trim();
+  if (!label){ showErr("Say whose phone it is, so the list means something later."); return; }
+  const { data, error } = await sb.rpc("staff_push_code", { p_label: label, p_minutes: 30 });
+  if (error){ showErr(error.message); return; }
+  $("codeOut").innerHTML = '<div style="background:#f2f5fb;border-radius:12px;padding:16px;text-align:center">'
+    + '<div style="font-size:34px;font-weight:800;letter-spacing:8px">' + esc(data.code) + '</div>'
+    + '<div class="muted">works once, for ' + data.expires_in_minutes + ' minutes</div></div>';
+}
+
+async function turnOn(pairCode){
   showErr(""); showOk("");
   $("btnOn").disabled = true;
   try{
@@ -179,17 +224,20 @@ async function turnOn(){
         applicationServerKey: keyBytes(VAPID_PUBLIC),
       });
     }
-    const { data: { user } } = await sb.auth.getUser();
     const json = SUB.toJSON();
-    const { error } = await sb.from("staff_push").upsert({
-      label: (user && user.email ? user.email : "this phone"),
-      profile_id: user ? user.id : null,
-      endpoint: SUB.endpoint,
-      p256dh: json.keys.p256dh,
-      auth: json.keys.auth,
-      active: true,
-    }, { onConflict: "endpoint" });
-    if (error) throw new Error(error.message);
+    if (pairCode) {
+      const { error } = await sb.rpc("staff_push_claim", {
+        p_code: pairCode, p_endpoint: SUB.endpoint,
+        p_p256dh: json.keys.p256dh, p_auth: json.keys.auth });
+      if (error) throw new Error(error.message);
+    } else {
+      /* Already paired once on this phone — an empty code means "it's me again".
+         The database allows that only for an endpoint it already knows. */
+      const { error } = await sb.rpc("staff_push_claim", {
+        p_code: "", p_endpoint: SUB.endpoint,
+        p_p256dh: json.keys.p256dh, p_auth: json.keys.auth });
+      if (error) throw new Error(error.message);
+    }
     showOk("Alerts are on. Send yourself a test to be sure.");
   }catch(e){
     showErr("Couldn't turn alerts on: " + e.message);
@@ -233,7 +281,27 @@ async function sendTest(){
   }
 }
 
-window.addEventListener("load", () => setTimeout(refresh, 300));
+/* The office card only appears if a staff session happens to exist on this
+   browser. Matt will never see it; the office sees it without going anywhere. */
+async function showCards(){
+  const reg = await navigator.serviceWorker.getRegistration();
+  const sub = reg ? await reg.pushManager.getSubscription() : null;
+  let paired = false;
+  if (sub){
+    const { data } = await sb.rpc("staff_push_status", { p_endpoint: sub.endpoint });
+    paired = !!(data && data.paired);
+  }
+  $("pairCard").style.display = paired ? "none" : "block";
+  $("btnOn").style.display    = paired ? "block" : "none";
+
+  const { data:{ session } } = await sb.auth.getSession();
+  $("officeCard").style.display = session ? "block" : "none";
+  $("btnTest").style.display    = session ? "block" : "none";
+}
+
+window.addEventListener("load", () => setTimeout(async () => {
+  await refresh(); await showCards();
+}, 300));
 </script>
 </body>
 </html>
