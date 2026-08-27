@@ -5,7 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Simtec — Sale &amp; Booking Alerts</title>
 <link rel="icon" href="icon-192.png">
-<link rel="manifest" href="manifest.json">
+<!-- ⚠ ITS OWN MANIFEST. This page pointed at manifest.json, which is the
+     CUSTOMER app's and says start_url: rewards.html — so saving these alerts
+     to the home screen made an icon that opened the Rewards app instead.
+     Any new page that gets saved to a home screen needs its own manifest. -->
+<link rel="manifest" href="alerts-manifest.json">
 <meta name="theme-color" content="#0e2038">
 <!-- ⚠ the library MUST load before auth.js, or auth.js cannot find it and
      shows "Can't check your sign-in", which looks like a login fault. -->
