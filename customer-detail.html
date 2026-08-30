@@ -683,6 +683,10 @@ function orderSection(o, items, pays, open){
       ? kv("Delivery clearance",`<span style="color:var(--green);font-weight:700">✓ Authorised${o.delivery_authorised_by?" by "+esc(o.delivery_authorised_by):""}</span>`)
       : (isAdmin()?`<div style="margin-top:10px"><button onclick="authoriseDelivery('${o.id}')" style="background:#1c6b34;color:#fff;border:none;border-radius:8px;padding:9px 15px;font-size:13.5px;font-weight:600;cursor:pointer">✓ Authorise delivery (override)</button></div>`:"")}
     ${gateBlock(o)}
+    <details style="margin-top:12px" ontoggle="if(this.open)loadProof('${o.id}','proof_${o.id}')">
+      <summary style="cursor:pointer;font-weight:700;color:var(--navy,#0e2038)">Proof of delivery</summary>
+      <div id="proof_${o.id}" style="margin-top:10px"></div>
+    </details>
   </div>`;
 
   const skip = n => /delivery fee|protector|pillow/i.test(n||"");
@@ -3044,6 +3048,98 @@ async function textCardLink(){
     run(true);
   }catch(e){ cpErr("Couldn't send the text: "+(e.message||e)); b.disabled=false; b.textContent=t; }
 }
+
+/* ==========================================================================
+   PROOF OF DELIVERY
+   The signature and photos have been captured since the driver app was built
+   and NOTHING HAS EVER SHOWN THEM — they sit in a private bucket under
+   <run id>/<stop id>/, unreachable from a customer. If someone denied ever
+   receiving a mattress, the evidence existed and could not be found.
+
+   ⚠ THE BUCKET STAYS PRIVATE. Each image gets a short-lived signed link,
+   asked for only when the block is opened. Making the bucket public would put
+   customers' signatures on the open internet.
+
+   ⚠ A MISSING SIGNATURE IS STATED PLAINLY, not left blank. 51 of the 76
+   deliveries in the four weeks to 28 Aug had none, and a blank space looks
+   like a page that has not loaded rather than a gap in the record.
+   (Deliveries from 31 Aug cannot be completed without one.)
+   ========================================================================== */
+async function loadProof(orderId, boxId){
+  const box = document.getElementById(boxId);
+  if(!box) return;
+  box.innerHTML = '<div class="muted">Loading…</div>';
+  try{
+    const { data, error } = await sb.rpc("order_delivery_proof", { p_order: orderId });
+    if(error) throw error;
+    if(!data || !data.length){
+      box.innerHTML = '<div class="muted">No delivery run recorded against this order. '
+                    + 'Anything delivered before the driver app started will not appear here.</div>';
+      return;
+    }
+
+    const parts = [];
+    for(const s of data){
+      /* Signed links are asked for one at a time and only when needed. */
+      let sigUrl = null;
+      if(s.signature_path){
+        const { data: u } = await sb.storage.from("delivery-proof")
+                                    .createSignedUrl(s.signature_path, 3600);
+        sigUrl = u && u.signedUrl;
+      }
+      const photoUrls = [];
+      for(const p of (s.photo_paths || [])){
+        const { data: u } = await sb.storage.from("delivery-proof").createSignedUrl(p, 3600);
+        if(u && u.signedUrl) photoUrls.push(u.signedUrl);
+      }
+
+      const failed = s.outcome && !/^deliver|^part/i.test(s.outcome);
+      parts.push(
+        '<div style="border:1px solid var(--line);border-radius:10px;padding:12px;margin:0 0 10px">'
+        + '<div style="font-weight:700;font-size:15px;margin:0 0 2px">'
+        +   (failed ? '<span style="color:var(--red)">' + esc(s.outcome) + '</span>'
+                    : 'Delivered ' + esc(s.delivered_nz || ''))
+        + '</div>'
+        + (s.arrived_nz ? '<div class="muted" style="font-size:12.5px">Arrived ' + esc(s.arrived_nz) + '</div>' : '')
+        + (s.crew ? '<div class="muted" style="font-size:12.5px">Crew: ' + esc(s.crew) + '</div>' : '')
+        + (s.notes ? '<div style="font-size:13px;margin-top:6px">' + esc(s.notes) + '</div>' : '')
+
+        + '<div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:10px">'
+        +   '<div>'
+        +     '<div class="muted" style="font-size:12px;margin-bottom:4px">Signature</div>'
+        +     (sigUrl
+              ? '<a href="' + sigUrl + '" target="_blank" rel="noopener">'
+                + '<img src="' + sigUrl + '" alt="Customer signature" '
+                + 'style="height:80px;border:1px solid var(--line);border-radius:8px;background:#fff"></a>'
+              : '<div style="color:var(--red);font-weight:600;font-size:13px;'
+                + 'border:1px dashed #e0b4b0;border-radius:8px;padding:14px 12px">Not signed</div>')
+        +   '</div>'
+        +   '<div>'
+        +     '<div class="muted" style="font-size:12px;margin-bottom:4px">Photos'
+        +       (photoUrls.length ? ' (' + photoUrls.length + ')' : '') + '</div>'
+        +     (photoUrls.length
+              ? '<div style="display:flex;gap:8px;flex-wrap:wrap">'
+                + photoUrls.map(u => '<a href="' + u + '" target="_blank" rel="noopener">'
+                    + '<img src="' + u + '" alt="Delivery photo" '
+                    + 'style="height:80px;border:1px solid var(--line);border-radius:8px"></a>').join('')
+                + '</div>'
+              : '<div class="muted" style="font-size:13px;border:1px dashed var(--line);'
+                + 'border-radius:8px;padding:14px 12px">None taken</div>')
+        +   '</div>'
+        + '</div></div>'
+      );
+    }
+    box.innerHTML = parts.join("")
+      + '<div class="muted" style="font-size:11.5px">Tap an image to open it full size. '
+      + 'Links expire after an hour.</div>';
+  }catch(e){
+    /* ⚠ Say it failed. A blank panel and an empty record must never look the
+       same — that mistake cost a day this week. */
+    box.innerHTML = '<div style="color:var(--red);font-weight:600">'
+                  + 'Could not load the delivery proof: ' + esc(e.message || String(e)) + '</div>';
+  }
+}
+
 </script>
 
 </body>
