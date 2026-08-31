@@ -362,7 +362,7 @@ async function loadAll(){
 }
 
 function ratingLabel(){ return (S.rating||"AAA"); }
-const APP_VER="v18 — 26 Aug";
+const APP_VER="v19 — 31 Aug";
 let NP={sms:true};                                // notification prefs (sms reminder texts)
 // Black-box recorder: any error on the device reports itself home, with a
 // breadcrumb trail of the last taps — so "it froze" becomes a readable log.
@@ -570,7 +570,7 @@ function homeView(){
     if(delivered){
       const pctPaid=(PLAN.pct_paid||0)/100, owing=PLAN.owing||0;
       race=raceTrackHtml(pctPaid,"🏁 Race to the final payment","PAID OFF 🎉",`${Math.max(0,Math.round((1-pctPaid)*100))}% to go!`)
-        +`<button onclick="payExtra('extra')" style="${b3('linear-gradient(120deg,#25C97A,#54EFA0)','#159257')};padding:13px 15px;font-size:15px;color:#053019;display:flex;flex-direction:column;gap:1px;width:100%;align-items:center"><span>Make an extra payment 💳</span><span style="font-size:11px;font-weight:700;opacity:.82">Moves the truck toward payoff · +1,000 pts on $50+ · earns a spin</span></button>`
+        +`<button onclick="payExtra('extra')" style="${b3('linear-gradient(120deg,#25C97A,#54EFA0)','#159257')};padding:13px 15px;font-size:15px;color:#053019;display:flex;flex-direction:column;gap:1px;width:100%;align-items:center"><span>Make an extra payment 💳</span><span style="font-size:11px;font-weight:700;opacity:.82">${extraPtsLine('Moves the truck toward payoff')}</span></button>`
         +`<div class="card" style="padding:12px 16px;margin-bottom:0"><div style="display:flex;align-items:center;justify-content:space-between"><div style="display:flex;align-items:center;gap:10px"><div style="font-size:19px">💰</div><div><div style="color:#fff;font-weight:800;font-size:14px">Balance owing</div><div style="color:var(--sub);font-size:11.5px;font-weight:600">Delivered ✓ · ${Math.round(PLAN.pct_paid||0)}% paid off</div></div></div><div style="color:#fff;font-weight:900;font-size:22px">$${nf(owing)}</div></div>${barH(pctPaid,'#25D6FF','#4D7CFF')}</div>`
         +`<button onclick="setTab('points')" style="border-radius:24px;padding:18px;text-align:center;cursor:pointer;border:none;width:100%;background:linear-gradient(135deg,#FF9A3D,#FFD23F);box-shadow:0 8px 24px rgba(255,154,61,.45), inset 0 1px 0 rgba(255,255,255,.4);font-family:inherit"><div style="font-size:12px;font-weight:900;letter-spacing:1px;color:#5A3200">YOUR POINTS ⭐</div><div style="color:#3A2000;font-weight:900;font-size:46px;line-height:1.05">${nf(R.points)}</div><div style="height:12px;background:rgba(90,50,0,.22);border-radius:8px;margin-top:8px;overflow:hidden"><div style="height:100%;width:${(((R.points||0)%CARD_EVERY)/CARD_EVERY)*100}%;background:#5A3200;border-radius:8px"></div></div><div style="color:#5A3200;font-size:12.5px;font-weight:800;margin-top:7px">Only ${nf(CARD_EVERY-((R.points||0)%CARD_EVERY))} to your next $50 card!</div></button>`;
     } else if(crossed){
@@ -603,7 +603,7 @@ function homeView(){
   </div>`;
 
   const referBtn=`<button onclick="setTab('refer')" class="pulse" style="${b3('linear-gradient(120deg,#FF2D78,#FF6A3D)','#C41E5E')};padding:13px 16px;display:flex;align-items:center;gap:10px;width:100%"><span style="font-size:22px">💥</span><span style="flex:1;text-align:left;font-size:14.5px;font-weight:900">Refer a mate</span><span style="font-weight:900;font-size:15px">+50k ⭐</span></button>`;
-  const extraBtn=(PLAN&&PLAN.has_order&&!PLAN.delivered)?`<button onclick="payExtra('extra')" style="${b3('linear-gradient(120deg,#25C97A,#54EFA0)','#159257')};padding:13px 15px;font-size:15px;color:#053019;display:flex;flex-direction:column;gap:1px;width:100%;align-items:center"><span>Make an extra payment 💳</span><span style="font-size:11px;font-weight:700;opacity:.82">Moves the truck · +1,000 pts on $50+ · earns a spin</span></button>`:"";
+  const extraBtn=(PLAN&&PLAN.has_order&&!PLAN.delivered)?`<button onclick="payExtra('extra')" style="${b3('linear-gradient(120deg,#25C97A,#54EFA0)','#159257')};padding:13px 15px;font-size:15px;color:#053019;display:flex;flex-direction:column;gap:1px;width:100%;align-items:center"><span>Make an extra payment 💳</span><span style="font-size:11px;font-weight:700;opacity:.82">${extraPtsLine('Moves the truck')}</span></button>`:"";
   if(!APPST.earning) return greeting+race+closedCard+referBtn;   // plan closed: no daily/spin/extra payment
   return installCard()+greeting+missedCard()+race+circles+referBtn+extraBtn;
 }
@@ -696,7 +696,7 @@ function ratingView(){
 function lootView(){
   const pct=(PLAN&&PLAN.has_order)?(PLAN.pct_paid||0):0, has=k=>MS.indexOf(k)>=0;
   const drops=`<div class="card" style="margin-bottom:0"><div class="eyeb" style="margin-bottom:8px">Surprise drops 🎊</div><div style="color:var(--sub);font-size:11.5px;font-weight:600;line-height:1.5;margin-bottom:4px">Do the right thing and the points roll in — the more it helps us, the bigger the drop.</div>
-    ${[["💚","Make a payment on time","A little thanks for staying on track · + a free spin","+200","#25C97A"],["💳","Make an extra payment","Get ahead — grab a bigger drop","+1,000","#4D7CFF"],["💥","Refer a mate who buys","The biggest drop of all · paid once they settle in full or make 2 payments","+50,000","#FF2D78"]].map(([e,t,d,p,col])=>`<div style="display:flex;align-items:center;gap:12px;padding:11px 0;border-top:1px solid var(--line)"><div style="font-size:23px">${e}</div><div style="flex:1"><div style="color:#fff;font-size:14px;font-weight:800">${t}</div><div style="color:var(--sub);font-size:11.5px;font-weight:600">${d}</div></div><div style="color:${col};font-weight:900;font-size:15px;white-space:nowrap">${p}</div></div>`).join("")}
+    ${[["💚","Make a payment on time","A little thanks for staying on track · + a free spin","+200","#25C97A"],["💳","Make an extra payment",extraPtsBlurb(),"+1,000","#4D7CFF"],["💥","Refer a mate who buys","The biggest drop of all · paid once they settle in full or make 2 payments","+50,000","#FF2D78"]].map(([e,t,d,p,col])=>`<div style="display:flex;align-items:center;gap:12px;padding:11px 0;border-top:1px solid var(--line)"><div style="font-size:23px">${e}</div><div style="flex:1"><div style="color:#fff;font-size:14px;font-weight:800">${t}</div><div style="color:var(--sub);font-size:11.5px;font-weight:600">${d}</div></div><div style="color:${col};font-weight:900;font-size:15px;white-space:nowrap">${p}</div></div>`).join("")}
   </div>`;
   const miles=`<div class="card" style="margin-bottom:0"><div class="eyeb" style="margin-bottom:8px">Milestone loot</div>
     ${[[25,"25% paid off","10,000 bonus points","🎁","pct25"],[50,"50% paid off","20,000 bonus points","🎉","pct50"],[100,"Paid in full","Lifetime Triple-A + 10% off your next order","👑","paidfull"]].map(([thr,m,r,e,k])=>{const done=has(k)||pct>=thr;return `<div style="display:flex;align-items:center;gap:12px;padding:11px 0;border-top:1px solid var(--line)"><div style="width:34px;height:34px;border-radius:11px;background:${done?'linear-gradient(135deg,#54EFA0,#25C97A)':'rgba(255,255,255,.09)'};display:flex;align-items:center;justify-content:center;font-size:17px">${done?'✓':'🔒'}</div><div style="flex:1"><div style="color:${done?'#fff':'var(--sub)'};font-size:14px;font-weight:800">${e} ${r}</div><div style="color:var(--sub);font-size:11.5px;font-weight:600">${m}${done?'':` · you're at ${Math.round(pct)}%`}</div></div>${done?'<span style="color:#54EFA0;font-size:11.5px;font-weight:900">GOT IT!</span>':''}</div>`;}).join("")}
@@ -848,6 +848,25 @@ async function toggleSmsReminders(){
     toast(want?"💬 Reminder texts on":"🔕 Reminder texts off — you can turn them back on any time");
   }catch(e){ NP.sms=!want; render(); toast("Couldn\u2019t save that — give it another go"); }
   busy=false;
+}
+
+
+/* ⚠ THE POINTS PROMISE MUST MATCH THE RULE IN record_stripe_payment.
+   1,000 points go on an extra payment ONLY when the customer is up to date —
+   catching up on arrears earns nothing. Promising "+1,000 pts" to somebody who
+   is behind is a promise the System will not keep, and the first they would
+   know of it is when the points did not arrive.
+   my_plan() returns `standing`, the SAME value that rule tests. */
+function behindNow(){ return !!(PLAN && PLAN.standing === 'behind'); }
+function extraPtsLine(prefix){
+  return behindNow()
+    ? prefix + " · earns a spin · 1,000 pts once you are up to date"
+    : prefix + " · +1,000 pts on $50+ · earns a spin";
+}
+function extraPtsBlurb(){
+  return behindNow()
+    ? "Once you are up to date — catching up does not earn points"
+    : "Get ahead — grab a bigger drop";
 }
 
 function payExtra(purpose){
