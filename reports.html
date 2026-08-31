@@ -71,6 +71,7 @@
     </div>
     <p class="text-xs text-slate-500 mb-4">Every sale shows in the week it was made. Cancelled sales are shown struck-through as CNX and don't count toward the totals — un-cancel a sale and it counts again. Click a week for the agent breakdown.</p>
     <div id="state" class="text-slate-400 text-sm py-6">Loading…</div>
+    <div id="unknownProducts" style="display:none;background:#fff7e6;border:1px solid #f0dcae;color:#6b5320;border-radius:10px;padding:10px 12px;margin:0 0 10px;font-size:13.5px"></div>
     <table id="tbl" style="display:none"><thead><tr>
       <th>Week beginning</th><th class="num">Mattresses</th><th class="num">Sales value</th>
     </tr></thead><tbody id="rows"></tbody></table>
@@ -144,7 +145,34 @@
 const sb = supabase.createClient("https://jvqjoenaungubpoegyvf.supabase.co","sb_publishable_J4MYTdJJyEaWe-GadpwdYA_upPT2rKw");
 const fmt=n=>"$"+Math.round(n||0).toLocaleString();
 const esc=s=>(s||"").replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
-const isMattress=n=>n && !/delivery fee|protector|pillow|base|topper/i.test(n);
+/* ⚠ WHAT COUNTS AS A MATTRESS COMES FROM sim_stock_items, NOT FROM THE NAME.
+   This used to be a guess: anything NOT matching /delivery fee|protector|
+   pillow|base|topper/ was called a mattress. A single order line typed
+   "Delivery" instead of "Delivery fee" slipped straight through the pattern and
+   was counted as a mattress — Kaylem Elder showed 2 on 31 Aug 2026 with one
+   mattress on the order.
+   The stock table already classifies all 19 products. Reading it means a new
+   product is classified in ONE place, and a name nobody thought of cannot
+   quietly inflate the sales figures.
+   ⚠ IT FAILS SAFE: an unknown product is NOT counted, and is listed on screen
+   rather than ignored — an undercount somebody can see beats an overcount
+   nobody can. */
+let MATTRESS_NAMES = null;          // Set, loaded once
+const UNKNOWN_PRODUCTS = new Set(); // sold but not in the stock list
+const isMattress = n => {
+  if(!n) return false;
+  if(!MATTRESS_NAMES) return false;
+  if(MATTRESS_NAMES.has(n)) return true;
+  if(!KNOWN_PRODUCTS.has(n) && !/^delivery/i.test(n)) UNKNOWN_PRODUCTS.add(n);
+  return false;
+};
+let KNOWN_PRODUCTS = new Set();
+async function loadProductKinds(){
+  const rows = must(await sb.from("sim_stock_items").select("product_name,category"),
+                    "Loading the product list");
+  MATTRESS_NAMES = new Set((rows||[]).filter(r=>r.category==='mattress').map(r=>r.product_name));
+  KNOWN_PRODUCTS  = new Set((rows||[]).map(r=>r.product_name));
+}
 
 // UTC-safe Monday-of-week and Sunday-of-week
 function ymd(dt){return dt.getUTCFullYear()+"-"+String(dt.getUTCMonth()+1).padStart(2,"0")+"-"+String(dt.getUTCDate()).padStart(2,"0");}
@@ -192,6 +220,8 @@ async function load(){
     "Loading orders from sim_orders");
 
   // orders whose COMMISSION record was cancelled (pay-run cancel doesn't touch the order itself)
+  await loadProductKinds();          // ⚠ before any counting happens
+
   const cxIds=new Set();
   { const cxs = must(await sb.from("commission_sales").select("sim_order_id,status").eq("status","cancelled"),
       "Loading cancelled commission records");
@@ -267,6 +297,15 @@ async function load(){
 
   _weeksCache = weeks;
   draw(weeks);
+  if(UNKNOWN_PRODUCTS.size){
+    /* Not an error, but somebody must classify it or the count stays low. */
+    const el = document.getElementById("unknownProducts");
+    if(el){
+      el.textContent = "Not counted as mattresses because they are not in the product list: "
+        + [...UNKNOWN_PRODUCTS].join(", ") + ". Add them under Stock to include them.";
+      el.style.display = "";
+    }
+  }
 
  }catch(err){
   // anything that went wrong — missing column, blocked table, network — is shown plainly
