@@ -62,7 +62,7 @@
     They do not appear in the daily Ezidebit report, so nothing in the system knew about them.
     This brings them in alongside the Ezidebit book.</p>
     <p class="muted">Drop in Paysmart's balances export — the one with
-    <b>AccountReference, ContractValue, Paid, Balance</b>.</p>
+    <b>AccountReference, ContractValue, Paid, Balance</b>. It also takes the <b>archived customers</b> file (Ref #, Customer, Reason) — the ones Paysmart has stopped collecting from. The page works out which is which.</p>
     <div class="note">
       <b>Paysmart customers are kept separate.</b> They are flagged as their own provider and
       matched only against other Paysmart records, so the two books never blur together and
@@ -119,6 +119,7 @@ async function auCall(op, payload){
 const $ = id => document.getElementById(id);
 const money = n => (n==null||n==='') ? '—' : '$'+Number(n).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
 let PARSED = null;
+let MODE = 'paysmart';   // set by whichever of the two Paysmart files was recognised
 
 function log(m){ const l=$('log'); l.style.display='block'; l.textContent += m+"\n"; l.scrollTop=l.scrollHeight; }
 
@@ -146,14 +147,25 @@ const iso = s => {                       // 5/06/2025 -> 2025-06-05
   return m ? `${m[3]}-${m[2].padStart(2,'0')}-${m[1].padStart(2,'0')}` : null;
 };
 
+/* ⚠ PAYSMART SEND TWO DIFFERENT FILES and they share no columns.
+     CurrentBalances.csv        - who is STILL PAYING
+     GroupArchivedCustomers.csv - who Paysmart has STOPPED collecting from,
+                                  with the REASON, which is where the unchased
+                                  money is.
+   The page works out which one it has been given rather than making Cherelee
+   choose, because picking the wrong one silently produces nonsense. */
 function build(rows){
   const head = rows[0].map(h=>String(h).trim());
   const col = n => head.indexOf(n);
+
+  if(col('Ref #') >= 0 && col('Reason') >= 0){ return buildArchived(rows, head, col); }
+
   const need = ['AccountReference','ContractValue','Paid','Balance'];
   const missing = need.filter(n => col(n) < 0);
   if(missing.length){
-    alert("That does not look like the Paysmart balances file.\n\nMissing column(s): "
-      + missing.join(', '));
+    alert("That does not look like either Paysmart file.\n\n"
+      + "Expected either the balances file (AccountReference, ContractValue, Paid, Balance) "
+      + "or the archived file (Ref #, Customer, Reason).\n\nMissing: " + missing.join(', '));
     return;
   }
   const out=[];
@@ -180,6 +192,82 @@ function build(rows){
   }
   PARSED = out;
   show(out);
+}
+
+/* ── Paysmart's ARCHIVED customers ─────────────────────────────────────────
+   ⚠ THE NAME IS ONE FIELD, SURNAME FIRST: "LEMUSU Toli". Splitting on the
+     FIRST space gives surname + the rest, which handles "VAN DER MEER Jan"
+     no better than anything else would — but it is stated here so the next
+     person knows it is a guess, not a rule.
+   ⚠ "CV Complete" means the contract is PAID OFF. Those people must not end
+     up on a chase list; the gateway archives them.
+   ⚠ DATES ARE "20-May-26", not the d/m/Y the balances file uses. */
+const MONTHS = {jan:1,feb:2,mar:3,apr:4,may:5,jun:6,jul:7,aug:8,sep:9,oct:10,nov:11,dec:12};
+const isoDMY = s => {
+  const m = String(s||'').match(/^(\d{1,2})-([A-Za-z]{3})-(\d{2,4})$/);
+  if(!m) return null;
+  const mo = MONTHS[m[2].toLowerCase()]; if(!mo) return null;
+  let y = Number(m[3]); if(y < 100) y += 2000;
+  return `${y}-${String(mo).padStart(2,'0')}-${m[1].padStart(2,'0')}`;
+};
+
+function buildArchived(rows, head, col){
+  const out = [];
+  for(let i=1;i<rows.length;i++){
+    const r = rows[i];
+    const ref = String(r[col('Ref #')]||'').replace(/\D/g,'');
+    if(!ref) continue;
+    const whole = String(r[col('Customer')]||'').trim();
+    const sp = whole.indexOf(' ');
+    out.push({
+      account_ref: ref,
+      surname: sp > 0 ? whole.slice(0, sp) : whole,
+      given:   sp > 0 ? whole.slice(sp+1) : '',
+      contract_value: num(r[col('Contract Value')]),
+      paid: num(r[col('Paid')]),
+      normal_payment: num(r[col('Normal Payment')]),
+      reason: (r[col('Reason')]||'').trim(),
+      archived_on: isoDMY(r[col('Archived')]),
+      address: (r[col('Address')]||'').trim(),
+      suburb: (r[col('Suburb')]||'').trim(),
+      postcode: String(r[col('Post Code')]||'').trim(),
+      phone: String(r[col('Tel #')]||'').trim()
+    });
+  }
+  PARSED = out; MODE = 'paysmart_archived';
+  showArchived(out);
+}
+
+function showArchived(out){
+  const val  = out.reduce((a,b)=>a+(b.contract_value||0),0);
+  const paid = out.reduce((a,b)=>a+(b.paid||0),0);
+  const owing= out.reduce((a,b)=>a+((b.contract_value||0)-(b.paid||0)),0);
+  const done = out.filter(r=>/cv complete/i.test(r.reason));
+  const by = {};
+  out.forEach(r=>{ const k=r.reason||'(no reason given)';
+                   by[k]=by[k]||{n:0,o:0}; by[k].n++; by[k].o += (r.contract_value||0)-(r.paid||0); });
+
+  $('preview').innerHTML =
+    '<table>'
+    + '<tr><th>Paysmart has STOPPED collecting from these people</th><th class="num">Count</th><th class="num">Amount</th></tr>'
+    + `<tr><td>In the file</td><td class="num">${out.length}</td><td class="num"></td></tr>`
+    + `<tr><td>Original contract value</td><td class="num"></td><td class="num">${money(val)}</td></tr>`
+    + `<tr><td>Paid so far</td><td class="num"></td><td class="num">${money(paid)}</td></tr>`
+    + `<tr><td><b>Still owing</b></td><td class="num"></td><td class="num"><b>${money(owing)}</b></td></tr>`
+    + '</table>'
+    + '<h3 style="margin:16px 0 6px">Why Paysmart stopped</h3><table>'
+    + Object.entries(by).sort((a,b)=>b[1].o-a[1].o).map(([k,v]) =>
+        `<tr><td>${esc(k)}</td><td class="num">${v.n}</td><td class="num">${money(v.o)}</td></tr>`).join('')
+    + '</table>'
+    + (done.length
+        ? `<p class="note">${done.length} of them show <b>CV Complete</b> — they have PAID OFF and owe nothing. `
+          + `They will be filed as archived so nobody chases them.</p>`
+        : '')
+    + '<p class="note">⚠ Some of these people may already be on the book under an <b>Ezidebit</b> '
+    + 'reference, because they moved provider. After saving, check the '
+    + '<b>Paysmart archived</b> view — it shows anyone who appears twice, so nobody is chased '
+    + 'for the same debt on two accounts.</p>';
+  $('saveBar').style.display='';
 }
 
 function show(out){
@@ -228,7 +316,7 @@ $('apply').onclick = async () => {
   $('apply').disabled=true; $('cancel').disabled=true;
   log('Sending '+PARSED.length+' customers…');
   try{
-    const res = await auCall('paysmart', { rows: PARSED });
+    const res = await auCall(MODE, { rows: PARSED });
     log('');
     log('DONE.  updated '+(res.updated||0)+'   added '+(res.inserted||0));
     log('They now appear on the chase list under the Paysmart tab.');
