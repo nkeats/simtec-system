@@ -819,6 +819,7 @@ async function showCon(){
             <h3 class="font-semibold text-sm uppercase tracking-wide">Bonuses</h3>
             <button class="btn gold text-xs py-1.5 px-3" onclick="addBonusModal()">+ Add Bonus</button>
           </div>
+          <div id="accredWaiting"></div>
           ${cv.ac>0?`<div class="flex justify-between text-sm py-1.5 text-slate-400 italic">
             <span>Auto cash bonuses (${s.cash_bonus?Math.round(cv.ac/s.cash_bonus):0} × ${fmt(s.cash_bonus)} — paid-in-full only)</span>
             <span>${fmt(cv.ac)}</span></div>`:''}
@@ -895,6 +896,8 @@ async function showCon(){
           </div>
         </div>
       </div>`;
+    /* the panel is filled after the page HTML is in place */
+    drawAccredWaiting(consId);
   }
 
   window.updateRetPayout=async(val)=>{
@@ -926,7 +929,54 @@ async function showCon(){
     render();
   };
   window.delSale=async id=>{if(run?.status==='finalised'){toast('Run finalised — un-finalise first.',false);return;}if(!confirm('Delete this sale?'))return;const{error}=await sb.from('commission_sales').delete().eq('id',id);if(error){err(error);return;}const i=sales.findIndex(s=>s.id===id);if(i>-1)sales.splice(i,1);render();toast('Sale removed');};
-  window.delBonus=async id=>{if(run?.status==='finalised'){toast('Run finalised — un-finalise first.',false);return;}const{error}=await sb.from('commission_bonuses').delete().eq('id',id);if(error){err(error);return;}const i=(bonuses||[]).findIndex(b=>b.id===id);if(i>-1)bonuses.splice(i,1);render();toast('Bonus removed');};
+  /* ── ACCREDITATION PAYMENTS WAITING FOR A RUN ───────────────────────
+   Passing accreditation raises $1,000 automatically with NO pay run attached,
+   because Nigel chooses which run it lands on. Without this panel that bonus
+   is INVISIBLE — the page only ever loads bonuses already tied to a run — so
+   somebody who had passed would simply never be paid and nobody would see it.
+   ⚠ The description is what PRINTS ON THE INVOICE. Do not change it to a
+     marker like __RETENTION_PAYOUT__; that one is filtered out, this one is
+     meant to be read by the consultant. */
+const ACCRED_DESC = 'Accreditation completed';
+
+async function drawAccredWaiting(consId){
+  const el = document.getElementById('accredWaiting');
+  if(!el) return;
+  el.innerHTML = '';
+  if(!runId || run?.status === 'finalised') return;
+  const { data, error } = await sb.from('commission_bonuses')
+    .select('id, amount, consultant_id')
+    .eq('description', ACCRED_DESC).is('pay_run_id', null);
+  if(error || !data || !data.length) return;
+
+  const mine = consId ? data.filter(b => b.consultant_id === consId) : data;
+  if(!mine.length) return;
+
+  const names = {};
+  const { data: cons } = await sb.from('commission_consultants').select('id,name');
+  (cons||[]).forEach(c => names[c.id] = c.name);
+
+  el.innerHTML = `<div class="mt-3 p-3 rounded-lg" style="background:#3a2f0d;border:1px solid #7a6516">
+    <div class="text-sm font-semibold text-yellow-300 mb-2">
+      ${mine.length} accreditation payment${mine.length===1?'':'s'} not yet on any run
+    </div>
+    ${mine.map(b => `<div class="flex items-center justify-between text-sm py-1">
+      <span class="text-slate-200">${esc(names[b.consultant_id]||'a consultant')} &mdash; ${fmt(b.amount)}</span>
+      <button class="btn gold text-xs py-1 px-2" onclick="addAccredToRun('${b.id}')">Add to this run</button>
+    </div>`).join('')}
+  </div>`;
+}
+
+window.addAccredToRun = async id => {
+  if(run?.status === 'finalised'){ toast('Run finalised — un-finalise first.', false); return; }
+  const { error } = await sb.from('commission_bonuses')
+    .update({ pay_run_id: runId }).eq('id', id).is('pay_run_id', null);
+  if(error){ err(error); return; }
+  toast('Accreditation payment added to this run');
+  await load();
+};
+
+window.delBonus=async id=>{if(run?.status==='finalised'){toast('Run finalised — un-finalise first.',false);return;}const{error}=await sb.from('commission_bonuses').delete().eq('id',id);if(error){err(error);return;}const i=(bonuses||[]).findIndex(b=>b.id===id);if(i>-1)bonuses.splice(i,1);render();toast('Bonus removed');};
   window.delDed=async id=>{if(run?.status==='finalised'){toast('Run finalised — un-finalise first.',false);return;}const{error}=await sb.from('commission_deductions').delete().eq('id',id);if(error){err(error);return;}const i=(deds||[]).findIndex(d=>d.id===id);if(i>-1)deds.splice(i,1);render();toast('Deduction removed');};
 
   window.addSaleModal=weekEnd=>{
