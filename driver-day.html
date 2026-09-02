@@ -16,7 +16,7 @@
 <meta name="apple-mobile-web-app-title" content="Simtec Delivery">
 <meta name="theme-color" content="#012B60">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.112.2"></script>
-<script>window.SIMTEC_BUILD="2026-08-25-01";</script>
+<script>window.SIMTEC_BUILD="2026-08-28-01";</script>
 <script src="update.js?v=2"></script>
 
 <style>
@@ -640,9 +640,11 @@ function renderStop(){
 
     <div class="card">
       <h2>Proof</h2>
-      <label>Photo (of the delivery or where you left it)</label>
+      <label>Photos &mdash; take as many as you need</label>
       <input type="file" accept="image/*" capture="environment" onchange="uploadPhoto(this)">
-      <div class="muted" id="photoState">${s.photo_count} taken</div>
+      <div class="muted" id="photoState">${s.photo_count
+          ? (s.photo_count + " photo" + (s.photo_count==1?"":"s") + " taken \u2014 tap again to add another")
+          : "No photos yet. Take one of the delivery, or where you left it."}</div>
       <label>Customer signature</label>
       <canvas id="sig"></canvas>
       <div class="row" style="margin-top:8px">
@@ -800,15 +802,35 @@ async function refreshStop(){
 }
 
 /* ---------------- proof ---------------- */
+/* ⚠ MORE THAN ONE PHOTO PER STOP ALWAYS WORKED — every upload gets its own
+   timestamped path and its own row. What was missing was any sign of it: the
+   label read "Photo", and after one upload the message stuck on "Photo saved"
+   without the count moving. Drivers had no reason to think a second was
+   allowed. The fix is what the screen SAYS, not what it does. */
 async function uploadPhoto(input){
   const f = input.files && input.files[0]; if(!f) return;
-  $("photoState").textContent = "Uploading…";
+  $("photoState").textContent = "Uploading\u2026";
   const p = await here(4000);
   const path = `${CURRENT.run_id}/${CURRENT.id}/photo-${Date.now()}.jpg`;
   const { error } = await sb.storage.from("delivery-proof").upload(path, f, {contentType:f.type||"image/jpeg"});
-  if(error){ $("photoState").textContent = "Upload failed — try again"; return; }
-  await sb.from("driver_photos").insert({stop_id:CURRENT.id, path, lat:p.lat, lng:p.lng});
-  $("photoState").textContent = "Photo saved";
+  if(error){
+    /* ⚠ leave the count alone on failure — never imply a photo was kept. */
+    $("photoState").textContent = "That photo did not save \u2014 tap again to try once more";
+    input.value = "";
+    return;
+  }
+  const { error: rowErr } = await sb.from("driver_photos").insert({stop_id:CURRENT.id, path, lat:p.lat, lng:p.lng});
+  if(rowErr){
+    $("photoState").textContent = "That photo did not save \u2014 tap again to try once more";
+    input.value = "";
+    return;
+  }
+  if (CURRENT) CURRENT.photo_count = (Number(CURRENT.photo_count)||0) + 1;
+  const n = CURRENT ? CURRENT.photo_count : 1;
+  $("photoState").textContent = n + " photo" + (n==1?"":"s") + " taken \u2014 tap again to add another";
+  /* ⚠ CLEAR THE INPUT. Without this the browser holds the last file and picking
+     the same one again fires nothing — which looks like the app ignoring them. */
+  input.value = "";
 }
 let SIGCTX=null, DRAWN=false;
 function initSig(){
