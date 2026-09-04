@@ -727,7 +727,15 @@ function orderSection(o, items, pays, open){
     else if(po.date)   payoffTxt = `<span style="font-weight:400;font-size:12.5px;color:var(--sub)">Final payment${po.est?" (est.)":""}: <b style="color:var(--navy)">${fmtDMY(po.date)}</b></span>`;
     else if(po.noSched)payoffTxt = `<span style="font-weight:400;font-size:12.5px;color:var(--amber)">Final payment: no schedule set</span>`;
   }
-  const payRows = pays.length ? pays.slice(0,40).map(x=>`<tr><td>${auDate(x.payment_date)}</td><td class="num">${fmt(x.amount)}</td></tr>`).join("")
+  /* ⚠ SHOW HOW IT WAS PAID. Without this a card payment made to cover a failed
+     debit is indistinguishable from the debit itself, which is exactly the
+     question the office asks when a customer rings. */
+  const howPaid = x => { const s=String(x.source||"").toLowerCase();
+    if(s==="stripe") return "Card";
+    if(s==="reward") return "Reward card";
+    if(s==="manual") return (x.method?String(x.method):"Manual");
+    return "Ezidebit"; };
+  const payRows = pays.length ? pays.slice(0,40).map(x=>`<tr><td>${auDate(x.payment_date)}</td><td>${esc(howPaid(x))}</td><td class="num">${fmt(x.amount)}</td></tr>`).join("")
     : `<tr><td colspan="2" class="muted">No payments recorded yet.</td></tr>`;
   const history=`<div class="card full">
     <h2 style="display:flex;align-items:center;flex-wrap:wrap;gap:12px">
@@ -735,7 +743,7 @@ function orderSection(o, items, pays, open){
       ${payoffTxt}
       <button onclick="printStatement('${o.id}')" style="margin-left:auto;background:#122347;color:#fff;border:none;border-radius:7px;padding:5px 12px;font-size:12px;font-weight:600;cursor:pointer">🖨 Print statement</button>
     </h2>
-    <table><thead><tr><th>Date</th><th class="num">Amount</th></tr></thead><tbody>${payRows}</tbody></table></div>`;
+    <table><thead><tr><th>Date</th><th>How</th><th class="num">Amount</th></tr></thead><tbody>${payRows}</tbody></table></div>`;
 
   const oid=o.id;
   // Identity documents — admin/manager only. Photos live in the private
@@ -1957,8 +1965,22 @@ window.printStatement=async function(oid){
                   "eftpos":"Eftpos / card payment",
                   "deposit":"Deposit at point of sale",
                   "other":"Extra payment" };
+  /* ⚠⚠ THIS USED TO SAY: anything not 'manual' is an Ezidebit direct debit.
+     That was wrong the moment card payments existed. Bella Edmonds FAILED her
+     Ezidebit debit and made it up by card — and her statement told her she had
+     paid by direct debit. A customer-facing document must not describe a
+     payment as something the customer knows it was not.
+     ⚠ Decide on the SOURCE first, and only fall through to the method for
+       payments the office keyed in by hand. */
   const payType=p=>{ const s=String(p.source||"").toLowerCase();
-    if(s!=="manual") return "Ezidebit direct debit";
+    if(s==="stripe"){
+      const n=String(p.notes||"").toLowerCase();
+      if(n.includes("sale-card")) return "Card payment";
+      if(n.includes("deposit"))   return "Deposit paid by card";
+      return "Card payment (paid online)";
+    }
+    if(s==="reward")  return "Reward card credit";
+    if(s!=="manual")  return "Ezidebit direct debit";
     const m=String(p.method||"").toLowerCase();
     const label=PAYWORD[m]||(m?m.charAt(0).toUpperCase()+m.slice(1):"Extra payment");
     return label+(p.notes?` — ${esc(p.notes)}`:""); };
