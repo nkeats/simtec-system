@@ -63,6 +63,20 @@ It runs as the owner, read-write, with no row security. This has cost days:
 
 **Test with `set local role authenticated` and real JWT claims.**
 
+### ⚠⚠ A backup of customer data is customer data
+
+Any backup or copy of a table holding customer data gets row security enabled
+and grants revoked from `anon` and `authenticated` **at the moment it is
+created — in the same migration, not later.** RLS with no policies is the
+correct state for a backup: it denies everyone, and the service key still
+restores from it.
+
+`bak_au_clients_20260824` held the entire Australian client book — 625 rows of
+names, balances, addresses and phone numbers — readable by `anon` for eleven
+days. Supabase's advisor found it, not us. Two sibling tables created the same
+day were locked down; **the backup was missed because backups were not on the
+checklist.**
+
 ### ⚠ A silent failure is a bug, even when the code "works"
 
 A greyed-out button that will not say why, a blank panel that looks identical to
