@@ -43,6 +43,22 @@
   .tot b{font-size:16px}
   .weeknav{display:flex;align-items:center;gap:10px;margin-bottom:10px}
   .weeknav button{padding:7px 12px;font-size:14px}
+  .num{text-align:right}
+  input.t{padding:7px 8px;font-size:15px;width:110px}
+  button.mini{padding:5px 10px;font-size:12.5px}
+  .phead{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:10px}
+  .printonly{display:none}
+  /* \u26a0 The office prints this every week and signs it off, so the printed
+     page must be the timesheet \u2014 no navigation, no buttons, no colour blocks. */
+  @media print{
+    body{background:#fff}
+    .top,.noprint,#mine,#crewadmin{display:none !important}
+    .printonly{display:block}
+    .wrap{max-width:none;padding:0}
+    .card{border:none;border-bottom:1px solid #000;border-radius:0;padding:8px 0;margin:0 0 8px;break-inside:avoid}
+    input.t{border:none;padding:0;font-size:13px;width:auto;background:transparent}
+    .chip{border:1px solid #999;background:#fff !important;color:#000 !important}
+  }
 </style>
 </head>
 <body>
@@ -68,7 +84,6 @@ const $ = id => document.getElementById(id);
 const esc = s => (s||"").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const showErr = m => { const e=$("err"); e.style.display = m ? "block" : "none"; e.textContent = m||""; };
 const hrs = n => (Number(n)||0).toFixed(2);
-let PERSON = "";                       // whose week the office is looking at
 /* ⚠ ALWAYS Pacific/Auckland, never the device's own zone. Without this pin a
    laptop set to the wrong timezone - or anyone looking at the roster from
    Australia - reads every shift shifted by hours and has no way to tell. */
@@ -375,150 +390,226 @@ async function removeCrew(id, name){
   await renderCrewAdmin();
 }
 
-/* ---------------- office approval ---------------- */
+/* ============================ THE WEEK ======================================
+   \u26a0\u26a0 WHY THIS WAS REBUILT (4 Sep 2026).
+   [stated] Nigel: "The reason nothing has been approved is its not user
+   friendly so the office reverted back to the old paper timesheets."
+   ALL 24 TIMESHEETS WERE UNAPPROVED. The page showed a flat list of every
+   shift by everybody AND a per-person picker underneath, so the office had two
+   competing views and no obvious next action. A screen nobody can use is a
+   screen nobody uses.
+
+   THIS SHOWS: one block per person, Monday to Sunday, every field editable
+   where it sits, a weekly total, and one button to approve the week.
+   Pay is weekly, so the week is the unit \u2014 not the shift, and not the day.
+
+   \u26a0 EVERY DAY IS SHOWN, including days with nothing on them. A missing day is
+     exactly what the office needs to notice, and a blank row invites the fix.
+   \u26a0 WAREHOUSE STAFF ONLY. Consultants and the office do not clock in, and
+     Cherelee's hours are entered by hand in Australia. [stated] Nigel:
+     "I dont need anything for Cherelee, just the 4 warehouse staff."
+   ========================================================================== */
 function weekEnd(ws){ const d=new Date(ws+"T00:00:00"); d.setDate(d.getDate()+6); return d.toISOString().slice(0,10); }
 function shiftWeek(n){ const d=new Date(WEEK+"T00:00:00"); d.setDate(d.getDate()+7*n); WEEK=d.toISOString().slice(0,10); renderOffice(); }
 
+const DAYNAME = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
+
 async function renderOffice(){
+  /* Who is on the warehouse floor. Read every time, so somebody starting or
+     leaving needs no code change. */
+  const { data: staff, error: se } = await sb.from("profiles")
+    .select("id, full_name, email, role, active")
+    .eq("role","warehouse").eq("active", true);
+  if (se) { showErr("Couldn't load staff: " + se.message); return; }
+
   const { data, error } = await sb.from("v_timesheets").select("*")
     .gte("work_date", WEEK).lte("work_date", weekEnd(WEEK))
-    .order("work_date").order("staff_name");
+    .order("work_date");
   if (error) { showErr("Couldn't load timesheets: " + error.message); return; }
   const rows = data || [];
 
-  const byStaff = {};
-  rows.forEach(r => { const k = r.staff_name || "—";
-    byStaff[k] = byStaff[k] || { hours:0, waiting:0, open:0 };
-    byStaff[k].hours += Number(r.hours||0);
-    if (!r.approved && !r.open_now) byStaff[k].waiting++;
-    if (r.open_now) byStaff[k].open++; });
+  /* \u26a0 Somebody with no timesheets at all must still appear, or a week where
+     a person forgot to sign on every day looks like a week they did not exist. */
+  const people = (staff||[])
+    .map(p => ({ id:p.id, name: p.full_name || p.email || "\u2014" }))
+    .sort((a,b) => a.name.localeCompare(b.name));
 
-  const totals = Object.entries(byStaff).map(([n,v]) => `
-    <div class="tot"><span>${esc(n)}
-      ${v.open?' <span class="chip live">on now</span>':""}
-      ${v.waiting?` <span class="chip wait">${v.waiting} to approve</span>`:""}</span>
-      <b>${hrs(v.hours)} h</b></div>`).join("") ||
-    `<div class="muted">Nobody logged hours this week.</div>`;
+  const weekLabel = `${nzDate(WEEK)} \u2013 ${nzDate(weekEnd(WEEK))}`;
+  let grand = 0, anyToApprove = false;
 
-  const grand = rows.reduce((s,r)=> s+Number(r.hours||0), 0);
-  const pending = rows.filter(r=>!r.approved && !r.open_now);
+  const blocks = people.map(p => {
+    const mine = rows.filter(r => r.user_id === p.id);
+    let total = 0, waiting = 0, openNow = 0;
 
-  const list = rows.map(r=>`
-    <tr>
-      <td>${esc(r.staff_name||"—")}<div class="muted">${esc(r.staff_role||"")}</div></td>
-      <td>${nzDate(r.work_date)}<div class="muted">${nzTime(r.clock_in)} – ${r.open_now?"still on":nzTime(r.clock_out)}${r.break_minutes?` · ${r.break_minutes}m`:""}</div>
-        ${r.note?`<div class="muted">${esc(r.note)}</div>`:""}
-        ${r.source==="manual"?'<span class="chip wait">added by hand</span>':""}</td>
-      <td style="text-align:right;font-weight:700">${r.open_now?"—":hrs(r.hours)}</td>
-      <td style="text-align:right">${
-        r.open_now ? '<span class="chip live">clocked in</span>'
-        : r.approved ? `<span class="chip ok">Approved</span>
-             <div><button style="padding:4px 9px;font-size:12px;margin-top:5px" onclick="approve('${r.id}',false)">Undo</button></div>`
-        : `<button class="primary" style="padding:7px 12px;font-size:13px" onclick="approve('${r.id}',true)">Approve</button>`}
-             ${r.open_now ? "" : `<div><button style="padding:4px 9px;font-size:12px;margin-top:5px"
-               onclick="fixTimes('${r.id}','${esc(r.staff_name||"").replace(/'/g,"\\'")}','${(r.clock_in||"").slice(11,16)}','${(r.clock_out||"").slice(11,16)}',${r.break_minutes||0})">Fix times</button></div>`}</td>
-    </tr>`).join("") || `<tr><td colspan="4" class="muted">No shifts this week.</td></tr>`;
-
-  /* ============================ ONE PERSON'S WEEK ==========================
-     ⚠ WHY THIS EXISTS (26 Aug 2026). The office could see a flat list of every
-     shift by everybody, which answers "what happened this week" but NOT the
-     question actually being asked - "how many hours did Lorenz do?" You had to
-     read down the list picking out one name. This card answers that directly:
-     pick a person, see their week a day at a time, with a total.
-
-     It shows EVERY day Monday to Sunday, including days with nothing on them,
-     because a missing day is exactly what the office needs to notice. */
-  const names = [...new Set(rows.map(r => r.staff_name).filter(Boolean))].sort();
-  if (PERSON && !names.includes(PERSON)) PERSON = "";
-  const mine = PERSON ? rows.filter(r => r.staff_name === PERSON) : [];
-
-  const dayRows = [];
-  let personTotal = 0;
-  if (PERSON) {
+    const dayRows = [];
     for (let i = 0; i < 7; i++) {
       const d = new Date(WEEK + "T12:00:00"); d.setDate(d.getDate() + i);
       const iso = d.toISOString().slice(0,10);
       const shifts = mine.filter(r => r.work_date === iso);
-      const dayHours = shifts.reduce((t,r) => t + Number(r.hours||0), 0);
-      personTotal += dayHours;
 
       if (!shifts.length) {
-        dayRows.push(`<tr><td>${nzDate(iso)}</td><td colspan="3" class="muted">nothing recorded</td>
-          <td style="text-align:right" class="muted">—</td></tr>`);
+        dayRows.push(`<tr>
+          <td><b>${DAYNAME[i]}</b> <span class="muted">${nzDate(iso)}</span></td>
+          <td colspan="3" class="muted">nothing recorded</td>
+          <td class="num muted">\u2014</td>
+          <td class="num"><button class="mini" onclick="addDay('${p.id}','${esc(p.name)}','${iso}')">Add</button></td>
+        </tr>`);
         continue;
       }
-      shifts.forEach(r => {
-        /* Flags, not corrections: something worth a look, never an assumption
-           about what the person actually did. */
+
+      shifts.forEach((r, ix) => {
+        total += Number(r.hours||0);
+        if (r.open_now) openNow++;
+        else if (!r.approved) { waiting++; anyToApprove = true; }
+
+        /* \u26a0 FLAGS, NEVER CORRECTIONS. These say "worth a look" \u2014 they must not
+           imply the system knows what the person actually did. */
         const flags = [];
-        const st = r.started_nz || "", fi = r.finished_nz || "";
-        if (r.open_now)            flags.push('<span class="chip live">still on</span>');
-        if (r.auto_closed)         flags.push('<span class="chip wait">closed automatically — check</span>');
-        if (st && st > "08:15")    flags.push('<span class="chip wait">late start</span>');
-        if (fi && !r.open_now && fi < "16:45") flags.push('<span class="chip wait">early finish</span>');
-        if (Number(r.hours||0) > 10) flags.push('<span class="chip wait">long day</span>');
-        if (r.source === "manual") flags.push('<span class="chip wait">added by hand</span>');
+        if (r.open_now)      flags.push('<span class="chip live">still signed on</span>');
+        if (r.auto_closed)   flags.push('<span class="chip wait">closed at 8pm by the system \u2014 check</span>');
+        if (r.source==="manual") flags.push('<span class="chip wait">added by hand</span>');
+        if (shifts.length>1 && ix===0) flags.push('<span class="chip wait">'+shifts.length+' shifts this day</span>');
+        if (Number(r.hours||0) > 11) flags.push('<span class="chip wait">long day</span>');
+
+        const inV  = (r.clock_in ||"").slice(11,16);
+        const outV = (r.clock_out||"").slice(11,16);
+
         dayRows.push(`<tr>
-          <td>${nzDate(r.work_date)}</td>
-          <td>${st || "—"}</td>
-          <td>${r.open_now ? "still on" : (fi || "—")}</td>
-          <td>${r.break_minutes ? r.break_minutes + "m" : "—"}</td>
-          <td style="text-align:right;font-weight:700">${r.open_now ? "—" : hrs(r.hours)}</td>
-        </tr>
-        ${flags.length ? `<tr><td colspan="5" style="padding-top:0">${flags.join(" ")}</td></tr>` : ""}`);
+          <td><b>${DAYNAME[i]}</b> <span class="muted">${nzDate(iso)}</span>
+            ${flags.length?`<div style="margin-top:4px">${flags.join(" ")}</div>`:""}
+            ${r.note?`<div class="muted">${esc(r.note)}</div>`:""}</td>
+          <td><input class="t" type="time" value="${r.started_nz||inV||""}"
+                     onchange="saveCell('${r.id}',this,'in')"></td>
+          <td>${r.open_now
+                ? '<span class="muted">still on</span>'
+                : `<input class="t" type="time" value="${r.finished_nz||outV||""}"
+                          onchange="saveCell('${r.id}',this,'out')">`}</td>
+          <td><input class="t" type="number" min="0" step="5" value="${r.break_minutes||0}"
+                     onchange="saveCell('${r.id}',this,'break')" style="width:70px"></td>
+          <td class="num"><b>${r.open_now?"\u2014":hrs(r.hours)}</b></td>
+          <td class="num">${r.approved?'<span class="chip ok">approved</span>':""}</td>
+        </tr>`);
       });
     }
-  }
 
-  const personCard = `
-    <div class="card">
-      <h2>One person's week</h2>
-      <div class="muted" style="margin-bottom:10px">Rostered ${DAY_START}–${DAY_END}. Anything unusual is flagged, not changed.</div>
-      <select onchange="pickPerson(this.value)" style="width:100%;padding:12px;font-size:16px;border-radius:10px">
-        <option value="">— choose a person —</option>
-        ${names.map(n => `<option value="${esc(n)}"${n===PERSON?" selected":""}>${esc(n)}</option>`).join("")}
-      </select>
-      ${PERSON ? `
-        <table style="margin-top:12px"><thead><tr>
-          <th>Day</th><th>Started</th><th>Finished</th><th>Break</th><th style="text-align:right">Hours</th>
-        </tr></thead><tbody>${dayRows.join("")}</tbody></table>
-        <div class="tot" style="margin-top:10px"><span><b>${esc(PERSON)}</b> — week total</span><b>${hrs(personTotal)} h</b></div>
-      ` : ""}
+    grand += total;
+    return `
+    <div class="card person">
+      <div class="phead">
+        <div><h2 style="margin:0">${esc(p.name)}</h2>
+          <div class="muted">${waiting?`${waiting} shift${waiting==1?"":"s"} to approve`:"nothing waiting"}${openNow?" \u00b7 signed on now":""}</div>
+        </div>
+        <div style="text-align:right">
+          <div class="big" style="font-size:28px;margin:0">${hrs(total)}</div>
+          <div class="muted">hours this week</div>
+        </div>
+      </div>
+      <table>
+        <thead><tr><th>Day</th><th>Started</th><th>Finished</th><th>Break</th>
+          <th class="num">Hours</th><th class="num"></th></tr></thead>
+        <tbody>${dayRows.join("")}</tbody>
+      </table>
+      <div class="row noprint" style="margin-top:12px">
+        <button class="primary" ${waiting?"":"disabled"}
+          onclick="approveWeek('${p.id}','${esc(p.name)}')">Approve ${esc(p.name)}'s week</button>
+      </div>
     </div>`;
+  }).join("");
 
   $("office").innerHTML = `
-    ${personCard}
-    <div class="card">
+    <div class="card noprint">
       <div class="weeknav">
-        <button onclick="shiftWeek(-1)">‹ Prev</button>
-        <b>Week of ${nzDate(WEEK)}</b>
-        <button onclick="shiftWeek(1)">Next ›</button>
-        <span style="margin-left:auto" class="muted">${hrs(grand)} h total</span>
+        <button onclick="shiftWeek(-1)">\u2039 Previous</button>
+        <div style="flex:1;text-align:center"><b>${weekLabel}</b></div>
+        <button onclick="shiftWeek(1)">Next \u203a</button>
       </div>
-      ${totals}
-      ${pending.length?`<div style="margin-top:14px"><button class="primary" onclick="approveAll()">Approve all ${pending.length} waiting</button></div>`:""}
+      <div class="row">
+        <button onclick="window.print()">Print this week</button>
+        ${anyToApprove?'<button class="primary" onclick="approveEveryone()">Approve everyone</button>':""}
+      </div>
     </div>
-    <div class="card">
-      <h2>Every shift this week</h2>
-      <table><thead><tr><th>Who</th><th>Shift</th><th style="text-align:right">Hours</th><th style="text-align:right">Status</th></tr></thead>
-      <tbody>${list}</tbody></table>
-    </div>`;
+
+    <div class="printonly" style="margin-bottom:12px">
+      <h2 style="margin:0">Simtec \u2014 warehouse timesheets</h2>
+      <div class="muted">${weekLabel}</div>
+    </div>
+
+    ${people.length ? blocks : '<div class="card muted">No warehouse staff on file.</div>'}
+
+    <div class="card"><div class="tot"><span><b>Everyone</b></span><b>${hrs(grand)} h</b></div></div>`;
 }
 
-function pickPerson(n){ PERSON = n; renderOffice(); }
+/* \u26a0 SAVE THE WHOLE ROW, NOT THE ONE FIELD. timesheet_office_set takes start,
+   finish and break together \u2014 sending only the changed one would blank the
+   other two. The values are read back off the row that was edited. */
+async function saveCell(id, el, which){
+  showErr("");
+  const tr = el.closest("tr");
+  const ins = tr.querySelectorAll("input.t");
+  const inV = ins[0] ? ins[0].value : null;
+  const outV = (ins.length > 2) ? ins[1].value : null;   // no finish input on an open shift
+  const brV  = ins[ins.length-1] ? Number(ins[ins.length-1].value||0) : 0;
+
+  if (which !== "break" && (!inV || (ins.length > 2 && !outV))) {
+    showErr("A shift needs a start and a finish time."); return;
+  }
+  el.disabled = true;
+  const { data, error } = await sb.rpc("timesheet_office_set",
+    { p_id:id, p_in:inV, p_out:outV, p_break:brV, p_note:null });
+  el.disabled = false;
+  if (error) return showErr(error.message);
+  if (data && data.ok === false) return showErr(data.error);
+  await renderOffice();
+}
+
+async function addDay(userId, name, iso){
+  const start = prompt(`${name} \u2014 ${nzDate(iso)}\n\nWhat time did they start? (e.g. 08:00)`, "08:00");
+  if (!start) return;
+  const end = prompt(`What time did they finish?`, "16:30");
+  if (!end) return;
+  showErr("");
+  const { data, error } = await sb.rpc("timesheet_add_for",
+    { p_user:userId, p_date:iso, p_start:start, p_end:end, p_break:0, p_note:null });
+  if (error) return showErr(error.message);
+  if (data && data.ok === false) return showErr(data.error);
+  await renderOffice();
+}
+
+async function approveWeek(userId, name){
+  showErr("");
+  const { data, error } = await sb.rpc("timesheet_approve_week",
+    { p_user:userId, p_week_start:WEEK, p_approved:true });
+  if (error) return showErr(error.message);
+  if (data && data.ok === false) return showErr(data.error);
+  /* \u26a0 SAY WHAT WAS SKIPPED. An open shift cannot be approved, and silence
+     would look like the button had failed. */
+  if (data && data.still_open) {
+    showErr(`${name}: ${data.approved} approved. ${data.still_open} shift${data.still_open==1?" is":"s are"} still signed on and cannot be approved until they sign off.`);
+  }
+  await renderOffice();
+}
+
+async function approveEveryone(){
+  const { data: staff } = await sb.from("profiles").select("id").eq("role","warehouse").eq("active",true);
+  for (const p of (staff||[])) {
+    await sb.rpc("timesheet_approve_week", { p_user:p.id, p_week_start:WEEK, p_approved:true });
+  }
+  await renderOffice();
+}
+
+async function approve(id, yes){
+  showErr("");
+  const { data, error } = await sb.rpc("timesheet_approve", { p_id:id, p_approved:yes });
+  if (error) return showErr(error.message);
+  if (data && data.ok === false) return showErr(data.error);
+  await refresh();
+}
 
 async function approve(id, yes){
   showErr("");
   const { data, error } = await sb.rpc("timesheet_approve", { p_id: id, p_approved: yes });
   if (error) return showErr(error.message);
   if (data && data.ok === false) return showErr(data.error);
-  await refresh();
-}
-async function approveAll(){
-  const { data } = await sb.from("v_timesheets").select("id")
-    .gte("work_date", WEEK).lte("work_date", weekEnd(WEEK))
-    .eq("approved", false).not("clock_out","is",null);
-  for (const r of (data||[])) await sb.rpc("timesheet_approve", { p_id: r.id, p_approved: true });
   await refresh();
 }
 
