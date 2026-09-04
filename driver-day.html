@@ -16,7 +16,7 @@
 <meta name="apple-mobile-web-app-title" content="Simtec Delivery">
 <meta name="theme-color" content="#012B60">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.112.2"></script>
-<script>window.SIMTEC_BUILD="2026-08-28-01";</script>
+<script>window.SIMTEC_BUILD="2026-09-04-04";</script>
 <script src="update.js?v=2"></script>
 
 <style>
@@ -84,7 +84,8 @@
 
 <div class="wrap">
   <div class="err" id="err"></div>
-  <div id="view"></div>
+  <div id="gpsOn" style="display:none;background:#eef4ff;border:1px solid #c9dbf7;color:#1b3a63;border-radius:10px;padding:8px 11px;margin:0 0 10px;font-size:13px">● Location on — the truck's position is being recorded while you are signed on.</div>
+<div id="view"></div>
 </div>
 
 <script>
@@ -128,7 +129,7 @@ function toastLike(msg){
 const showErr = m => { const e=$("err"); e.style.display=m?"block":"none"; e.textContent=m||""; };
 const tm = d => d ? new Date(d).toLocaleTimeString("en-NZ",{hour:"2-digit",minute:"2-digit"}) : "—";
 
-let ME=null, ROLE=null, RUN=null, STOPS=[], ONBREAK=false, PING=null, CURRENT=null;
+let ME=null, ROLE=null, RUN=null, STOPS=[], PING=null, CURRENT=null, ACTIVATING=false;
 
 /* ---------------------------------------------------------------------------
    ONE PLACE THAT MAKES BUTTONS SAFE.
@@ -215,11 +216,14 @@ function here(timeout=8000){
       {enableHighAccuracy:true, timeout, maximumAge:5000});
   });
 }
+function stopPings(){ if(PING){ clearInterval(PING); PING = null; }
+  const b = document.getElementById("gpsOn"); if(b) b.style.display = "none"; }
 function startPings(){
-  if(PING) clearInterval(PING);
+  if(PING) return;                 // already running — do not stack timers
   const send = async () => { const p = await here(6000);
     if(p.lat!=null) sb.rpc("driver_ping",{p_lat:p.lat,p_lng:p.lng,p_acc:p.acc||null,p_speed:p.speed||null}); };
-  send(); PING = setInterval(send, 60000);          // a ping a minute while the app is open
+  send(); PING = setInterval(send, 60000);          // a ping a minute while signed on
+  const b = document.getElementById("gpsOn"); if(b) b.style.display = "";
 }
 
 /* ---------------- crew sign in / out (shared iPad) ----------------
@@ -493,9 +497,13 @@ async function load(){
   if(RUN){
     const { data:stops } = await sb.from("v_driver_stops").select("*").eq("run_id",RUN.id).order("seq");
     STOPS = stops||[];
-    const { data:br } = await sb.from("driver_breaks").select("id").eq("run_id",RUN.id).is("ended_at",null);
-    ONBREAK = !!(br&&br.length);
-    if(RUN.status==="active") startPings();
+    /* ⚠ 4 Sep: this used to require RUN.status === "active". In practice runs go
+       from "planned" straight to "done" — only 2 runs have EVER been active, one
+       of them a test dated 2099 — so the ping code had effectively never run and
+       driver_pings was empty. Location is now recorded whenever there is a run
+       and somebody is signed on, which is what was actually asked for.
+       ⚠ driver_ping() records against the CALLER'S OWN run and nothing else. */
+    if(RUN.status !== "done") startPings(); else stopPings();
   } else { STOPS=[]; }
   render();
 }
@@ -509,17 +517,24 @@ function render(){
       <button class="wide" onclick="act(this,()=>load())">Check again</button>
       <button class="wide" onclick="act(this,()=>backToCrew())">\u2039 Crew sign in / out</button></div>`;
 
-  if(RUN.status==="planned") return $("view").innerHTML = `
-    <div class="card">
-      <h2>${RUN.stops} stop${RUN.stops==1?"":"s"} today</h2>
-      <div class="muted">${esc(RUN.vehicle||"")} · tap when you get to work. This starts your timesheet.</div>
-      <button class="wide primary" onclick="act(this,()=>startDay())">I'm at work — start my day</button>
-    </div>` + stopList();
+  /* ⚠ A RUN NO LONGER SITS AT "planned" — crew_sign_in() activates it, because
+     the day has started the moment somebody is on the clock and on the truck.
+     This branch is a safety net for an old run only; it does NOT ask anyone to
+     press anything, which is what got skipped every day. */
+  if(RUN.status==="planned" && !ACTIVATING){
+    /* ⚠ ONCE ONLY. render() runs often; without this flag the call would fire
+       on every redraw and could loop with load(). */
+    ACTIVATING = true;
+    rpc("driver_start_run",{p_lat:null,p_lng:null,p_vehicle:RUN.vehicle||null})
+      .then(() => load())
+      .catch(() => {})
+      .finally(() => { ACTIVATING = false; });
+  }
 
   if(RUN.status==="done") return $("view").innerHTML = `
     <div class="card"><h2>Day finished</h2>
       <div class="muted">${RUN.done} delivered${RUN.failed?`, ${RUN.failed} not completed`:""} ·
-        ${RUN.hours_on_road||0} hours · ${RUN.break_minutes} min break. Your timesheet is with the office.</div>
+        ${RUN.hours_on_road||0} hours. Your timesheet is with the office.</div>
       <button class="wide" onclick="act(this,()=>backToCrew())">\u2039 Crew sign in / out</button></div>` + stopList();
 
   const nextStop = STOPS.find(s=>s.status==="pending"||s.status==="en_route"||s.status==="arrived");
@@ -528,27 +543,23 @@ function render(){
        <b>PRACTICE RUN</b> — invented customers. Nothing is texted and no delivery is recorded.
        <button onclick="act(this,()=>endPractice())" style="margin-top:8px;width:100%;background:#8a6d2f;color:#fff;
          border:none;border-radius:8px;padding:9px">Finish practice</button></div>`:""}
-    ${ONBREAK?`<div class="banner">On a break — nothing is being recorded against a stop.</div>`:""}
-    ${!RUN.left_warehouse_at ? `
+    ${(!RUN.left_warehouse_at && RUN.stops > 0) ? `
       <div class="card" style="border-color:var(--blue)">
-        <h2>Ready to leave?</h2>
-        <div class="muted">Tap when you pull out of the yard — it texts the first customer with a travel time worked out from where you are.</div>
-        <button class="wide blue" onclick="act(this,()=>leaveWarehouse())">LEFT WAREHOUSE</button>
+        <h2>Heading to the first one?</h2>
+        <div class="muted">Texts them how long you'll be, worked out from where the truck is now.</div>
+        <button class="wide blue" onclick="act(this,()=>leaveWarehouse())">I'M ON MY WAY</button>
       </div>`:""}
     <div class="card">
       <h2>${RUN.done} of ${RUN.stops} done</h2>
-      <div class="muted">At work ${tm(RUN.started_at)}${RUN.left_warehouse_at?` · left the yard ${tm(RUN.left_warehouse_at)}`:""} · ${esc(RUN.vehicle||"")}</div>
+      <div class="muted">At work since ${tm(RUN.started_at)}${esc(RUN.vehicle?" · "+RUN.vehicle:"")}</div>
       <button class="wide" style="margin-top:2px" onclick="act(this,()=>backToCrew())">\u2039 Crew sign in / out</button>
       <div class="row" style="margin-top:12px">
-        ${ONBREAK
-          ? `<button class="primary" onclick="act(this,()=>brk(false))">Finish break</button>`
-          : `<button class="warn" onclick="act(this,()=>brk(true))">Take a break</button>`}
         <button class="stop" onclick="act(this,()=>endDay())">End the day (everyone off)</button>
       </div>
       ${RUN.stops - RUN.done > 1 ? `<button class="wide" style="margin-top:8px"
         onclick="act(this,()=>reorderFromHere(this))">\u{1F9ED} Best order from where I am</button>` : ""}
     </div>
-    ${nextStop && !ONBREAK ? `
+    ${nextStop ? `
       <div class="card" style="border-color:var(--blue)">
         <div class="muted">NEXT STOP</div>
         <h2>${esc(nextStop.customer||"—")}</h2>
@@ -729,11 +740,6 @@ async function reorderFromHere(btn){
   await load();
 }
 
-async function brk(start){
-  const p = await here();
-  if(!await rpc("driver_break",{p_start:start,p_lat:p.lat,p_lng:p.lng})) return;
-  await load();
-}
 async function leaveWarehouse(){
   showErr("");
   const p = await here();
@@ -816,21 +822,36 @@ async function uploadPhoto(input){
   if(error){
     /* ⚠ leave the count alone on failure — never imply a photo was kept. */
     $("photoState").textContent = "That photo did not save \u2014 tap again to try once more";
-    input.value = "";
+    resetPhotoInput(input);
     return;
   }
   const { error: rowErr } = await sb.from("driver_photos").insert({stop_id:CURRENT.id, path, lat:p.lat, lng:p.lng});
   if(rowErr){
     $("photoState").textContent = "That photo did not save \u2014 tap again to try once more";
-    input.value = "";
+    resetPhotoInput(input);
     return;
   }
   if (CURRENT) CURRENT.photo_count = (Number(CURRENT.photo_count)||0) + 1;
   const n = CURRENT ? CURRENT.photo_count : 1;
-  $("photoState").textContent = n + " photo" + (n==1?"":"s") + " taken \u2014 tap again to add another";
-  /* ⚠ CLEAR THE INPUT. Without this the browser holds the last file and picking
-     the same one again fires nothing — which looks like the app ignoring them. */
-  input.value = "";
+  $("photoState").textContent = n + " photo" + (n==1?"":"s") + " taken \u2014 tap again for another";
+  resetPhotoInput(input);
+}
+
+/* ⚠⚠ REPLACE THE INPUT, DO NOT JUST CLEAR IT.
+   Setting input.value = "" is enough on a desktop browser, but on iOS an
+   <input capture="environment"> that has already been used often will not
+   reopen the camera a second time — the tap does nothing at all. To the driver
+   the app "only allows one photo". Swapping in a fresh element gives iOS a
+   control it has never seen, and the camera opens every time.
+   ⚠ The listener must be attached to the NEW node; replacing innerHTML would
+     silently drop it and leave a dead button. */
+function resetPhotoInput(input){
+  try{
+    const fresh = input.cloneNode(false);
+    fresh.value = "";
+    fresh.onchange = () => uploadPhoto(fresh);
+    input.parentNode.replaceChild(fresh, input);
+  }catch(_){ input.value = ""; }
 }
 let SIGCTX=null, DRAWN=false;
 function initSig(){
@@ -861,7 +882,7 @@ async function saveSig(){
   $("sigState").textContent = "Signature saved";
 }
 
-async function signOut(){ if(PING) clearInterval(PING); await sb.auth.signOut(); location.reload(); }
+async function signOut(){ stopPings(); await sb.auth.signOut(); location.reload(); }
 
 boot();
 </script>
