@@ -97,11 +97,19 @@ function todayNZ(){
   const p = new Intl.DateTimeFormat("en-CA",{timeZone:"Pacific/Auckland",year:"numeric",month:"2-digit",day:"2-digit"}).format(new Date());
   return p;
 }
+/* ⚠ toISOString() CONVERTS TO UTC. In New Zealand (UTC+12) a date built at
+   local midnight goes BACK A DAY when formatted that way, so "the Monday" came
+   out as the Sunday — the week ran Sun–Sat and every label was a day out.
+   Format the local parts instead; never round-trip a local date through UTC. */
+function isoLocal(d){
+  return d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0")
+       + "-" + String(d.getDate()).padStart(2,"0");
+}
 function mondayOf(dateStr){
   const d = new Date(dateStr+"T00:00:00");
   const dow = (d.getDay()+6)%7;              // Monday = 0
   d.setDate(d.getDate()-dow);
-  return d.toISOString().slice(0,10);
+  return isoLocal(d);
 }
 
 let ME = null, ROLE = null, OFFICE = false, WEEK = mondayOf(todayNZ()), OPEN = null;
@@ -130,7 +138,7 @@ async function refresh(){
 async function renderMine(){
   const from = new Date(); from.setDate(from.getDate()-21);
   const { data, error } = await sb.from("v_timesheets").select("*")
-    .eq("user_id", ME.id).gte("work_date", from.toISOString().slice(0,10))
+    .eq("user_id", ME.id).gte("work_date", isoLocal(from))
     .order("work_date",{ascending:false}).order("clock_in",{ascending:false});
   if (error) { showErr("Couldn't load your hours: " + error.message); return; }
   const rows = data || [];
@@ -394,17 +402,19 @@ async function removeCrew(id, name){
      Cherelee's hours are entered by hand in Australia. [stated] Nigel:
      "I dont need anything for Cherelee, just the 4 warehouse staff."
    ========================================================================== */
-function weekEnd(ws){ const d=new Date(ws+"T00:00:00"); d.setDate(d.getDate()+6); return d.toISOString().slice(0,10); }
-function shiftWeek(n){ const d=new Date(WEEK+"T00:00:00"); d.setDate(d.getDate()+7*n); WEEK=d.toISOString().slice(0,10); renderOffice(); }
+function weekEnd(ws){ const d=new Date(ws+"T00:00:00"); d.setDate(d.getDate()+6); return isoLocal(d); }
+function shiftWeek(n){ const d=new Date(WEEK+"T00:00:00"); d.setDate(d.getDate()+7*n); WEEK=isoLocal(d); renderOffice(); }
 
 const DAYNAME = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
 
 async function renderOffice(){
-  /* Who is on the warehouse floor. Read every time, so somebody starting or
-     leaving needs no code change. */
-  const { data: staff, error: se } = await sb.from("profiles")
-    .select("id, full_name, email, role, active")
-    .eq("role","warehouse").eq("active", true);
+  /* ⚠⚠ DO NOT QUERY `profiles` FOR OTHER PEOPLE. Its only SELECT policy is
+     `auth.uid() = id` — you may read YOUR OWN row and nobody else's. Reading it
+     here returned an empty list, so the page drew no staff blocks and a grand
+     total of 0.00 hours while the data sat there perfectly.
+     ⚠ crew_list() is SECURITY DEFINER and is the supported way to get them.
+       Same trap as the crew names on the truck view, hours earlier. */
+  const { data: staff, error: se } = await sb.rpc("crew_list");
   if (se) { showErr("Couldn't load staff: " + se.message); return; }
 
   const { data, error } = await sb.from("v_timesheets").select("*")
@@ -416,7 +426,7 @@ async function renderOffice(){
   /* \u26a0 Somebody with no timesheets at all must still appear, or a week where
      a person forgot to sign on every day looks like a week they did not exist. */
   const people = (staff||[])
-    .map(p => ({ id:p.id, name: p.full_name || p.email || "\u2014" }))
+    .map(p => ({ id:p.user_id, name: p.name || p.email || "\u2014" }))
     .sort((a,b) => a.name.localeCompare(b.name));
 
   const weekLabel = `${nzDate(WEEK)} \u2013 ${nzDate(weekEnd(WEEK))}`;
@@ -429,7 +439,7 @@ async function renderOffice(){
     const dayRows = [];
     for (let i = 0; i < 7; i++) {
       const d = new Date(WEEK + "T12:00:00"); d.setDate(d.getDate() + i);
-      const iso = d.toISOString().slice(0,10);
+      const iso = isoLocal(d);
       const shifts = mine.filter(r => r.work_date === iso);
 
       if (!shifts.length) {
@@ -563,9 +573,9 @@ async function approveWeek(userId, name){
 }
 
 async function approveEveryone(){
-  const { data: staff } = await sb.from("profiles").select("id").eq("role","warehouse").eq("active",true);
+  const { data: staff } = await sb.rpc("crew_list");
   for (const p of (staff||[])) {
-    await sb.rpc("timesheet_approve_week", { p_user:p.id, p_week_start:WEEK, p_approved:true });
+    await sb.rpc("timesheet_approve_week", { p_user:p.user_id, p_week_start:WEEK, p_approved:true });
   }
   await renderOffice();
 }
