@@ -446,7 +446,21 @@ async function run(quiet){
             .or(filters.join(",")).order("payment_date",{ascending:false})
         : {data:[],error:null};
       if(e4) throw new Error("Loading payments: "+e4.message);
-      (pays||[]).forEach(p=>{ (paysByRef[p.payer_ref]=paysByRef[p.payer_ref]||[]).push(p); });
+      /* ⚠⚠ FILE BY ORDER, NOT ONLY BY EZIDEBIT REFERENCE.
+         A card payment (and a reward-card credit, and some manual payments) has
+         NO payer_ref — it identifies its order directly. Filing purely by
+         payer_ref put those in a bucket belonging to nobody, so they never
+         appeared in the history at all. Bella Edmonds paid $39.10 by card to
+         cover a failed debit: her total was right, the printed statement listed
+         it, and the on-screen history simply did not show it.
+         ⚠ Keep BOTH keys — Ezidebit rows can arrive with a reference before the
+           order is known. */
+      const fileIt = (key, row) => { if(!key) return;
+        (paysByRef[key] = paysByRef[key] || []).push(row); };
+      (pays||[]).forEach(p=>{
+        fileIt(p.order_id, p);
+        if(p.payer_ref && p.payer_ref !== p.order_id) fileIt(p.payer_ref, p);
+      });
 
       /* ⚠ THE FAILED ATTEMPTS TOO. 782 dishonours across 258 customers were
          invisible on this page, so a customer who failed a debit and made it up
@@ -464,9 +478,12 @@ async function run(quiet){
           .order("dishonour_date",{ascending:false});
         (dis||[]).forEach(d=>{
           const k = d.payer_ref || d.ezidebit_customer_id;
-          (paysByRef[k] = paysByRef[k] || []).push({
-            payer_ref: k, payment_date: d.dishonour_date, amount: d.amount,
-            source: "ezidebit", failed: true, failed_reason: d.failed_reason });
+          const row = { payer_ref: k, payment_date: d.dishonour_date, amount: d.amount,
+                        source: "ezidebit", failed: true, failed_reason: d.failed_reason };
+          Object.values(ORDERS).forEach(o=>{
+            if(String(o.ezidebit_payer_ref||"") === String(k) ||
+               String(o.ezidebit_customer_id||"") === String(k)) fileIt(o.id, row);
+          });
         });
       }
     }
@@ -575,7 +592,7 @@ function renderAll(c, orders, paysByRef, comms){
     <table><thead><tr><th style="width:110px">When</th><th style="width:120px">Channel</th><th>Detail</th></tr></thead><tbody>${commRows}</tbody></table></div>`;
 
   const orderBlocks = orders.length
-    ? orders.map((o,ix)=>orderSection(o, ITEMSBY[o.id]||[], paysByRef[o.ezidebit_payer_ref]||[], ix===0)).join("")
+    ? orders.map((o,ix)=>orderSection(o, ITEMSBY[o.id]||[], paysByRef[o.id]||[], ix===0)).join("")
     : `<div class="card full"><p class="muted">This customer has no orders recorded.</p></div>`;
 
   document.getElementById("content").innerHTML=`
