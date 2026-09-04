@@ -4,8 +4,13 @@ Static HTML on GitHub Pages at `app.simtectp.com` (repo `nkeats/simtec-system`).
 Database, edge functions and storage: Supabase `jvqjoenaungubpoegyvf`.
 Australia is a **different** project, `ftzxndwjghteklcrpfus`.
 
-**Read `Simtec-System-Handover-2026-09-04.md` first.** This file is only the
-rules that cost money when broken — it is not a summary of the system.
+These are the standing rules for working on this system — the ones that cost
+money when broken. This file is not a summary of the system and does not depend
+on any other document: every rule below carries its own reason and its own
+instruction.
+
+The fuller picture is in the current handover, kept out of the repo because it
+names customers — **ask Nigel for it.**
 
 ---
 
@@ -32,11 +37,16 @@ These are not style preferences. Each came from a real fault.
 
 ### ⚠⚠ One definition of what has been paid
 
-`order_paid_total()` is it, and `rebase_paid_totals()` writes the cached
-`amount_paid_to_date`. **Never write `amount_paid_to_date = amount_paid_to_date
-+ x`.** That addition existed in the reconciler (v19) and in the reward-card
-redemption, and both silently undid the office's corrections. **Two sources of
-truth for one payment is the recurring money bug in this system.**
+`order_paid_total()` is the single definition of what an order has paid, and
+`rebase_paid_totals()` writes the cached `amount_paid_to_date` from it.
+
+**Never write `amount_paid_to_date = amount_paid_to_date + x`.** To change a
+paid total, call `rebase_paid_totals()` and let it recompute — never do
+arithmetic on the cached column, anywhere, for any reason.
+
+That addition existed in the reconciler (v19) and in the reward-card redemption,
+and both silently undid the office's corrections. **Two sources of truth for one
+payment is the recurring money bug in this system.**
 
 ### ⚠⚠ A query in the SQL editor is not what the page sees
 
@@ -65,8 +75,10 @@ A migration referenced a column that does not exist; the handler reported it as
 
 ### ⚠ When a policy on a parent table changes, check the children
 
-Loosening `sim_orders` without `sim_order_items` would have saved orders with no
-products on them — worse than no order, and far harder to spot.
+Parent and child policies move as a pair — change both together, then test a
+real insert end to end as the role that will run it. Loosening `sim_orders`
+without `sim_order_items` would have saved orders with no products on them —
+worse than no order, and far harder to spot.
 
 ### ⚠ Bonus descriptions print on the consultant's invoice, verbatim
 
@@ -74,8 +86,9 @@ Seven people nearly received a tax document reading `__ACCREDITATION__`.
 
 ### ⚠ Look at the rendered thing
 
-A missing font glyph, a ghost price drawn by a second text layer, the word
-"bullet" printed over every line — none of these appear in any automated check.
+Open the page, or the PDF, and look at it before calling it done. A missing font
+glyph, a ghost price drawn by a second text layer, the word "bullet" printed
+over every line — none of these appear in any automated check.
 
 ---
 
@@ -83,19 +96,26 @@ A missing font glyph, a ghost price drawn by a second text layer, the word
 
 Everything below passed a check and was still wrong.
 
-- **A stale check is worse than no check.** Files were twice reported as
-  unpushed from a check run earlier and never repeated.
-- **When Nigel says it is still there, it is still there.** He was right three
-  times running on the self-test banner while every test said otherwise.
+- **A stale check is worse than no check.** Re-run the check at the moment you
+  report it, and say when you ran it. Files were twice reported as unpushed on
+  the strength of a check run earlier and never repeated.
+- **When Nigel says it is still there, it is still there.** A direct observation
+  of the live system outranks your test result: assume the test is wrong and go
+  and find out why. He was right three times running on the self-test banner
+  while every test said otherwise.
 - **Grep can match your own comment.** Compare fingerprints, not text.
-- **Parsing clean is not working.** A page whose JavaScript parsed perfectly
-  could not run — no library loaded, no client created.
-- **A test harness can lie.** Node silently kept its own user-agent and made
-  every device look like an Android.
-- **Extraction is not rendering.** The PDF that printed "bullet" over every line
-  extracted perfectly.
-- **Deploy the file, not a placeholder.** A stub was once deployed over the live
-  reconciler.
-- **Check the whole match set.** "Delivery" instead of "Delivery fee" produced a
-  wrong sales figure within hours — a typo, and the report's rule was fragile
-  enough to trip on it.
+- **Parsing clean is not working.** Load the page and watch it run. One whose
+  JavaScript parsed perfectly could not run at all — no library loaded, no
+  client created.
+- **A test harness can lie.** Confirm the harness reproduces the real
+  conditions before trusting what it tells you. Node silently kept its own
+  user-agent and made every device look like an Android.
+- **Extraction is not rendering.** Look at the page image, not the text you
+  pulled out of it. The PDF that printed "bullet" over every line extracted
+  perfectly.
+- **Deploy the file, not a placeholder.** Check what actually landed after
+  every deploy. A stub was once deployed over the live reconciler.
+- **Check the whole match set.** When a rule matches on a string, look at
+  everything it does and does not catch. "Delivery" instead of "Delivery fee"
+  produced a wrong sales figure within hours — a typo, and the report's rule was
+  fragile enough to trip on it.
