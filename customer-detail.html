@@ -447,6 +447,28 @@ async function run(quiet){
         : {data:[],error:null};
       if(e4) throw new Error("Loading payments: "+e4.message);
       (pays||[]).forEach(p=>{ (paysByRef[p.payer_ref]=paysByRef[p.payer_ref]||[]).push(p); });
+
+      /* ⚠ THE FAILED ATTEMPTS TOO. 782 dishonours across 258 customers were
+         invisible on this page, so a customer who failed a debit and made it up
+         by card the same day looked like somebody who had simply paid twice.
+         ⚠ sim_dishonours has NO order_id — it is keyed on the Ezidebit
+           references only, so it is read by payer_ref / customer id, never by
+           order. A cash customer has no dishonours by definition. */
+      const ediRefs = [...new Set(Object.values(ORDERS)
+        .flatMap(o => [o.ezidebit_payer_ref, o.ezidebit_customer_id])
+        .filter(Boolean).map(String))];
+      if(ediRefs.length){
+        const { data:dis } = await sb.from("sim_dishonours")
+          .select("payer_ref,ezidebit_customer_id,dishonour_date,amount,failed_reason")
+          .or(`payer_ref.in.(${ediRefs.join(",")}),ezidebit_customer_id.in.(${ediRefs.join(",")})`)
+          .order("dishonour_date",{ascending:false});
+        (dis||[]).forEach(d=>{
+          const k = d.payer_ref || d.ezidebit_customer_id;
+          (paysByRef[k] = paysByRef[k] || []).push({
+            payer_ref: k, payment_date: d.dishonour_date, amount: d.amount,
+            source: "ezidebit", failed: true, failed_reason: d.failed_reason });
+        });
+      }
     }
 
     let comms=[];
@@ -719,7 +741,15 @@ function orderSection(o, items, pays, open){
     <h2 style="display:flex;align-items:center;flex-wrap:wrap;gap:12px"><span>Products</span>${pillowTag}${pillowCtl}</h2>
     <table><thead><tr><th>Product</th><th class="num">Qty</th><th class="num">Unit price</th><th class="num">Delivery</th></tr></thead><tbody>${prodRows}</tbody></table></div>`;
 
-  const totalPaid = pays.reduce((s,x)=>s+Number(x.amount||0),0);
+  /* ⚠⚠ A FAILED DEBIT IS NOT MONEY AND A REFUND IS MONEY GOING OUT. Summing
+     every row would have inflated the total the moment failed attempts were
+     added to this list — the exact class of error this system keeps producing.
+     Failed rows are excluded; refunds subtract. */
+  const totalPaid = pays.reduce((sum,x)=>{
+    if(x.failed === true) return sum;
+    const amt = Number(x.amount||0);
+    return sum + (String(x.result||"").toLowerCase()==="refund" ? -amt : amt);
+  },0);
   const po = payoffInfo(o, p);
   let payoffTxt = "";
   if(po){
@@ -735,11 +765,33 @@ function orderSection(o, items, pays, open){
     if(s==="reward") return "Reward card";
     if(s==="manual") return (x.method?String(x.method):"Manual");
     return "Ezidebit"; };
-  const payRows = pays.length ? pays.slice(0,40).map(x=>`<tr><td>${auDate(x.payment_date)}</td><td>${esc(howPaid(x))}</td><td class="num">${fmt(x.amount)}</td></tr>`).join("")
+
+  /* ⚠⚠ A REFUND IS NOT A PAYMENT. There are refund rows in sim_payments and
+     they were being listed — and counted — exactly like money received. Shown
+     in red as a negative so nobody reads one as a payment. */
+  const isRefund = x => String(x.result||"").toLowerCase() === "refund";
+  /* ⚠ A FAILED DEBIT IS NOT MONEY. It is shown so the office can see WHY a
+     card payment followed — but it must never read as a payment, and it is
+     not counted in the total or the payment count. */
+  const isFailed = x => x.failed === true;
+
+  /* ⚠ EVERY PAYMENT, NOT THE LAST 40. This was capped at 40 rows, so a
+     customer three years into a weekly plan (156 payments) simply lost the
+     oldest off the bottom — and the office had no way to know. */
+  const payRows = pays.length ? pays.map(x=>{
+      const r = isRefund(x), f = isFailed(x);
+      const grey = f ? ' style="color:#8a97ad"' : (r ? ' style="color:#b4342e"' : '');
+      const what = f ? `Ezidebit — FAILED${x.failed_reason?` (${esc(x.failed_reason)})`:""}`
+                     : esc(howPaid(x)) + (r ? " — refund" : "");
+      const amt  = f ? `<span style="text-decoration:line-through">${fmt(x.amount)}</span>`
+                     : `${r?"−":""}${fmt(x.amount)}`;
+      return `<tr${grey}><td>${auDate(x.payment_date)}</td><td>${what}</td>`
+           + `<td class="num">${amt}</td></tr>`;
+    }).join("")
     : `<tr><td colspan="2" class="muted">No payments recorded yet.</td></tr>`;
   const history=`<div class="card full">
     <h2 style="display:flex;align-items:center;flex-wrap:wrap;gap:12px">
-      <span>Payment history${pays.length?` — ${pays.length} payments, ${fmt(totalPaid)}`:""}</span>
+      <span>Payment history${pays.length?` — ${pays.filter(x=>x.failed!==true && String(x.result||"").toLowerCase()!=="refund").length} payments, ${fmt(totalPaid)}`:""}</span>
       ${payoffTxt}
       <button onclick="printStatement('${o.id}')" style="margin-left:auto;background:#122347;color:#fff;border:none;border-radius:7px;padding:5px 12px;font-size:12px;font-weight:600;cursor:pointer">🖨 Print statement</button>
     </h2>
