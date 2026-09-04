@@ -117,8 +117,13 @@ async function boot(){
 
 async function refresh(){
   showErr("");
-  await renderMine();
+  /* ⚠ THE OFFICE DOES NOT CLOCK IN. [stated] Nigel: "Workers sign in on the
+     ipad and out on the ipad ... All I need is something to replace the paper
+     form they used to use." Showing the office a Clock in button and their own
+     week above everybody else's was the reason the real timesheet was never
+     found — it sat below two cards that did not concern them. */
   if (OFFICE) { await renderOffice(); await renderCrewAdmin(); }
+  else        { await renderMine(); }
 }
 
 /* ---------------- my hours (everyone sees this) ---------------- */
@@ -148,7 +153,7 @@ async function renderMine(){
     </div>` : `
     <div class="card">
       <h2>Not clocked in</h2>
-      <div class="muted">Tap when you start work. You can add a shift by hand if you forget.</div>
+      <div class="muted">Tap when you start work.</div>
       <div style="margin-top:14px"><button class="wide primary" onclick="clockIn()">Clock in</button></div>
     </div>`;
 
@@ -169,18 +174,7 @@ async function renderMine(){
       <table><thead><tr><th>Shift</th><th style="text-align:right">Hours</th><th style="text-align:right">Status</th></tr></thead>
       <tbody>${list}</tbody></table>
     </div>
-    <div class="card">
-      <h2>Add a shift you forgot to clock</h2>
-      <div class="muted">Goes to the office to approve, same as any other shift.</div>
-      <div class="row">
-        <div><label>Date</label><input id="mDate" type="date" max="${todayNZ()}" value="${todayNZ()}"></div>
-        <div><label>Start</label><input id="mStart" type="time" value="08:00"></div>
-        <div><label>Finish</label><input id="mEnd" type="time" value="16:30"></div>
-        <div><label>Break (min)</label><input id="mBreak" type="number" min="0" step="5" value="30" inputmode="numeric"></div>
-      </div>
-      <label>Note (optional)</label><input id="mNote" placeholder="e.g. Forgot to clock in">
-      <div style="margin-top:14px"><button class="primary" onclick="addManual()">Add shift</button></div>
-    </div>`;
+`;
   tick();
 }
 
@@ -208,15 +202,6 @@ async function clockOut(){
   const brk = Number(($("brk")||{}).value || 0);
   const note = (($("note")||{}).value || "").trim();
   const { data, error } = await sb.rpc("timesheet_clock_out", { p_break: brk, p_note: note });
-  if (error) return showErr(error.message);
-  if (data && data.ok === false) return showErr(data.error);
-  await refresh();
-}
-async function addManual(){
-  showErr("");
-  const { data, error } = await sb.rpc("timesheet_add_manual", {
-    p_date: $("mDate").value, p_start: $("mStart").value, p_end: $("mEnd").value,
-    p_break: Number($("mBreak").value||0), p_note: ($("mNote").value||"").trim() });
   if (error) return showErr(error.message);
   if (data && data.ok === false) return showErr(data.error);
   await refresh();
@@ -452,7 +437,7 @@ async function renderOffice(){
           <td><b>${DAYNAME[i]}</b> <span class="muted">${nzDate(iso)}</span></td>
           <td colspan="3" class="muted">nothing recorded</td>
           <td class="num muted">\u2014</td>
-          <td class="num"><button class="mini" onclick="addDay('${p.id}','${esc(p.name)}','${iso}')">Add</button></td>
+          <td class="num"></td>
         </tr>`);
         continue;
       }
@@ -562,18 +547,6 @@ async function saveCell(id, el, which){
   await renderOffice();
 }
 
-async function addDay(userId, name, iso){
-  const start = prompt(`${name} \u2014 ${nzDate(iso)}\n\nWhat time did they start? (e.g. 08:00)`, "08:00");
-  if (!start) return;
-  const end = prompt(`What time did they finish?`, "16:30");
-  if (!end) return;
-  showErr("");
-  const { data, error } = await sb.rpc("timesheet_add_for",
-    { p_user:userId, p_date:iso, p_start:start, p_end:end, p_break:0, p_note:null });
-  if (error) return showErr(error.message);
-  if (data && data.ok === false) return showErr(data.error);
-  await renderOffice();
-}
 
 async function approveWeek(userId, name){
   showErr("");
