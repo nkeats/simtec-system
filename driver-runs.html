@@ -98,10 +98,23 @@ let DRIVERS = [];
 
 async function boot(){
   $("pDate").value = todayNZ();
-  const { data } = await sb.from("profiles").select("id,full_name,email,role")
-    .in("role",["driver","warehouse","admin","manager","office"]).eq("active",true).order("full_name");
-  DRIVERS = data||[];
-  $("pDriver").innerHTML = DRIVERS.map(d=>`<option value="${d.id}">${esc(d.full_name||d.email)} · ${esc(d.role)}</option>`).join("");
+
+  /* ⚠ DO NOT READ `profiles` DIRECTLY HERE. Its only SELECT policy is
+     `auth.uid() = id`, so the query that used to be on this line could return
+     at most the signed-in user's own row: the dropdown silently offered only
+     whoever was logged in, and the run was built against them.
+     ⚠ Nor crew_list() — that is the four warehouse crew only, and runs are
+       genuinely built against Gloria (manager) and Nigel (admin) as well.
+     run_driver_options() is SECURITY DEFINER and returns everyone who may take
+     a run: user_id, name, role, is_crew — crew first, then the office. */
+  const { data, error } = await sb.rpc("run_driver_options");
+  if(error) showErr("Couldn't load the driver list: " + error.message);
+  DRIVERS = data || [];
+  $("pDriver").innerHTML = DRIVERS
+    .map(d=>`<option value="${d.user_id}">${esc(d.name)} · ${esc(d.role)}</option>`).join("");
+  if(!error && !DRIVERS.length)
+    showErr("Nobody came back for the driver list — a run cannot be built until that is sorted.");
+
   $("pDate").onchange = () => { load(); loadCalls(); };   // alerts are date-independent
   await load();
   await loadCalls();
