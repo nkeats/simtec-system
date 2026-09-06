@@ -136,6 +136,54 @@
     <div id="result" style="margin-top:12px"></div>
   </div>
 
+  <!-- ── FOLLOW-UPS ────────────────────────────────────────────────
+       370 were invited and 333 never opened the app. This is the second,
+       third and final email — a different one each round, because the same
+       email three times is junk mail.
+       ⚠ It NEVER emails somebody who has signed in, a shared address, or a
+         cancelled customer. Those rules live in v_followup_targets, not here. -->
+  <div class="card">
+    <h2 style="margin-top:0">Follow up with people who never opened the app</h2>
+    <div class="muted" style="margin-bottom:12px">
+      Three rounds, seven days apart, each with different wording. Round&nbsp;3 says
+      it is the last one. Nobody gets a fourth.
+    </div>
+
+    <div class="big" id="fEligible">&nbsp;</div>
+    <div class="muted" id="fBreakdown" style="margin-bottom:14px">counting…</div>
+
+    <div class="row" style="margin-bottom:10px">
+      <div>
+        <label>How many this batch</label>
+        <select id="fLimit">
+          <option value="10">10</option>
+          <option value="50" selected>50</option>
+          <option value="150">150</option>
+          <option value="300">300</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="row" style="align-items:flex-end">
+      <button class="primary" id="fDry" onclick="fDryRun()">Run a dry run</button>
+      <span class="muted" id="fDryState">nothing sent by a dry run</span>
+    </div>
+    <div id="fDryList" style="margin-top:12px"></div>
+
+    <hr style="border:none;border-top:1px solid #e6ebf3;margin:18px 0">
+
+    <div class="row" style="align-items:flex-end">
+      <div style="flex:1">
+        <label>Send key</label>
+        <input id="fSecret" type="password" placeholder="required to send" autocomplete="off" oninput="fDraw()">
+      </div>
+      <button id="fTest" onclick="fSendTest()">Email one to me first</button>
+      <button class="danger" id="fSend" onclick="fSendReal()" disabled>Send 0 emails</button>
+    </div>
+    <div class="muted" id="fWhy" style="margin-top:8px"></div>
+    <div id="fResult" style="margin-top:12px"></div>
+  </div>
+
 </div>
 
 <script>
@@ -265,6 +313,140 @@ async function sendReal(){
 $("limit").addEventListener("change", () => { DRY_DONE=false; $("drylist").innerHTML=""; countEligible(); });
 $("shared").addEventListener("change", () => { DRY_DONE=false; $("drylist").innerHTML=""; countEligible(); });
 window.addEventListener("load", () => setTimeout(countEligible, 400));
+
+/* ============================ FOLLOW-UPS =================================
+   ⚠ Same shape as the invite calls above on purpose — same body keys, same
+     send key, same dry-run-first discipline. Two campaign panels behaving
+     differently is how somebody eventually sends the wrong thing.
+   ======================================================================== */
+let F_ELIGIBLE = 0, F_DRY_DONE = false, F_BUSY = false;
+
+async function callFollowup(body){
+  const { data:{ session } } = await sb.auth.getSession();
+  if (!session) throw new Error("you are not signed in any more \u2014 reload the page");
+  const r = await fetch("https://jvqjoenaungubpoegyvf.supabase.co/functions/v1/loyalty-followup", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": "Bearer " + session.access_token,
+      "apikey": "sb_publishable_J4MYTdJJyEaWe-GadpwdYA_upPT2rKw"
+    },
+    body: JSON.stringify(body)
+  });
+  /* ⚠ a plain fetch, not invoke() — invoke discards the response body on a
+     non-2xx, which once turned "the send key is not set" into a message
+     nobody could act on. */
+  let out = null;
+  try { out = await r.json(); } catch(e){ out = null; }
+  if (!r.ok || (out && out.error)) {
+    throw new Error((out && out.error) ? out.error : ("the service answered " + r.status));
+  }
+  return out;
+}
+
+const fBatch = () => Number(document.getElementById("fLimit").value) || 50;
+
+function fDraw(){
+  const n = Math.min(F_ELIGIBLE, fBatch());
+  const keyed = (document.getElementById("fSecret").value || "").trim().length > 0;
+  const b = document.getElementById("fSend");
+  b.textContent = "Send " + n + " email" + (n===1?"":"s");
+  b.disabled = F_BUSY || !F_DRY_DONE || !keyed || n === 0;
+  document.getElementById("fWhy").textContent =
+    F_BUSY ? "working\u2026"
+    : !F_DRY_DONE ? "Run a dry run first \u2014 it shows exactly who would be emailed."
+    : !keyed ? "Enter the send key."
+    : n === 0 ? "Nobody is due a follow-up right now."
+    : "Ready. " + n + " will be emailed, and nobody twice.";
+}
+
+async function fCount(){
+  try{
+    const d = await callFollowup({ dry_run:true, limit:300 });
+    F_ELIGIBLE = d.batch || 0;
+    document.getElementById("fEligible").textContent = F_ELIGIBLE;
+    const parts = Object.entries(d.by_round || {}).map(([k,v]) => v + " on " + k);
+    document.getElementById("fBreakdown").textContent =
+      F_ELIGIBLE ? "due a follow-up \u00b7 " + parts.join(" \u00b7 ")
+                 : "nobody is due one \u2014 everyone has either opened the app, had all three, or is inside the 7-day gap";
+  }catch(e){
+    document.getElementById("fEligible").textContent = "\u2014";
+    document.getElementById("fBreakdown").textContent = "could not count: " + e.message;
+  }
+  fDraw();
+}
+
+async function fDryRun(){
+  showErr(""); showOk("");
+  F_BUSY = true; document.getElementById("fDry").disabled = true;
+  document.getElementById("fDryState").textContent = "checking\u2026"; fDraw();
+  try{
+    const d = await callFollowup({ dry_run:true, limit:fBatch() });
+    const list = d.would_email || [];
+    F_DRY_DONE = list.length > 0;
+    document.getElementById("fDryState").textContent =
+      list.length + " would be emailed \u00b7 nothing was sent";
+    document.getElementById("fDryList").innerHTML = !list.length
+      ? '<div class="muted">Nobody is due a follow-up right now.</div>'
+      : '<div class="scroll"><table><thead><tr><th>Name</th><th>Email</th><th>Round</th><th>Invited</th></tr></thead><tbody>' +
+        list.map(r => "<tr><td>" + esc(r.name) + "</td><td>" + esc(r.email) +
+                      "</td><td>" + esc(String(r.round)) + "</td><td class='muted'>" +
+                      esc(r.invited||"") + "</td></tr>").join("") +
+        "</tbody></table></div>";
+  }catch(e){
+    F_DRY_DONE = false;
+    document.getElementById("fDryState").textContent = "dry run failed";
+    showErr("The dry run failed, so nothing will be sent either: " + e.message);
+  }finally{
+    F_BUSY = false; document.getElementById("fDry").disabled = false; fDraw();
+  }
+}
+
+async function fSendTest(){
+  const to = prompt("Send one follow-up email to which address?\n\nNo customer is emailed and nobody is counted.");
+  if (!to) return;
+  const round = prompt("Which round? 1, 2 or 3", "1");
+  if (!round) return;
+  showErr(""); showOk("");
+  try{
+    const d = await callFollowup({ test:to.trim(), testRound:Number(round)||1,
+                                   secret:document.getElementById("fSecret").value.trim() });
+    if (d.ok) showOk("Test sent to " + to + " (round " + (d.round||round) + ").");
+    else showErr("The test did not send: " + (d.why || "no reason given"));
+  }catch(e){ showErr("The test did not send: " + e.message); }
+}
+
+async function fSendReal(){
+  if (F_BUSY) return;
+  const n = Math.min(F_ELIGIBLE, fBatch());
+  if (!confirm("Send the follow-up to " + n + " customers?\n\nThis cannot be undone.")) return;
+  showErr(""); showOk("");
+  F_BUSY = true; fDraw();
+  try{
+    const d = await callFollowup({ dry_run:false, limit:fBatch(),
+                                   secret:document.getElementById("fSecret").value.trim() });
+    showOk("Sent " + d.emailed + ". Failed " + d.failed + ".");
+    document.getElementById("fResult").innerHTML = (d.problems && d.problems.length)
+      ? '<div class="scroll"><table><thead><tr><th>Name</th><th>Email</th><th>What went wrong</th></tr></thead><tbody>' +
+        d.problems.map(p => "<tr><td>" + esc(p.name) + "</td><td>" + esc(p.email) +
+                            "</td><td>" + esc(p.why) + "</td></tr>").join("") +
+        '</tbody></table></div><div class="muted" style="margin-top:8px">Sending stopped at the first failure on purpose. Fix it, then send again \u2014 everyone already emailed is skipped.</div>'
+      : '<div class="muted">No failures.</div>';
+    F_DRY_DONE = false;
+    document.getElementById("fDryList").innerHTML = "";
+    document.getElementById("fDryState").textContent = "run another dry run for the next batch";
+    await fCount();
+  }catch(e){
+    showErr("The send failed: " + e.message);
+  }finally{
+    F_BUSY = false; fDraw();
+  }
+}
+
+document.getElementById("fLimit").addEventListener("change", () => {
+  F_DRY_DONE = false; document.getElementById("fDryList").innerHTML = ""; fDraw();
+});
+window.addEventListener("load", () => setTimeout(fCount, 900));
 </script>
 </body>
 </html>
