@@ -1,3 +1,16 @@
-# The working handover document. The repo keeps styled HTML copies as the
-# filing format — the .md is the working copy and is not tracked.
+# ⚠ HANDOVER DOCUMENTS ARE NEVER TRACKED.
+#
+# They name customers, and this repo is public and published at
+# app.simtectp.com — anything committed here is readable by anyone.
+# The working copies live one folder up, OUTSIDE the repo.
+#
+# Styled HTML copies are covered too. The 14 August handover was an HTML
+# file, so a markdown-only rule would not have caught it, and would not
+# catch the next one.
+HANDOVER.md
+*[Hh]andover*.md
+*[Hh]andover*.html
+
+# The current working handover (also matched by the pattern above; named
+# here so it is obvious which file is meant).
 /Simtec-System-Handover-2026-09-04.md

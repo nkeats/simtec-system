@@ -48,6 +48,25 @@ That addition existed in the reconciler (v19) and in the reward-card redemption,
 and both silently undid the office's corrections. **Two sources of truth for one
 payment is the recurring money bug in this system.**
 
+### ⚠⚠ One authority for points
+
+The trigger `award_points_on_payment` is the only thing that writes to
+`points_ledger`. A caller that can measure something the trigger cannot — like
+whether a customer was behind **before** a payment landed — records its
+judgement on the row, in `sim_payments.points_eligible`, and lets the trigger
+act on it.
+
+**Never write points from two places.** On 4 September the trigger and
+`record_stripe_payment` both did, and a genuine extra payment would have earned
+2,000 points instead of 1,000.
+
+### ⚠⚠ Rewards fail closed, money fails open
+
+If a customer's position cannot be computed, **record the payment and award
+nothing.** The money must land either way; the points can be added by hand
+afterwards. Giving points we did not mean to give is harder to undo than adding
+them late.
+
 ### ⚠⚠ A query in the SQL editor is not what the page sees
 
 It runs as the owner, read-write, with no row security. This has cost days:
@@ -103,6 +122,17 @@ Seven people nearly received a tax document reading `__ACCREDITATION__`.
 Open the page, or the PDF, and look at it before calling it done. A missing font
 glyph, a ghost price drawn by a second text layer, the word "bullet" printed
 over every line — none of these appear in any automated check.
+
+### ⚠ There is a test suite — add to it
+
+`run_tests()`, `test_ezidebit()` and `test_delivery_gate()` exercise 25 rules
+against a throwaway customer and delete it when they finish.
+`run_tests_and_report()` runs nightly at 19:20 and logs failures as system
+errors. **Add a test when you add a rule.**
+
+**A test run must never be dated today.** Driver test runs use `2099-01-01` — a
+run dated today can have a real crew member signing on attached to it, and the
+harness then deletes it.
 
 ---
 
