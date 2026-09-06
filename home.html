@@ -362,7 +362,22 @@ function isBehindDelivered(o){
   if(paid>=contract*0.999) return null;
 
   let bucket="urgent";
-  if(o.arrears_contacted_at){
+
+  /* ⚠⚠ SILENCE IS NEVER SUPPRESSED BY THE CONTACT GRACE PERIOD (5 Sep 2026).
+     The block below clears somebody off this list while they are inside the
+     window we gave them after a chase. That is right for a customer who is
+     merely SHORT — they were asked for two payments and have not had time to
+     make them yet.
+     It is WRONG for a customer whose money has STOPPED. Tofi Lefeau (3 failed
+     fortnightly debits) and Fauea Siilima were both contacted on 2 Sep, had
+     made no payment since, and were dropped from the tile — so the home page
+     read "0 delivered & in arrears" while the ACT TODAY alert immediately below
+     it named three people. Two halves of one screen disagreeing.
+     ⚠ `silent` means NOTHING HAS ARRIVED AT ALL. Being chased does not undo
+       that, and it is the entire reason the flag exists. */
+  const _silentNow = !!(POS[o.id] && POS[o.id].silent);
+
+  if(o.arrears_contacted_at && !_silentNow){
     const contactDay=new Date(String(o.arrears_contacted_at).slice(0,10)+"T00:00:00");
     const nowD=new Date(); nowD.setHours(0,0,0,0);
     const base=Number(o.arrears_watch_paid_base||0);
@@ -467,10 +482,18 @@ async function loadUrgent(){
     document.getElementById("urgentBadge").classList.toggle("clear",urgent.length===0);
     document.getElementById("brokeBadge").textContent=broke.length;
 
-    // ── status strip: delivered & in arrears (total + still-not-paying) ──
-    document.getElementById("sArr").textContent=rows.length;
-    document.getElementById("sArrSub").textContent = broke.length
-      ? `${broke.length} contacted, still not paying` : (rows.length? "none contacted yet" : "all up to date");
+    // ── status strip: delivered & in arrears ────────────────────────────
+    /* ⚠ THE ARREARS NUMBER MEANS LITTLE ON ITS OWN. Two in arrears out of six
+       delivered is a different business from two out of a hundred and fifty, and
+       the tile used to show only the two. The sub-line now carries the size of
+       the delivered book so the figure above it has a scale. */
+    const deliveredCount = (orders||[]).filter(o =>
+      (o.delivery_status||"") === "delivered" && !o.paid_via_order_id).length;
+
+    document.getElementById("sArr").textContent = rows.length;
+    document.getElementById("sArrSub").textContent =
+      `of ${deliveredCount} delivered` +
+      (broke.length ? ` \u00b7 ${broke.length} contacted, still not paying` : "");
 
     const rowHtml=(r,withContact)=>{
       const c=nm[r.o.customer_id]||{};
@@ -495,7 +518,7 @@ async function loadUrgent(){
       tableHtml(broke,false,"None — every contacted customer is paying as agreed.");
   }catch(e){
     document.getElementById("urgentBody").innerHTML=`<div class="load">Couldn't load: ${e.message||e}</div>`;
-    document.getElementById("sArrSub").textContent="";
+    document.getElementById("sArrSub").textContent="";   // only on a load failure
   }
 }
 
