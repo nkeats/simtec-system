@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Simtec AU — Ezidebit payer export</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.112.2"></script>
+<script src="auth.js?v=3" data-roles="admin,manager,office"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+  :root{--navy:#111f3d;--navy2:#1a2c53;--gold:#c6a15b;--gold2:#d9be86;--ink:#1a2334;
+        --sub:#64728a;--line:#e4e8ef;--bg:#f4f6f9;--red:#c0332e;--redbg:#fdeceb;
+        --green:#1c6b34;--greenbg:#e9f5ed;--amber:#8a5a12;--amberbg:#fff5e0;--blue:#1f5aa8}
+  *{box-sizing:border-box}
+  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+       color:var(--ink);background:var(--bg);margin:0;-webkit-font-smoothing:antialiased}
+  .topbar{background:linear-gradient(180deg,var(--navy),var(--navy2));color:#fff;padding:16px 26px;
+          border-bottom:3px solid var(--gold);display:flex;align-items:center;justify-content:space-between;
+          gap:14px;flex-wrap:wrap}
+  .topbar .t{font-size:18px;font-weight:800}
+  .topbar .t small{display:block;color:var(--gold2);font-size:9px;letter-spacing:.26em;font-weight:600;margin-top:3px}
+  .topbar a{color:#cfd7e6;font-size:13px;text-decoration:none;border:1px solid rgba(255,255,255,.25);
+            padding:6px 12px;border-radius:20px}
+  .wrap{max-width:1150px;margin:0 auto;padding:24px 20px 70px}
+  .drop{border:2px dashed #c3cddd;border-radius:16px;background:#fff;padding:38px 24px;text-align:center;cursor:pointer}
+  .drop.drag{border-color:var(--gold);background:#fffdf6}
+  .drop h2{margin:6px 0 4px;color:var(--navy);font-size:20px}
+  .drop p{color:var(--sub);font-size:13.5px;margin:4px 0}
+  .drop .ic{font-size:40px}
+  .drop .btn{display:inline-block;margin-top:12px;background:var(--navy);color:#fff;border:none;
+             border-radius:10px;padding:12px 22px;font-size:15px;font-weight:700;cursor:pointer}
+  .err{background:var(--redbg);border:1px solid #e7c3bf;color:var(--red);border-radius:10px;
+       padding:12px 14px;margin-top:14px;font-size:13.5px;font-weight:600;display:none}
+  .loading{display:none;text-align:center;color:var(--sub);padding:26px;font-size:14px}
+  .kpis{display:none;grid-template-columns:repeat(4,1fr);gap:14px;margin:20px 0}
+  @media(max-width:900px){.kpis{grid-template-columns:repeat(2,1fr)}}
+  .kpi{background:#fff;border:1px solid var(--line);border-radius:14px;padding:16px 18px;position:relative;overflow:hidden}
+  .kpi::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--gold)}
+  .kpi.green::before{background:var(--green)} .kpi.red::before{background:var(--red)}
+  .kpi.amber::before{background:var(--amber)} .kpi.blue::before{background:var(--blue)}
+  .kpi .n{font-size:26px;font-weight:800;color:var(--navy);letter-spacing:-.5px;line-height:1}
+  .kpi.green .n{color:var(--green)} .kpi.red .n{color:var(--red)}
+  .kpi .l{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--sub);font-weight:700;margin-top:9px}
+  .kpi .s{font-size:11.5px;color:var(--sub);margin-top:3px;min-height:14px}
+  .panel{display:none;background:#fff;border:1px solid var(--line);border-radius:14px;padding:16px 18px;margin-bottom:18px}
+  .panel h3{margin:0 0 10px;font-size:11.5px;text-transform:uppercase;letter-spacing:.1em;color:var(--sub);font-weight:700}
+  table{width:100%;border-collapse:collapse;font-size:13.5px}
+  th{text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--sub);
+     padding:8px 10px;border-bottom:1px solid var(--line);white-space:nowrap}
+  td{padding:8px 10px;border-bottom:1px solid #f0f3f8}
+  td.n{text-align:right;font-variant-numeric:tabular-nums}
+  .scroll{max-height:340px;overflow:auto}
+  .up{color:var(--green);font-weight:700} .dn{color:var(--red);font-weight:700}
+  .savebar{display:none;background:#fff;border:1px solid var(--line);border-radius:14px;padding:16px 18px;margin-bottom:18px}
+  .savebar button{background:#0f2c57;color:#fff;border:0;border-radius:9px;padding:12px 22px;
+                  font-size:15px;font-weight:700;cursor:pointer}
+  .savebar button:disabled{background:#9aa6bb;cursor:not-allowed}
+  .note{font-size:12.5px;color:var(--sub);margin-top:10px;line-height:1.5}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <div class="t">Ezidebit payer export <small>SIMTEC AUSTRALIA</small></div>
+  <div><a href="au-collections.html">Chase list</a> &nbsp; <a href="au-arrears.html">Daily arrears</a></div>
+</div>
+
+<div class="wrap">
+  <div class="drop" id="drop">
+    <div class="ic">&#128202;</div>
+    <h2>Drop the Find Payers export here</h2>
+    <p>In EziOnline: <b>Payers &rarr; Find Payers &rarr; Show All Payers &rarr; Export to CSV</b></p>
+    <p>This is the only file that tells us what each customer has actually <b>paid</b>.</p>
+    <button class="btn" id="pick">Choose the file</button>
+    <input id="file" type="file" accept=".csv,.xlsx,.xls" style="display:none">
+    <div class="note">Nothing is saved until you have seen what changed and pressed Save.</div>
+  </div>
+  <div class="err" id="err"></div>
+  <div class="loading" id="loading">Reading the file&hellip;</div>
+
+  <div class="kpis" id="kpis"></div>
+
+  <div class="savebar" id="savebar">
+    <button id="saveBtn">Save into the system</button>
+    <span id="saveMsg" style="margin-left:12px;font-size:13.5px"></span>
+    <div class="note">
+      This writes only Ezidebit&rsquo;s own figures &mdash; total paid, status and next payment.
+      It never touches the balance owing, the arrears history, or anything the office has set by hand,
+      so the two can always be compared.
+    </div>
+  </div>
+
+  <div class="panel" id="pMore">
+    <h3>Paid more than our records show</h3>
+    <div class="scroll"><table id="tMore"></table></div>
+  </div>
+  <div class="panel" id="pHold">
+    <h3>Not collecting &mdash; on hold at Ezidebit</h3>
+    <div class="scroll"><table id="tHold"></table></div>
+  </div>
+  <div class="panel" id="pMissing">
+    <h3>In the file but not on our book</h3>
+    <div class="scroll"><table id="tMissing"></table></div>
+  </div>
+</div>
+
+<script>
+/* ============================================================================
+   ⚠⚠ WHY THIS PAGE EXISTS.
+   Every other Australian import records FAILURES — Cherelee's daily report
+   lists only what bounced. NOTHING told us what a customer had actually PAID,
+   so "how much will we collect" was an inference from the absence of failures.
+   That inference was wrong in a specific and dangerous way: an account being
+   debited and failing looked bad, while an account NO LONGER BEING DEBITED AT
+   ALL looked perfect.
+
+   The Find Payers export carries TOTAL PAID and a live STATUS for every payer.
+   The first import found $269,758 MORE COLLECTED than our records held.
+
+   ⚠ IT WRITES ONLY THE ezi_* COLUMNS. Never `paid`, never `balance_owing`,
+     never the office's own `status`. Two sources you can compare are worth far
+     more than one that has quietly overwritten the other.
+   ============================================================================ */
+const GW_URL = "https://jvqjoenaungubpoegyvf.supabase.co/functions/v1/au-gateway";
+const NZ_KEY = "sb_publishable_J4MYTdJJyEaWe-GadpwdYA_upPT2rKw";
+const $ = id => document.getElementById(id);
+let ROWS = [], KNOWN = {};
+
+async function auCall(op, payload){
+  const sb = window.SIMTEC_SB;
+  if(!sb) throw new Error('Not signed in — refresh the page and sign in.');
+  const s = await sb.auth.getSession();
+  const token = s && s.data && s.data.session ? s.data.session.access_token : '';
+  if(!token) throw new Error('Your session has expired — refresh and sign in again.');
+  const r = await fetch(GW_URL, { method:'POST',
+    headers:{ 'Content-Type':'application/json', Authorization:'Bearer '+token, apikey:NZ_KEY },
+    body: JSON.stringify(Object.assign({op}, payload||{})) });
+  let d={}; try{ d = await r.json(); }catch(e){}
+  if(!r.ok || d.error) throw new Error(d.error || ('Server said '+r.status));
+  return d;
+}
+
+const money = n => '$' + (Number(n)||0).toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2});
+const digits = s => String(s||'').replace(/\D/g,'');
+
+/* ⚠ THE EXPORT MIXES DATE FORMATS IN THE SAME COLUMN — "15/12/2025" on one row
+   and a real date cell on the next. Read both, and return null rather than
+   guessing: a wrong next-payment date would make a dead account look live. */
+function isoOf(v){
+  if(v instanceof Date && !isNaN(v)) return v.toISOString().slice(0,10);
+  const s = String(v||'').trim();
+  let m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);        if(m) return m[1]+'-'+m[2]+'-'+m[3];
+  m = s.match(/^(\d{2})\/(\d{2})\/(\d{4})/);          if(m) return m[3]+'-'+m[2]+'-'+m[1];
+  return null;
+}
+
+function showErr(msg){ const e=$('err'); e.textContent=msg; e.style.display=msg?'block':'none'; }
+
+function handle(file){
+  showErr(''); $('loading').style.display='block';
+  const fr = new FileReader();
+  fr.onload = ev => {
+    try{
+      const wb = XLSX.read(ev.target.result, {type:'array', cellDates:true});
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const raw = XLSX.utils.sheet_to_json(ws, {defval:null});
+      if(!raw.length) throw new Error('That file has no rows in it.');
+      const first = raw[0];
+      const need = ['Ezidebit Payer Id','Total Paid'];
+      for(const k of need){
+        if(!(k in first)) throw new Error('This does not look like a Find Payers export — the column "'+k+'" is missing.');
+      }
+      ROWS = raw.map(r => ({
+        ref:        digits(r['Ezidebit Payer Id']),
+        name:       [r['Last Name'], r['First Name']].filter(Boolean).join(', '),
+        status:     r['Status'] || null,
+        total_paid: r['Total Paid'] == null ? null : Number(r['Total Paid']),
+        next:       isoOf(r['Next Payment']),
+        cref:       r['Client Contract Ref'] || null,
+        mobile:     r['Mobile Phone Number'] || null
+      })).filter(r => r.ref.length >= 7);
+      if(!ROWS.length) throw new Error('No payer ids were found in that file.');
+      compare();
+    }catch(e){
+      $('loading').style.display='none';
+      showErr(String(e.message||e));
+    }
+  };
+  fr.onerror = () => { $('loading').style.display='none'; showErr('The file could not be read.'); };
+  fr.readAsArrayBuffer(file);
+}
+
+/* ⚠ SHOW WHAT WILL CHANGE BEFORE ANYTHING IS SAVED. An import that just says
+   "done" gives nobody a reason to believe it. */
+async function compare(){
+  $('loading').textContent = 'Comparing against the book…';
+  try{
+    /* ⚠ 'payers', NOT 'list'. au_collection_list does not expose `paid` or
+       `ezi_total_paid`, so comparing against it would read every customer as
+       zero and report all 678 as "paid more than we thought" on EVERY import —
+       true the first time and misleading for ever after. */
+    const res = await auCall('payers', {});
+    KNOWN = {};
+    (res.rows||[]).forEach(c => { KNOWN[digits(c.payer_id)] = c; });
+  }catch(e){
+    $('loading').style.display='none';
+    showErr('Could not read the book to compare against: ' + (e.message||e));
+    return;
+  }
+  const more=[], hold=[], missing=[];
+  let extra=0, active=0, paidTotal=0;
+  for(const r of ROWS){
+    paidTotal += Number(r.total_paid||0);
+    if((r.status||'') === 'Active') active++;
+    const k = KNOWN[r.ref];
+    if(!k){ missing.push(r); continue; }
+    const was = Number(k.ezi_total_paid != null ? k.ezi_total_paid : k.paid) || 0;
+    const now = Number(r.total_paid||0);
+    if(now > was + 0.005){ more.push({...r, was, diff: now-was}); extra += (now-was); }
+    if((r.status||'') !== 'Active') hold.push({...r, owing: Number(k.balance_owing)||0});
+  }
+  more.sort((a,b)=>b.diff-a.diff);
+  hold.sort((a,b)=>(b.owing||0)-(a.owing||0));
+
+  $('kpis').style.display='grid';
+  $('kpis').innerHTML = [
+    ['blue',  ROWS.length,      'Payers in the file', active+' active'],
+    ['green', more.length,      'Paid more than we thought', money(extra)+' found'],
+    ['amber', hold.length,      'On hold at Ezidebit', 'collecting nothing'],
+    ['red',   missing.length,   'Not on our book', missing.length? 'worth a look':'—']
+  ].map(([c,n,l,s]) =>
+    '<div class="kpi '+c+'"><div class="n">'+n+'</div><div class="l">'+l+'</div><div class="s">'+s+'</div></div>'
+  ).join('');
+
+  const tbl = (rows, cols) =>
+    '<thead><tr>'+cols.map(c=>'<th>'+c[0]+'</th>').join('')+'</tr></thead><tbody>'+
+    rows.slice(0,300).map(r=>'<tr>'+cols.map(c=>'<td'+(c[2]?' class="n"':'')+'>'+c[1](r)+'</td>').join('')+'</tr>').join('')+
+    '</tbody>';
+
+  if(more.length){
+    $('pMore').style.display='block';
+    $('tMore').innerHTML = tbl(more, [
+      ['Customer', r=>r.name||'—'], ['Ezidebit ref', r=>r.ref],
+      ['We had', r=>money(r.was), 1], ['Ezidebit says', r=>money(r.total_paid), 1],
+      ['Difference', r=>'<span class="up">+'+money(r.diff)+'</span>', 1]]);
+  }
+  if(hold.length){
+    $('pHold').style.display='block';
+    $('tHold').innerHTML = tbl(hold, [
+      ['Customer', r=>r.name||'—'], ['Ezidebit ref', r=>r.ref],
+      ['Why it stopped', r=>r.status||'—'], ['Still owing', r=>money(r.owing), 1]]);
+  }
+  if(missing.length){
+    $('pMissing').style.display='block';
+    $('tMissing').innerHTML = tbl(missing, [
+      ['Customer', r=>r.name||'—'], ['Ezidebit ref', r=>r.ref],
+      ['Status', r=>r.status||'—'], ['Total paid', r=>money(r.total_paid), 1]]);
+  }
+  $('loading').style.display='none';
+  $('savebar').style.display='block';
+  $('saveBtn').disabled=false; $('saveMsg').textContent='';
+}
+
+async function save(){
+  const btn=$('saveBtn'), out=$('saveMsg');
+  btn.disabled=true; out.textContent='Saving…';
+  try{
+    /* sent in batches so a big export cannot time out half way through */
+    let seen=0, matched=0, more=0, extra=0, hold=0, unknown=0;
+    for(let i=0;i<ROWS.length;i+=250){
+      const d = await auCall('payer_totals', { rows: ROWS.slice(i,i+250) });
+      seen    += d.seen||0;      matched += d.matched||0;
+      more    += d.paid_more_than_we_thought||0;
+      extra   += Number(d.extra_money_found||0);
+      hold    += d.on_hold_at_ezidebit||0;
+      unknown += d.not_on_our_book||0;
+      out.textContent = 'Saving… '+matched+' of '+ROWS.length;
+    }
+    out.innerHTML = '<b style="color:#1c6b34">Saved.</b> '+matched+' customer'+(matched===1?'':'s')+' updated'
+      + (unknown? ' · '+unknown+' were not on our book' : '')
+      + ' · <a href="au-collections.html">open the chase list</a>';
+    btn.disabled=true;
+  }catch(e){
+    out.innerHTML = '<b style="color:#b3261e">Could not save:</b> '+String(e.message||e)
+      + '<br><span style="color:#6b7685">Nothing was changed. What is on screen is still correct.</span>';
+    btn.disabled=false;
+  }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  const drop=$('drop'), file=$('file');
+  $('pick').onclick = e => { e.stopPropagation(); file.click(); };
+  drop.onclick = () => file.click();
+  file.onchange = () => { if(file.files[0]) handle(file.files[0]); };
+  ['dragenter','dragover'].forEach(ev => drop.addEventListener(ev, e => {
+    e.preventDefault(); drop.classList.add('drag'); }));
+  ['dragleave','drop'].forEach(ev => drop.addEventListener(ev, e => {
+    e.preventDefault(); drop.classList.remove('drag'); }));
+  drop.addEventListener('drop', e => { if(e.dataTransfer.files[0]) handle(e.dataTransfer.files[0]); });
+  $('saveBtn').onclick = save;
+});
+</script>
+</body>
+</html>
