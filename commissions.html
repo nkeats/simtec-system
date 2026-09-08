@@ -162,24 +162,43 @@ function calc(sales,bonuses,deds,retBal,payBasis,sr){
   const rate=units<=s.tier1_max?s.tier1_amount:units<=s.tier2_max?s.tier2_amount:s.tier3_amount;
   let sc=0,ac=0,scOrdinary=0,srUsed=0,srValue=0;
   let srLeft=sr?sr.units:0;
+  /* ⚠ bySale RECORDS WHAT EACH SALE ACTUALLY EARNED, allocated here and nowhere
+     else. The invoice used to price its own lines with a second, simpler rule
+     that ignored starting rates entirely, so a consultant in their first four
+     weeks saw every line at the ordinary rate while the subtotal underneath used
+     the starting rate — Maealivaki Tuipulotu's line read $200 against a $500
+     subtotal with nothing explaining the gap. Starting-rate units are consumed
+     in sale order, so they can only be allocated once, by one pass. NEVER price
+     a sale line by re-deriving it; read it from here. */
+  const bySale={};
   for(const sale of sales){
     if(sale.status==='cancelled')continue;
-    let elig=false;
+    let elig=false, thisSale=0;
     for(const it of(sale.items||[])){
       const p=it.product;if(!p)continue;
       if(p.commission_type==='fixed'){
-        sc+=p.fixed_amount*it.quantity; scOrdinary+=p.fixed_amount*it.quantity; elig=true;
+        sc+=p.fixed_amount*it.quantity; scOrdinary+=p.fixed_amount*it.quantity;
+        thisSale+=p.fixed_amount*it.quantity; elig=true;
       }
       if(p.commission_type==='tier'){
         const q=+it.quantity||0;
         scOrdinary+=rate*q;
         const atStart=Math.min(srLeft,q);
-        if(atStart>0){ sc+=sr.amount*atStart; srLeft-=atStart; srUsed+=atStart; srValue+=sr.amount*atStart; }
-        if(q-atStart>0) sc+=rate*(q-atStart);
+        if(atStart>0){ sc+=sr.amount*atStart; srLeft-=atStart; srUsed+=atStart; srValue+=sr.amount*atStart;
+                       thisSale+=sr.amount*atStart; }
+        if(q-atStart>0){ sc+=rate*(q-atStart); thisSale+=rate*(q-atStart); }
         elig=true;
       }
     }
-    if(elig&&sale.paid_in_full)ac+=s.cash_bonus;
+    /* ⚠ THE CASH BONUS IS **NOT** PART OF THE SALE LINE. It has its own section on
+       the invoice ("Cash bonuses — N paid-in-full sales × $100"), so adding it to
+       the line as well shows the same $100 twice and makes the lines disagree
+       with the Sales Commission Subtotal directly above them. That is exactly
+       what Tame Cooper's invoice did: one sale reading $300 over a $200
+       subtotal, the extra $100 being the cash bonus already listed below.
+       bySale is COMMISSION ONLY, and must stay that way. */
+    if(elig&&sale.paid_in_full) ac+=s.cash_bonus;
+    if(sale.id!==undefined) bySale[sale.id]=thisSale;
   }
   const payout=(bonuses||[]).find(b=>b.description==='__RETENTION_PAYOUT__');
   const payoutAmt=+payout?.amount||0;
@@ -192,7 +211,7 @@ function calc(sales,bonuses,deds,retBal,payBasis,sr){
   /* scOrdinary lets the office show the consultant BOTH figures each week, which
      is what clause (a) of Schedule 1 requires before they can elect. */
   const grossOrdinary=scOrdinary+ac+mb;
-  return{units,rate,sc,ac,mb,gs,gross,ret,td,payout:payoutAmt,net:gross-ret-td+payoutAmt,
+  return{units,rate,sc,ac,mb,gs,gross,ret,td,payout:payoutAmt,net:gross-ret-td+payoutAmt,bySale,
     retAfter:retBal+ret-payoutAmt,
     srWeek:sr?sr.weekNo:0, srRate:sr?sr.amount:0, srUsed, srValue,
     scOrdinary, grossOrdinary, ordinaryBetter: sr ? (grossOrdinary>gross) : false};
@@ -1112,7 +1131,12 @@ async function showInv(){
   const gstReg=!!gstRow?.gst_registered;
   const gstRate=+gstRow?.gst_rate||15;
   const gstAmt=gstReg?cv.net*gstRate/100:0;
-  const saleC=sale=>{let c=0,el=false;for(const it of sale.items){const p=it.product;if(!p)continue;if(p.commission_type==='fixed'){c+=p.fixed_amount*it.quantity;el=true;}if(p.commission_type==='tier'){c+=cv.rate*it.quantity;el=true;}}if(el&&sale.paid_in_full)c+=s.cash_bonus;return c;};
+  /* ⚠ READ THE ALLOCATION, DO NOT REDO IT. calc() has already decided which
+     mattresses were paid at a starting rate and which at the ordinary rate, in
+     sale order. Re-deriving it here is what made the lines disagree with the
+     subtotal. If bySale has no entry the sale earned nothing (cancelled sales
+     are drawn as CNX and never priced). */
+  const saleC=sale=>+cv.bySale?.[sale.id]||0;
 
   $('app').innerHTML=`
     <div class="bg-slate-900 border-b border-slate-800 px-8 py-4 flex items-center gap-4 noprint">
