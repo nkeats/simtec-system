@@ -205,8 +205,14 @@ function calc(sales,bonuses,deds,retBal,payBasis,sr){
   const mb=(bonuses||[]).filter(b=>b.description!=='__RETENTION_PAYOUT__').reduce((a,b)=>a+(+b.amount||0),0);
   const gs=sc+ac,gross=gs+mb;
   let ret=0;
-  // Retention only accrues for consultants on 'commission'. On 'retainer' → no retention withheld.
-  if(payBasis!=='retainer' && retBal<s.retention_cap)ret=Math.min(gs*s.retention_rate,s.retention_cap-retBal);
+  /* Retention only accrues for consultants on 'commission'. On 'retainer' → none.
+     ⚠ RETENTION IS TAKEN ON SALES COMMISSION ONLY, NOT ON THE CASH BONUS.
+     [stated] Nigel, 9 Sep, on Tame Cooper: "He has one sale $200 less retention
+     $50, plus a bonus for paid in full $100" — $50 is 25% of the $200 commission,
+     not of the $300 gross. It used to use `gs` (commission + cash bonus), which
+     took $75 from him. The retention account exists to cover a sale that later
+     cancels, and what would be clawed back is the sales commission. */
+  if(payBasis!=='retainer' && retBal<s.retention_cap)ret=Math.min(sc*s.retention_rate,s.retention_cap-retBal);
   const td=(deds||[]).reduce((a,d)=>a+(+d.amount||0),0);
   /* scOrdinary lets the office show the consultant BOTH figures each week, which
      is what clause (a) of Schedule 1 requires before they can elect. */
