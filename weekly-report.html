@@ -112,6 +112,69 @@ function mixTable(rows, label){
    Bounced sits beside received deliberately: money in means little without
    what failed next to it.
 -------------------------------------------------------------------------- */
+/* ⚠ RAW FIGURES ONLY — no projected losses, no percentages.
+   [stated] Nigel: "dont allow for any percentages, just give the raw figures in
+   each catagory of misses... we will only deliver if there is a good payment
+   history, so our defaults should be smaller."
+   The Australian cancellation rates come from a book with NO delivery gate, so
+   applying them here would import somebody else's risk profile. DO NOT ADD A
+   PROJECTED-LOSS COLUMN.
+   The delivered / not-delivered split is the point: the gate only protects what
+   has already gone out. */
+function bandTable(rows){
+  rows = rows || [];
+  if(!rows.length) return `<p class="note">No live orders to report.</p>`;
+  const sum = k => rows.reduce((a,r)=>a+Number(r[k]||0),0);
+  return `<table>
+      <tr><th>Payment record</th><th class="num">Orders</th><th class="num">Contracted</th>
+          <th class="num">Paid</th><th class="num">Still owing</th>
+          <th class="num">Delivered</th><th class="num">Not delivered</th></tr>`
+    + rows.map(r=>`<tr>
+        <td>${esc(String(r.band).replace(/^\d+\.\s*/,""))}</td>
+        <td class="num">${r.orders}</td>
+        <td class="num">${money(r.contracted)}</td>
+        <td class="num">${money(r.paid)}</td>
+        <td class="num"><b>${money(r.owing)}</b></td>
+        <td class="num">${r.delivered_orders} &middot; ${money(r.delivered_owing)}</td>
+        <td class="num">${r.undelivered_orders} &middot; ${money(r.undelivered_owing)}</td></tr>`).join("")
+    + `<tr><td><b>Total</b></td>
+        <td class="num"><b>${sum("orders")}</b></td>
+        <td class="num"><b>${money(sum("contracted"))}</b></td>
+        <td class="num"><b>${money(sum("paid"))}</b></td>
+        <td class="num"><b>${money(sum("owing"))}</b></td>
+        <td class="num"><b>${sum("delivered_orders")} &middot; ${money(sum("delivered_owing"))}</b></td>
+        <td class="num"><b>${sum("undelivered_orders")} &middot; ${money(sum("undelivered_owing"))}</b></td></tr></table>`;
+}
+
+/* ⚠ THE THREE COLUMNS DO NOT SHARE A PERIOD. Sold and delivered are THIS WEEK;
+   still-to-deliver is the whole outstanding book, whenever it sold. The header
+   and the note under the table both say so — do not shorten them.
+   ⚠ r.products (what sold) uses `units`; the extras mix lists use `qty`. */
+function mattressTable(soldRows, delivRows, awaitRows){
+  const m = {};
+  const put = (rows, key, field) => (rows||[]).forEach(r=>{
+    const n = r.product; if(!n) return;
+    m[n] = m[n] || { product:n, sold:0, deliv:0, wait:0 };
+    m[n][key] = Number(r[field]||0);
+  });
+  put(awaitRows,"wait","qty");
+  put(delivRows,"deliv","qty");
+  put(soldRows ,"sold","units");
+  const names = Object.keys(m).sort();
+  if(!names.length) return `<p class="note">No mattress movement recorded.</p>`;
+  const t = k => names.reduce((a,n)=>a+m[n][k],0);
+  const dash = `<span class="note">\u2014</span>`;
+  return `<table>
+      <tr><th>Mattress</th><th class="num">Sold this week</th>
+          <th class="num">Delivered this week</th><th class="num">Still to deliver</th></tr>`
+    + names.map(n=>`<tr><td>${esc(n)}</td>
+        <td class="num">${m[n].sold||dash}</td>
+        <td class="num">${m[n].deliv||dash}</td>
+        <td class="num">${m[n].wait||dash}</td></tr>`).join("")
+    + `<tr><td><b>Total</b></td><td class="num"><b>${t("sold")}</b></td>
+        <td class="num"><b>${t("deliv")}</b></td><td class="num"><b>${t("wait")}</b></td></tr></table>`;
+}
+
 function eziTable(rows){
   if(!rows || !rows.length) return `<p class="note">No settled payments recorded.</p>`;
   const totIn  = rows.reduce((a,r)=>a+Number(r.received||0),0);
@@ -194,12 +257,21 @@ async function load(){
       .sort((a,b)=>b.mattresses-a.mattresses||b.value-a.value)
   };
   const d = { count: data.delivered?.deliveries ?? 0,
-              by_mattress: x.deliveries_by_mattress || [] };
+              by_mattress: x.deliveries_by_mattress || [],
+              /* ⚠ THE WHOLE OUTSTANDING BOOK, NOT THIS WEEK - every mattress on a
+                 live order that has not gone out, whenever it sold. Labelled so
+                 nobody reads it as a weekly figure. */
+              awaiting: x.awaiting_by_mattress || [] };
   const bk = x.book || {};
   const o = { total_sales_count: bk.total_sales_count, total_sales_value: bk.total_sales_value,
               total_cancelled_count: bk.total_cancelled_count, total_cancelled_value: bk.total_cancelled_value,
               total_delivered: bk.total_delivered,
-              loan_book_actual: bk.loan_book_actual, loan_book_doubtful: bk.loan_book_doubtful,
+              loan_book_actual: bk.loan_book_actual,
+              /* ⚠ loan_book_doubtful is GONE. It summed a MANUAL `doubtful` flag,
+                 not a calculation, and two different answers to "what is this book
+                 worth" on one page is the fault behind most of what we fixed this
+                 month. Replaced by raw figures per miss band. */
+              loan_book_by_misses: bk.loan_book_by_misses || [],
               ezidebit_expected_weekly: bk.ezidebit_expected_weekly,
               mattress_mix: x.mattress_mix_all_time || [],
               orders_with_a_base: x.base_attach || {with:0,total:0},
@@ -250,7 +322,13 @@ async function load(){
       ${tile("Deliveries", d.count, "orders delivered")}
       ${tile("Mattresses out", delTotal, "units")}
       ${tile("Bases out", (x.deliveries_by_base||[]).reduce((a,r)=>a+Number(r.qty||0),0), "units")}
+      ${tile("Still to deliver", d.awaiting.reduce((a,r)=>a+Number(r.qty||0),0), "mattresses, whole book")}
     </div>
+    <h3>Mattresses</h3>
+    ${mattressTable(data.products, d.by_mattress, d.awaiting)}
+    <p class="note">Sold and delivered are this week. <b>Still to deliver</b> is every mattress on a live
+      order that has not gone out, whenever it was sold — what is committed, not what will clear the
+      payment gate.</p>
     <h3>By mattress</h3>
     ${mixTable(d.by_mattress,"Mattress")}
     <h3>By bed base</h3>
@@ -258,7 +336,7 @@ async function load(){
     </div>`;
 
   /* ---- 3. BUSINESS OVERVIEW ---- */
-  const real = Number(o.loan_book_actual) - Number(o.loan_book_doubtful);
+
   const basePct = pct(o.orders_with_a_base.with, o.orders_with_a_base.total);
   const reorder = o.reorder || [];
   const urgent = reorder.filter(r=>r.urgent);
@@ -270,10 +348,16 @@ async function load(){
       ${tile("Delivered", o.total_delivered, "all time")}
     </div>
     <div class="tiles">
-      ${tile("Loan book — actual", money(o.loan_book_actual), "still owed on active orders")}
-      ${tile("Loan book — real", money(real), money(o.loan_book_doubtful)+" judged doubtful")}
+      ${tile("Loan book", money(o.loan_book_actual), "still owed on active orders")}
       ${tile("Ezidebit expected", money2(o.ezidebit_expected_weekly), "per week, all frequencies")}
     </div>
+
+    <h3>Loan book by payment record</h3>
+    <p class="note">Raw figures only, no projected losses. Delivered orders have passed the
+      payment gate; undelivered ones have not.
+      &#9888; Dishonour history starts 1 July 2026, so anything that bounced before then reads
+      as no misses &mdash; treat the clean band as a ceiling, not a verified figure.</p>
+    ${bandTable(o.loan_book_by_misses)}
 
     <h3>Ezidebit received — last 4 complete weeks</h3>
     <p class="note">Counted on the day the money settled, refunds taken off.
