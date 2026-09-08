@@ -272,6 +272,15 @@ async function load(){
                  worth" on one page is the fault behind most of what we fixed this
                  month. Replaced by raw figures per miss band. */
               loan_book_by_misses: bk.loan_book_by_misses || [],
+              /* ⚠ THE DENOMINATOR. total_sales_count is LIVE orders only, so showing
+                 it beside total_cancelled_count made 221 look like half of 435 when
+                 the real base is every order ever written (656). Never put those two
+                 side by side again without this third figure. */
+              total_orders_ever: bk.total_orders_ever,
+              total_orders_ever_value: bk.total_orders_ever_value,
+              cancelled_no_items: bk.cancelled_no_items,
+              orders_with_items: bk.orders_with_items,
+              cancelled_with_items: bk.cancelled_with_items,
               ezidebit_expected_weekly: bk.ezidebit_expected_weekly,
               mattress_mix: x.mattress_mix_all_time || [],
               orders_with_a_base: x.base_attach || {with:0,total:0},
@@ -341,8 +350,12 @@ async function load(){
 
   let ovHtml = `<div class="sec"><h2>3 &nbsp;Business overview</h2>
     <div class="tiles">
-      ${tile("Total sales", o.total_sales_count, money(o.total_sales_value))}
-      ${tile("Cancelled", o.total_cancelled_count, money(o.total_cancelled_value))}
+      ${tile("Sales written", o.total_orders_ever, money(o.total_orders_ever_value)+" \u00b7 all time")}
+      ${tile("Still live", o.total_sales_count, money(o.total_sales_value))}
+      ${tile("Cancelled", o.total_cancelled_count,
+             money(o.total_cancelled_value) + (o.total_orders_ever
+               ? " \u00b7 " + (o.total_cancelled_count/o.total_orders_ever*100).toFixed(1) + "% of all sales written"
+               : ""))}
       ${tile("Delivered", o.total_delivered, "all time")}
     </div>
     <div class="tiles">
@@ -373,6 +386,12 @@ async function load(){
     <div class="tiles">
       ${tile("With a base", basePct.toFixed(1)+"%", o.orders_with_a_base.with+" of "+o.orders_with_a_base.total+" orders")}
     </div>
+    <p class="note">Cancelled is measured against <b>every order ever written</b>, not against the
+      live ones \u2014 comparing it to the live count would double the apparent rate.
+      ${o.cancelled_no_items && o.orders_with_items ? `Note that ${o.cancelled_no_items} of the ${o.total_cancelled_count} cancellations
+      are legacy spreadsheet imports carrying no line items; excluding those, the rate on the
+      ${o.orders_with_items} orders this system created is
+      ${(o.cancelled_with_items/o.orders_with_items*100).toFixed(1)}%.` : ""}</p>
 
     `
     /* ⚠ THE "WHEN TO REORDER" TABLES WERE REMOVED 8 Sep on Nigel's instruction
