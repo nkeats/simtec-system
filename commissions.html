@@ -72,7 +72,16 @@ function startingWeekNo(accreditedOn, weekStart){
   if(!accreditedOn || !weekStart) return 0;
   const acc=new Date(accreditedOn+'T00:00:00'), ws=new Date(weekStart+'T00:00:00');
   if(isNaN(acc)||isNaN(ws)) return 0;
-  const day=new Date(acc); day.setDate(day.getDate()+1);
+  /* ⚠ FIXED 8 Sep. This used to do `day.setDate(day.getDate()+1)` FIRST, i.e.
+     "the first week beginning strictly AFTER the accreditation date". That cost
+     anyone accredited ON A MONDAY their entire first week of starting rates:
+     Daisy Emerson-Levi was accredited Monday 31 Aug, the pay week that began the
+     same day, and came out as week 0 (ordinary $200) instead of week 1 ($500).
+     Accredited one day EARLIER, on the Sunday, she would have got the $500.
+     Now: if the accreditation date IS a Monday, that week is week 1; otherwise
+     roll forward to the next Monday exactly as before, so a mid-week
+     accreditation still never wastes a partial week. */
+  const day=new Date(acc);
   const dow=(day.getDay()+6)%7;
   if(dow!==0) day.setDate(day.getDate()+(7-dow));
   const weeks=Math.round((ws-day)/604800000);
