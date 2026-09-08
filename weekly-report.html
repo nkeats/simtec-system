@@ -338,8 +338,6 @@ async function load(){
   /* ---- 3. BUSINESS OVERVIEW ---- */
 
   const basePct = pct(o.orders_with_a_base.with, o.orders_with_a_base.total);
-  const reorder = o.reorder || [];
-  const urgent = reorder.filter(r=>r.urgent);
 
   let ovHtml = `<div class="sec"><h2>3 &nbsp;Business overview</h2>
     <div class="tiles">
@@ -376,20 +374,13 @@ async function load(){
       ${tile("With a base", basePct.toFixed(1)+"%", o.orders_with_a_base.with+" of "+o.orders_with_a_base.total+" orders")}
     </div>
 
-    <h3>When to reorder — mattresses</h3>
-    <p class="note">Based on the last 12 weeks of sales, allowing 3 months to make and ship.
-      "Free" is stock on hand less what is already sold and waiting to go out.
-      A date in the past means the order is already overdue.</p>
-    ${reorderTable(reorder,"Mattress")}
-
-    <h3>When to reorder — bed bases</h3>
-    <p class="note">Same maths and the same 3-month lead time as the mattresses above.</p>
-    ${reorderTable(x.reorder_bases||[],"Bed base")}
     `
-    + (urgent.length || (x.reorder_bases||[]).filter(r=>r.urgent).length
-        ? `<p class="note" style="color:var(--bad)"><b>To order now:</b>
-             ${[...urgent.map(r=>r.product), ...(x.reorder_bases||[]).filter(r=>r.urgent).map(r=>r.product)].map(esc).join(", ")}.</p>`
-        : `<p class="note" style="color:var(--ok)">Nothing needs ordering this week.</p>`)
+    /* ⚠ THE "WHEN TO REORDER" TABLES WERE REMOVED 8 Sep on Nigel's instruction
+       ("you can miss the when to reorder component off of the report").
+       The DATA IS UNTOUCHED - weekly_report_extras still returns `reorder` and
+       `reorder_bases`, and reorderTable() is still here, so putting them back is
+       uncommenting two blocks, not rebuilding them. Do not delete the function or
+       the RPC keys on the strength of this. */
     + `</div>`;
 
   $("out").innerHTML = salesHtml + delHtml + ovHtml
