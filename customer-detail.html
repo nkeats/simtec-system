@@ -2198,6 +2198,20 @@ function schMoney(n){ return "$"+Number(n||0).toLocaleString(undefined,{minimumF
 function openSched(oid){
   const o=ORDERS[oid]; if(!o) return;
   SCHORD=o; schErr("");
+
+  /* ⚠⚠ RESET THE BUTTON. This is the bug that made every schedule save look
+     like it "hung on Saving" (9 Sep). saveSched() disables the button and sets
+     it to "Saving…", and only puts it back in its catch block. If a save is
+     interrupted — the tab is switched, the page is left, the request never
+     answers — the button stays DISABLED with "Saving…" on it FOR EVER.
+     openSched() then reopened the modal without touching it, so the next four
+     customers showed a dead button that said "Saving…" before anything had
+     been clicked. Nothing was hanging: the button was already finished.
+     A modal must reset its own controls when it opens; it cannot rely on the
+     last thing that happened having ended tidily. */
+  const _sb = document.getElementById("schSave");
+  _sb.disabled = false;
+  _sb.textContent = "Save schedule";
   document.getElementById("schRef").value   = o.ezidebit_payer_ref || "";
   document.getElementById("schInst").value  = o.instalment_amount!=null?Number(o.instalment_amount).toFixed(2):"";
   document.getElementById("schFreq").value  = o.payment_frequency || "weekly";
@@ -2306,11 +2320,14 @@ async function saveSched(){
     // If this reference already has payments in the ledger (they arrived before the
     // order was linked), attach them and rebuild the paid balance from the ledger.
     if(ref){
-      const {data:led}=await sb.from("sim_payments").select("amount").eq("payer_ref",ref);
-      if(led && led.length){
-        const total=Math.round(led.reduce((s,r)=>s+Number(r.amount||0),0)*100)/100;
-        await sb.from("sim_orders").update({amount_paid_to_date:total}).eq("id",o.id);
-      }
+      /* ⚠ REBUILD THE PAID TOTAL, NEVER ADD IT UP HERE. This used to sum every
+         payment row for the reference — dishonours and refunds included — and
+         write the result straight into amount_paid_to_date. That overstates
+         what a customer has paid and it is arithmetic on the cached column,
+         which is the exact thing rebase_paid_totals() exists to prevent.
+         order_paid_total() is the one definition; let it decide. */
+      const {error:eRebase}=await sb.rpc("rebase_paid_totals",{p_order_ids:[o.id]});
+      if(eRebase) throw new Error("Rebuilding the paid total: "+eRebase.message);
     }
 
     const {error:e2}=await sb.from("schedule_changes").insert({
