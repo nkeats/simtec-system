@@ -16,7 +16,7 @@
      reach the order app before go-live. When you roll out to consultants, add
      ",consultant" to data-roles below and add a New Order button to my-sales.html. -->
 <script src="auth.js?v=3" data-roles="admin,manager,office,consultant"></script>
-<script>window.SIMTEC_BUILD="2026-08-27-01";</script>
+<script>window.SIMTEC_BUILD="2026-09-10-01";</script>
 <script src="update.js?v=2"></script>
 
 
@@ -1067,7 +1067,9 @@ if(document.readyState!=='loading') bootLists(); else document.addEventListener(
 const S = { step:0, saleType:'', pay:'', depositMethod:'ezidebit', fullMethod:'bank', a2:false, products:[], referralId:null, emailVerified:false, sentCode:null, tncRead:false, idPhotos:{A1:[],A2:[]},
             /* TEMPORARY 13 Aug 2026 — set only by the red "Ezidebit won't accept it" button on step 8. */
             eziSkipped:false, eziSkipWhy:'', eziSkipPlan:null,
-            cashTaken:0, eziRefBad:null };
+            cashTaken:0, eziRefBad:null,
+            /* ⚠ ONE PAIR OF IDS PER ORDER, MINTED ONCE — see orderIds(). */
+            orderIds:null };
 const STEP_LABELS = ['Start','Products','Details','Referees','Terms','ID','Payment','Sign','Ezidebit','Done'];
 
 function visibleSteps(){
@@ -1108,17 +1110,29 @@ function showStep(ds){
   renderSteps(); window.scrollTo(0,0);
   document.querySelectorAll('section.step.on canvas.sig').forEach(sizeCanvas);
 }
+/* ⚠ RE-ENTRY LATCH — set SYNCHRONOUSLY, before anything can yield.
+   An iPad 6th/7th gen (A10, 2016) freezes for a second or two while the ID
+   photos and twelve signature canvases are read. The screen looks stuck, so a
+   consultant taps Next again — reasonably. Both taps were already past the
+   gate. The Next button does disable itself, but only once submitOrder starts;
+   this closes the gap before that. Plain boolean, no UI touched, so it cannot
+   fight the existing button-state logic. */
+let stepBusy=false;
 async function go(dir){
-  const vis=visibleSteps(); const cur=vis.indexOf(S.step);
-  if(dir>0 && !(await validateStep(S.step))) return;
-  if(dir>0 && S.step===7){
-    const res=await submitOrder();
-    if(res==='error') return;              // stay on review; error shown
-    if(res==='parked'){ showStep(9); return; }  // skip Ezidebit when offline
-    // res==='saved' → fall through (Ezidebit next if selected, else Done)
-  }
-  const nx=cur+dir; if(nx<0||nx>=vis.length) return;
-  showStep(vis[nx]);
+  if(stepBusy) return;                     // a second tap while the first is working
+  stepBusy=true;
+  try{
+    const vis=visibleSteps(); const cur=vis.indexOf(S.step);
+    if(dir>0 && !(await validateStep(S.step))) return;
+    if(dir>0 && S.step===7){
+      const res=await submitOrder();
+      if(res==='error') return;              // stay on review; error shown
+      if(res==='parked'){ showStep(9); return; }  // skip Ezidebit when offline
+      // res==='saved' → fall through (Ezidebit next if selected, else Done)
+    }
+    const nx=cur+dir; if(nx<0||nx>=vis.length) return;
+    showStep(vis[nx]);
+  } finally { stepBusy=false; }
 }
 async function validateStep(ds){
   if(ds===0){ if(!val('consultant')||!val('visitDate')||!S.saleType){alert('Enter consultant, date and sale type.');return false;} }
@@ -1503,6 +1517,73 @@ function snapshotFields(){
 }
 
 // Gather the whole order (incl. ID photos + signatures as data URLs) into one object.
+/* ---------------------------------------------------------------------------
+   ONE PAIR OF IDS PER ORDER — the duplicate-order guard.
+   ⚠ WHAT THIS PREVENTS: two orders for the same sale. On 10 Sep 2026 the same
+     $4,550 order was written twice 1.8 seconds apart, with two customer rows.
+     Six such pairs since 1 Sep.
+   ⚠ WHY IT IS DONE WITH IDS RATHER THAN A BUTTON GUARD: the button guard
+     already existed and did not stop it. A second write can arrive from a
+     double tap, a reopened app, a parked copy uploaded as well as submitted,
+     or a save that succeeded on the server while the reply was lost. Minting
+     the customer id and the order id ONCE and reusing them means every one of
+     those routes writes the SAME two rows, so the database refuses the second
+     copy on the primary key. It closes the whole class, not one cause.
+   ⚠ DELIBERATELY NOT PERSISTED ACROSS A RELOAD. Reusing an id for what is
+     really a NEW order would silently write no order at all — far worse than a
+     duplicate. Parked orders carry their ids inside the payload instead, so
+     park-then-upload is still covered.
+--------------------------------------------------------------------------- */
+function newUuid(){
+  if(typeof crypto!=='undefined' && crypto.randomUUID) return crypto.randomUUID();
+  const b=crypto.getRandomValues(new Uint8Array(16)); b[6]=(b[6]&15)|64; b[8]=(b[8]&63)|128;
+  const h=[...b].map(x=>x.toString(16).padStart(2,'0'));
+  return h.slice(0,4).join('')+'-'+h.slice(4,6).join('')+'-'+h.slice(6,8).join('')+'-'+h.slice(8,10).join('')+'-'+h.slice(10).join('');
+}
+/* ⚠ HELD IN sessionStorage, DELIBERATELY — NOT localStorage.
+   An iPad 6th gen has 2GB of RAM. Under memory pressure iOS silently discards
+   the page and reloads it when the consultant looks back; nobody reopened
+   anything and they would not know it happened. sessionStorage survives that
+   reload in the same tab, so the order keeps its ids and a resubmit writes the
+   same rows instead of a second order.
+   ⚠ IT MUST NOT OUTLIVE THE ORDER. Reusing an id for what is really a NEW sale
+   would write NO order at all — silently, in front of a customer. That is far
+   worse than a duplicate. sessionStorage dies with the tab, and clearIds() is
+   called on every new order. Never move this to localStorage. */
+var ID_KEY='simtec_order_ids_v1';
+function orderIds(){
+  if(!S.orderIds){
+    try{ var raw=sessionStorage.getItem(ID_KEY);
+         if(raw){ var v=JSON.parse(raw); if(v && v.cust && v.order) S.orderIds=v; }
+    }catch(e){}
+  }
+  if(!S.orderIds){
+    S.orderIds={ cust:newUuid(), order:newUuid() };
+    try{ sessionStorage.setItem(ID_KEY, JSON.stringify(S.orderIds)); }catch(e){}
+  }
+  return S.orderIds;
+}
+/* ⚠ DIAGNOSTIC ONLY — device and app build, nothing else.
+   Written because a duplicate order on 10 Sep 2026 took an hour to investigate
+   and "which iPad, which build" could not be answered at all. Every field here
+   is browser-supplied, so NOTHING may ever be decided from it. No location, no
+   identifiers, no personal data. Wrapped so it can never block a sale: if any
+   of it throws, the order still saves. */
+function deviceInfo(){
+  try{
+    return { ua:String(navigator.userAgent||'').slice(0,300),
+             build:(window.SIMTEC_BUILD||'unknown'),
+             screen:(screen && screen.width ? screen.width+'x'+screen.height : null),
+             dpr:(window.devicePixelRatio||null),
+             online:!!navigator.onLine,
+             at:new Date().toISOString() };
+  }catch(e){ return null; }
+}
+function clearIds(){
+  S.orderIds=null;
+  try{ sessionStorage.removeItem(ID_KEY); }catch(e){}
+}
+
 async function collectOrder(){
   const fields=snapshotFields();
   const flags={ saleType:S.saleType, pay:S.pay, depositMethod:S.depositMethod, fullMethod:(S.pay==='full'?S.fullMethod:null), a2:S.a2, emailVerified:S.emailVerified,
@@ -1516,7 +1597,8 @@ async function collectOrder(){
     iTnc_2:(S.a2?canvasDataURL('iTnc_2'):null), iAck1_2:(S.a2?canvasDataURL('iAck1_2'):null), iAck2_2:(S.a2?canvasDataURL('iAck2_2'):null), iAck3_2:(S.a2?canvasDataURL('iAck3_2'):null),
     iAck4_2:((S.a2&&S.saleType!=='solicited')?canvasDataURL('iAck4_2'):null) };
   const customerName=((fields.a1first||'')+' '+(fields.a1last||'')).trim()||'(no name)';
-  return { v:1, savedAt:Date.now(), customerName, fields, flags, products, wantDel, files, referralId:S.referralId||null };
+  return { v:1, savedAt:Date.now(), customerName, fields, flags, products, wantDel, files, referralId:S.referralId||null,
+           ids:orderIds() };   /* ⚠ minted once; a parked copy must keep the SAME ids */
 }
 
 // Live save from a payload (used for both immediate submit and parked replay).
@@ -1553,14 +1635,20 @@ async function savePayload(P){
   // 1) customer
   // client-generate the customer id so we never rely on reading the row back
   // (consultants are row-scoped and can't SELECT a customer until an order links them)
-  const custId = (typeof crypto!=='undefined' && crypto.randomUUID) ? crypto.randomUUID() : (function(){const b=crypto.getRandomValues(new Uint8Array(16));b[6]=(b[6]&15)|64;b[8]=(b[8]&63)|128;const h=[...b].map(x=>x.toString(16).padStart(2,'0'));return h.slice(0,4).join('')+'-'+h.slice(4,6).join('')+'-'+h.slice(6,8).join('')+'-'+h.slice(8,10).join('')+'-'+h.slice(10).join('');})();
+  /* ⚠ THE SAME IDS ON EVERY ATTEMPT. A retry re-writes these exact rows, so the
+     database refuses the second copy instead of creating a duplicate order. */
+  const IDS = (P && P.ids && P.ids.cust && P.ids.order) ? P.ids : orderIds();
+  const custId = IDS.cust, orderId = IDS.order;
   const custRec={id:custId, first_name:f.a1first,last_name:f.a1last,mobile:e164,email:f.email||null,address:address||null};
   { const _a=document.getElementById('affiliationSel'); if(_a&&_a.value) custRec.affiliation_id=_a.value; }  // only sent when a group is chosen
-  const {error:e1}=await sb.from('sim_customers').insert(custRec);
+  /* ignoreDuplicates → ON CONFLICT DO NOTHING. A second attempt is a no-op. */
+  const {error:e1}=await sb.from('sim_customers').upsert(custRec,{onConflict:'id',ignoreDuplicates:true});
   if(e1) throw new Error('customer: '+e1.message);
   // 2) order
   const total=P.products.reduce((s,p)=>s+(p.price*p.qty||0),0)+(P.wantDel?DELIVERY_FEE:0);
   const order={
+    id:orderId,
+    device_info:deviceInfo(),   /* ⚠ diagnostic only — never decide anything from this */
     customer_id:custId, order_date:f.visitDate||null,
     consultant_name:f.consultant, team_leader_name:TEAM[f.consultant]||null,
     sale_type:fl.saleType||null,
@@ -1589,26 +1677,29 @@ async function savePayload(P){
        it to 'pending' when the consultant reaches Done. */
     confirmation_status:'draft'
   };
-  const {data:ord,error:e2}=await sb.from('sim_orders').insert(order).select('id').single();
+  /* ⚠ NO .select() HERE ANY MORE. The id is ours already, and a consultant
+     cannot reliably read the row back. On a retry this writes nothing. */
+  const {error:e2}=await sb.from('sim_orders').upsert(order,{onConflict:'id',ignoreDuplicates:true});
   if(e2) throw new Error('order: '+e2.message);
   // reason for purchasing — best-effort; never blocks the order even if the column isn't present yet
   const _reason=[f.purchaseReason,f.purchaseReasonNotes].map(x=>String(x||'').trim()).filter(Boolean).join(' — ')||null;
-  if(_reason){ try{ await sb.from('sim_orders').update({purchase_reason:_reason}).eq('id',ord.id); }catch(_e){} }
+  if(_reason){ try{ await sb.from('sim_orders').update({purchase_reason:_reason}).eq('id',orderId); }catch(_e){} }
   // 3) product lines (incl. Delivery fee — commission feed matches on product_name)
   const items=[]; let ln=0;
-  P.products.forEach(p=>items.push({order_id:ord.id,line_no:++ln,product_name:p.name,quantity:p.qty,unit_price:p.price}));
-  if(P.wantDel) items.push({order_id:ord.id,line_no:++ln,product_name:'Delivery fee',quantity:1,unit_price:DELIVERY_FEE});
-  if(items.length){ const {error:e3}=await sb.from('sim_order_items').insert(items); if(e3) throw new Error('items: '+e3.message); }
+  P.products.forEach(p=>items.push({order_id:orderId,line_no:++ln,product_name:p.name,quantity:p.qty,unit_price:p.price}));
+  if(P.wantDel) items.push({order_id:orderId,line_no:++ln,product_name:'Delivery fee',quantity:1,unit_price:DELIVERY_FEE});
+  /* ⚠ (order_id, line_no) is unique — a retry must not add the lines twice. */
+  if(items.length){ const {error:e3}=await sb.from('sim_order_items').upsert(items,{onConflict:'order_id,line_no',ignoreDuplicates:true}); if(e3) throw new Error('items: '+e3.message); }
   // 4) extras + ID/signature files. The customer/order/items above are the
   //    commission-critical save and are already committed; file/extra failures
   //    here must NOT lose the order, but they must be SURFACED (not swallowed)
   //    so the consultant knows to re-capture ID photos before leaving.
-  S.lastExtrasWarn = await saveExtrasPayload(ord.id,P)
+  S.lastExtrasWarn = await saveExtrasPayload(orderId,P)
     .catch(e=>['Customer details and order were saved, but the ID photos / extra details could not be attached ('+(e.message||e)+'). Please re-capture the ID before you leave.']);
   // 5) order-summary PDF (best-effort) — the GHL confirmation email links to this.
-  await generateAndUploadOrderPdf(ord.id,P).catch(e=>console.warn('order PDF pending:',e&&e.message||e));
+  await generateAndUploadOrderPdf(orderId,P).catch(e=>console.warn('order PDF pending:',e&&e.message||e));
   S.customerId = custId;   // onboarding fires later, at the Done step (finalizeOrder)
-  return ord.id;
+  return orderId;
 }
 
 // Build a one-page order-summary PDF and store it in the order-documents bucket
@@ -2231,6 +2322,10 @@ window.addEventListener('online',trySync);
 
 // Start a fresh order (reload when online for a clean slate; reset in place when offline).
 function newOrder(){
+  /* ⚠ CLEAR BEFORE THE RELOAD. sessionStorage survives a reload in the same
+     tab — that is the point of it — so the next order would otherwise inherit
+     these ids and silently save nothing. */
+  clearIds();
   if(navigator.onLine){ location.reload(); return; }
   resetForm();
 }
@@ -2240,6 +2335,7 @@ function resetForm(){
   document.querySelectorAll('.choice.sel').forEach(c=>c.classList.remove('sel'));
   ['sigA1','sigA2','sigEzi'].forEach(clearSig);
   Object.assign(S,{step:0,saleType:'',pay:'',depositMethod:'ezidebit',fullMethod:'bank',a2:false,products:[],emailVerified:false,sentCode:null,tncRead:false,orderId:null,finalized:false,lastP:null,idPhotos:{A1:[],A2:[]}});
+  clearIds();   /* ⚠ a NEW order must never inherit the last one's ids */
   renderIdGallery('A1'); renderIdGallery('A2');
   const dmb=document.getElementById('depositMethodBox'); if(dmb) dmb.classList.add('hidden');
   document.querySelectorAll('#a2toggle button').forEach(x=>x.classList.toggle('on',x.dataset.v==='no'));
