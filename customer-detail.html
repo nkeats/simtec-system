@@ -585,6 +585,7 @@ function renderAll(c, orders, paysByRef, comms){
       <h2 style="margin:0;border:none;padding:0">Communications</h2>
       <span style="display:flex;gap:8px">
         <button onclick="window.print()" style="background:#fff;border:1px solid var(--line);border-radius:8px;padding:6px 12px;font-size:12.5px;color:var(--navy);cursor:pointer">Print history</button>
+        <button onclick="openNote()" style="background:#122347;color:#fff;border:none;border-radius:8px;padding:6px 12px;font-size:12.5px;font-weight:700;cursor:pointer;margin-right:6px">+ Note</button>
         <button onclick="openContact()" style="background:#c6a15b;color:#122347;border:none;border-radius:8px;padding:6px 12px;font-size:12.5px;font-weight:700;cursor:pointer">+ Log contact</button>
       </span>
     </div>
@@ -1170,6 +1171,42 @@ function openContact(){
   document.getElementById("contactModal").style.display="flex";
 }
 function closeContact(){ document.getElementById("contactModal").style.display="none"; }
+
+/* ---------------------------------------------------------------------------
+   A NOTE. Not a contact — nobody was rung, texted or emailed. It is something
+   worth knowing about this account.
+   ⚠ Stored in sim_contacts as channel 'note', direction 'internal', so it sits
+     in the SAME timeline as everything else. A second notes table would mean two
+     places to look and two things to keep in step. One record of an account.
+--------------------------------------------------------------------------- */
+function openNote(){
+  document.getElementById("ntBody").value="";
+  document.getElementById("ntStaff").value=(window.SIMTEC_USER&&(window.SIMTEC_USER.full_name||window.SIMTEC_USER.email))||"";
+  const e=document.getElementById("ntErr"); e.style.display="none"; e.textContent="";
+  document.getElementById("noteModal").style.display="flex";
+  document.getElementById("ntBody").focus();
+}
+function closeNote(){ document.getElementById("noteModal").style.display="none"; }
+async function saveNote(){
+  const cust=window.__CUST_ID__;
+  const body=document.getElementById("ntBody").value.trim();
+  const err=document.getElementById("ntErr");
+  if(!cust){ err.textContent="No customer loaded."; err.style.display="block"; return; }
+  if(!body){ err.textContent="Write the note first."; err.style.display="block"; return; }
+  const btn=document.getElementById("ntSave"); btn.disabled=true; btn.textContent="Saving…";
+  const {error}=await sb.from("sim_contacts").insert({
+    customer_id:cust,
+    order_id:window.__ORDER_ID__||null,
+    channel:"note", direction:"internal",
+    contacted_at:new Date().toISOString(),
+    staff_name:document.getElementById("ntStaff").value.trim()||null,
+    subject:"Note",
+    body:body
+  });
+  btn.disabled=false; btn.textContent="Save note";
+  if(error){ err.textContent="Could not save: "+error.message; err.style.display="block"; return; }
+  closeNote(); run();
+}
 async function saveContact(){
   const cust=window.__CUST_ID__;
   if(!cust){ return; }
@@ -1263,6 +1300,22 @@ window.SIMTEC_RELOAD = function(){ if(customerId) run(true); };
 
 run();
 </script>
+<div id="noteModal" class="modalbg">
+  <div class="modal">
+    <h3>Add a note</h3>
+    <p class="muted" style="font-size:13px;margin:0 0 12px">Something worth knowing about this account. Use <b>Log contact</b> instead if you actually spoke to, texted or emailed them.</p>
+    <label class="muted" style="font-size:12px;display:block;margin-bottom:3px">Note</label>
+    <textarea id="ntBody" class="mi" rows="4" placeholder="e.g. husband handles the payments — ask for Sione. Works nights, don't ring before 11am."></textarea>
+    <label class="muted" style="font-size:12px;display:block;margin:10px 0 3px">Added by</label>
+    <input id="ntStaff" class="mi" placeholder="Your name">
+    <div id="ntErr" style="display:none;color:#a4372a;font-size:13px;margin-top:8px"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px">
+      <button onclick="closeNote()" style="background:#eee;border:none;border-radius:8px;padding:8px 14px;font-weight:700;cursor:pointer">Cancel</button>
+      <button id="ntSave" onclick="saveNote()" style="background:#122347;color:#fff;border:none;border-radius:8px;padding:8px 14px;font-weight:700;cursor:pointer">Save note</button>
+    </div>
+  </div>
+</div>
+
 <div id="contactModal" class="modalbg">
   <div class="modal">
     <h3>Log a contact</h3>
@@ -2169,6 +2222,11 @@ window.printStatement=async function(oid){
 
     <label class="muted" style="font-size:12px">Reason for the change</label>
     <select id="schReason" class="mi">
+      <!-- ⚠ NO DEFAULT REASON. This used to open on "Bank details changed", so
+           whoever just wanted to add an Ezidebit reference recorded a bank-details
+           change that never happened. 22 live orders owing $114,404.81 were then
+           read as "on hold" and dropped out of the chase. Make them choose. -->
+      <option value="">— choose a reason —</option>
       <option value="bank_details">Bank details changed</option>
       <option value="restart">Direct debit restarted</option>
       <option value="payment_holiday">Payment holiday / arrangement</option>
@@ -2219,7 +2277,7 @@ function openSched(oid){
   document.getElementById("schNext").value  = o.next_payment_date || "";
   document.getElementById("schRestart").checked=false;
   document.getElementById("schNotes").value="";
-  document.getElementById("schReason").value="bank_details";
+  document.getElementById("schReason").value="";     /* ⚠ never pre-pick a reason */
   schCalc();
   document.getElementById("schedModal").style.display="flex";
 }
@@ -2311,6 +2369,23 @@ async function saveSched(){
       }
     }
 
+    /* ⚠ IS THIS ACTUALLY A CHANGE? Saving with nothing altered used to write a
+       schedule_changes row anyway. Those phantom rows were what made 22 orders
+       read as on hold. A record of a change that did not happen is worse than
+       no record — something downstream will believe it. */
+    const same = (a,b)=> String(a==null?"":a) === String(b==null?"":b);
+    const scheduleUnchanged =
+      same(o.instalment_amount==null?"":Number(o.instalment_amount).toFixed(2), inst==null?"":Number(inst).toFixed(2)) &&
+      same(o.payment_frequency, freq) &&
+      same(o.schedule_start_date, start) &&
+      same(o.next_payment_date, next);
+
+    const reasonVal = document.getElementById("schReason").value;
+    if(!scheduleUnchanged && !reasonVal){
+      btn.disabled=false; btn.textContent="Save schedule";
+      return schErr("Choose a reason for the change — it goes on the account's record.");
+    }
+
     const patch={ instalment_amount:inst, payment_frequency:freq,
                   schedule_start_date:start, next_payment_date:next,
                   ezidebit_payer_ref:ref };
@@ -2330,10 +2405,11 @@ async function saveSched(){
       if(eRebase) throw new Error("Rebuilding the paid total: "+eRebase.message);
     }
 
-    const {error:e2}=await sb.from("schedule_changes").insert({
+    /* ⚠ Only record a change when something changed. */
+    const {error:e2} = scheduleUnchanged ? {error:null} : await sb.from("schedule_changes").insert({
       order_id:o.id,
       changed_by:(window.SIMTEC_USER&&(window.SIMTEC_USER.full_name||window.SIMTEC_USER.email))||null,
-      reason:document.getElementById("schReason").value,
+      reason:reasonVal,
       old_instalment:o.instalment_amount, new_instalment:inst,
       old_frequency:o.payment_frequency,   new_frequency:freq,
       old_next_payment:o.next_payment_date, new_next_payment:next,
