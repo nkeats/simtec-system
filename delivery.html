@@ -950,10 +950,42 @@ window.undoDelivered=async(id)=>{
   await load();
 };
 // Bulk: confirm every delivery booked for a given day in one go (the whole run).
+/* ⚠⚠ IT ASKS THE DRIVER RUN FIRST (11 Sep 2026).
+   The office pressed this at 07:58 before the truck had left the warehouse and
+   seven orders were marked delivered with every stop still pending.
+   ⚠ THERE WAS ALREADY A CONFIRMATION DIALOG AND IT DID NOT HELP — it even said
+     "do this once the run is complete". People click through dialogs; that is
+     what dialogs are for. A second one would have changed nothing.
+   ⚠ THE SYSTEM ALREADY KNEW THE TRUCK HAD NOT BEEN. The run was not finished and
+     no stop was done. It had every fact needed to refuse and asked a question
+     instead. So it now READS THE FACTS and blocks the case that is actually
+     wrong — while still allowing the real ones: a warehouse pickup, or a day
+     with no run, or an iPad that died mid-round (that last one needs the
+     override, which names what is being overridden). */
 window.markDayDelivered=async(dateStr)=>{
   const list=BOOKED.filter(r=>r.deliveryDate===dateStr);
   if(!list.length){ alert('No deliveries are booked for that day.'); return; }
-  if(!confirm('Mark all '+list.length+' deliver'+(list.length===1?'y':'ies')+' booked for '+fmtD(dateStr)+' as delivered?\n\nDo this once the run is complete. You can undo any of them from the Delivered tab.')) return;
+
+  let st=null;
+  try{
+    const {data,error}=await sb.rpc('delivery_day_state',{p_date:dateStr});
+    if(!error) st=data;
+  }catch(e){ /* ⚠ if the check itself fails, fall through to the old question —
+                 a broken check must not stop the office confirming a real run. */ }
+
+  if(st && st.safe_to_confirm_all===false){
+    const out=st.outstanding, tot=st.stops;
+    const msg='The truck has not finished this run.\n\n'
+      + out+' of '+tot+' stop'+(tot===1?'':'s')+' on '+fmtD(dateStr)+' '+(out===1?'is':'are')+' still outstanding'
+      + (st.run_started ? '' : ', and the run has not been started')+'.\n\n'
+      + 'Confirm each delivery from the driver app as the crew completes it.\n\n'
+      + 'Only override this if the crew cannot use the app — a dead iPad, or the '
+      + 'customer collected in person. You are recording '+list.length+' deliver'
+      + (list.length===1?'y':'ies')+' as done on your word alone.';
+    if(!confirm(msg+'\n\nOverride and mark all '+list.length+' as delivered?')) return;
+  } else {
+    if(!confirm('Mark all '+list.length+' deliver'+(list.length===1?'y':'ies')+' booked for '+fmtD(dateStr)+' as delivered?\n\nYou can undo any of them from the Delivered tab.')) return;
+  }
   let ok=0, fail=0;
   for(const r of list){ try{ await applyDelivered(r.id,true); ok++; }catch(e){ fail++; } }
   await load();
