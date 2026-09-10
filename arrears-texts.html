@@ -36,6 +36,8 @@ body{font-family:system-ui,sans-serif}
     <div class="k mt-2">Day 1 comes from the latest report you upload on the Home page. Days 2–5 follow the people who were texted the day before and still haven't been in touch. Anyone whose payment clears drops off automatically.</div>
   </div>
 
+  <div id="pausedcard"></div>
+
   <div id="tabs" class="flex flex-wrap items-center gap-2 mb-4"></div>
   <div id="msgcard" class="card mb-4"></div>
   <div id="review"></div>
@@ -128,6 +130,7 @@ async function loadCustomers(){
   custByRef={}; orderById={};
   (orders||[]).forEach(o=>{
     if(o.paid_in_full) return;
+    if(PAUSED_IDS.has(o.customer_id)) return;   /* ⚠ paused: never lands in a tick list */
     const c=cust[o.customer_id]||{};
     const rec={
       name:`${c.first_name||''} ${c.last_name||''}`.trim()||'(no name)',
@@ -143,6 +146,19 @@ async function loadCustomers(){
 // ── Build all five day-lists ──
 async function loadAll(){
   $('parsestate').textContent='Loading…';
+
+  /* ⚠ CUSTOMERS THE OFFICE HAS DELIBERATELY HELD OFF TEXTING.
+     Arrears only — they can still be rung, and no other text is affected.
+     ⚠ THEY ARE SHOWN, NOT HIDDEN. A name that just vanishes from the list is how
+       somebody re-adds them next week, or spends an afternoon wondering what
+       broke. See the Paused panel below the day tabs. */
+  PAUSED=[]; PAUSED_IDS=new Set();
+  { const {data:pz}=await sb.from('v_arrears_paused').select('*');
+    PAUSED=pz||[];
+    PAUSED.forEach(r=>PAUSED_IDS.add(r.customer_id)); }
+
+  /* ⚠ loadCustomers() reads PAUSED_IDS, so the pauses MUST be loaded first.
+     Written the other way round to begin with, which silently did nothing. */
   await loadCustomers();
 
   // active sequence rows
@@ -218,7 +234,38 @@ async function loadAll(){
   render();
 }
 
+/* ⚠ Local date formatter. fmtD lives on the OTHER arrears page, not this one —
+   calling it here threw a ReferenceError and took the whole render down.
+   Keep this self-contained. */
+function pDate(d){
+  if(!d) return '';
+  const t=new Date(String(d)+'T00:00:00');
+  return isNaN(t.getTime()) ? String(d) : t.toLocaleDateString('en-NZ',{day:'numeric',month:'short',year:'numeric'});
+}
+
+/* ⚠ SHOW WHO IS BEING HELD OFF, AND WHY. The whole point of a pause is that
+   somebody decided it. If the name simply disappeared, the next person to look
+   would think the list was broken — or quietly put them back. */
+function renderPaused(){
+  const box=$('pausedcard'); if(!box) return;
+  if(!PAUSED.length){ box.innerHTML=''; return; }
+  const rows=PAUSED.map(p=>{
+    const until = p.until ? ('until '+pDate(p.until)) : 'no end date — stays until cleared';
+    return `<div class="flex flex-wrap items-baseline gap-x-2 gap-y-1 py-1.5 border-t border-slate-700">
+      <a href="customer-detail.html?cust=${esc(p.customer_id)}" class="v underline decoration-slate-600">${esc((p.name||'').trim()||'(no name)')}</a>
+      <span class="k">${esc(p.mobile||'')}</span>
+      <span class="k">· ${esc(until)}</span>
+      <div class="k w-full">${esc(p.reason||'')}${p.paused_by?' — '+esc(p.paused_by):''}${p.paused_on?', '+pDate(p.paused_on):''}</div>
+    </div>`;
+  }).join('');
+  box.innerHTML = `<div class="card mb-4" style="border-color:#c9a84c">
+    <div class="lbl mb-1">Arrears texts paused — ${PAUSED.length} customer${PAUSED.length===1?'':'s'}</div>
+    <div class="k mb-1">Held off deliberately. They are not in any day list below. The office can still ring them, and their other texts are unaffected.</div>
+    ${rows}</div>`;
+}
+
 function render(){
+  renderPaused();
   const tab=(n)=>`<button class="btn ${day===n?'on':''}" onclick="setDay(${n})">Day ${n}${LISTS[n].length?`<span class="pill" ${day===n?'style="background:#1a2438;color:#c9a84c"':''}>${LISTS[n].length}</span>`:''}</button>`;
   $('tabs').innerHTML=[1,2,3,4,5].map(tab).join('')
     + (DROPPED_PAID?`<span class="k" style="margin-left:10px">${DROPPED_PAID} dropped off — payment received</span>`:'')
@@ -270,6 +317,7 @@ async function postOne(mobile,message){
   return data;
 }
 
+let PAUSED=[], PAUSED_IDS=new Set();
 let SENDBUSY=false;
 window.sendDay=async function(){
   if(SENDBUSY) return;                                   // a second tap can never re-run the send
