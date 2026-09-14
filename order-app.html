@@ -1641,6 +1641,32 @@ async function savePayload(P){
   const custId = IDS.cust, orderId = IDS.order;
   const custRec={id:custId, first_name:f.a1first,last_name:f.a1last,mobile:e164,email:f.email||null,address:address||null};
   { const _a=document.getElementById('affiliationSel'); if(_a&&_a.value) custRec.affiliation_id=_a.value; }  // only sent when a group is chosen
+  /* ⚠ TEMPORARY DIAGNOSTIC (15 Sep 2026) — REMOVE ONCE THE ANSWER IS IN.
+     Is the session actually there at the moment of the insert? Logged to the
+     console, and kept on window.__simtecAuthDiag so the save-failed alert can
+     show it on an iPad, which has no console of its own. Never blocks the save. */
+  try{
+    const t0=Date.now();
+    const gs=await sb.auth.getSession();
+    const ses=gs&&gs.data?gs.data.session:null;
+    const diag={
+      at:new Date().toISOString(),
+      session:!!ses,
+      access_token:!!(ses&&ses.access_token),
+      token_len:ses&&ses.access_token?ses.access_token.length:0,
+      expires_at:ses&&ses.expires_at?new Date(ses.expires_at*1000).toISOString():null,
+      expired:!!(ses&&ses.expires_at&&ses.expires_at*1000<Date.now()),
+      user:ses&&ses.user?ses.user.email:null,
+      getSession_error:gs&&gs.error?gs.error.message:null,
+      simtec_user:window.SIMTEC_USER?window.SIMTEC_USER.email+' ('+window.SIMTEC_USER.role+')':null,
+      online:navigator.onLine
+    };
+    const rp=await sb.rpc('my_role');
+    diag.my_role=rp.error?('ERROR: '+rp.error.message):rp.data;
+    diag.ms=Date.now()-t0;
+    window.__simtecAuthDiag=diag;
+    console.log('[simtec auth diag before insert]', JSON.stringify(diag));
+  }catch(e){ window.__simtecAuthDiag={threw:String(e&&e.message||e)}; console.log('[simtec auth diag before insert] threw', e); }
   /* ignoreDuplicates → ON CONFLICT DO NOTHING. A second attempt is a no-op. */
   const {error:e1}=await sb.from('sim_customers').upsert(custRec,{onConflict:'id',ignoreDuplicates:true});
   if(e1) throw new Error('customer: '+e1.message);
@@ -1968,7 +1994,9 @@ async function submitOrder(){
     }
     // Show the REAL reason right here on the review screen (alert always shows on
     // iPad regardless of which step is visible) AND leave it on the button area.
-    alert('Order could not be saved.\n\n'+msg+'\n\nTap Park to keep the order safe on this iPad, then tell the office.');
+    /* TEMPORARY DIAGNOSTIC (15 Sep 2026) — the session probe from savePayload, readable on the iPad. */
+    const diagTxt = window.__simtecAuthDiag ? '\n\n[auth diag] '+JSON.stringify(window.__simtecAuthDiag) : '';
+    alert('Order could not be saved.\n\n'+msg+'\n\nTap Park to keep the order safe on this iPad, then tell the office.'+diagTxt);
     done.textContent='Save failed — '+msg+'. Tap Park to keep the order safe on this iPad.';
     return 'error';
   }
