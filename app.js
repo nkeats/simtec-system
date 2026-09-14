@@ -157,7 +157,7 @@ window.addEventListener('DOMContentLoaded', () => {
   script.onload = () => {
     window.supabaseJs = window.supabase;
     // Credentials hardcoded - no setup screen needed on new devices
-    initSupabase("https://jvqjoenaungubpoegyvf.supabase.co", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imp2cWpvZW5hdW5ndWJwb2VneXZmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA1MzQyMjYsImV4cCI6MjA5NjExMDIyNn0.ypVt8578XTdNwBH6TRDn30s1cF_rHTu67qCWYv5XHcQ");
+    initSupabase("https://jvqjoenaungubpoegyvf.supabase.co", "sb_publishable_J4MYTdJJyEaWe-GadpwdYA_upPT2rKw");
   };
   document.head.appendChild(script);
 });
@@ -1041,7 +1041,7 @@ async function markCallComplete(id, name) {
       fetch('https://jvqjoenaungubpoegyvf.supabase.co/functions/v1/welcome-email', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json',
-          'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imp2cWpvZW5hdW5ndWJwb2VneXZmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA1MzQyMjYsImV4cCI6MjA5NjExMDIyNn0.ypVt8578XTdNwBH6TRDn30s1cF_rHTu67qCWYv5XHcQ' },
+          'Authorization': 'Bearer sb_publishable_J4MYTdJJyEaWe-GadpwdYA_upPT2rKw' },
         body: JSON.stringify({ order: orderData })
       });
     }
@@ -1236,7 +1236,7 @@ async function confirmCoolingOffCancel(orderId, customerName) {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imp2cWpvZW5hdW5ndWJwb2VneXZmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA1MzQyMjYsImV4cCI6MjA5NjExMDIyNn0.ypVt8578XTdNwBH6TRDn30s1cF_rHTu67qCWYv5XHcQ'
+          'Authorization': 'Bearer sb_publishable_J4MYTdJJyEaWe-GadpwdYA_upPT2rKw'
         },
         body: JSON.stringify({ order })
       });
@@ -1673,7 +1673,7 @@ async function approveDelivery(orderId, customerName) {
       fetch('https://jvqjoenaungubpoegyvf.supabase.co/functions/v1/delivery-notification', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json',
-          'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imp2cWpvZW5hdW5ndWJwb2VneXZmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA1MzQyMjYsImV4cCI6MjA5NjExMDIyNn0.ypVt8578XTdNwBH6TRDn30s1cF_rHTu67qCWYv5XHcQ' },
+          'Authorization': 'Bearer sb_publishable_J4MYTdJJyEaWe-GadpwdYA_upPT2rKw' },
         body: JSON.stringify({ order: orderData })
       });
     } catch(e) { /* delivery notification failed silently */ }
@@ -1763,7 +1763,7 @@ async function confirmCancellationFromDelivery(orderId, customerName) {
       await fetch('https://jvqjoenaungubpoegyvf.supabase.co/functions/v1/cancellation-email', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json',
-          'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imp2cWpvZW5hdW5ndWJwb2VneXZmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA1MzQyMjYsImV4cCI6MjA5NjExMDIyNn0.ypVt8578XTdNwBH6TRDn30s1cF_rHTu67qCWYv5XHcQ' },
+          'Authorization': 'Bearer sb_publishable_J4MYTdJJyEaWe-GadpwdYA_upPT2rKw' },
         body: JSON.stringify({ order })
       });
     } catch(e) { /* email failed silently */ }
@@ -2433,7 +2433,7 @@ async function extractFormData() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imp2cWpvZW5hdW5ndWJwb2VneXZmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA1MzQyMjYsImV4cCI6MjA5NjExMDIyNn0.ypVt8578XTdNwBH6TRDn30s1cF_rHTu67qCWYv5XHcQ'
+          'Authorization': 'Bearer sb_publishable_J4MYTdJJyEaWe-GadpwdYA_upPT2rKw'
         },
         body: JSON.stringify({ image: manualFormImageBase64, mimeType: 'image/jpeg' })
       }
@@ -2671,7 +2671,7 @@ async function extractConsultantFormData() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imp2cWpvZW5hdW5ndWJwb2VneXZmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA1MzQyMjYsImV4cCI6MjA5NjExMDIyNn0.ypVt8578XTdNwBH6TRDn30s1cF_rHTu67qCWYv5XHcQ'
+          'Authorization': 'Bearer sb_publishable_J4MYTdJJyEaWe-GadpwdYA_upPT2rKw'
         },
         body: JSON.stringify({ image: consultantFormImageBase64, mimeType: 'image/jpeg' })
       }
@@ -3591,7 +3591,7 @@ async function markLoanComplete(orderId, customerName) {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imp2cWpvZW5hdW5ndWJwb2VneXZmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA1MzQyMjYsImV4cCI6MjA5NjExMDIyNn0.ypVt8578XTdNwBH6TRDn30s1cF_rHTu67qCWYv5XHcQ'
+        'Authorization': 'Bearer sb_publishable_J4MYTdJJyEaWe-GadpwdYA_upPT2rKw'
       },
       body: JSON.stringify({ order: orderData })
     });
@@ -3637,7 +3637,7 @@ const ROLE_LABELS = {
 
 async function userMgmtCall(payload) {
   const session = await sbClient.auth.getSession();
-  const token = session?.data?.session?.access_token || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imp2cWpvZW5hdW5ndWJwb2VneXZmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA1MzQyMjYsImV4cCI6MjA5NjExMDIyNn0.ypVt8578XTdNwBH6TRDn30s1cF_rHTu67qCWYv5XHcQ';
+  const token = session?.data?.session?.access_token || 'sb_publishable_J4MYTdJJyEaWe-GadpwdYA_upPT2rKw';
   const res = await fetch('https://jvqjoenaungubpoegyvf.supabase.co/functions/v1/clever-function', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
