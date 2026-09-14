@@ -116,6 +116,14 @@
   .id-tile input{display:none;}
   .id-tile.add{max-width:220px;}
   .id-grid{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:10px;}
+  /* "No ID available" exit on the ID step — see validateStep(5). */
+  .noid{margin-top:10px;}
+  .noid-btn{border:1px solid var(--line);background:#fff;color:var(--muted);border-radius:8px;padding:8px 14px;font-size:13px;font-weight:600;cursor:pointer;}
+  .noid-btn.on{border-color:var(--danger);color:var(--danger);background:#fdecea;}
+  .noid-box{margin-top:10px;padding:12px;border:1px solid var(--danger);border-radius:12px;background:#fff7f6;}
+  .noid-box .nt{font-weight:700;margin-bottom:8px;}
+  .noid-box input{width:100%;box-sizing:border-box;margin-top:8px;padding:10px;border:1px solid var(--line);border-radius:8px;font-size:14px;}
+  .noid-box .nf{font-size:12px;color:var(--danger);margin-top:8px;font-weight:600;}
   .id-thumb{position:relative;width:110px;height:110px;border-radius:10px;overflow:hidden;border:2px solid var(--ok);background:#000;}
   .id-thumb img{width:100%;height:100%;object-fit:cover;display:block;}
   .id-thumb .rmv{position:absolute;top:3px;right:3px;width:24px;height:24px;border:0;border-radius:50%;background:rgba(0,0,0,.62);color:#fff;font-size:15px;line-height:1;cursor:pointer;}
@@ -482,6 +490,21 @@
             <input type="file" accept="image/*" capture="environment" onchange="idCaptured(this,'A1')">
             <div class="cam">📷</div><div class="cap">Add photo</div>
           </label>
+          <div class="noid" id="noIdA1">
+            <button type="button" class="noid-btn" id="noIdBtnA1" onclick="toggleNoId('A1')">No ID available</button>
+            <div class="noid-box hidden" id="noIdBoxA1">
+              <div class="nt">Why is there no ID photo for Applicant 1?</div>
+              <div class="choices" id="noIdChoicesA1">
+              <div class="choice" data-val="Customer has no photo ID"><div class="ct">Customer has no photo ID</div></div>
+              <div class="choice" data-val="ID is expired / damaged"><div class="ct">ID is expired / damaged</div></div>
+              <div class="choice" data-val="Customer declined to have ID photographed"><div class="ct">Customer declined to have ID photographed</div></div>
+              <div class="choice" data-val="Camera not working on this iPad"><div class="ct">Camera not working on this iPad</div></div>
+              <div class="choice" data-val="Other"><div class="ct">Other</div><div class="cd">Type what it is below</div></div>
+              </div>
+              <input type="text" id="noIdOtherA1" class="hidden" maxlength="140" placeholder="Reason (required)" oninput="noIdOtherTyped('A1')">
+              <div class="nf">⚠ This is recorded on the order and the office will be asked to follow it up.</div>
+            </div>
+          </div>
         </div>
         <div id="idBlockA2" class="hidden" style="margin-top:18px;padding-top:18px;border-top:1px solid var(--line);">
           <h3 style="margin:0 0 8px;">Applicant 2 — ID photos</h3>
@@ -490,6 +513,21 @@
             <input type="file" accept="image/*" capture="environment" onchange="idCaptured(this,'A2')">
             <div class="cam">📷</div><div class="cap">Add photo</div>
           </label>
+          <div class="noid" id="noIdA2">
+            <button type="button" class="noid-btn" id="noIdBtnA2" onclick="toggleNoId('A2')">No ID available</button>
+            <div class="noid-box hidden" id="noIdBoxA2">
+              <div class="nt">Why is there no ID photo for Applicant 2?</div>
+              <div class="choices" id="noIdChoicesA2">
+              <div class="choice" data-val="Customer has no photo ID"><div class="ct">Customer has no photo ID</div></div>
+              <div class="choice" data-val="ID is expired / damaged"><div class="ct">ID is expired / damaged</div></div>
+              <div class="choice" data-val="Customer declined to have ID photographed"><div class="ct">Customer declined to have ID photographed</div></div>
+              <div class="choice" data-val="Camera not working on this iPad"><div class="ct">Camera not working on this iPad</div></div>
+              <div class="choice" data-val="Other"><div class="ct">Other</div><div class="cd">Type what it is below</div></div>
+              </div>
+              <input type="text" id="noIdOtherA2" class="hidden" maxlength="140" placeholder="Reason (required)" oninput="noIdOtherTyped('A2')">
+              <div class="nf">⚠ This is recorded on the order and the office will be asked to follow it up.</div>
+            </div>
+          </div>
         </div>
         <p class="sub" style="margin:12px 0 0;">Capture the front and back of each licence, a passport, or any supporting ID — add as many photos as you need. Tap a photo's ✕ to remove it.</p>
       </div>
@@ -1065,6 +1103,8 @@ async function bootLists(){
 }
 if(document.readyState!=='loading') bootLists(); else document.addEventListener('DOMContentLoaded', bootLists);
 const S = { step:0, saleType:'', pay:'', depositMethod:'ezidebit', fullMethod:'bank', a2:false, products:[], referralId:null, emailVerified:false, sentCode:null, tncRead:false, idPhotos:{A1:[],A2:[]},
+            /* "No ID available" exit per applicant: null, or {reason, other, at}. Cleared the moment a photo is added. */
+            idMissing:{A1:null,A2:null},
             /* TEMPORARY 13 Aug 2026 — set only by the red "Ezidebit won't accept it" button on step 8. */
             eziSkipped:false, eziSkipWhy:'', eziSkipPlan:null,
             cashTaken:0, eziRefBad:null,
@@ -1148,6 +1188,21 @@ async function validateStep(ds){
       if(isBlank('iTnc_2')){alert('Applicant 2 must initial the Terms & Conditions box.');return false;}
       for(let i=1;i<=ackMax;i++){ if(isBlank('iAck'+i+'_2')){alert('Applicant 2 must initial every acknowledgement.');return false;} }
     } }
+  if(ds===5){
+    /* ⚠ ID IS MANDATORY (15 Sep 2026). This step had no check at all, and 7
+       orders since 6 Aug reached the office with no ID photo and no explanation.
+       The only way past without a photo is the "No ID available" exit, which
+       needs a reason and is written on the order for the office to chase. */
+    const need=(who,label)=>{
+      if((S.idPhotos[who]||[]).length) return true;
+      const m=S.idMissing[who];
+      if(!m){ alert(label+' needs an ID photo.\n\nPhotograph their ID with the camera. If there genuinely is none, tap "No ID available" under the photos and choose the reason.'); return false; }
+      if(!noIdReasonText(who)){ alert(label+': say why there is no ID'+(m.reason==='Other'?' — type what it is in the box':' — pick a reason')+'.'); return false; }
+      return true;
+    };
+    if(!need('A1','Applicant 1')) return false;
+    if(S.a2 && !need('A2','Applicant 2')) return false;
+  }
   if(ds===8){
     /* Nigel's rule, 8 Aug: "the only reason we wouldnt do ezidebit is if its a
        solicited sale paying in full. Other than that, ezidebit will be used in
@@ -1446,7 +1501,7 @@ async function idCaptured(input,who){
   if(cap) cap.textContent='Processing…';
   try{
     const durl=await downscaleImage(f);
-    if(durl){ (S.idPhotos[who]=S.idPhotos[who]||[]).push(durl); renderIdGallery(who); }
+    if(durl){ (S.idPhotos[who]=S.idPhotos[who]||[]).push(durl); clearNoId(who); renderIdGallery(who); }
   }catch(e){ alert('Could not add that photo: '+(e.message||e)); }
   if(cap) cap.textContent='Add photo';
   input.value='';   // reset so the same slot can capture the next photo
@@ -1457,8 +1512,54 @@ function renderIdGallery(who){
   grid.innerHTML=arr.map((durl,i)=>
     '<div class="id-thumb"><img src="'+durl+'"><button class="rmv" type="button" onclick="removeIdPhoto(\''+who+'\','+i+')">✕</button></div>'
   ).join('');
+  renderNoId(who);
 }
 function removeIdPhoto(who,i){ (S.idPhotos[who]||[]).splice(i,1); renderIdGallery(who); }
+
+// ----- "No ID available" exit -----
+// A photo always wins: adding one clears the reason and hides the exit. The
+// exit is only offered while the applicant's gallery is empty.
+function toggleNoId(who){ document.getElementById('noIdBox'+who).classList.toggle('hidden'); }
+function noIdPick(who,val){
+  S.idMissing[who]={reason:val, other:'', at:new Date().toISOString()};
+  document.querySelectorAll('#noIdChoices'+who+' .choice').forEach(c=>c.classList.toggle('sel',c.dataset.val===val));
+  const o=document.getElementById('noIdOther'+who); o.classList.toggle('hidden',val!=='Other'); if(val!=='Other') o.value='';
+  renderNoId(who);
+}
+function noIdOtherTyped(who){ if(S.idMissing[who]) S.idMissing[who].other=document.getElementById('noIdOther'+who).value.trim(); renderNoId(who); }
+function clearNoId(who){
+  S.idMissing[who]=null;
+  document.querySelectorAll('#noIdChoices'+who+' .choice').forEach(c=>c.classList.remove('sel'));
+  const o=document.getElementById('noIdOther'+who); if(o){ o.value=''; o.classList.add('hidden'); }
+  const b=document.getElementById('noIdBox'+who); if(b) b.classList.add('hidden');
+  renderNoId(who);
+}
+// '' when no usable reason yet — "Other" with an empty box does not count.
+function noIdReasonText(who){
+  const m=S.idMissing[who]; if(!m) return '';
+  if(m.reason==='Other') return m.other ? 'Other — '+m.other : '';
+  return m.reason;
+}
+function renderNoId(who){
+  const wrap=document.getElementById('noId'+who), btn=document.getElementById('noIdBtn'+who); if(!wrap||!btn) return;
+  wrap.classList.toggle('hidden', (S.idPhotos[who]||[]).length>0);
+  const m=S.idMissing[who];
+  btn.classList.toggle('on',!!m);
+  btn.textContent = m ? ('⚠ No ID — '+(noIdReasonText(who)||'reason needed')) : 'No ID available';
+}
+// What goes on the order: one line per applicant that has no photo, or null.
+function noIdSummary(){
+  const bits=[];
+  if(!(S.idPhotos.A1||[]).length && noIdReasonText('A1')) bits.push('Applicant 1: '+noIdReasonText('A1'));
+  if(S.a2 && !(S.idPhotos.A2||[]).length && noIdReasonText('A2')) bits.push('Applicant 2: '+noIdReasonText('A2'));
+  if(!bits.length) return null;
+  const at=[S.idMissing.A1,S.idMissing.A2].filter(Boolean).map(m=>m.at).sort()[0] || new Date().toISOString();
+  return { reason: bits.join('; '), at };
+}
+// The line the office sees on the confirmation-call screen (consultant_account_note).
+function noIdNote(P){ const m=(P&&P.idMissing)||noIdSummary(); return m ? '⚠ NO ID ON FILE — '+m.reason : ''; }
+document.querySelectorAll('#noIdChoicesA1 .choice').forEach(c=>c.onclick=()=>noIdPick('A1',c.dataset.val));
+document.querySelectorAll('#noIdChoicesA2 .choice').forEach(c=>c.onclick=()=>noIdPick('A2',c.dataset.val));
 
 // ----- signature pads -----
 const pads={};
@@ -1489,7 +1590,8 @@ function buildReview(){
     '<div class="rev-sec"><div class="rh">Customer</div><div class="rev-line"><span>'+esc(name)+'</span><span>'+(S.emailVerified?'<span class="badge ok">✓ email</span>':'<span class="badge wait">email unverified</span>')+'</span></div><div class="sub">'+esc(val('email'))+' · '+esc(val('mobile'))+'</div></div>'+
     '<div class="rev-sec"><div class="rh">Products</div>'+prods+(wantDel?'<div class="rev-line"><span>Delivery fee</span><span>$170.00</span></div>':'<div class="rev-line" style="color:var(--muted)"><span>No delivery</span><span>—</span></div>')+'<div class="rev-line" style="font-weight:800;border-top:1px solid var(--line);margin-top:4px;padding-top:6px;"><span>Total</span><span>'+money(total)+'</span></div></div>'+
     '<div class="rev-sec"><div class="rh">Payment</div><div class="rev-line"><span>'+payLabel+'</span><span></span></div></div>'+
-    '<div class="rev-sec"><div class="rh">Documents on file for this order</div><div class="sub">Order PDF · Terms &amp; Conditions · 15-year warranty'+(hasGuar?' · 30-day comfort guarantee':'')+'</div></div>';
+    '<div class="rev-sec"><div class="rh">Documents on file for this order</div><div class="sub">Order PDF · Terms &amp; Conditions · 15-year warranty'+(hasGuar?' · 30-day comfort guarantee':'')+'</div>'+
+    (noIdNote()?'<div class="sub" style="color:var(--danger);font-weight:700;margin-top:6px;">'+esc(noIdNote())+'</div>':'')+'</div>';
 }
 
 // ============================================================================
@@ -1598,6 +1700,7 @@ async function collectOrder(){
     iAck4_2:((S.a2&&S.saleType!=='solicited')?canvasDataURL('iAck4_2'):null) };
   const customerName=((fields.a1first||'')+' '+(fields.a1last||'')).trim()||'(no name)';
   return { v:1, savedAt:Date.now(), customerName, fields, flags, products, wantDel, files, referralId:S.referralId||null,
+           idMissing:noIdSummary(),   /* null, or {reason, at} — the "No ID available" exit */
            ids:orderIds() };   /* ⚠ minted once; a parked copy must keep the SAME ids */
 }
 
@@ -1693,7 +1796,14 @@ async function savePayload(P){
     employment_status:f.empType1||null, employer_name:f.employer1||null,
     income_amount:numOrNull(f.income1), income_frequency:'annual',
     // --- NEW: consultant notes + confirmation-call flag ---
-    consultant_account_note:(f.noteAccountChk?(String(f.noteAccount||'').trim()||null):null),
+    /* The no-ID line goes FIRST in the account note so the confirmation-call
+       screen shows it without any change to that page; the columns below make
+       it queryable. */
+    consultant_account_note:[noIdNote(P), (f.noteAccountChk?String(f.noteAccount||'').trim():'')].filter(Boolean).join('\n\n')||null,
+    id_missing:!!P.idMissing,
+    id_missing_reason:P.idMissing?P.idMissing.reason:null,
+    id_missing_by:P.idMissing?(f.consultant||null):null,
+    id_missing_at:P.idMissing?P.idMissing.at:null,
     consultant_delivery_note:(f.noteDeliveryChk?(String(f.noteDelivery||'').trim()||null):null),
     /* 'draft', not 'pending'. The order row has to be saved HERE because the
        Ezidebit step needs an order id — but the consultant is still sitting
@@ -1804,13 +1914,13 @@ function dataURLtoBytes(durl){
   return { bytes, type, b64 };
 }
 
-async function logUploadFailure(orderId, path, message){
+async function logUploadFailure(orderId, path, message, extra){
   try{
-    await sb.from('sim_upload_failures').insert({
+    await sb.from('sim_upload_failures').insert(Object.assign({
       order_id: orderId, path: path,
       message: String(message||'').slice(0,500),
       device: (navigator.userAgent||'').slice(0,200)
-    });
+    }, extra||{}));
   }catch(e){ /* logging must never make things worse */ }
 }
 
@@ -1822,7 +1932,14 @@ async function safeUpload(orderId, path, durl, contentTypeHint){
   catch(e){ await logUploadFailure(orderId, path, 'could not read the image: '+(e.message||e)); return false; }
 
   const type = contentTypeHint || parsed.type || 'application/octet-stream';
-  let lastMsg = '';
+  /* ⚠ ONE MESSAGE PER TIER. This used to keep a single error string that each
+     tier overwrote, so sim_upload_failures only ever showed the DIRECT upload's
+     error ("new row violates row-level security policy") and never what the
+     edge function said. Four signature-dd.png failures since 31 Aug could not
+     be diagnosed because of that. Now every route records its own reason. */
+  let edgeMsg = '', directMsg = '';
+  const trail = () => 'edge function: ' + (edgeMsg || 'not tried')
+                    + ' | direct upload: ' + (directMsg || 'not tried');
 
   /* THROUGH THE SERVER FIRST.
      This page builds its own Supabase client, and its storage calls were not
@@ -1835,17 +1952,24 @@ async function safeUpload(orderId, path, durl, contentTypeHint){
       body: { orderId: orderId, path: path, contentType: type, data: parsed.b64 }
     });
     if(!error && data && data.ok) return true;
-    lastMsg = (data && data.error) || (error && error.message) || 'server upload failed';
-  }catch(e){ lastMsg = e.message || String(e); }
+    edgeMsg = (data && data.error) || (error && error.message) || 'server upload failed';
+  }catch(e){ edgeMsg = e.message || String(e); }
 
   /* then the direct route, in case the function is unreachable */
   for(let attempt = 1; attempt <= 2; attempt++){
     try{
       const { error } = await sb.storage.from('order-documents')
         .upload(path, parsed.bytes, { upsert:true, contentType:type });
-      if(!error) return true;
-      lastMsg = error.message || String(error);
-    }catch(e){ lastMsg = e.message || String(e); }
+      if(!error){
+        /* The file is safe, but the server route failed — and until now that
+           left no trace at all. If the edge function has been failing on every
+           call since the domain move, this is the only place it would show.
+           rescued:true so it never reads as a file still waiting. */
+        if(edgeMsg) await logUploadFailure(orderId, path, 'direct upload OK on attempt '+attempt+' — edge function failed: '+edgeMsg, {rescued:true});
+        return true;
+      }
+      directMsg = 'attempt ' + attempt + ': ' + (error.message || String(error));
+    }catch(e){ directMsg = 'attempt ' + attempt + ': ' + (e.message || String(e)); }
     if(attempt === 1) await new Promise(r=>setTimeout(r, 600));
   }
 
@@ -1854,15 +1978,17 @@ async function safeUpload(orderId, path, durl, contentTypeHint){
     const { error:dbErr } = await sb.from('sim_document_fallback').insert({
       order_id: orderId, path: path, content_type: type,
       data_base64: parsed.b64, bytes: parsed.bytes.length,
-      reason: String(lastMsg).slice(0,300),
+      reason: trail().slice(0,300),
       device: (navigator.userAgent||'').slice(0,200)
     });
-    await logUploadFailure(orderId, path, 'storage refused ('+lastMsg+') — held in the database');
-    if(!dbErr) return true;                    // safe, just not in storage yet
-    await logUploadFailure(orderId, path, 'storage AND database both refused: '+(dbErr.message||dbErr));
+    if(!dbErr){
+      await logUploadFailure(orderId, path, 'held in the database — ' + trail());
+      return true;                             // safe, just not in storage yet
+    }
+    await logUploadFailure(orderId, path, 'LOST — database fallback also refused: ' + (dbErr.message||dbErr) + ' — ' + trail());
     return false;
   }catch(e){
-    await logUploadFailure(orderId, path, 'storage refused and the database threw: '+(e.message||e));
+    await logUploadFailure(orderId, path, 'LOST — database fallback threw: ' + (e.message||e) + ' — ' + trail());
     return false;
   }
 }
@@ -2210,7 +2336,7 @@ async function finalizeOrder(){
       const existing = (function(){ const el=document.getElementById('noteAccount');
         const chk=document.getElementById('noteAccountChk');
         return (chk&&chk.checked&&el&&el.value.trim())?el.value.trim():''; })();
-      upd.consultant_account_note = eziSkipNote() + (existing ? '\n\nConsultant\'s own note: '+existing : '');
+      upd.consultant_account_note = [noIdNote(S.lastP), eziSkipNote(), (existing ? 'Consultant\'s own note: '+existing : '')].filter(Boolean).join('\n\n');
     }
     await sb.from('sim_orders').update(upd).eq('id', S.orderId);
   }catch(e){ console.warn('could not hand the order to the office:', e&&e.message||e); }
@@ -2362,8 +2488,9 @@ function resetForm(){
   document.querySelectorAll('main select').forEach(s=>s.selectedIndex=0);
   document.querySelectorAll('.choice.sel').forEach(c=>c.classList.remove('sel'));
   ['sigA1','sigA2','sigEzi'].forEach(clearSig);
-  Object.assign(S,{step:0,saleType:'',pay:'',depositMethod:'ezidebit',fullMethod:'bank',a2:false,products:[],emailVerified:false,sentCode:null,tncRead:false,orderId:null,finalized:false,lastP:null,idPhotos:{A1:[],A2:[]}});
+  Object.assign(S,{step:0,saleType:'',pay:'',depositMethod:'ezidebit',fullMethod:'bank',a2:false,products:[],emailVerified:false,sentCode:null,tncRead:false,orderId:null,finalized:false,lastP:null,idPhotos:{A1:[],A2:[]},idMissing:{A1:null,A2:null}});
   clearIds();   /* ⚠ a NEW order must never inherit the last one's ids */
+  clearNoId('A1'); clearNoId('A2');
   renderIdGallery('A1'); renderIdGallery('A2');
   const dmb=document.getElementById('depositMethodBox'); if(dmb) dmb.classList.add('hidden');
   document.querySelectorAll('#a2toggle button').forEach(x=>x.classList.toggle('on',x.dataset.v==='no'));
