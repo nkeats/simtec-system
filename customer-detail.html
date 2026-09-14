@@ -615,6 +615,7 @@ function orderSection(o, items, pays, open){
 
   const actions = isStaff() ? `
     <button onclick="openDocs('${o.id}')" style="background:#fff;color:var(--navy);border:1px solid #cbd4df;border-radius:8px;padding:8px 14px;font-size:13.5px;font-weight:600;cursor:pointer;margin-right:6px">\u{1F4C4} Documents &amp; signatures</button>
+    ${isMgr()?`<button onclick="window.open('order-form.html?order=${o.id}','_blank')" style="background:#fff;color:var(--navy);border:1px solid #cbd4df;border-radius:8px;padding:8px 14px;font-size:13.5px;font-weight:600;cursor:pointer;margin-right:6px">\u{1F5A8} Order form</button>`:""}
     ${!isCancelled?`<button onclick="openCardPay('${o.id}')" style="background:#1c6b34;color:#fff;border:none;border-radius:8px;padding:8px 14px;font-size:13.5px;font-weight:700;cursor:pointer;margin-right:6px">\u{1F4B3} Take payment</button>`:``}
     ${!isCancelled?`<button onclick="openAmend('${o.id}')" style="background:#c6a15b;color:#122347;border:none;border-radius:8px;padding:8px 14px;font-size:13.5px;font-weight:700;cursor:pointer;margin-right:6px">✎ Amend order</button>`:""}
     ${(isCancelled||isHold)?`<button onclick="reinstate('${o.id}')" style="background:#1c6b34;color:#fff;border:none;border-radius:8px;padding:8px 14px;font-size:13.5px;font-weight:600;cursor:pointer;margin-right:6px">↩ Reinstate</button>`:""}
