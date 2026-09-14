@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en-NZ">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sales Order Form — Simtec Therapeutic</title>
+<!-- SIMTEC_BUILD: order-form 2026-09-14 v1 -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.112.2"></script>
+<script src="auth.js?v=3" data-roles="admin,manager"></script>
+<style>
+  :root{ --navy:#1B3A6B; --ink:#1a1a1a; --line:#c9d2de; --grey:#6b7785; }
+  *{box-sizing:border-box}
+  body{margin:0;background:#e9edf2;color:var(--ink);
+       font-family:Arial,Helvetica,sans-serif;font-size:11pt;line-height:1.35}
+  .page{width:210mm;min-height:297mm;margin:12px auto;background:#fff;
+        padding:14mm 12mm;box-shadow:0 2px 12px rgba(0,0,0,.15)}
+  .bar{display:flex;justify-content:space-between;align-items:center;gap:16px;
+       border-bottom:3px solid var(--navy);padding-bottom:8px;margin-bottom:12px}
+  .bar h1{font-size:19pt;color:var(--navy);margin:0;letter-spacing:.5px}
+  .bar .sub{font-size:8.5pt;color:var(--grey);line-height:1.3}
+  .bar .tag{font-size:15pt;font-weight:bold;color:var(--navy);text-align:right;line-height:1.1}
+  h2{background:var(--navy);color:#fff;font-size:10pt;letter-spacing:.6px;
+     margin:14px 0 8px;padding:5px 9px;text-transform:uppercase}
+  .row{display:flex;gap:10px;margin-bottom:8px}
+  .f{flex:1;min-width:0}
+  .f label{display:block;font-size:7.5pt;font-weight:bold;color:var(--navy);
+           text-transform:uppercase;letter-spacing:.4px;margin-bottom:2px}
+  .f .v{border:1px solid var(--line);border-radius:2px;padding:5px 7px;
+        min-height:26px;font-size:10.5pt;background:#fcfdfe;word-break:break-word}
+  .f .v.empty{color:#aeb6c0}
+  table{width:100%;border-collapse:collapse;margin-top:4px}
+  th{background:var(--navy);color:#fff;font-size:8pt;text-transform:uppercase;
+     padding:5px 7px;text-align:left;letter-spacing:.4px}
+  td{border:1px solid var(--line);padding:5px 7px;font-size:10pt}
+  td.n{text-align:right;white-space:nowrap}
+  tr.tot td{background:#eef2f7;font-weight:bold;border-top:2px solid var(--navy)}
+  .ack{border:1px solid var(--line);border-radius:2px;padding:8px 10px;margin-bottom:7px}
+  .ack b{display:block;font-size:9.5pt;color:var(--navy);margin-bottom:3px}
+  .ack p{margin:0;font-size:8pt;color:#3d4752;line-height:1.4}
+  .ack .st{margin-top:5px;font-size:8.5pt;font-weight:bold}
+  .yes{color:#146c43} .no{color:#9a3412}
+  .sig{border:1px solid var(--line);border-radius:2px;padding:8px;text-align:center}
+  .sig img{max-height:70px;max-width:100%;display:block;margin:0 auto 4px}
+  .sig .none{height:70px;display:flex;align-items:center;justify-content:center;
+             color:#aeb6c0;font-size:9pt;font-style:italic}
+  .sig .nm{border-top:1px solid var(--line);padding-top:4px;font-size:9.5pt}
+  .foot{border-top:1px solid var(--line);margin-top:14px;padding-top:6px;
+        font-size:7.5pt;color:var(--grey);display:flex;justify-content:space-between}
+  .idpage img{max-width:100%;border:1px solid var(--line);margin-bottom:8px}
+  .notice{background:#fff6e6;border:1px solid #e4c98c;border-radius:3px;
+          padding:16px 18px;margin:18px 0}
+  .notice b{display:block;color:#7a5b1b;font-size:12pt;margin-bottom:5px}
+  .notice p{margin:0;font-size:10pt;color:#5f4a1c}
+  .toolbar{max-width:210mm;margin:12px auto 0;display:flex;gap:8px;align-items:center}
+  .toolbar button{background:var(--navy);color:#fff;border:0;border-radius:3px;
+                  padding:9px 18px;font:inherit;font-size:10.5pt;cursor:pointer}
+  .toolbar button:hover{background:#24497f}
+  .toolbar .msg{color:var(--grey);font-size:10pt}
+  @media print{
+    body{background:#fff}
+    .toolbar{display:none}
+    .page{margin:0;box-shadow:none;width:auto;min-height:0;padding:10mm;
+          page-break-after:always}
+    .page:last-child{page-break-after:auto}
+  }
+</style>
+</head>
+<body>
+
+<div class="toolbar">
+  <button onclick="window.print()">Save as PDF / Print</button>
+  <span class="msg" id="msg">Loading…</span>
+</div>
+
+<div id="out"></div>
+
+<script>
+const sb = supabase.createClient("https://jvqjoenaungubpoegyvf.supabase.co","sb_publishable_J4MYTdJJyEaWe-GadpwdYA_upPT2rKw");
+const ORDER = new URLSearchParams(location.search).get('order');
+
+const esc = s => (s==null?'':String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const money = n => n==null||n==='' ? '' : '$' + Number(n).toLocaleString('en-NZ',{minimumFractionDigits:2,maximumFractionDigits:2});
+const nzdate = d => d ? new Date(d).toLocaleDateString('en-NZ',{day:'2-digit',month:'short',year:'numeric'}) : '';
+const F = (label, val) => `<div class="f"><label>${esc(label)}</label>
+  <div class="v ${val?'':'empty'}">${val?esc(val):'—'}</div></div>`;
+
+function head(tag){
+  return `<div class="bar">
+    <div><h1>SIMTEC THERAPEUTIC</h1>
+      <div class="sub">297 Neilson Street, Onehunga, Auckland 1061<br>
+      09 886 9897 &nbsp;|&nbsp; info@simtectp.com &nbsp;|&nbsp; simtecnz.com</div></div>
+    <div class="tag">${tag}</div></div>`;
+}
+function foot(n, of){
+  return `<div class="foot"><span>Simtec Therapeutic Ltd &nbsp;|&nbsp; 297 Neilson Street, Onehunga, Auckland 1061 &nbsp;|&nbsp; NZBN 9429053287908</span>
+    <span>Page ${n} of ${of}</span></div>`;
+}
+
+async function signed(path){
+  if(!path) return null;
+  try{
+    const { data, error } = await sb.storage.from('order-documents').createSignedUrl(path, 600);
+    return error ? null : data.signedUrl;
+  }catch(e){ return null; }
+}
+
+(async () => {
+  if(!ORDER){ document.getElementById('msg').textContent = 'No order specified.'; return; }
+
+  const { data, error } = await sb.rpc('order_application_form', { p_order: ORDER });
+  if(error){
+    document.getElementById('msg').textContent =
+      error.message.includes('not permitted')
+        ? 'You do not have permission to view this form.'
+        : 'Could not load: ' + error.message;
+    return;
+  }
+
+  const o = data.order, c = data.customer, a = data.application, items = data.items || [];
+  const name1 = [c.first_name, c.last_name].filter(Boolean).join(' ');
+  document.title = `SimtecOrder-${(c.last_name||'').replace(/\W/g,'')}-${(c.first_name||'').replace(/\W/g,'')}-${o.order_date||''}`;
+
+  /* An order taken on paper has no electronic application. Say so plainly —
+     a blank form and an absent form look identical and mean different things. */
+  if(!a){
+    document.getElementById('out').innerHTML = `<div class="page">
+      ${head('SALES<br>ORDER<br>FORM')}
+      <div class="notice"><b>This order was taken on paper</b>
+        <p>No electronic application exists for this order. The signed paper Sales Order Form
+        is the record. What the System holds about the order is shown below.</p></div>
+      ${orderBlock(o,c,items,name1)}
+      ${foot(1,1)}</div>`;
+    document.getElementById('msg').textContent = 'Paper order — no electronic application.';
+    return;
+  }
+
+  const [sig1, sig2, id1, id2] = await Promise.all(
+    [a.signature_a1_path, a.signature_a2_path, a.id_doc_a1_path, a.id_doc_a2_path].map(signed));
+
+  const idPages = [id1, id2].filter(Boolean);
+  const total = 2 + idPages.length;
+
+  const a2name = o.second_customer_name || '';
+  const a2 = a2name.trim().split(/\s+/);
+
+  let html = `<div class="page">
+    ${head('SALES<br>ORDER<br>FORM')}
+    <div class="row">${F('Sleep Consultant Name', o.consultant_name)}${F('Date of Visit', nzdate(o.order_date))}</div>
+    <h2>Sale Type</h2>
+    <div class="row">${F('Sale Type', o.sale_type)}
+      ${F('Referred By — Full Name', o.referrer_name)}${F('Referred By — Mobile', o.referrer_mobile)}</div>
+
+    <h2>Section 1 — Customer Details</h2>
+    <div class="row">${F('Applicant 1 — First Name', c.first_name)}${F('Last Name / Surname', c.last_name)}
+      ${F(`${a.a1_id_type || 'ID'} Number`, a.a1_id_number)}</div>
+    <div class="row">${F('Applicant 2 — First Name', a2[0]||'')}${F('Last Name / Surname', a2.slice(1).join(' '))}
+      ${F(`${a.a2_id_type || 'ID'} Number`, a.a2_id_number)}</div>
+    <div class="row">${F('Mobile Phone', c.mobile)}${F('Email Address', c.email)}</div>
+    <div class="row">${F('Street Address (Delivery Address)', c.address)}${F('Suburb', c.suburb)}</div>
+
+    <h2>Section 2 — Employment &amp; Income</h2>
+    <div class="row">${F('Employer / Business Name', a.a1_employer || o.employer_name)}
+      ${F('Occupation / Job Title', a.a1_occupation)}${F('Annual Gross Income', money(a.a1_income_amount ?? o.income_amount))}</div>
+    <div class="row">${F('Employment Type', a.a1_employment_status || o.employment_status)}
+      ${F('Homeowner?', a.a1_homeowner)}${F('Other Income', a.a1_other_income)}</div>
+    ${ (a.a2_employer||a.a2_occupation||a.a2_income_amount) ? `
+    <div class="row">${F('Applicant 2 — Employer', a.a2_employer)}
+      ${F('Occupation', a.a2_occupation)}${F('Annual Gross Income', money(a.a2_income_amount))}</div>
+    <div class="row">${F('Employment Type', a.a2_employment_status)}
+      ${F('Homeowner?', a.a2_homeowner)}${F('Other Income', a.a2_other_income)}</div>` : '' }
+
+    ${itemsTable(items, o)}
+    <div class="row">${F('Payment Option', o.payment_method)}
+      ${F('Instalment', o.instalment_amount ? money(o.instalment_amount)+' '+(o.payment_frequency||'') : '')}
+      ${F('Deposit', money(o.deposit_amount))}</div>
+    ${foot(1,total)}
+  </div>
+
+  <div class="page">
+    ${head('SALES ORDER FORM<br>Page 2')}
+    <h2>Customer Acknowledgements</h2>
+    ${ack('Minimum 10% Deposit Required Before Delivery',
+      'A minimum deposit of 10% of the total purchase price must be paid in full before any delivery takes place.', a.acknowledgements_confirmed)}
+    ${ack('Acceptable Payment History Required Before Delivery',
+      'Simtec Therapeutic does not run credit checks. Delivery is completed once an acceptable repayment history is established, typically as the balance approaches 10% of the total purchase price.', a.acknowledgements_confirmed)}
+    ${ack('Collection and Use of Your Personal Information (Privacy Act 2020)',
+      'Income, employment and other personal details are collected only to assess whether this payment plan is affordable and to manage the account. Stored securely, not sold or disclosed except as reasonably necessary to manage payments.', a.acknowledgements_confirmed)}
+    ${ack('5-Day Cooling Off Period',
+      'Under the Fair Trading Act the customer may cancel within 5 working days of signing at no cost.' + (o.cooling_off_expires ? ' Expired ' + nzdate(o.cooling_off_expires) + '.' : ''), a.acknowledgements_confirmed)}
+    ${ack('Terms &amp; Conditions', 'The customer confirmed they had read and accepted the Terms and Conditions.', a.tnc_agreed)}
+
+    <h2>Referees (not living with the customer)</h2>
+    <div class="row">${F('Referee Name', a.referee1_name)}${F('Phone', a.referee1_phone)}</div>
+    <div class="row">${F('Relationship', a.referee1_relationship)}${F('Email', a.referee1_email)}</div>
+    <div class="row">${F('Referee Name', a.referee2_name)}${F('Phone', a.referee2_phone)}</div>
+    <div class="row">${F('Relationship', a.referee2_relationship)}${F('Email', a.referee2_email)}</div>
+
+    <h2>Comments / Notes</h2>
+    <div class="f"><div class="v ${o.consultant_account_note?'':'empty'}">${o.consultant_account_note?esc(o.consultant_account_note):'—'}</div></div>
+
+    <h2>Section 4 — Declaration &amp; Signature</h2>
+    <p style="font-size:7.5pt;color:#3d4752;margin:0 0 8px">By signing, the applicant(s) confirmed all information provided is accurate and correct, and that they had read and understood the terms of the agreement including the payment obligations. On a joint purchase each applicant is jointly and severally liable for the full amount owing (Terms &amp; Conditions, clause 10).</p>
+    <div class="row">
+      <div class="f"><label>Applicant 1</label><div class="sig">
+        ${sig1 ? `<img src="${sig1}" alt="Applicant 1 signature">` : '<div class="none">no signature captured</div>'}
+        <div class="nm">${esc(a.a1_signed_name || name1)}${a.email_verified?' · email verified':''}</div></div></div>
+      <div class="f"><label>Applicant 2</label><div class="sig">
+        ${sig2 ? `<img src="${sig2}" alt="Applicant 2 signature">` : '<div class="none">not a joint purchase</div>'}
+        <div class="nm">${esc(a.a2_signed_name || a2name || '—')}</div></div></div>
+    </div>
+    <div class="row">${F('Submitted', nzdate(a.created_at))}${F('Order Status', o.order_status)}${F('Delivery', o.delivery_status)}</div>
+    ${foot(2,total)}
+  </div>`;
+
+  idPages.forEach((u,i) => {
+    html += `<div class="page idpage">${head('IDENTIFICATION')}
+      <h2>Applicant ${i+1} — Identification Document</h2>
+      <img src="${u}" alt="Identification document">
+      ${foot(3+i,total)}</div>`;
+  });
+
+  document.getElementById('out').innerHTML = html;
+  document.getElementById('msg').textContent =
+    `Order form for ${name1}${(!sig1)?' — no signature on file':''}${idPages.length?'':' — no ID document on file'}`;
+})();
+
+function ack(title, body, ok){
+  return `<div class="ack"><b>${title}</b><p>${body}</p>
+    <div class="st ${ok?'yes':'no'}">${ok ? '✓ Confirmed in the app by the customer' : '✗ Not recorded'}</div></div>`;
+}
+
+function itemsTable(items, o){
+  const rows = items.map(i => `<tr><td>${esc(i.product_name)}</td>
+    <td class="n">${i.quantity??1}</td><td class="n">${money(i.unit_price)}</td>
+    <td class="n">${money((i.quantity??1)*(i.unit_price??0))}</td></tr>`).join('')
+    || `<tr><td colspan="4" style="color:#aeb6c0">No line items recorded</td></tr>`;
+  return `<h2>Section 3 — Products Ordered</h2>
+    <table><tr><th>Product</th><th style="text-align:right">Qty</th>
+      <th style="text-align:right">Unit Cost</th><th style="text-align:right">Total</th></tr>
+      ${rows}
+      <tr class="tot"><td colspan="3">Total Cost (incl. delivery fee)</td>
+        <td class="n">${money(o.contract_value)}</td></tr></table>`;
+}
+
+function orderBlock(o,c,items,name1){
+  return `<div class="row">${F('Customer', name1)}${F('Mobile', c.mobile)}${F('Email', c.email)}</div>
+    <div class="row">${F('Address', c.address)}${F('Suburb', c.suburb)}</div>
+    <div class="row">${F('Consultant', o.consultant_name)}${F('Order Date', nzdate(o.order_date))}
+      ${F('Sale Type', o.sale_type)}</div>
+    ${itemsTable(items,o)}
+    <div class="row">${F('Payment Option', o.payment_method)}
+      ${F('Instalment', o.instalment_amount ? money(o.instalment_amount)+' '+(o.payment_frequency||'') : '')}
+      ${F('Deposit', money(o.deposit_amount))}</div>`;
+}
+</script>
+</body>
+</html>
