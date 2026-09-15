@@ -821,6 +821,14 @@ function orderSection(o, items, pays, open){
   // order-documents bucket; fetched on demand via short-lived signed URLs.
   const iddocs = isMgr() ? `<div class="card full"><h2>Identity documents</h2>
     <div id="iddocs_${oid}"><button onclick="loadIdDocs('${oid}')" style="background:#122347;color:#fff;border:none;border-radius:7px;padding:7px 14px;font-size:13px;font-weight:600;cursor:pointer">View ID documents</button></div></div>` : "";
+  /* Application details — the iPad application form behind this order.
+     Gated with isOffice() (admin, manager, office), the same test used by the
+     second-name and free-pillow controls above, NOT isMgr(): the office is the
+     role that rings the referee or the employer, so locking them out of the
+     referees would defeat the panel. Collapsed until asked for — it is a long
+     panel and most calls never need it. */
+  const appcard = isOffice() ? `<div class="card full"><h2>Application details</h2>
+    <div id="app_${oid}"><button onclick="loadApplication('${oid}')" style="background:#122347;color:#fff;border:none;border-radius:7px;padding:7px 14px;font-size:13px;font-weight:600;cursor:pointer">View application</button></div></div>` : "";
   return `<div class="ordsec">
     <div class="ordhd" onclick="togOrder('${oid}')">
       <span class="caret" id="car_${oid}">${open?"▾":"▸"}</span>
@@ -831,7 +839,7 @@ function orderSection(o, items, pays, open){
     </div>
     <div class="ordbody" id="ord_${oid}" style="display:${open?"":"none"}">
       <div style="display:flex;justify-content:flex-end;align-items:center;flex-wrap:wrap;gap:6px;margin:0 0 12px">${actions}</div>
-      <div class="cards">${sale}${money}${delivery}${products}${iddocs}${history}</div>
+      <div class="cards">${sale}${money}${delivery}${products}${appcard}${iddocs}${history}</div>
     </div>
   </div>`;
 }
@@ -849,6 +857,127 @@ async function setFreePillow(orderId, on){
   if(error){ alert("Could not change it: "+error.message); return; }
   if(!data || !data.ok){ alert(data && data.reason ? data.reason : "Could not change it."); return; }
   location.reload();
+}
+
+/* ===== Application details ================================================
+   The electronic application the consultant filled in on the iPad.
+
+   ⚠ THE PARAMETER IS p_order, NOT order_id. Checked against the live schema
+   cache on 16 Sep 2026: order_application_view(order_id) comes back PGRST202
+   "could not find the function", p_order resolves it. Same convention as
+   order_free_pillow_set and convert_referral_for_order above.
+
+   One nested jsonb document comes back: has_application, submitted, applicant1,
+   applicant2 (object or null), referees (two), acknowledgements, order. */
+function appHeading(t){
+  return '<div style="margin:13px 0 5px;padding-top:9px;border-top:1px dashed var(--line);font-size:11.5px;'
+       + 'font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--sub)">'+esc(t)+'</div>';
+}
+function appSub(t){
+  return '<div style="margin:10px 0 3px;font-size:11.5px;font-weight:700;color:var(--sub)">'+esc(t)+'</div>';
+}
+function appNone(t){ return '<div class="muted" style="padding:3px 0 4px">'+esc(t)+'</div>'; }
+function appTxt(v){
+  if(v===null||v===undefined||v==="") return '<span class="muted">—</span>';
+  if(typeof v==="boolean") return v?"Yes":"No";
+  // If the view ever changes shape under us, print it rather than drop it —
+  // an unexplained blank row is the one thing this panel must never do.
+  if(typeof v==="object") return esc(JSON.stringify(v));
+  return esc(String(v));
+}
+function appMoney(v){ return (v===null||v===undefined||v==="") ? '<span class="muted">—</span>' : fmt(v); }
+function appDate(v){ return v ? esc(auDate(v)) : '<span class="muted">—</span>'; }
+/* Date AND time off the same Date object. Taking the date from the raw string
+   and the time from the parsed value printed 20:00 UTC as "14/08 8:00 am" —
+   right time, previous day, and an application would look submitted before it
+   was taken. fmtDMY is the page's local-time formatter. */
+function appWhen(v){
+  if(!v) return '<span class="muted">—</span>';
+  const d=new Date(v);
+  return isNaN(d) ? esc(String(v))
+                  : esc(fmtDMY(d)+" "+d.toLocaleTimeString([],{hour:"numeric",minute:"2-digit"}));
+}
+// Is it there or not — that is the whole question the office asks of these two.
+// The storage path is no use on screen; Documents & signatures opens the image.
+function appOnFile(v){
+  const there = v===true || (typeof v==="number" && v>0) || (typeof v==="string" && v!=="");
+  return there ? "On file" : '<span style="color:#b4342e">Not on file</span>';
+}
+function appApplicant(a,title,missing){
+  if(!a) return appHeading(title)+appNone(missing);
+  return appHeading(title)
+    + kv("Name",          appTxt(a.name))
+    + kv("ID type",       appTxt(a.id_type))
+    + kv("ID number",     appTxt(a.id_number))
+    + kv("Homeowner",     appTxt(a.homeowner))
+    + kv("Signed as",     appTxt(a.signed_name))
+    + appSub("Employment and income")
+    + kv("Employer",      appTxt(a.employer))
+    + kv("Occupation",    appTxt(a.occupation))
+    + kv("Employment",    appTxt(a.employment))
+    + kv("Income",        appMoney(a.income))
+    + kv("Other income",  appTxt(a.other_income))
+    + appSub("On file")
+    + kv("Signature",     appOnFile(a.has_signature))
+    + kv("ID document",   appOnFile(a.has_id_doc));
+}
+function appReferee(r,n){
+  if(!r) return appSub("Referee "+n)+appNone("Not recorded.");
+  return appSub("Referee "+n)
+    + kv("Name",         appTxt(r.name))
+    + kv("Phone",        appTxt(r.phone))
+    + kv("Relationship", appTxt(r.relationship))
+    + kv("Email",        appTxt(r.email));
+}
+async function loadApplication(oid){
+  const box=document.getElementById("app_"+oid); if(!box) return;
+  box.innerHTML='<span class="muted">Loading…</span>';
+  const retry='<button onclick="loadApplication(\''+oid+'\')" style="background:#122347;color:#fff;border:none;'
+            + 'border-radius:7px;padding:6px 13px;font-size:12.5px;font-weight:600;cursor:pointer;margin-top:9px">Try again</button>';
+  const {data,error}=await sb.rpc("order_application_view",{p_order:oid});
+  // Say what went wrong. A panel that just stays empty is indistinguishable
+  // from an order with nothing on it, and the office cannot tell us which.
+  if(error){
+    box.innerHTML='<div style="background:#fdecec;border:1px solid #f3c0c0;border-radius:9px;padding:11px 13px;color:#c02626">'
+      + '<b>Could not load the application.</b><br>'+esc(error.message||error)+'<br>'+retry+'</div>';
+    return;
+  }
+  const d=Array.isArray(data)?data[0]:data;
+  if(!d||typeof d!=="object"){
+    box.innerHTML='<div style="background:#fff5e0;border:1px solid #e8d9a0;border-radius:9px;padding:11px 13px;color:#8a5b00">'
+      + 'The application view returned nothing at all for this order.<br>'+retry+'</div>';
+    return;
+  }
+  if(d.has_application===false){
+    box.innerHTML='<div class="muted">This order was taken on paper — no electronic application exists</div>';
+    return;
+  }
+  const refs=Array.isArray(d.referees)?d.referees:[];
+  const ack=d.acknowledgements||{}, ord=d.order||{};
+  box.innerHTML =
+      kv("Submitted",appWhen(d.submitted))
+    + appApplicant(d.applicant1,"Applicant 1","Nobody recorded.")
+    + appApplicant(d.applicant2,"Applicant 2","No second applicant on this order.")
+    + appHeading("Referees")
+    + (refs.length ? refs.map(function(r,i){ return appReferee(r,i+1); }).join("")
+                   : appNone("No referees recorded."))
+    + appHeading("Acknowledgements")
+    + kv("Acknowledgements confirmed", appTxt(ack.confirmed))
+    + kv("Terms and conditions agreed",appTxt(ack.tnc_agreed))
+    + kv("Email verified",             appTxt(ack.email_verified))
+    /* ⚠ These are what the consultant keyed into the APPLICATION, not the live
+       order above. Where the two disagree, that difference is the finding — so
+       both are on the page and neither is quietly hidden behind the other. */
+    + appHeading("As recorded on the application")
+    + kv("Consultant",  appTxt(ord.consultant))
+    + kv("Order date",  appDate(ord.order_date))
+    + kv("Sale type",   appTxt(ord.sale_type))
+    + kv("Referrer",    appTxt(ord.referrer))
+    + kv("Payment",     appTxt(ord.payment))
+    + kv("Value",       appMoney(ord.value))
+    + kv("Note",        appTxt(ord.note))
+    + kv("ID not supplied", ord.id_missing===true ? '<span style="color:#b4342e">Yes</span>' : appTxt(ord.id_missing))
+    + kv("Reason given",    appTxt(ord.id_missing_reason));
 }
 
 async function loadIdDocs(oid){
