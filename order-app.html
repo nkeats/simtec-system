@@ -16,7 +16,7 @@
      reach the order app before go-live. When you roll out to consultants, add
      ",consultant" to data-roles below and add a New Order button to my-sales.html. -->
 <script src="auth.js?v=3" data-roles="admin,manager,office,consultant"></script>
-<script>window.SIMTEC_BUILD="2026-09-15-01";</script>
+<script>window.SIMTEC_BUILD="2026-09-16-01";</script>
 <script src="update.js?v=2"></script>
 
 
@@ -861,6 +861,8 @@ async function loadCatalogue(){
       DELIVERY_FEE = BASELINE_DELIVERY;
       console.warn('catalogue: using built-in prices', e);
     }
+    /* The consultant gets the banner; the office gets the reason for it. */
+    reportClientError('load the live price list (now quoting ' + PRICE_SOURCE + ' prices)', e);
   }
   showPriceSource();
 }
@@ -884,6 +886,48 @@ const GUARANTEE_PRODUCTS = ["Mk III Queen","Mk III Super King"]; // 30-day comfo
 const SUPABASE_URL="https://jvqjoenaungubpoegyvf.supabase.co";
 const SUPABASE_KEY="sb_publishable_J4MYTdJJyEaWe-GadpwdYA_upPT2rKw";
 let sb = window.supabase ? supabase.createClient(SUPABASE_URL,SUPABASE_KEY) : null;
+
+/* ── Telling the office when something goes wrong out here ─────────────────
+   Every fault this page catches and shows the consultant — or writes to the
+   console, where nobody will ever read it — is also sent to the office through
+   report_client_error(). Until now the only record of a failed save was a
+   consultant remembering the wording of an alert over the phone.
+
+   ⚠ REPORTING A FAULT MUST NEVER CAUSE ONE. This never throws, is never
+   awaited, and changes nothing the caller already does: no client, no signal,
+   no such function, RLS refusing it — the report is dropped and the
+   consultant's own handling runs exactly as it did before.
+
+   ⚠ DIAGNOSTIC ONLY, AND NOTHING PERSONAL. The page, what was being attempted,
+   the error text, the order id and the build. No names, no address, no bank
+   details, no photographs — and nothing may ever be decided from it.
+
+   In walkthrough mode the wrapped sb.rpc swallows this like every other write,
+   so a rehearsal never files a fault. */
+const ERR_PAGE = 'order-app';
+function reportClientError(attempting, err, orderId){
+  try{
+    if(!sb || !sb.rpc) return;
+    const message = (err && (err.message || err.error_description || err.hint))
+                    || String(err == null ? '' : err);
+    const q = sb.rpc('report_client_error', {
+      p_page:       ERR_PAGE,
+      p_action:     String(attempting || '').slice(0, 200),
+      p_message:    String(message).slice(0, 1000),
+      p_order:      orderId || S.orderId || null,
+      p_build:      window.SIMTEC_BUILD || 'unknown',
+      /* Which device, and which state the page was in — ?walkthrough=1 and the
+         Ezidebit return both show up here. Browser-supplied, like deviceInfo():
+         diagnostic only, and nothing may ever be decided from it. */
+      p_url:        String(location.href || '').slice(0, 500),
+      p_user_agent: String(navigator.userAgent || '').slice(0, 300)
+    });
+    /* A PostgREST builder does not run until something asks for the result, so
+       it has to be asked — and the answer thrown away, because an unhandled
+       rejection on an iPad is a console full of red and nothing else. */
+    if(q && q.then) q.then(function(){}, function(){});
+  }catch(_e){ /* deliberately nothing: reporting a fault must never cause one */ }
+}
 
 /* ══ WALKTHROUGH MODE ═══════════════════════════════════════════════════════
    Add ?walkthrough=1 to the URL to walk the whole sale end to end — including
@@ -1041,6 +1085,9 @@ const EZI_FREQ = { weekly:1, fortnightly:2, monthly:4 };
 let TEAM={"Kenzie Lam Sam":"Kenzie Lam Sam","PJ Tonga":"Kenzie Lam Sam","Rita Neli":"Kenzie Lam Sam","Tame Cooper":"Kenzie Lam Sam","Yazan Othman":"Yazan Othman","Brooke Komene":"Yazan Othman","Stacey Numanga":"Yazan Othman","Batre Wilson-Harris":null,"Bill Sevele":null,"Celina Fitu":null,"Elias Manuel-Mehan":null,"Kaman Murthi":null,"Rea Patil":null,"Matt":null};  // fallback only — the live list from consultants.html replaces this at load
 // Load the LIVE consultant list (added/edited in consultants.html) into the dropdown +
 // team mapping. Falls back to the hardcoded list above if the fetch fails.
+/* The reason the list would not load, kept for the one report below rather than
+   filed three times over while bootLists() retries. */
+let CONSULTANTS_ERR = '';
 async function loadConsultants(){
   try{
     const { data } = await sb.rpc("list_active_consultants");
@@ -1055,7 +1102,7 @@ async function loadConsultants(){
                     return '<option>'+String(c.name).replace(/[&<>]/g,ch=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[ch]))+'</option>'; }).join("");
     if(cur && TEAM.hasOwnProperty(cur)) sel.value = cur;
     return true;
-  }catch(e){ return false; }   // keep the fallback list
+  }catch(e){ CONSULTANTS_ERR = (e && e.message) || String(e); return false; }   // keep the fallback list
 }
 // New-app payment options -> your payment_method values. Ezidebit becomes weekly_dd/fortnightly_dd
 // once the Ezidebit callback tells us the frequency; null until then.
@@ -1100,6 +1147,10 @@ async function bootLists(){
   }
   await affs; await cat;
   console.warn('consultant list did not load — the fallback list is in use');
+  /* ⚠ Reported once, after the last retry. The built-in fallback list is missing
+     every consultant added since July, so a sale can be credited to nobody. */
+  reportClientError('load the consultant list (3 attempts — the built-in fallback list is in use)',
+                    CONSULTANTS_ERR || 'the list came back empty; no error was raised');
 }
 if(document.readyState!=='loading') bootLists(); else document.addEventListener('DOMContentLoaded', bootLists);
 const S = { step:0, saleType:'', pay:'', depositMethod:'ezidebit', fullMethod:'bank', a2:false, products:[], referralId:null, emailVerified:false, sentCode:null, tncRead:false, idPhotos:{A1:[],A2:[]},
@@ -1460,6 +1511,7 @@ async function sendCode(){
     else
       state.innerHTML='<span class="badge wait">● Code sent to '+esc(em)+' — ask the customer to read it back.</span>';
   }catch(e){
+    reportClientError('send the email verification code', e);
     state.innerHTML='<span class="badge wait">✕ Could not send the code ('+esc(e&&e.message||e)+'). Check the address and retry.</span>';
   }finally{ if(btn) btn.disabled=false; }
 }
@@ -1502,7 +1554,8 @@ async function idCaptured(input,who){
   try{
     const durl=await downscaleImage(f);
     if(durl){ (S.idPhotos[who]=S.idPhotos[who]||[]).push(durl); clearNoId(who); renderIdGallery(who); }
-  }catch(e){ alert('Could not add that photo: '+(e.message||e)); }
+  }catch(e){ reportClientError('add an ID photo for applicant ' + who, e);
+             alert('Could not add that photo: '+(e.message||e)); }
   if(cap) cap.textContent='Add photo';
   input.value='';   // reset so the same slot can capture the next photo
 }
@@ -1605,7 +1658,12 @@ function buildReview(){
 
 function fileOf(id){ const el=document.querySelector('#idTile'+id+' input'); return el&&el.files&&el.files[0]; }
 function fileToDataURL(file){ return new Promise(res=>{ if(!file) return res(null); const r=new FileReader(); r.onload=()=>res(r.result); r.onerror=()=>res(null); r.readAsDataURL(file); }); }
-function canvasDataURL(id){ const c=document.getElementById(id); if(!c||isBlank(id)) return null; try{ return c.toDataURL('image/png'); }catch(e){ return null; } }
+/* ⚠ A BLANK CANVAS AND A BROKEN ONE BOTH RETURN null, and nothing told them
+   apart. The blank one is ordinary — nobody has signed yet. The throw is a
+   signature going on the floor, so that one is reported. */
+function canvasDataURL(id){ const c=document.getElementById(id); if(!c||isBlank(id)) return null;
+  try{ return c.toDataURL('image/png'); }
+  catch(e){ reportClientError('read the signature drawn on "'+id+'" (it will not be saved)', e); return null; } }
 function dataURLtoBlob(durl){ const parts=String(durl).split(','); const mime=(parts[0].match(/:(.*?);/)||[])[1]||'application/octet-stream'; const bin=atob(parts[1]); const u=new Uint8Array(bin.length); for(let i=0;i<bin.length;i++) u[i]=bin.charCodeAt(i); return new Blob([u],{type:mime}); }
 
 // Snapshot every identified field in <main> so a parked order can be fully rebuilt.
@@ -1657,11 +1715,12 @@ function orderIds(){
   if(!S.orderIds){
     try{ var raw=sessionStorage.getItem(ID_KEY);
          if(raw){ var v=JSON.parse(raw); if(v && v.cust && v.order) S.orderIds=v; }
-    }catch(e){}
+    }catch(e){ reportClientError('read this order\'s ids back after a reload (a resubmit would write a SECOND order)', e); }
   }
   if(!S.orderIds){
     S.orderIds={ cust:newUuid(), order:newUuid() };
-    try{ sessionStorage.setItem(ID_KEY, JSON.stringify(S.orderIds)); }catch(e){}
+    try{ sessionStorage.setItem(ID_KEY, JSON.stringify(S.orderIds)); }
+    catch(e){ reportClientError('hold this order\'s ids for the length of the sale (a reload would write a second order)', e); }
   }
   return S.orderIds;
 }
@@ -1683,7 +1742,8 @@ function deviceInfo(){
 }
 function clearIds(){
   S.orderIds=null;
-  try{ sessionStorage.removeItem(ID_KEY); }catch(e){}
+  try{ sessionStorage.removeItem(ID_KEY); }
+  catch(e){ reportClientError('clear the last order\'s ids for a new sale (the next order could save NOTHING)', e); }
 }
 
 async function collectOrder(){
@@ -1725,7 +1785,7 @@ function showLoginQr(link, emailed){
   const modal=document.getElementById('loginQrModal'); if(!modal) return;
   const box=document.getElementById('loginQrBox'), em=document.getElementById('loginQrEmail');
   if(em) em.textContent = emailed ? '\u2713 Also emailed to the customer' : '';
-  const draw=()=>{ try{ const qr=qrcode(0,'M'); qr.addData(link); qr.make(); if(box){ box.innerHTML=qr.createSvgTag({scalable:true,margin:2}); const svg=box.querySelector('svg'); if(svg){ svg.style.width='220px'; svg.style.height='220px'; } } }catch(e){ if(box) box.textContent='(QR unavailable - the link was emailed instead)'; } };
+  const draw=()=>{ try{ const qr=qrcode(0,'M'); qr.addData(link); qr.make(); if(box){ box.innerHTML=qr.createSvgTag({scalable:true,margin:2}); const svg=box.querySelector('svg'); if(svg){ svg.style.width='220px'; svg.style.height='220px'; } } }catch(e){ reportClientError('draw the rewards-app sign-in QR', e); if(box) box.textContent='(QR unavailable - the link was emailed instead)'; } };
   if(window.qrcode) draw(); else setTimeout(draw,700);
   modal.style.display='flex';
 }
@@ -1805,9 +1865,11 @@ async function savePayload(P){
   //    here must NOT lose the order, but they must be SURFACED (not swallowed)
   //    so the consultant knows to re-capture ID photos before leaving.
   S.lastExtrasWarn = await saveExtrasPayload(orderId,P)
-    .catch(e=>['Customer details and order were saved, but the ID photos / extra details could not be attached ('+(e.message||e)+'). Please re-capture the ID before you leave.']);
+    .catch(e=>{ reportClientError('attach the ID photos and applicant details', e, orderId);
+                return ['Customer details and order were saved, but the ID photos / extra details could not be attached ('+(e.message||e)+'). Please re-capture the ID before you leave.']; });
   // 5) order-summary PDF (best-effort) — the GHL confirmation email links to this.
-  await generateAndUploadOrderPdf(orderId,P).catch(e=>console.warn('order PDF pending:',e&&e.message||e));
+  await generateAndUploadOrderPdf(orderId,P).catch(e=>{ console.warn('order PDF pending:',e&&e.message||e);
+    reportClientError('build the order-summary PDF', e, orderId); });
   S.customerId = custId;   // onboarding fires later, at the Done step (finalizeOrder)
   return orderId;
 }
@@ -2031,7 +2093,8 @@ async function saveExtrasPayload(orderId,P){
     signature_a1_path:uploads.sig_a1||null, signature_a2_path:uploads.sig_a2||null
   };
   const {error:eApp}=await sb.from('sim_order_applications').insert(row);
-  if(eApp){ failed.push('applicant details row'); console.warn('sim_order_applications insert failed',eApp.message||eApp); }
+  if(eApp){ failed.push('applicant details row'); console.warn('sim_order_applications insert failed',eApp.message||eApp);
+            reportClientError('save the applicant details row', eApp, orderId); }
   return failed.length ? ['Could not attach: '+failed.join(', ')+'. The order itself is saved.'] : [];
 }
 
@@ -2087,6 +2150,10 @@ async function submitOrder(){
   }catch(err){
     const msg=(err&&err.message)||String(err);
     setBtn(btnLabel,false);
+    /* ⚠ REPORTED BEFORE THE FORK BELOW, not after it. A save that fails and then
+       parks reads as a success on the iPad, and until now left no trace at all
+       of WHY the order could not be saved. */
+    reportClientError('save the order', err, (S.orderIds && S.orderIds.order) || null);
     // Treat network-type failures as "no coverage" → park instead of losing the order.
     if(!navigator.onLine || /fetch|network|failed to fetch|offline|timeout/i.test(msg)){
       if(!await parkCurrent()) return 'error';   // network failed AND storage full — writeParked already warned
@@ -2118,12 +2185,15 @@ function pushOrderToGhl(orderId, opts){
     const body={ orderId }; if(opts && opts.contactOnly) body.contactOnly=true;
     sb.functions.invoke('ghl-order-push',{ body })
       .then(({data,error})=>{
-        if(error){ console.warn('ghl push:',error.message||error); return; }
+        if(error){ console.warn('ghl push:',error.message||error);
+                   reportClientError('hand the order to the office (GHL contact push)', error, orderId); return; }
         if(data && data.status==='disabled') console.info('ghl push inert (not yet configured)');
         else if(data && data.status==='ok') console.info('ghl contact synced:',data.contactId);
       })
-      .catch(e=>console.warn('ghl push failed:',e&&e.message||e));
-  }catch(e){ console.warn('ghl push threw:',e&&e.message||e); }
+      .catch(e=>{ console.warn('ghl push failed:',e&&e.message||e);
+                  reportClientError('hand the order to the office (GHL contact push)', e, orderId); });
+  }catch(e){ console.warn('ghl push threw:',e&&e.message||e);
+             reportClientError('hand the order to the office (GHL contact push)', e, orderId); }
 }
 
 // Runs once when a saved order reaches the Done step. By now the Ezidebit schedule
@@ -2158,8 +2228,10 @@ async function takeCardPayment(){
       msg.textContent='Payment page opened in a new tab. Once the customer pays, the payment records against this order automatically.';
       return;
     }
+    reportClientError('open the card-payment page', (data&&data.error)||error||'no payment URL came back', S.orderId);
     msg.textContent=(data&&data.error)||(error&&error.message)||'Card payments aren\'t available right now.';
-  }catch(e){ msg.textContent='Couldn\'t reach the payment service — check the connection and try again.'; }
+  }catch(e){ reportClientError('open the card-payment page', e, S.orderId);
+             msg.textContent='Couldn\'t reach the payment service — check the connection and try again.'; }
 }
 /* TEMPORARY 13 Aug 2026 — Ezidebit refusing customers at the door.
    Records WHY, captures the schedule the consultant had set so the office can
@@ -2265,6 +2337,9 @@ async function recordCash(){
        get there first the claim blocks a second send — no duplicate. */
     pushOrderToGhl(S.orderId);
   }catch(e){
+    /* ⚠ CASH. The only record of it is what the consultant types, so a failure
+       here has to reach the office and not just the screen in front of them. */
+    reportClientError('record $'+amt.toFixed(2)+' cash taken at the door', e, S.orderId);
     msg.textContent = (e && (e.message||e.hint)) || 'The cash was not recorded. Try again, or ring the office.';
     if(btn){ btn.disabled=false; btn.textContent='Record cash received'; }
   }
@@ -2288,13 +2363,17 @@ async function finalizeOrder(){
     const durl = canvasDataURL('sigEzi');
     if(durl){
       const ok = await safeUpload(S.orderId, S.orderId+'/signature-dd.png', durl, 'image/png');
-      if(!ok) console.warn('DD authority signature could not be attached');
+      if(!ok){ console.warn('DD authority signature could not be attached');
+               reportClientError('attach the direct-debit authority signature',
+                                 'every upload route refused it — see sim_upload_failures', S.orderId); }
     }
-  }catch(e){ console.warn('DD signature upload threw:', e&&e.message||e); }
+  }catch(e){ console.warn('DD signature upload threw:', e&&e.message||e);
+             reportClientError('attach the direct-debit authority signature', e, S.orderId); }
 
   if((S.pay==='ezidebit' || S.pay==='deposit50') && S.lastP){
     try{ await generateAndUploadOrderPdf(S.orderId, S.lastP); }
-    catch(e){ console.warn('summary regen pending:',e&&e.message||e); }
+    catch(e){ console.warn('summary regen pending:',e&&e.message||e);
+              reportClientError('regenerate the order-summary PDF with the Ezidebit schedule', e, S.orderId); }
   }
   /* The order is genuinely finished now — Ezidebit done, signature captured,
      PDF regenerated. THIS is the moment the office should hear about it. */
@@ -2311,7 +2390,8 @@ async function finalizeOrder(){
       upd.consultant_account_note = [noIdNote(S.lastP), eziSkipNote(), (existing ? 'Consultant\'s own note: '+existing : '')].filter(Boolean).join('\n\n');
     }
     await sb.from('sim_orders').update(upd).eq('id', S.orderId);
-  }catch(e){ console.warn('could not hand the order to the office:', e&&e.message||e); }
+  }catch(e){ console.warn('could not hand the order to the office:', e&&e.message||e);
+             reportClientError('mark the order ready for the confirmation call', e, S.orderId); }
 
   showPillowBox();
   /* ⚠ contactOnly ON PURPOSE (14 Aug). The GHL contact is created NOW so the
@@ -2360,6 +2440,7 @@ async function addFreePillow(){
       if(btn){ btn.disabled=false; btn.textContent='Add the free pillow'; }
     }
   }catch(e){
+    reportClientError('add the free pillow for 10+ referrals', e, S.orderId);
     if(msg) msg.textContent='Could not add it right now — tell the office and they can add it.';
     if(btn){ btn.disabled=false; btn.textContent='Add the free pillow'; }
   }
@@ -2378,8 +2459,15 @@ function setDoneParked(){
 
 // ---------- Parked-order queue (localStorage) ----------
 const PARK_KEY='simtec_parked_orders'+WT_SUFFIX;
-function loadParked(){ try{ return JSON.parse(localStorage.getItem(PARK_KEY)||'[]'); }catch(e){ return []; } }
-function writeParked(list){ try{ localStorage.setItem(PARK_KEY,JSON.stringify(list)); return true; }catch(e){ alert('Could not save offline — this iPad\'s storage may be full.'); return false; } }
+/* ⚠ AN UNREADABLE LIST LOOKS EXACTLY LIKE AN EMPTY ONE. Returning [] is still
+   right — it keeps the app working — but a consultant's parked work would
+   disappear off the panel without a word, so the office hears about it. */
+function loadParked(){ try{ return JSON.parse(localStorage.getItem(PARK_KEY)||'[]'); }
+  catch(e){ reportClientError('read the parked orders held on this iPad (the list is unreadable)', e); return []; } }
+function writeParked(list){ try{ localStorage.setItem(PARK_KEY,JSON.stringify(list)); return true; }
+  catch(e){ /* The order is not saved anywhere at all at this point — the office needs to know. */
+            reportClientError('park an order on this iPad (its storage may be full)', e);
+            alert('Could not save offline — this iPad\'s storage may be full.'); return false; } }
 async function parkCurrent(){
   const P=await collectOrder();
   P.id='pk_'+P.savedAt+'_'+Math.floor(Math.random()*1e6);
@@ -2426,7 +2514,8 @@ window.uploadOne=async function(id){
   if(!sb && window.supabase) sb=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
   const list=loadParked(); const P=list.find(x=>x.id===id); if(!P) return;
   try{ const oid=await savePayload(P); if(P.referralId){ try{ await sb.rpc('convert_referral_for_order',{p_ref:P.referralId,p_order:oid}); }catch(_e){} } pushOrderToGhl(oid); writeParked(loadParked().filter(x=>x.id!==id)); renderParked(); const w=(S.lastExtrasWarn||[]); alert('Uploaded: '+(P.customerName||'order')+(w.length?'\n\n⚠ '+w.join(' '):'')); }
-  catch(e){ alert('Upload failed — '+(e.message||e)+'. It\'s still parked; try again when you have a stronger connection.'); }
+  catch(e){ reportClientError('upload a parked order by hand', e, (P.ids&&P.ids.order)||null);
+            alert('Upload failed — '+(e.message||e)+'. It\'s still parked; try again when you have a stronger connection.'); }
 };
 
 let syncing=false;
@@ -2439,7 +2528,9 @@ async function trySync(){
   const remaining=[]; let uploaded=0;
   for(const P of list){
     try{ const oid=await savePayload(P); if(P.referralId){ try{ await sb.rpc('convert_referral_for_order',{p_ref:P.referralId,p_order:oid}); }catch(_e){} } pushOrderToGhl(oid); uploaded++; }
-    catch(e){ console.warn('sync failed',P.id,e.message||e); remaining.push(P); }
+    catch(e){ console.warn('sync failed',P.id,e.message||e);
+              reportClientError('upload a parked order automatically', e, (P.ids&&P.ids.order)||null);
+              remaining.push(P); }
   }
   writeParked(remaining); syncing=false; renderParked();
   if(uploaded){ const m=document.getElementById('doneMsg'); if(m && S.step===9) m.textContent=uploaded+' parked order'+(uploaded>1?'s':'')+' uploaded successfully.'; }
@@ -2680,6 +2771,7 @@ function launchEzidebit(){
       marker.lastP=null;
       localStorage.setItem(EZI_RESUME, JSON.stringify(marker));
     }catch(e2){
+      reportClientError('save the Ezidebit resume marker (the consultant cannot be sent to the form)', e2, S.orderId);
       msg.textContent='This iPad will not let the app save its place. Ask the office before carrying on.';
       return;                                     // no marker = no way back; do not strand them
     }
@@ -2709,8 +2801,10 @@ function launchEzidebit(){
    if anything is missing the app simply starts normally. */
 async function resumeFromEzidebit(){
   let mark=null, ret=null;
-  try{ mark=JSON.parse(localStorage.getItem(EZI_RESUME)||'null'); }catch(e){}
-  try{ ret =JSON.parse(localStorage.getItem('simtec_ezidebit_return')||'null'); }catch(e){}
+  try{ mark=JSON.parse(localStorage.getItem(EZI_RESUME)||'null'); }
+  catch(e){ reportClientError('read the Ezidebit resume marker (the consultant is dropped back at the start of the app)', e); }
+  try{ ret =JSON.parse(localStorage.getItem('simtec_ezidebit_return')||'null'); }
+  catch(e){ reportClientError('read what Ezidebit sent back', e); }
   if(!mark || !mark.orderId) return false;
 
   const ageMin=(Date.now()-(mark.at||0))/60000;
@@ -2779,7 +2873,8 @@ async function logEziCallback(params,outcome){
       had_rdate:!!(params&&params.rdate), had_ramount:!!(params&&params.ramount),
       params:params||{}
     });
-  }catch(e){ console.warn('callback log failed:',e&&e.message||e); }
+  }catch(e){ console.warn('callback log failed:',e&&e.message||e);
+             reportClientError('log the Ezidebit return ('+outcome+')', e, S.orderId); }
 }
 
 /* The return page is no longer framed, so there is no postMessage. It hands the
@@ -2870,7 +2965,9 @@ addProduct();
    puts the consultant back on step 8 with the direct debit attached. If there is
    nothing to resume, or anything goes wrong, the app starts normally. */
 resumeFromEzidebit().then(function(resumed){ if(!resumed) showStep(0); })
-                    .catch(function(e){ console.warn('resume failed:',e&&e.message||e); showStep(0); });
+                    .catch(function(e){ console.warn('resume failed:',e&&e.message||e);
+                      reportClientError('resume the order after the Ezidebit form', e);
+                      showStep(0); });
 renderParked(); trySync();
 </script>
 <div id="loginQrModal" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(8,16,32,.72);align-items:center;justify-content:center;padding:20px;">
