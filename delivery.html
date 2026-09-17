@@ -816,6 +816,7 @@ function renderRows(view,mode){
     else if(mode==='booked'){
       right=`<div class="text-right"><div class="text-sm font-semibold text-slate-200">${fmtD(r.deliveryDate)}</div>${r.deliveryTime?`<div class="k">${esc(winTxt(r.deliveryTime))}</div>`:''}
         <button class="btn noprint mt-2" onclick="event.stopPropagation();openBook('${r.id}','${esc(r.name).replace(/'/g,"\\'")}')">Reschedule</button>
+        <button class="btn noprint mt-2" onclick="event.stopPropagation();cancelDelivery('${r.id}')">Cancel delivery</button>
         <button class="btn noprint mt-2" onclick="event.stopPropagation();window.open('docket.html?id='+'${r.id}','_blank')">🖨 Docket</button>
         <button class="btn gold noprint mt-2" onclick="event.stopPropagation();markDelivered('${r.id}')">Mark delivered</button></div>`;
       if(!r.cleared)warn=`<div class="mt-2 text-xs font-semibold" style="color:#f87171">⚠ No longer cleared — check payments before delivering</div>`;
@@ -947,6 +948,22 @@ window.undoDelivered=async(id)=>{
   const r=rows.find(x=>x.id===id);
   if(!confirm('Undo delivered for '+((r&&r.name)||'this order')+'?\n\nIt goes back to booked so you can re-confirm or reschedule.')) return;
   try{ await applyDelivered(id,false); }catch(e){ alert('Couldn’t undo: '+(e.message||e)); return; }
+  await load();
+};
+// Cancel a booking: the order comes off the run and goes back to the ready list.
+// cancel_delivery() owns the rules — it insists on a reason, refuses an order
+// that is delivered or has no booking, and leaves a stop the driver has already
+// completed alone. Its message and its errors are shown to the office as written.
+window.cancelDelivery=async(id)=>{
+  const r=rows.find(x=>x.id===id);
+  const reason=prompt('Cancel the delivery for '+((r&&r.name)||'this order')+'?\n\nWhy is it being cancelled? (goes on the record)');
+  if(reason===null) return;                       // the office changed their mind
+  const {data,error}=await sb.rpc('cancel_delivery',{p_order:id,p_reason:reason.trim()});
+  if(error) alert(error.message);                  // raised in the database (not authorised, order not found)
+  else if(!data||!data.ok) alert((data&&data.error)||'Couldn’t cancel — no reason was given back.');
+  else alert(data.message);
+  // refresh after a refusal too: "already delivered" and "no booking" mean the
+  // list on screen is stale — that is why the cancel was refused
   await load();
 };
 // Bulk: confirm every delivery booked for a given day in one go (the whole run).
