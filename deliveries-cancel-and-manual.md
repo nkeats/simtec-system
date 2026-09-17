@@ -1,10 +1,87 @@
 # Deliveries — cancelling, and manual jobs
 
-Two changes to the delivery module. **Nothing built yet.**
-
-16 September 2026
+Two changes to the delivery module. Planned 16 September 2026; **built 17 September 2026.**
+The plan below is kept as it was written. This section records what was built and
+where it departed from the plan.
 
 ---
+
+## Built — 17 September 2026
+
+**Cancelling.** `Cancel delivery` sits beside Reschedule on the Booked tab of
+`delivery.html`. It asks for a reason and calls `cancel_delivery(p_order, p_reason)`,
+which owns the rules: it insists on a reason, refuses an order that is delivered
+or has no booking, and leaves a stop the driver has already completed alone. The
+page shows the RPC's message or error verbatim and refreshes the list either way —
+a refusal for "already delivered" or "no booking" means the list on screen was stale.
+
+**Booking a truck job.** `Book a truck job` on `customer-detail.html` (admin, manager,
+office): job type, what the driver should do, the date, an optional different address.
+It calls `book_truck_job()`, which finds the run by **date, not by person** with the
+same ordering `tg_order_rebooked_moves_stop` uses, creates one if none, locks the run
+row and appends the seq — never renumbers. It writes `driver_stops` only. **It never
+writes `sim_orders.delivery_date` or `delivery_status`** — `test_truck_jobs()` proves it.
+
+**What the driver sees.** `v_driver_stops` gained `job_type`, `job_note` and
+`job_address`; a job address replaces the customer's address, suburb and coordinates
+(the driver app then navigates by the written address). `driver-day.html`,
+`driver-runs.html` (day table, map, printed run sheet) and `driver.html` show a solid
+`PICKUP` / `SWAP` / `JOB` label a driver can read at a glance, the office's note in
+full, and no items for a job. Completing a stop is unchanged: signature and photo.
+
+**The visit list.** `Truck visits` on the customer page: every `driver_stops` row
+against the customer's orders, in date order — date, type (the delivery drawn distinct
+from the jobs), note, outcome, and whether a signature is on file.
+
+**Tests.** `test_truck_jobs()` — 9 cases on a run dated 2099-01-01, registered with
+`run_tests_and_report()`.
+
+### Three departures from the plan, worth recording
+
+1. **`delivery` is not a job type.** The plan listed `delivery · pickup · swap · other`.
+   The original delivery is booked on the delivery screen, and a second route to it
+   is a trap — `driver_complete_stop` treats any `job_type = 'delivery'` stop as the
+   one that clears the order. Removed from the form **and refused by the RPC**, so
+   the form is not the only thing standing in the way.
+
+2. **The Delivered and Docket buttons are hidden on a job in `driver.html`.** That
+   Delivered button calls `mark_delivered(order)`. On a pickup it would mark the
+   customer's order delivered and fire the pillow charge. A job is completed in the
+   driver app, where the signature and photo are. The docket is a delivery document,
+   so it is not offered on a job either.
+
+3. **`cancel_delivery` returns a stable code** — `cancelled | no_reason |
+   already_delivered | no_booking | stop_completed` — alongside its message, so a
+   page never has to match on the wording. ⚠ A page that needs to branch does so on
+   the code, never on the text. `delivery.html` today needs no branch — it shows the
+   message verbatim and refreshes on every outcome.
+
+### One rule the test found that the plan did not know about
+
+`driver_stops_one_per_order` is a unique index on `(run_id, order_id)`: **one stop per
+order per run.** It is what stops a delivery being loaded twice, so it stays. The
+consequence is that a job cannot share a day with that order's delivery, and two jobs
+for one order cannot share a day. `book_truck_job()` refuses these in words
+("… already has a pickup on the run for Thursday 01 Jan. One stop per customer per
+day — add to that stop's note, or pick another day.") rather than letting the office
+see a "duplicate key". If that ever needs relaxing, the index is the thing to discuss.
+
+### What the database gained beyond the spec
+
+- **A `job_eta` SMS template**, and `driver_next_stop` picks it for anything that is
+  not a delivery — so a customer expecting a collection is not told their mattress is
+  on its way.
+- **`driver_run_sheet(p_date)` returns the day's truck jobs as well as its deliveries**,
+  with `job_type`, `job_note` and `stop_id`, so the older order-based run sheet
+  (`driver.html`) shows them too.
+- **A delivery with no ticked product lines is not counted as complete.**
+  `driver_complete_stop` only calls `mark_delivered` when every line on the stop is
+  ticked; a stop with no lines at all warns *"No product lines were ticked, so the
+  order has not been marked delivered"* rather than clearing the order on no evidence.
+
+---
+
+## The plan as written — 16 September 2026
 
 ## 0. ⚠⚠ Cancelling already works. It needs a button, not a build.
 
