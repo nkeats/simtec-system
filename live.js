@@ -144,17 +144,24 @@
       document.body.appendChild(b);
     }
     var here = /confirmation\.html/i.test(location.pathname);
+    // Dismiss sits on the far LEFT, on its own, so it cannot be hit by someone
+    // reaching for "Open confirmation calls" on the right.
+    // ⚠ Every property that decides size and position is set INLINE. This
+    //   banner is injected into 18 different pages, five of which carry a
+    //   global button{} rule; one page's stylesheet must not reshape it.
+    var ctl = 'font-family:inherit;font-size:14px;font-weight:600;line-height:1.2;margin:0;width:auto;' +
+              'display:inline-block;box-sizing:border-box;flex:0 0 auto;white-space:nowrap;';
     b.innerHTML =
+      '<button onclick="this.parentNode.remove()" style="' + ctl + 'background:transparent;border:1px solid #fff;color:#fff;' +
+      'border-radius:8px;padding:9px 14px;cursor:pointer">Dismiss</button>' +
       '<div style="font-size:24px">\uD83D\uDECF\uFE0F</div>' +
       '<div style="flex:1"><div style="font-weight:800;font-size:16px">New order \u2014 ' + esc(name) + "</div>" +
       '<div style="font-size:13px;opacity:.9">' + esc(c.suburb || "") +
         (o && o.consultant_name ? " \u00B7 " + esc(o.consultant_name) : "") +
         " \u00B7 needs a confirmation call</div></div>" +
       (here ? "" :
-        '<a href="confirmation.html" style="background:#fff;color:#1c6b34;border-radius:8px;padding:9px 16px;' +
-        'font-weight:700;text-decoration:none">Open confirmation calls</a>') +
-      '<button onclick="this.parentNode.remove()" style="background:transparent;border:1px solid #fff;color:#fff;' +
-      'border-radius:8px;padding:9px 14px;cursor:pointer">Dismiss</button>';
+        '<a href="confirmation.html" style="' + ctl + 'background:#fff;color:#1c6b34;border-radius:8px;padding:9px 16px;' +
+        'font-weight:700;text-decoration:none">Open confirmation calls</a>');
     chime();
     flashTitle(name);
   }
