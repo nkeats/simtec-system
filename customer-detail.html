@@ -3114,20 +3114,21 @@ function reErr(m){ const b=document.getElementById("reErr"); if(!m){b.style.disp
 
 /* The office keys paper orders in, and both names are on the form. */
 async function openSecondName(orderId){
-  const o = (ORDERS||[]).find(x=>x.id===orderId) || {};
+  const o = ORDERS[orderId] || {};            // ORDERS is keyed by id, not a list
   const name = prompt("Second name on the order (leave blank to clear it)", o.second_customer_name || "");
   if(name === null) return;
   let mobile = "", email = "";
   if(name.trim()){
-    mobile = prompt("Their mobile (optional)", o.second_mobile || "") || "";
-    if(mobile === null) return;
-    email  = prompt("Their email (optional)", o.second_email || "") || "";
+    mobile = prompt("Their mobile (optional)", o.second_mobile || "");
+    if(mobile === null) return;                 // Cancel means cancel — test before defaulting to ""
+    email  = prompt("Their email (optional)", o.second_email || "");
+    if(email === null) return;
   }
   const { data, error } = await sb.rpc("set_second_applicant", {
     p_order: orderId, p_name: name, p_mobile: mobile, p_email: email });
   if(error) return alert(error.message);
   if(data && data.ok === false) return alert(data.error);
-  await load();
+  await run(true);                            // this page redraws with run(), not load()
 }
 
 async function openReassign(oid){
