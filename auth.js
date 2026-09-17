@@ -218,7 +218,23 @@
      bar is padded until it isn't. If nothing is in the way, nothing changes.
      Works on pages that draw themselves later, and after a rotate or resize.
   ------------------------------------------------------------------------- */
-  function keepLogoutClear() {
+  /* ⚠⚠ THIS RECURSED WITHOUT END ON confirmation.html FOR FIVE WEEKS (17 Sep 2026).
+     "need" was the button's width plus the gap, as if the covered element began
+     flush at the right edge; but it REPLACED the bar's own padding instead of
+     adding to it, so the element moved 72px when it was 74px inside the zone.
+     The second pass had nothing left to change and recursed on an identical
+     layout until the stack blew. The office page froze for seconds at a time,
+     every 20 seconds, and nothing said why until the client error log did.
+     Three rules now: pad by how far the thing actually intrudes, ON TOP of what
+     is there; never recurse when nothing changed; and a hard depth cap, because
+     the next case neither of us has imagined must not take a page down. */
+  var KLC_MAX_DEPTH = 12;
+  function keepLogoutClear(depth) {
+    depth = depth || 0;
+    if (depth >= KLC_MAX_DEPTH) {
+      console.warn('SIMTEC auth: keepLogoutClear stopped at depth ' + depth + ' — the corner could not be cleared');
+      return;
+    }
     var btn = document.getElementById('simtec-logout');
     if (!btn) return;
 
@@ -246,14 +262,24 @@
         bar = bar.parentElement; hops++;
       }
       var target = (bar && bar !== document.body) ? bar : el;
-      var need = Math.ceil(box.width + GAP * 2);
+      // pad by how far it actually intrudes, on top of the padding already there
       var cur  = parseInt(window.getComputedStyle(target).paddingRight, 10) || 0;
-      if (cur < need) {
-        target.style.paddingRight = need + 'px';
-        target.style.boxSizing = 'border-box';
+      var need = Math.ceil(cur + (r.right - zone.left));
+      if (cur >= need) {
+        // nothing to change: recursing would re-measure an identical layout forever
+        if (el.dataset) el.dataset.simtecShifted = '1';
+        return;
       }
+      target.style.paddingRight = need + 'px';
+      target.style.boxSizing = 'border-box';
       if (target === el) el.dataset.simtecShifted = '1';
-      return keepLogoutClear();                   // re-measure; layout has moved
+      // re-measure — but only if the padding actually moved the thing
+      var after = el.getBoundingClientRect();
+      if (after.right === r.right && after.left === r.left) {
+        if (el.dataset) el.dataset.simtecShifted = '1';   // this bar does not move it; leave it
+        return;
+      }
+      return keepLogoutClear(depth + 1);
     }
   }
 
