@@ -16,7 +16,13 @@ body{font-family:system-ui,sans-serif}
 .gold{background:#c9a84c;color:#1a2438}
 .ghost{background:#0f172a;color:#7dd3fc;border:1px solid #334155}
 .done{opacity:.55}
-@media print{.noprint{display:none!important}body{background:#fff;color:#000}.card{border-color:#ccc}}
+/* A stop that is NOT a delivery — a pickup, a swap. A solid block a driver can
+   read at a glance down the list, and the office's note printed in full. */
+.job{display:inline-block;background:#c2410c;color:#fff;font-weight:900;font-size:.8rem;letter-spacing:.12em;padding:.2rem .6rem;border-radius:.4rem;vertical-align:middle;margin-right:.4rem}
+.jobnote{background:#3b2a12;border:2px solid #d97706;color:#fde68a;border-radius:.6rem;padding:.7rem .85rem;font-size:1.05rem;line-height:1.4;margin-top:.6rem;white-space:pre-wrap}
+@media print{.noprint{display:none!important}body{background:#fff;color:#000}.card{border-color:#ccc}
+  .job{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  .jobnote{background:#fff5e0;color:#4a2e00;border-color:#e0a34a;-webkit-print-color-adjust:exact;print-color-adjust:exact}}
 </style>
 </head>
 <body class="bg-slate-950 text-white min-h-screen">
@@ -53,6 +59,11 @@ const IS_TODAY=(RUN_DATE===todayStr);
 const esc=s=>(s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const suburb=a=>{const p=(a||'').split(',');return (p[1]||p[0]||'').trim();};
 const digits=s=>(s||'').replace(/[^0-9+]/g,'');
+// A stop that is not the original delivery: a pickup, a swap, an extra item.
+// driver_run_sheet() returns job_type; anything but 'delivery' gets a label.
+const JOB_LABEL={pickup:'PICKUP',swap:'SWAP',other:'JOB'};
+const isJob=r=>(r.job_type||'delivery')!=='delivery';
+const jobTag=r=>isJob(r)?`<span class="job">${JOB_LABEL[r.job_type]||'JOB'}</span>`:'';
 // Delivery windows are 2 hours; delivery_time holds the START of the window.
 const WINDOWS=[['08:00','8:00 AM \u2013 10:00 AM'],['10:00','10:00 AM \u2013 12:00 PM'],
                ['12:00','12:00 PM \u2013 2:00 PM'],['14:00','2:00 PM \u2013 4:00 PM'],
@@ -126,7 +137,8 @@ async function load(){
   const run=(rows||[]).map(r=>{
     const items=(r.items||[]).map(i=>({name:i.name,qty:+i.qty||1}));
     return { id:r.id, name:r.name||'(no name)', phone:r.mobile||'', address:r.address||'',
-             items, product:items.map(i=>(i.qty>1?i.qty+'× ':'')+i.name).join(', ')||'—', time:r.delivery_time||'' };
+             items, product:items.map(i=>(i.qty>1?i.qty+'× ':'')+i.name).join(', ')||'—', time:r.delivery_time||'',
+             job_type:r.job_type||'delivery', job_note:r.job_note||'', stop_id:r.stop_id||null };
   });
   run.sort((x,y)=>suburb(x.address).localeCompare(suburb(y.address))||x.address.localeCompare(y.address));
   render(run);
@@ -141,9 +153,10 @@ function render(run){
   if(stops.length){const dest=encodeURIComponent(stops[stops.length-1]);const wp=stops.slice(0,-1).map(encodeURIComponent).join('|');
     route=`https://www.google.com/maps/dir/?api=1&destination=${dest}${wp?`&waypoints=${wp}`:''}&travelmode=driving`;}
 
+  const jobs=run.filter(isJob).length;
   $('head').innerHTML=`<div class="card mb-4" style="border-color:#c9a84c">
       <div class="lbl">${esc(dstr)}</div>
-      <div class="text-2xl font-bold mt-1">${run.length} stop${run.length!==1?'s':''} to deliver</div>
+      <div class="text-2xl font-bold mt-1">${run.length-jobs} deliver${run.length-jobs===1?'y':'ies'}${jobs?` · ${jobs} truck job${jobs!==1?'s':''}`:''}</div>
       ${loadStr?`<div class="lbl mt-3">Load onto the truck</div><div class="text-slate-100 mt-1">${loadStr}</div>`:''}
       ${route?`<a class="act gold noprint mt-4" style="width:100%" href="${route}" target="_blank">🧭 Start route in Maps</a>`:''}
     </div>`;
@@ -153,18 +166,21 @@ function render(run){
       <div class="flex items-start gap-3">
         <div class="num">${i+1}</div>
         <div class="flex-1 min-w-0">
-          <div class="text-lg font-bold text-white">${esc(r.name)}</div>
+          <div class="text-lg font-bold text-white">${jobTag(r)}${esc(r.name)}</div>
           <div class="text-lg text-slate-100 mt-1 leading-snug">${esc(r.address)||'<span class="text-slate-500">No address on file</span>'}</div>
           ${r.time?`<div class="lbl mt-2">Window · ${esc(winTxt(r.time))}</div>`:''}
-          <div class="lbl mt-2">Deliver</div>
-          <div class="text-slate-200">${esc(r.product)}</div>
+          ${isJob(r)
+            ? `<div class="jobnote">${esc(r.job_note)||'<i>No instructions were written for this job — ask the office.</i>'}</div>`
+            : `<div class="lbl mt-2">Deliver</div>
+          <div class="text-slate-200">${esc(r.product)}</div>`}
         </div>
       </div>
       <div class="flex flex-wrap gap-2 mt-4 noprint">
         ${r.address?`<a class="act ghost" href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(r.address)}" target="_blank">📍 Maps</a>`:''}
         ${r.phone?`<a class="act ghost" href="tel:${digits(r.phone)}">📞 Call</a>`:''}
-        <button class="act ghost" onclick="window.open('docket.html?id='+'${r.id}','_blank')">🖨 Docket</button>
-        ${IS_TODAY?`<button class="act gold" style="margin-left:auto" onclick="markDelivered('${r.id}','${esc(r.name).replace(/'/g,"\\'")}')">✓ Delivered</button>`:''}
+        ${isJob(r)?'':`<button class="act ghost" onclick="window.open('docket.html?id='+'${r.id}','_blank')">🖨 Docket</button>`}
+        ${(IS_TODAY&&!isJob(r))?`<button class="act gold" style="margin-left:auto" onclick="markDelivered('${r.id}','${esc(r.name).replace(/'/g,"\\'")}')">✓ Delivered</button>`:''}
+        ${isJob(r)?`<span class="text-slate-400 text-sm" style="margin-left:auto;align-self:center">Complete this job in the driver app</span>`:''}
       </div>
     </div>`).join('');
 }
