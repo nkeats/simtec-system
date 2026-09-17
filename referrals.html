@@ -106,7 +106,7 @@ function badge(s){ const b=BADGES[s]||['—','#334155','#cbd5e1']; return `<span
 async function load(){
   $("state").style.display="block"; $("state").textContent="Loading…";
   const [consRes, refsRes, dueRes, tierRes] = await Promise.all([
-    sb.from("commission_consultants").select("id,name").eq("active",true).order("name"),
+    sb.from("v_consultants").select("id,name").order("name"),     // the active list; no filter needed
     sb.from("v_referrals_office").select("*"),
     sb.from("v_referral_prizes_due").select("*"),
     sb.from("v_referrer_tiers").select("*")

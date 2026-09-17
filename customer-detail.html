@@ -3125,8 +3125,8 @@ async function saveEditCust(){
    The order shows the credit as consultant_name (free text). commission_sales
    links to the consultant by consultant_id (uuid -> commission_consultants.id).
    To move a sale we update BOTH: the name on the order, and the consultant_id on
-   the commission row. We only offer REAL consultants (from commission_consultants)
-   so a sale can't be credited to someone with no commission profile.
+   the commission row. We only offer REAL, ACTIVE consultants (v_consultants) so
+   a sale can't be credited to someone with no commission profile, or to a leaver.
    If the commission is already paid, we flag it and don't touch the closed run. */
 let REORD=null, RECONS=[];   // RECONS: [{id,name}]
 
@@ -3161,13 +3161,13 @@ async function openReassign(oid){
   sel.innerHTML=`<option value="">Loading consultants…</option>`;
   document.getElementById("reassignModal").style.display="flex";
 
-  // real consultants, active first, alphabetical
-  const {data,error}=await sb.from("commission_consultants")
-    .select("id,name,active").order("name");
+  // active consultants only, alphabetical
+  const {data,error}=await sb.from("v_consultants")
+    .select("id,name").order("name");
   if(error){ reportClientError("load the consultant list for a reassignment", error, oid); reErr("Couldn't load the consultant list: "+error.message); return; }
   RECONS=(data||[]).filter(c=>c.name);
   sel.innerHTML=`<option value="">— choose a consultant —</option>`
-    + RECONS.map(c=>`<option value="${c.id}">${esc(c.name)}${c.active===false?" (inactive)":""}</option>`).join("");
+    + RECONS.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join("");
 }
 function closeReassign(){ document.getElementById("reassignModal").style.display="none"; REORD=null; }
 

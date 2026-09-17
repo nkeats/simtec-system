@@ -137,7 +137,7 @@ async function load(){
     sb.from("config").select("key,value").eq("category","products"),
     sb.from("commission_settings").select("*").eq("id",1).maybeSingle(),
     sb.from("commission_awards").select("*").order("sort_order"),
-    sb.from("commission_consultants").select("id,name,award_baseline").order("name"),
+    sb.from("v_consultants").select("id,name,award_baseline").order("name"),   // active consultants only; the write below still goes to the table
     sb.from("delivery_rules").select("*").order("min_deposit_pct")
   ]);
   PRICES=(cfg||[]).map(r=>({key:r.key, value:r.value||{}})).sort((a,b)=>(a.value.name||a.key).localeCompare(b.value.name||b.key));

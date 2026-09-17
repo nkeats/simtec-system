@@ -95,10 +95,11 @@ async function waitForAuth(ms){ const t=Date.now(); while(Date.now()-t<ms){ if(w
   U = window.SIMTEC_USER || {};
   sb = (window.SIMTEC_SB) || supabase.createClient(SB_URL, SB_KEY);
   try{
-    const { data, error } = await sb.from("commission_consultants")
-      .select("id,name,active,photo,id_card_no").order("name");
+    // v_consultants is the active list; the id_card_no write below still goes to the table
+    const { data, error } = await sb.from("v_consultants")
+      .select("id,name,photo,id_card_no").order("name");
     if(error) throw new Error(error.message);
-    CONS = (data||[]).filter(c=>c.active!==false);
+    CONS = data||[];
     // assign any missing ID numbers once, and persist
     for(const c of CONS){
       if(!c.id_card_no){

@@ -129,7 +129,7 @@ async function loadAwards(){
     $("topbar").innerHTML=`<div class="namebar">${esc(u.consultant_name)}</div>`;
     loadFor(u.consultant_name);
   } else {
-    sb.from("commission_consultants").select("name").order("name").then(({data})=>{
+    sb.from("v_consultants").select("name").order("name").then(({data})=>{   // active consultants only
       const names=[...new Set((data||[]).map(d=>d.name).filter(Boolean))];
       $("topbar").innerHTML=`<div class="pickcard"><label>Viewing consultant</label>
         <select id="pick" onchange="loadFor(this.value)"><option value="">— choose a consultant —</option>${names.map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join("")}</select></div>`;

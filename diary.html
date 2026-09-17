@@ -260,8 +260,8 @@ async function waitForAuth(timeoutMs){
     // Everyone books against a commission_consultants record (works whether or not
     // that consultant has a login yet). consultant_uid is set only when a consultant
     // books for themselves.
-    const {data:cons,error} = await sb.from("commission_consultants")
-      .select("id,name").eq("active",true).order("name");
+    const {data:cons,error} = await sb.from("v_consultants")     // the active list; no filter needed
+      .select("id,name").order("name");
     if(error) throw new Error("Loading consultants: "+error.message);
     if(!cons || !cons.length) throw new Error("No active consultants found.");
 

@@ -380,7 +380,7 @@ let CONSULTANT_NAMES = FALLBACK_CONSULTANTS.slice();
 async function loadConsultants(){
   let names = FALLBACK_CONSULTANTS;
   try{
-    const {data} = await sb.from("commission_consultants").select("name");
+    const {data} = await sb.from("v_consultants").select("name");   // active consultants only
     if(data && data.length) names = [...new Set(data.map(d=>d.name).filter(Boolean))].sort();
   }catch(e){}
   CONSULTANT_NAMES = names.slice();

@@ -111,7 +111,7 @@ function onRole(){ $("consultantRow").style.display = $("role").value==="consult
 
 async function loadConsultants(){
   try{
-    const { data } = await sb.from("commission_consultants").select("name").order("name");
+    const { data } = await sb.from("v_consultants").select("name").order("name");   // active consultants only
     const names=[...new Set((data||[]).map(d=>d.name).filter(Boolean))];
     $("consultant").innerHTML = '<option value="">— pick their consultant name —</option>' + names.map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join("");
   }catch(e){}

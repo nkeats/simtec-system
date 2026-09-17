@@ -245,7 +245,7 @@ async function runAll(){
       all("sim_orders","id,order_date,created_at,contract_value,consultant_name,order_status,customer_id"),
       all("commission_sales","id,sim_order_id,customer_name,sale_date,commission_paid,status,paid_date,is_historical"),
       all("sim_order_items","order_id,product_name,unit_price,quantity,cancelled"),
-      all("commission_consultants","name"),
+      all("v_consultants","name"),          // active only — so "ignore departed staff" below actually does
     ]);
     D={orders,sales,items,consultants};
   }catch(e){
