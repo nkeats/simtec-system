@@ -35,6 +35,13 @@
   var lastRun = 0;
   var started = false;
 
+  // Tell the office (client-errors.js) when this can. Pages without the helper
+  // behave exactly as before — the console is all they get.
+  function report(attempting, err) {
+    try { if (typeof window.reportClientError === "function") window.reportClientError(attempting, err); }
+    catch (e) {}
+  }
+
   function reload(reason) {
     if (typeof window.SIMTEC_RELOAD !== "function") return;
     var now = Date.now();
@@ -45,7 +52,7 @@
     }
     lastRun = now;
     try { window.SIMTEC_RELOAD(reason); }
-    catch (e) { console.error("SIMTEC live reload failed:", e); }
+    catch (e) { console.error("SIMTEC live reload failed:", e); report("redraw the screen after a change (" + reason + ")", e); }
   }
 
   // A quiet note, bottom-right, so the person knows the screen moved under them.
@@ -173,8 +180,11 @@
       if (announced[row.id]) return;          // one announcement per order, per screen
       announced[row.id] = true;
       sb.from("sim_orders").select("*, sim_customers(*)").eq("id", row.id).maybeSingle()
-        .then(function (r) { newOrderBanner((r && r.data) || { sim_customers: {} }); })
-        .catch(function () { newOrderBanner({ sim_customers: {} }); });
+        .then(function (r) {
+          if (r && r.error) report("read the new order for the banner (shown without a name)", r.error);
+          newOrderBanner((r && r.data) || { sim_customers: {} });
+        })
+        .catch(function (e) { report("read the new order for the banner (shown without a name)", e); newOrderBanner({ sim_customers: {} }); });
     }
     ch.on("postgres_changes", { event: "INSERT", schema: "public", table: "sim_orders" }, function (p) {
       maybeAnnounce(p && p.new);
@@ -189,10 +199,13 @@
         toast("Updated — data changed elsewhere");
       });
     });
-    ch.subscribe(function (status) {
-      if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
-        // Don't pretend it's fine. The poll below still covers us.
+    ch.subscribe(function (status, err) {
+      if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
+        // Don't pretend it's fine. The poll below still covers us — but the
+        // new-order banner does NOT come from the poll, so the office must
+        // hear that it is not going to appear.
         console.warn("SIMTEC live: realtime unavailable (" + status + "). Falling back to polling.");
+        report("keep the live connection open (new-order banner will not appear): " + status, err || status);
       }
     });
   }
@@ -203,6 +216,8 @@
     if (typeof sb !== "undefined" && sb && sb.channel) { subscribe(sb); return; }
     if (tries <= 0) {
       console.warn("SIMTEC live: no Supabase client found. Focus and poll refresh still active.");
+      report("find a Supabase client for live updates (no realtime, no new-order banner)",
+             "neither SIMTEC_SB nor sb existed after 9 seconds");
       return;
     }
     setTimeout(function () { waitForClient(tries - 1); }, 150);

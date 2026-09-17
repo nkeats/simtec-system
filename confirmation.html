@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Simtec — Order Confirmation Calls</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.112.2"></script>
+<script>window.SIMTEC_BUILD="2026-09-17-01";</script>
+<script src="client-errors.js?v=1"></script>
 <script src="auth.js?v=4" data-roles="admin,manager,office"></script>
 <script src="live.js?v=3" defer></script>
 <style>
@@ -157,7 +159,7 @@ async function loadUnfinished(){
   const box = document.getElementById('unfinishedOrders');
   if(!box) return;
   const { data, error } = await sb.from('v_orders_started_not_finished').select('*').limit(50);
-  if(error){ box.innerHTML=''; return; }
+  if(error){ reportClientError('load the unfinished-orders panel (left blank)', error); box.innerHTML=''; return; }
   const rows = data || [];
   if(!rows.length){ box.innerHTML=''; return; }
 
@@ -198,7 +200,7 @@ async function loadMissedCalls(){
   if(!box) return;
   const { data, error } = await sb.from('v_missed_calls')
     .select('*').is('returned_at', null).order('called_at', { ascending:false }).limit(50);
-  if(error){ box.innerHTML=''; return; }
+  if(error){ reportClientError('load the missed-calls panel (left blank)', error); box.innerHTML=''; return; }
   const calls = data || [];
   if(!calls.length){ box.innerHTML=''; return; }
 
@@ -238,8 +240,8 @@ async function loadMissedCalls(){
 
 async function markCalled(id){
   const { data, error } = await sb.rpc('missed_call_returned', { p_id:id, p_outcome:'spoke' });
-  if(error) return showErr(error.message);
-  if(data && data.ok === false) return showErr(data.error);
+  if(error){ reportClientError('mark a missed call as returned', error); return showErr(error.message); }
+  if(data && data.ok === false){ reportClientError('mark a missed call as returned', data.error); return showErr(data.error); }
   loadMissedCalls(); loadUnfinished();
 }
 
@@ -273,6 +275,7 @@ async function loadAll(){
     }
     render();
   }catch(err){
+    reportClientError('load the confirmation-call list', err);
     document.getElementById('list').innerHTML='<div class="state">Couldn\'t load: '+esc(err.message||err)+'</div>';
   }
 }
@@ -437,16 +440,16 @@ async function loadClaims(){
     if(!MYID){ const { data:u } = await sb.auth.getUser(); MYID = u && u.user ? u.user.id : null; }
     const { data } = await sb.from('v_confirmation_claims').select('*');
     CLAIMS = {}; (data||[]).forEach(function(c){ CLAIMS[c.order_id] = c; });
-  }catch(e){ CLAIMS = {}; }
+  }catch(e){ reportClientError('load who is on which call (claims cleared)', e); CLAIMS = {}; }
 }
 
 window.takeCall = async function(id){
   const { data, error } = await sb.rpc('claim_confirmation_call', { p_order: id });
-  if(error) return alert(error.message);
+  if(error){ reportClientError('claim a confirmation call', error, id); return alert(error.message); }
   if(data && data.ok === false){
     if(data.taken) alert(data.by + ' started this call ' +
       (data.minutes_ago < 1 ? 'just now' : data.minutes_ago + ' min ago') + '. Pick another one.');
-    else alert(data.error);
+    else { reportClientError('claim a confirmation call', data.error, id); alert(data.error); }
   }
   await loadClaims(); render();
 };
@@ -493,10 +496,10 @@ window.accept=async function(id){
   setState(id,'Saving…');
   const row={order_id:id,...checks,accepted:true,status:'accepted',called_by:me(),called_at:nowISO(),updated_at:nowISO()};
   const {error}=await upsertConf(row);
-  if(error){ setState(id,'Couldn\'t save: '+error.message,'#b4342e'); return; }
-  try{ await sb.rpc('release_confirmation_call',{p_order:id}); }catch(e){}
+  if(error){ reportClientError('save the confirmation checklist / decision', error, id); setState(id,'Couldn\'t save: '+error.message,'#b4342e'); return; }
+  try{ await sb.rpc('release_confirmation_call',{p_order:id}); }catch(e){ reportClientError('release the call claim (it expires by itself in ten minutes)', e, id); }
   const {error:e2}=await sb.from('sim_orders').update({confirmation_status:'accepted'}).eq('id',id);
-  if(e2){ setState(id,'Saved checklist, but status update failed: '+e2.message,'#b4342e'); return; }
+  if(e2){ reportClientError('set the order to accepted after the checklist saved', e2, id); setState(id,'Saved checklist, but status update failed: '+e2.message,'#b4342e'); return; }
   loadAll();
 };
 
@@ -506,10 +509,10 @@ window.toReview=async function(id){
   setState(id,'Sending to review…');
   const row={order_id:id,...checks,accepted:false,status:'review',called_by:me(),called_at:nowISO(),review_note:note,updated_at:nowISO()};
   const {error}=await upsertConf(row);
-  if(error){ setState(id,'Couldn\'t save: '+error.message,'#b4342e'); return; }
-  try{ await sb.rpc('release_confirmation_call',{p_order:id}); }catch(e){}
+  if(error){ reportClientError('save the confirmation checklist / decision', error, id); setState(id,'Couldn\'t save: '+error.message,'#b4342e'); return; }
+  try{ await sb.rpc('release_confirmation_call',{p_order:id}); }catch(e){ reportClientError('release the call claim (it expires by itself in ten minutes)', e, id); }
   const {error:e2}=await sb.from('sim_orders').update({confirmation_status:'review'}).eq('id',id);
-  if(e2){ setState(id,'Saved, but status update failed: '+e2.message,'#b4342e'); return; }
+  if(e2){ reportClientError('set the order\'s confirmation status after the decision saved', e2, id); setState(id,'Saved, but status update failed: '+e2.message,'#b4342e'); return; }
   loadAll();
 };
 
@@ -518,10 +521,10 @@ window.reviewAccept=async function(id){
   const note=(document.getElementById('note_'+id)||{}).value||null;
   const row={order_id:id,accepted:true,status:'accepted',review_decision:'accepted',review_note:note,reviewed_by:me(),reviewed_at:nowISO(),updated_at:nowISO()};
   const {error}=await upsertConf(row);
-  if(error){ setState(id,'Couldn\'t save: '+error.message,'#b4342e'); return; }
-  try{ await sb.rpc('release_confirmation_call',{p_order:id}); }catch(e){}
+  if(error){ reportClientError('save the confirmation checklist / decision', error, id); setState(id,'Couldn\'t save: '+error.message,'#b4342e'); return; }
+  try{ await sb.rpc('release_confirmation_call',{p_order:id}); }catch(e){ reportClientError('release the call claim (it expires by itself in ten minutes)', e, id); }
   const {error:e2}=await sb.from('sim_orders').update({confirmation_status:'accepted'}).eq('id',id);
-  if(e2){ setState(id,'Saved, but status update failed: '+e2.message,'#b4342e'); return; }
+  if(e2){ reportClientError('set the order\'s confirmation status after the decision saved', e2, id); setState(id,'Saved, but status update failed: '+e2.message,'#b4342e'); return; }
   loadAll();
 };
 
@@ -531,14 +534,14 @@ window.reviewCancel=async function(id){
   const note=(document.getElementById('note_'+id)||{}).value||null;
   const row={order_id:id,accepted:false,status:'cancelled',review_decision:'cancelled',review_note:note,reviewed_by:me(),reviewed_at:nowISO(),updated_at:nowISO()};
   const {error}=await upsertConf(row);
-  if(error){ setState(id,'Couldn\'t save: '+error.message,'#b4342e'); return; }
+  if(error){ reportClientError('save the confirmation checklist / decision', error, id); setState(id,'Couldn\'t save: '+error.message,'#b4342e'); return; }
   const {error:e2}=await sb.from('sim_orders').update({
     confirmation_status:'cancelled',
     order_status:'cancelled',
     cancellation_date:new Date().toISOString().slice(0,10),
     cancellation_reason:'Confirmation call — not accepted (management cancelled)'
   }).eq('id',id);
-  if(e2){ setState(id,'Saved decision, but order update failed: '+e2.message,'#b4342e'); return; }
+  if(e2){ reportClientError('cancel the order after management declined it (decision saved, order NOT cancelled)', e2, id); setState(id,'Saved decision, but order update failed: '+e2.message,'#b4342e'); return; }
   loadAll();
 };
 

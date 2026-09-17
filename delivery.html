@@ -8,6 +8,8 @@
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://unpkg.com/@supabase/supabase-js@2.38.4/dist/umd/supabase.js"></script>
+<script>window.SIMTEC_BUILD="2026-09-17-01";</script>
+<script src="client-errors.js?v=1"></script>
 <script src="live.js?v=3" defer></script>
 <script src="auth.js?v=3" data-roles="admin,manager,office"></script>
 <style>
@@ -265,7 +267,9 @@ async function fetchAllByRef(table, cols, refs, orderCol){
     let q=sb.from(table).select(cols).in('payer_ref',refs).range(from, from+PAGE-1);
     if(orderCol) q=q.order(orderCol,{ascending:true}).order('payer_ref',{ascending:true});
     const {data,error}=await q;
-    if(error){ console.warn('fetchAllByRef '+table+':', error.message); break; }
+    if(error){ console.warn('fetchAllByRef '+table+':', error.message);
+               // ⚠ payments not loaded means clearance is judged on nothing
+               reportClientError('load '+table+' for the clearance check (customers may look uncleared)', error); break; }
     out=out.concat(data||[]);
     if(!data || data.length<PAGE) break;
   }
@@ -285,7 +289,7 @@ async function load(quiet){
   const {data:orders,error}=await sb.from('sim_orders')
     .select('*, sim_customers(*), sim_order_items(product_name,quantity)')
     .eq('order_status','active');
-  if(error){$('state').innerHTML=`<span class="text-red-400">${esc(error.message)}</span>`;return;}
+  if(error){reportClientError('load the active orders for the delivery board', error);$('state').innerHTML=`<span class="text-red-400">${esc(error.message)}</span>`;return;}
   // payer accounts for any third-party-paid orders
   const pvIds=[...new Set((orders||[]).map(o=>o.paid_via_order_id).filter(Boolean))];
   let payerMap={};
@@ -885,7 +889,8 @@ async function geocode(address){
     if(!res.ok) return null;
     const j=await res.json();
     if(j&&j.length) return {lat:parseFloat(j[0].lat), lng:parseFloat(j[0].lon)};
-  }catch(e){ /* offline or blocked — not fatal, the booking still saves */ }
+  }catch(e){ /* offline or blocked — not fatal, the booking still saves */
+             reportClientError('geocode the delivery address (booking saved without a map pin)', e); }
   return null;
 }
 
@@ -903,7 +908,7 @@ window.saveBooking=async()=>{
     if(btn){btn.disabled=false;btn.textContent='Confirm booking';}
   }
   const {error}=await sb.from('sim_orders').update(patch).eq('id',bookId);
-  if(error){alert(error.message);return;}
+  if(error){reportClientError('book the delivery', error, bookId);alert(error.message);return;}
   closeOv();await load();
 };
 // ── Confirming a delivery ───────────────────────────────────────────────────
@@ -941,13 +946,13 @@ async function applyDelivered(orderId, delivered){
 window.markDelivered=async(id)=>{
   const r=rows.find(x=>x.id===id);
   if(!confirm('Mark '+((r&&r.name)||'this order')+' as delivered?\n\nThis records the delivery against your name and updates stock. You can undo it from the Delivered tab.')) return;
-  try{ await applyDelivered(id,true); }catch(e){ alert('Couldn’t mark delivered: '+(e.message||e)); return; }
+  try{ await applyDelivered(id,true); }catch(e){ reportClientError('mark an order delivered', e, id); alert('Couldn’t mark delivered: '+(e.message||e)); return; }
   await load();
 };
 window.undoDelivered=async(id)=>{
   const r=rows.find(x=>x.id===id);
   if(!confirm('Undo delivered for '+((r&&r.name)||'this order')+'?\n\nIt goes back to booked so you can re-confirm or reschedule.')) return;
-  try{ await applyDelivered(id,false); }catch(e){ alert('Couldn’t undo: '+(e.message||e)); return; }
+  try{ await applyDelivered(id,false); }catch(e){ reportClientError('undo a delivered order', e, id); alert('Couldn’t undo: '+(e.message||e)); return; }
   await load();
 };
 // Cancel a booking: the order comes off the run and goes back to the ready list.
@@ -959,7 +964,7 @@ window.cancelDelivery=async(id)=>{
   const reason=prompt('Cancel the delivery for '+((r&&r.name)||'this order')+'?\n\nWhy is it being cancelled? (goes on the record)');
   if(reason===null) return;                       // the office changed their mind
   const {data,error}=await sb.rpc('cancel_delivery',{p_order:id,p_reason:reason.trim()});
-  if(error) alert(error.message);                  // raised in the database (not authorised, order not found)
+  if(error){ reportClientError('cancel a delivery', error, id); alert(error.message); }   // raised in the database (not authorised, order not found)
   else if(!data||!data.ok) alert((data&&data.error)||'Couldn’t cancel — no reason was given back.');
   else alert(data.message);
   // refresh after a refusal too: "already delivered" and "no booking" mean the
@@ -987,8 +992,10 @@ window.markDayDelivered=async(dateStr)=>{
   try{
     const {data,error}=await sb.rpc('delivery_day_state',{p_date:dateStr});
     if(!error) st=data;
+    else reportClientError('check whether the run for '+dateStr+' is finished (fell back to the plain question)', error);
   }catch(e){ /* ⚠ if the check itself fails, fall through to the old question —
-                 a broken check must not stop the office confirming a real run. */ }
+                 a broken check must not stop the office confirming a real run. */
+             reportClientError('check whether the run for '+dateStr+' is finished (fell back to the plain question)', e); }
 
   if(st && st.safe_to_confirm_all===false){
     const out=st.outstanding, tot=st.stops;
@@ -1004,7 +1011,7 @@ window.markDayDelivered=async(dateStr)=>{
     if(!confirm('Mark all '+list.length+' deliver'+(list.length===1?'y':'ies')+' booked for '+fmtD(dateStr)+' as delivered?\n\nYou can undo any of them from the Delivered tab.')) return;
   }
   let ok=0, fail=0;
-  for(const r of list){ try{ await applyDelivered(r.id,true); ok++; }catch(e){ fail++; } }
+  for(const r of list){ try{ await applyDelivered(r.id,true); ok++; }catch(e){ fail++; reportClientError('mark a whole day delivered (one order failed)', e, r.id); } }
   await load();
   if(fail) alert(ok+' marked delivered, '+fail+' could not be updated — check the Booked tab.');
 };

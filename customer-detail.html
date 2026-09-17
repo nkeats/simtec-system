@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Simtec — Customer</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.112.2"></script>
+<script>window.SIMTEC_BUILD="2026-09-17-01";</script>
+<script src="client-errors.js?v=1"></script>
 <script src="live.js?v=3" defer></script>
 <script src="auth.js?v=3" data-roles="admin,manager,office"></script>
 <script src="doubtful.js?v=1"></script>
@@ -130,7 +132,7 @@ async function toggleReminderTexts(turnOn){
       if(error && error.code!=="23505") throw error;   // already opted out = fine
     }
     await run(true);
-  }catch(e){ alert("Couldn't save that: "+(e.message||e)); }
+  }catch(e){ reportClientError("save the reminder-text opt-out", e); alert("Couldn't save that: "+(e.message||e)); }
 }
 
 function kv(k,v){ return `<div class="kv"><span class="k">${k}</span><span class="v">${v}</span></div>`; }
@@ -383,7 +385,7 @@ async function doSearch(){
     mobile:h.mobile, address:h.address, matched_on:h.matched_on,
     partner_name:h.partner_name, partner_mobile:h.partner_mobile
   }));
-  if(error){ box.innerHTML=`<div style="padding:10px 13px;color:#b4342e;font-size:13px">${esc(error.message)}</div>`; box.style.display=""; return; }
+  if(error){ reportClientError("search for a customer", error); box.innerHTML=`<div style="padding:10px 13px;color:#b4342e;font-size:13px">${esc(error.message)}</div>`; box.style.display=""; return; }
   if(!data||!data.length){ box.innerHTML=`<div style="padding:10px 13px;color:#7a8798;font-size:13px">No matches for “${esc(q)}”. Try just the surname, or a phone number.</div>`; box.style.display=""; return; }
   box.innerHTML=data.map(c=>`<div style="padding:9px 13px;cursor:pointer;border-bottom:1px solid #eef1f5" onmouseover="this.style.background='#f4f7fa'" onmouseout="this.style.background='#fff'" onclick="goCustomer('${c.id}')">
       <div style="font-size:14px;font-weight:600">${esc(c.first_name)} ${esc(c.last_name)}</div>
@@ -511,6 +513,9 @@ async function run(quiet){
     fillGateProgress();          // fills progress against any agreed delivery deal
     loadTruckVisits((orders||[]).map(o=>o.id));   // every driver stop against these orders
   }catch(e){
+    /* ⚠ a quiet reload that fails leaves the OLD page on screen with no sign
+       anything went wrong — the office must hear about that one especially */
+    reportClientError("load the customer page"+(quiet?" (quiet reload — stale page left on screen)":""), e);
     if(!quiet) content.innerHTML='<div id="err">'+esc(e.message||e)+'</div>';
   }
 }
@@ -622,7 +627,7 @@ async function loadTruckVisits(orderIds){
   const {data,error}=await sb.from("v_driver_stops").select("*")
     .in("order_id",orderIds).eq("practice",false)
     .order("run_date",{ascending:true}).order("seq",{ascending:true});
-  if(error){ box.innerHTML='<h2>Truck visits</h2><div style="color:var(--red);font-size:13.5px">Couldn’t load the truck visits: '+esc(error.message)+'</div>'; return; }
+  if(error){ reportClientError("load the truck visits", error); box.innerHTML='<h2>Truck visits</h2><div style="color:var(--red);font-size:13.5px">Couldn’t load the truck visits: '+esc(error.message)+'</div>'; return; }
   if(!data||!data.length){
     box.innerHTML='<h2>Truck visits</h2><p class="muted">No truck visits recorded. Anything delivered before the driver app started will not appear here.</p>';
     return;
@@ -658,7 +663,7 @@ async function loadTruckVisits(orderIds){
 }
 async function openStopSignature(path){
   const {data,error}=await sb.storage.from("delivery-proof").createSignedUrl(path, 300);
-  if(error||!data||!data.signedUrl){ alert("Couldn’t open the signature: "+((error&&error.message)||"no link came back")); return; }
+  if(error||!data||!data.signedUrl){ reportClientError("open a stop signature", error||"no link came back"); alert("Couldn’t open the signature: "+((error&&error.message)||"no link came back")); return; }
   window.open(data.signedUrl,"_blank");
 }
 
@@ -913,8 +918,8 @@ async function setFreePillow(orderId, on){
   if(on && !confirm("Add a free pillow to this delivery?\n\nOnly for a customer who gave 10 or more referrals.")) return;
   if(!on && !confirm("Take the free pillow off this order?")) return;
   const {data,error}=await sb.rpc("order_free_pillow_set",{p_order:orderId,p_on:on});
-  if(error){ alert("Could not change it: "+error.message); return; }
-  if(!data || !data.ok){ alert(data && data.reason ? data.reason : "Could not change it."); return; }
+  if(error){ reportClientError("set the free pillow "+(on?"on":"off"), error, orderId); alert("Could not change it: "+error.message); return; }
+  if(!data || !data.ok){ reportClientError("set the free pillow "+(on?"on":"off"), (data&&data.reason)||"no reason came back", orderId); alert(data && data.reason ? data.reason : "Could not change it."); return; }
   location.reload();
 }
 
@@ -953,8 +958,9 @@ async function saveTruckJob(){
     p_order:TJORD, p_job_type:document.getElementById("tjType").value,
     p_job_note:note, p_date:date, p_job_address:document.getElementById("tjAddr").value.trim()||null });
   btn.disabled=false; btn.textContent="Book it";
-  if(error) return tjErr(error.message);                 // raised in the database (not authorised, order not found)
-  if(!data||!data.ok) return tjErr((data&&data.error)||"Couldn’t book it — no reason was given back.");
+  if(error){ reportClientError("book a truck job", error, TJORD); return tjErr(error.message); }   // raised in the database (not authorised, order not found)
+  if(!data||!data.ok){ if(!data||!data.error) reportClientError("book a truck job", "no reason was given back", TJORD);   // a refusal WITH a reason is the office's business, not a fault
+                       return tjErr((data&&data.error)||"Couldn’t book it — no reason was given back."); }
   closeTruckJob();
   alert(data.message);
   run(true);
@@ -1039,6 +1045,7 @@ async function loadApplication(oid){
   // Say what went wrong. A panel that just stays empty is indistinguishable
   // from an order with nothing on it, and the office cannot tell us which.
   if(error){
+    reportClientError("load the application details", error, oid);
     box.innerHTML='<div style="background:#fdecec;border:1px solid #f3c0c0;border-radius:9px;padding:11px 13px;color:#c02626">'
       + '<b>Could not load the application.</b><br>'+esc(error.message||error)+'<br>'+retry+'</div>';
     return;
@@ -1096,7 +1103,7 @@ async function loadIdDocs(oid){
     }
     if(!photos.length){ box.innerHTML='<span class="muted">No ID documents on file for this order.</span>'; return; }
     box.innerHTML=photos.map(p=>`<a href="${p.url}" target="_blank" title="${p.who} — open full size" style="display:inline-block;margin:0 12px 12px 0;text-align:center;text-decoration:none"><img src="${p.url}" style="width:160px;height:160px;object-fit:cover;border:1px solid #cbd4df;border-radius:8px;display:block"><span class="muted" style="font-size:11px">${p.who}</span></a>`).join("");
-  }catch(e){ box.innerHTML='<span style="color:var(--red)">Could not load documents: '+esc(e.message||e)+'</span>'; }
+  }catch(e){ reportClientError("load the ID documents", e); box.innerHTML='<span style="color:var(--red)">Could not load documents: '+esc(e.message||e)+'</span>'; }
 }
 
 // ---------- actions (all scoped to one order) ----------
@@ -1107,7 +1114,7 @@ async function markItemCancelled(itemId, oid, val){
   const patch = val ? {cancelled:true, cancelled_date:new Date().toISOString().slice(0,10), cancelled_by:who}
                     : {cancelled:false, cancelled_date:null, cancelled_by:null};
   const {error}=await sb.from("sim_order_items").update(patch).eq("id",itemId);
-  if(error){ alert("Couldn't update: "+error.message); return; }
+  if(error){ reportClientError((val?"cancel":"reinstate")+" a product line", error, oid); alert("Couldn't update: "+error.message); return; }
   run();
 }
 async function markItem(itemId, oid, val){
@@ -1116,7 +1123,7 @@ async function markItem(itemId, oid, val){
   const patch = val ? {delivered:true, delivered_date:new Date().toISOString().slice(0,10), delivered_by:who}
                     : {delivered:false, delivered_date:null, delivered_by:null};
   const {error}=await sb.from("sim_order_items").update(patch).eq("id",itemId);
-  if(error){ alert("Couldn't update: "+error.message); return; }
+  if(error){ reportClientError("mark a product line "+(val?"delivered":"not delivered"), error, oid); alert("Couldn't update: "+error.message); return; }
   const {data:its}=await sb.from("sim_order_items").select("product_name,delivered").eq("order_id",oid);
   const mattresses=(its||[]).filter(i=>!/delivery fee|protector|pillow/i.test(i.product_name||""));
   let status="pending";
@@ -1128,7 +1135,8 @@ async function markItem(itemId, oid, val){
   // when the order first becomes fully delivered; clear it if it drops back.
   const orderPatch={delivery_status:status};
   orderPatch.delivered_at = (status==="delivered") ? new Date().toISOString() : null;
-  await sb.from("sim_orders").update(orderPatch).eq("id",oid);
+  const {error:e2}=await sb.from("sim_orders").update(orderPatch).eq("id",oid);
+  if(e2) reportClientError("set the order's delivery status to "+status+" after a line was ticked (line saved, order not)", e2, oid);
   run();
 }
 async function setFurtherAction(oid, val){
@@ -1136,7 +1144,7 @@ async function setFurtherAction(oid, val){
   const who=(window.SIMTEC_USER.full_name||window.SIMTEC_USER.email||"admin");
   const patch = val ? {further_action:true,further_action_date:new Date().toISOString().slice(0,10),further_action_by:who} : {further_action:false};
   const {error}=await sb.from("sim_orders").update(patch).eq("id",oid);
-  if(error){ alert("Couldn't update: "+error.message); return; }
+  if(error){ reportClientError((val?"move the order to":"take the order out of")+" further action", error, oid); alert("Couldn't update: "+error.message); return; }
   run();
 }
 /* ============ CHANGE THE SALE DATE ============
@@ -1193,8 +1201,10 @@ window.sendAppLink = async function(){
         body: (r.emailed ? "Emailed to " + CUST.email : "Link generated for the office to send"),
         staff_name: (window.SIMTEC_USER && (window.SIMTEC_USER.full_name || window.SIMTEC_USER.email)) || "office"
       });
-    }catch(e){ /* the history note is a nicety; never fail the send over it */ }
+    }catch(e){ /* the history note is a nicety; never fail the send over it */
+               reportClientError("note the rewards-app login link in the contact history (link was sent)", e); }
   }catch(e){
+    reportClientError("send the rewards-app login link", e);
     out.style.color = "#b4342e";
     out.textContent = e.message || "That didn't work \u2014 try again.";
   }finally{
@@ -1226,7 +1236,7 @@ window.openSaleDate=async function(oid){
       lock.style.display="";
       document.getElementById("sdSave").disabled=true;
     }
-  }catch(e){}
+  }catch(e){ reportClientError("check whether the commission is paid before moving the sale date (lock NOT shown)", e, oid); }
 };
 window.closeSaleDate=function(){ document.getElementById("saleDateModal").style.display="none"; };
 
@@ -1250,7 +1260,7 @@ window.saveSaleDate=async function(){
       if(e2) throw new Error("The order date was changed, but the commission record wasn\u2019t: "+e2.message);
     }
     closeSaleDate(); run(true);
-  }catch(e){ err.style.display=""; err.textContent=e.message||String(e); }
+  }catch(e){ reportClientError("change the sale date", e, oid); err.style.display=""; err.textContent=e.message||String(e); }
   finally{ btn.disabled=false; btn.textContent=orig; }
 };
 
@@ -1303,7 +1313,7 @@ async function fillGateProgress(){
       }else{
         el.innerHTML=`<b>${clean} of ${need}</b> cleared so far — ${need-clean} to go.`;
       }
-    }catch(e){ el.textContent="Couldn't check progress."; }
+    }catch(e){ reportClientError("check progress against the agreed delivery deal", e); el.textContent="Couldn't check progress."; }
   }
 }
 
@@ -1333,7 +1343,7 @@ window.saveGate=async function(){
     }).eq("id",oid);
     if(error) throw error;
     closeGate(); run(true);
-  }catch(e){ err.style.display=""; err.textContent="Couldn't save: "+(e.message||e); }
+  }catch(e){ reportClientError("save the agreed delivery deal", e); err.style.display=""; err.textContent="Couldn't save: "+(e.message||e); }
 };
 
 window.removeGate=async function(oid){
@@ -1345,7 +1355,7 @@ window.removeGate=async function(oid){
     }).eq("id",oid);
     if(error) throw error;
     run(true);
-  }catch(e){ alert("Couldn't remove: "+(e.message||e)); }
+  }catch(e){ reportClientError("remove the agreed delivery deal", e); alert("Couldn't remove: "+(e.message||e)); }
 };
 
 async function authoriseDelivery(oid){
@@ -1353,13 +1363,13 @@ async function authoriseDelivery(oid){
   if(!confirm("Authorise this customer for delivery, overriding the payment-history check? This is recorded against your name.")) return;
   const who=(window.SIMTEC_USER.full_name||window.SIMTEC_USER.email||"admin");
   const {error}=await sb.from("sim_orders").update({delivery_authorised:true,delivery_authorised_by:who,delivery_authorised_at:new Date().toISOString()}).eq("id",oid);
-  if(error){ alert("Couldn't authorise: "+error.message); return; }
+  if(error){ reportClientError("authorise delivery (admin override)", error, oid); alert("Couldn't authorise: "+error.message); return; }
   run();
 }
 async function reinstate(oid){
   if(!confirm("Reinstate this order as Active? This clears the cancellation and returns it to risk and arrears.")) return;
   const {error}=await sb.from("sim_orders").update({order_status:"active",cancellation_date:null,cancellation_reason:null,cancellation_type:null,refunded:null}).eq("id",oid);
-  if(error){ alert("Couldn't reinstate: "+error.message); return; }
+  if(error){ reportClientError("reinstate a cancelled order", error, oid); alert("Couldn't reinstate: "+error.message); return; }
   run();
 }
 let CXORD=null;
@@ -1368,7 +1378,7 @@ async function onStatusChange(oid, newStatus){
   if(newStatus==="on_hold" && !confirm("Put this order on hold? It'll be paused from risk and arrears until set back to active.")){ run(); return; }
   const patch={order_status:newStatus, cancellation_date:null, cancellation_reason:null, cancellation_type:null, refunded:null};
   const {error}=await sb.from("sim_orders").update(patch).eq("id",oid);
-  if(error){ alert("Couldn't update status: "+error.message); }
+  if(error){ reportClientError("set the order status to "+newStatus, error, oid); alert("Couldn't update status: "+error.message); }
   run();
 }
 async function openCancel(oid){
@@ -1389,7 +1399,8 @@ async function openCancel(oid){
       warn.innerHTML="This sale's <b>$"+Number(cs.commission_paid)+"</b> commission has already been paid. "
         +"Cancelling will claw it back from the consultant's retention balance.";
     }
-  }catch(e){/* non-fatal: the cancel still works */}
+  }catch(e){/* non-fatal: the cancel still works */
+             reportClientError("check whether the commission was paid before cancelling (clawback warning NOT shown)", e); }
 }
 function closeCancel(){ document.getElementById("cancelModal").style.display="none"; run(); }
 
@@ -1435,7 +1446,7 @@ async function saveNote(){
     body:body
   });
   btn.disabled=false; btn.textContent="Save note";
-  if(error){ err.textContent="Could not save: "+error.message; err.style.display="block"; return; }
+  if(error){ reportClientError("save a note on the customer", error); err.textContent="Could not save: "+error.message; err.style.display="block"; return; }
   closeNote(); run();
 }
 async function saveContact(){
@@ -1460,7 +1471,7 @@ async function saveContact(){
   };
   const {error}=await sb.from("sim_contacts").insert(row);
   btn.disabled=false; btn.textContent="Save contact";
-  if(error){ const e=document.getElementById("ctErr"); e.textContent="Could not save: "+error.message; e.style.display="block"; return; }
+  if(error){ reportClientError("log a contact with the customer", error); const e=document.getElementById("ctErr"); e.textContent="Could not save: "+error.message; e.style.display="block"; return; }
   closeContact(); run();
 }
 async function confirmCancel(){
@@ -1473,7 +1484,7 @@ async function confirmCancel(){
     refunded:document.getElementById("cxRefund").checked,
     cancellation_reason:notes||null };
   const {error}=await sb.from("sim_orders").update(patch).eq("id",oid);
-  if(error){ alert("Couldn't cancel: "+error.message); return; }
+  if(error){ reportClientError("cancel the order", error, oid); alert("Couldn't cancel: "+error.message); return; }
 
   // Commission cleanup. A sale that was NOT yet paid: just cancel the commission
   // row (no money moved). A sale already PAID: claw the commission back from the
@@ -1519,6 +1530,7 @@ async function confirmCancel(){
   }catch(e){
     // The order IS cancelled; only the commission step failed. Tell the operator
     // so they can square it by hand rather than have it silently drift.
+    reportClientError("cancel the commission / claw back after a cancellation (order cancelled, commission NOT squared)", e, oid);
     alert("Order cancelled, but the commission couldn't be updated automatically:\n"
       +(e.message||e)+"\n\nSquare the commission/retention manually.");
   }
@@ -1741,6 +1753,7 @@ async function openAmend(oid){
     window._ITEMS = its||[];
   }catch(e){
     window._ITEMS = [];
+    reportClientError("read the order's products for an amendment", e, o.id);
     amErr("<b>Couldn't read this order's products.</b><br>"+(e.message||e)+"<br>Do not save — the amendment would be wrong.");
   }
   try{
@@ -1756,7 +1769,7 @@ async function openAmend(oid){
     document.getElementById("amProd").innerHTML =
       `<option value="">— choose a product —</option>` +
       AM.prods.map(p=>`<option value="${p.name.replace(/"/g,'&quot;')}">${p.name}</option>`).join("");
-  }catch(e){ amErr("<b>Couldn't load the product list.</b><br>"+(e.message||e)); }
+  }catch(e){ reportClientError("load the product list for an amendment", e); amErr("<b>Couldn't load the product list.</b><br>"+(e.message||e)); }
 
   // ONE structure describes the amended order.
   //
@@ -2217,12 +2230,15 @@ async function saveAmend(){
       if(commissionLocked) msg+="\n\n⚠ The commission for this sale was already PAID. It has not been changed — adjust it manually in the commission screen.";
       alert(msg);
       if(confirm("Print the Order Variation for the customer to sign?")) printVariation(o,summary,newV,newInst,freq,rem,nextDate);
-    }catch(err){ console.warn("after-save step failed:",(err&&err.message)||err); }
+    }catch(err){ console.warn("after-save step failed:",(err&&err.message)||err);
+                 reportClientError("finish up after an amendment saved (message / variation print)", err, o.id); }
     try{ await run(); }
-    catch(err){ alert("The amendment saved. The page could not refresh itself — reload to see the change."); }
+    catch(err){ reportClientError("redraw the page after an amendment saved", err, o.id);
+                alert("The amendment saved. The page could not refresh itself — reload to see the change."); }
   }catch(e){
     clearTimeout(watchdog);
     btn.disabled=false; btn.textContent="Save amendment";
+    reportClientError(committed ? "finish an amendment after it committed (saved; do not save again)" : "save an amendment (nothing changed)", e, o.id);
     if(committed){
       amErr("<b>The amendment WAS saved.</b><br>Something after it failed: "+(e.message||e)
           + "<br>Reload the page to see the change. <b>Do not save again.</b>");
@@ -2653,6 +2669,7 @@ async function saveSched(){
     closeSched();
     run();      // every card on this page redraws from the database
   }catch(e){
+    reportClientError("save the payment schedule", e, o.id);
     schErr("<b>The schedule was not saved.</b><br>"+(e.message||e));
     btn.disabled=false; btn.textContent="Save schedule";
   }
@@ -2800,7 +2817,8 @@ async function savePay(){
         .eq("order_id",o.id).eq("payment_date",date).eq("source","manual")
         .eq("amount",amt);
       already = dup||[];
-    }catch(_e){ /* the check must never stop a real payment being recorded */ }
+    }catch(_e){ /* the check must never stop a real payment being recorded */
+                reportClientError("check for a duplicate before recording a payment (check skipped)", _e, o.id); }
     if(already.length){
       const w=already[0];
       const when=w.created_at?new Date(w.created_at).toLocaleString("en-NZ"):"earlier";
@@ -2836,6 +2854,9 @@ async function savePay(){
     closePay();
     run();
   }catch(e){
+    /* ⚠ MONEY. A payment the office typed and could not record must reach
+       them, not just the box in front of whoever typed it. */
+    reportClientError("record a manual payment", e, o.id);
     payErr("<b>The payment was not recorded.</b><br>"+(e.message||e));
     btn.disabled=false; btn.textContent="Record payment";
   }
@@ -3035,7 +3056,7 @@ async function saveEditCust(){
     Object.assign(CUST, patch);           // keep local copy in sync
     closeEditCust();
     run(true);                            // re-render with fresh details (quiet, no blank)
-  }catch(e){ ecErr("Couldn't save: "+(e.message||e)); }
+  }catch(e){ reportClientError("save the customer's contact details", e); ecErr("Couldn't save: "+(e.message||e)); }
   finally{ btn.disabled=false; btn.textContent=orig; }
 }
 </script>
@@ -3126,7 +3147,7 @@ async function openSecondName(orderId){
   }
   const { data, error } = await sb.rpc("set_second_applicant", {
     p_order: orderId, p_name: name, p_mobile: mobile, p_email: email });
-  if(error) return alert(error.message);
+  if(error){ reportClientError("save the second name on the order", error, orderId); return alert(error.message); }
   if(data && data.ok === false) return alert(data.error);
   await run(true);                            // this page redraws with run(), not load()
 }
@@ -3143,7 +3164,7 @@ async function openReassign(oid){
   // real consultants, active first, alphabetical
   const {data,error}=await sb.from("commission_consultants")
     .select("id,name,active").order("name");
-  if(error){ reErr("Couldn't load the consultant list: "+error.message); return; }
+  if(error){ reportClientError("load the consultant list for a reassignment", error, oid); reErr("Couldn't load the consultant list: "+error.message); return; }
   RECONS=(data||[]).filter(c=>c.name);
   sel.innerHTML=`<option value="">— choose a consultant —</option>`
     + RECONS.map(c=>`<option value="${c.id}">${esc(c.name)}${c.active===false?" (inactive)":""}</option>`).join("");
@@ -3191,6 +3212,7 @@ async function saveReassign(){
     if(window.SIMTEC_TOAST) window.SIMTEC_TOAST(note);
     run();
   }catch(e){
+    reportClientError("move the sale to another consultant", e, o.id);
     reErr("<b>The sale was not moved.</b><br>"+(e.message||e));
     btn.disabled=false; btn.textContent="Move sale";
   }
@@ -3280,6 +3302,7 @@ async function openDocs(orderId){
           'style="width:100%;height:90px;object-fit:contain;background:#fff;border-radius:5px"></a></div>';
       }).join('')+'</div>';
   }catch(e){
+    reportClientError("load the order's documents and signatures", e, orderId);
     document.getElementById('docsBody').innerHTML='';
     const el=document.getElementById('docsErr'); el.style.display='block';
     el.textContent='Could not load the documents: '+(e.message||e);
@@ -3416,7 +3439,7 @@ async function startKeyedPayment(){
     cpShow("cpCardStep");
     CP_CARDEL.mount("#cpCard");
     document.getElementById("cpConsent").checked=false;
-  }catch(e){ cpErr((e.message||e)+""); }
+  }catch(e){ reportClientError("start a keyed card payment", e, CP_ORDER&&CP_ORDER.id); cpErr((e.message||e)+""); }
   finally{ btn.disabled=false; btn.textContent=t; }
 }
 
@@ -3442,10 +3465,11 @@ async function chargeCard(){
         body:"Customer authorised a card payment of "+fmt(CP_AMT)+" by phone.",
         outcome:"paid by card"
       });
-    }catch(_){}
+    }catch(_){ reportClientError("note the phone card payment in the contact history (payment went through)", _, CP_ORDER&&CP_ORDER.id); }
     if(CP_CARDEL){ try{ CP_CARDEL.unmount(); }catch(_){} CP_CARDEL=null; }
     CP_SECRET="";
-  }catch(e){ cpErr((e.message||e)+""); btn.disabled=false; btn.textContent=t; return; }
+  }catch(e){ /* ⚠ MONEY — a card charge that did not complete must reach the office */
+             reportClientError("charge a card over the phone", e, CP_ORDER&&CP_ORDER.id); cpErr((e.message||e)+""); btn.disabled=false; btn.textContent=t; return; }
   btn.disabled=false; btn.textContent=t;
 }
 
@@ -3464,7 +3488,7 @@ async function makeCardLink(){
     document.getElementById("cpUrl").value=CP_URL;
     document.getElementById("cpAmtOut").textContent=fmt(data.amount||amt);
     cpShow("cpDone");
-  }catch(e){ cpErr((e.message||e)+""); }
+  }catch(e){ reportClientError("make a card-payment link", e, CP_ORDER&&CP_ORDER.id); cpErr((e.message||e)+""); }
   finally{ btn.disabled=false; btn.textContent=t; }
 }
 function openCardLink(){
@@ -3495,11 +3519,11 @@ async function textCardLink(){
         staff_name:(window.SIMTEC_USER&&window.SIMTEC_USER.email)||null,
         subject:"Card payment link sent", body:msg, outcome:"link texted"
       });
-    }catch(_){}
+    }catch(_){ reportClientError("note the texted payment link in the contact history (text was sent)", _, CP_ORDER&&CP_ORDER.id); }
     b.textContent="Sent \u2713";
     setTimeout(()=>{ b.disabled=false; b.textContent=t; },2500);
     run(true);
-  }catch(e){ cpErr("Couldn't send the text: "+(e.message||e)); b.disabled=false; b.textContent=t; }
+  }catch(e){ reportClientError("text the card-payment link to the customer", e, CP_ORDER&&CP_ORDER.id); cpErr("Couldn't send the text: "+(e.message||e)); b.disabled=false; b.textContent=t; }
 }
 
 /* ==========================================================================
@@ -3588,6 +3612,7 @@ async function loadProof(orderId, boxId){
   }catch(e){
     /* ⚠ Say it failed. A blank panel and an empty record must never look the
        same — that mistake cost a day this week. */
+    reportClientError("load the proof of delivery", e, orderId);
     box.innerHTML = '<div style="color:var(--red);font-weight:600">'
                   + 'Could not load the delivery proof: ' + esc(e.message || String(e)) + '</div>';
   }
