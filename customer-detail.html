@@ -509,6 +509,7 @@ async function run(quiet){
 
     renderAll(c, orders||[], paysByRef, comms);
     fillGateProgress();          // fills progress against any agreed delivery deal
+    loadTruckVisits((orders||[]).map(o=>o.id));   // every driver stop against these orders
   }catch(e){
     if(!quiet) content.innerHTML='<div id="err">'+esc(e.message||e)+'</div>';
   }
@@ -601,8 +602,64 @@ function renderAll(c, orders, paysByRef, comms){
       <span class="muted" style="margin-left:auto;font-size:13px">${orders.length} order${orders.length!==1?"s":""}</span>
     </div>
     <div class="cards">${contact}${commsCard}</div>
-    ${orderBlocks}`;
+    ${orderBlocks}
+    ${orders.length?`<div class="cards"><div class="card full" id="truckVisits"><h2>Truck visits</h2><p class="muted">Loading…</p></div></div>`:""}`;
   document.getElementById("statusBtns").innerHTML="";
+}
+
+/* ===== Truck visits ========================================================
+   Every driver_stops row against this customer's orders, in date order: the
+   original delivery and any job booked afterwards (a pickup, a swap, an extra
+   item). The delivery is the one that clears the order, so it is drawn in navy;
+   everything else carries its job label. Read from v_driver_stops, which is
+   what the driver and the office run sheet read, so the three always agree.
+   Filled in after the page draws — if it fails, it says so, and the rest of
+   the page is unaffected. */
+const TV_JOB_LABEL = { pickup:"PICKUP", swap:"SWAP", other:"JOB" };
+async function loadTruckVisits(orderIds){
+  const box=document.getElementById("truckVisits"); if(!box) return;
+  if(!orderIds.length){ box.innerHTML='<h2>Truck visits</h2><p class="muted">No orders, so no visits.</p>'; return; }
+  const {data,error}=await sb.from("v_driver_stops").select("*")
+    .in("order_id",orderIds).eq("practice",false)
+    .order("run_date",{ascending:true}).order("seq",{ascending:true});
+  if(error){ box.innerHTML='<h2>Truck visits</h2><div style="color:var(--red);font-size:13.5px">Couldn’t load the truck visits: '+esc(error.message)+'</div>'; return; }
+  if(!data||!data.length){
+    box.innerHTML='<h2>Truck visits</h2><p class="muted">No truck visits recorded. Anything delivered before the driver app started will not appear here.</p>';
+    return;
+  }
+  const outcomeTxt=s=>{
+    if(s.status==="done")   return `<span style="color:var(--green);font-weight:700">${esc(s.outcome==="delivered"?((s.job_type||"delivery")==="delivery"?"Delivered":"Done"):(s.outcome||"Done"))}</span>`;
+    if(s.status==="failed") return `<span style="color:var(--red);font-weight:700">${esc((s.outcome||"not done").replace(/_/g," "))}</span>`;
+    if(s.status==="arrived")  return '<span style="color:var(--amber)">On site</span>';
+    if(s.status==="en_route") return '<span style="color:var(--amber)">On the way</span>';
+    return '<span class="muted">Booked</span>';
+  };
+  const rows=data.map(s=>{
+    const t=s.job_type||"delivery";          // the column arrives with the view migration; before it, every stop is a delivery
+    const type = t==="delivery"
+      ? '<span style="display:inline-block;background:var(--navy,#122347);color:#fff;font-weight:800;font-size:11px;letter-spacing:.1em;padding:2px 8px;border-radius:5px">DELIVERY</span>'
+      : `<span style="display:inline-block;background:#8a3b00;color:#fff;font-weight:800;font-size:11px;letter-spacing:.1em;padding:2px 8px;border-radius:5px">${TV_JOB_LABEL[t]||"JOB"}</span>`;
+    const note = t==="delivery" ? (s.delivery_note||"") : (s.job_note||"");
+    const extra = [ s.job_address?`at ${esc(s.job_address)}`:"", s.notes?`Driver: ${esc(s.notes)}`:"", s.driver_name?esc(s.driver_name):"" ].filter(Boolean).join(" · ");
+    const sig = s.signature_path
+      ? `<a class="link" href="#" onclick="openStopSignature('${esc(s.signature_path)}');return false" style="color:var(--green);font-weight:700">✓ Signed</a>`
+      : (s.status==="done" ? '<span style="color:var(--red)">No signature</span>' : '<span class="muted">—</span>');
+    return `<tr>
+      <td style="white-space:nowrap">${auDate(s.run_date)}</td>
+      <td>${type}</td>
+      <td>${note?esc(note):'<span class="muted">—</span>'}${extra?`<div class="muted" style="font-size:12px;margin-top:2px">${extra}</div>`:""}</td>
+      <td>${outcomeTxt(s)}${s.photo_count?`<div class="muted" style="font-size:12px">${s.photo_count} photo${s.photo_count==1?"":"s"}</div>`:""}</td>
+      <td style="white-space:nowrap">${sig}</td>
+    </tr>`;
+  }).join("");
+  box.innerHTML=`<h2>Truck visits</h2>
+    <table><thead><tr><th style="width:95px">Date</th><th style="width:90px">Type</th><th>Note</th><th style="width:120px">Outcome</th><th style="width:100px">Signature</th></tr></thead>
+    <tbody>${rows}</tbody></table>`;
+}
+async function openStopSignature(path){
+  const {data,error}=await sb.storage.from("delivery-proof").createSignedUrl(path, 300);
+  if(error||!data||!data.signedUrl){ alert("Couldn’t open the signature: "+((error&&error.message)||"no link came back")); return; }
+  window.open(data.signedUrl,"_blank");
 }
 
 function orderSection(o, items, pays, open){
@@ -724,6 +781,8 @@ function orderSection(o, items, pays, open){
       ? kv("Delivery clearance",`<span style="color:var(--green);font-weight:700">✓ Authorised${o.delivery_authorised_by?" by "+esc(o.delivery_authorised_by):""}</span>`)
       : (isAdmin()?`<div style="margin-top:10px"><button onclick="authoriseDelivery('${o.id}')" style="background:#1c6b34;color:#fff;border:none;border-radius:8px;padding:9px 15px;font-size:13.5px;font-weight:600;cursor:pointer">✓ Authorise delivery (override)</button></div>`:"")}
     ${gateBlock(o)}
+    ${isOffice()?`<div style="margin-top:12px"><button onclick="openTruckJob('${o.id}')" style="background:#fff;color:var(--navy);border:1px solid #cbd4df;border-radius:8px;padding:8px 14px;font-size:13px;font-weight:600;cursor:pointer">🚚 Book a truck job</button>
+      <span class="muted" style="font-size:11.5px;margin-left:8px">a pickup, swap or extra item — not the delivery itself</span></div>`:""}
     <details style="margin-top:12px" ontoggle="if(this.open)loadProof('${o.id}','proof_${o.id}')">
       <summary style="cursor:pointer;font-weight:700;color:var(--navy,#0e2038)">Proof of delivery</summary>
       <div id="proof_${o.id}" style="margin-top:10px"></div>
@@ -857,6 +916,48 @@ async function setFreePillow(orderId, on){
   if(error){ alert("Could not change it: "+error.message); return; }
   if(!data || !data.ok){ alert(data && data.reason ? data.reason : "Could not change it."); return; }
   location.reload();
+}
+
+/* ===== Book a truck job ====================================================
+   A pickup, a swap, an extra item — any truck visit that is not the original
+   delivery. book_truck_job() puts a stop on that day's run (found by date, not
+   by person; created if there is none; appended, never renumbered).
+   ⚠ It never writes sim_orders.delivery_date or delivery_status. Those mean
+   the original delivery only — see deliveries-cancel-and-manual.md. */
+let TJORD=null;
+function tjErr(m){ const b=document.getElementById("tjErr"); if(!m){b.style.display="none";return;} b.style.display=""; b.textContent=m; }
+function openTruckJob(orderId){
+  const o=ORDERS[orderId]; if(!o) return;
+  TJORD=orderId; tjErr("");
+  const who=[CUST.first_name,CUST.last_name].filter(Boolean).join(" ")||"this customer";
+  document.getElementById("tjWho").textContent=who;
+  document.getElementById("tjType").value="pickup";
+  document.getElementById("tjNote").value="";
+  const t=new Date(); t.setDate(t.getDate()+1);      // tomorrow, in the browser's local day
+  document.getElementById("tjDate").value=`${t.getFullYear()}-${String(t.getMonth()+1).padStart(2,"0")}-${String(t.getDate()).padStart(2,"0")}`;
+  document.getElementById("tjAddr").value="";
+  document.getElementById("tjAddrOnFile").textContent=[CUST.address,CUST.suburb].filter(Boolean).join(", ")||"(no address on file)";
+  document.getElementById("truckModal").style.display="flex";
+  document.getElementById("tjNote").focus();
+}
+function closeTruckJob(){ document.getElementById("truckModal").style.display="none"; TJORD=null; }
+async function saveTruckJob(){
+  if(!TJORD) return;
+  tjErr("");
+  const note=document.getElementById("tjNote").value.trim();
+  const date=document.getElementById("tjDate").value;
+  if(!note) return tjErr("Say what the driver should do — that is what they will read on the run.");
+  if(!date) return tjErr("Pick the day the truck should go.");
+  const btn=document.getElementById("tjSave"); btn.disabled=true; btn.textContent="Booking…";
+  const {data,error}=await sb.rpc("book_truck_job",{
+    p_order:TJORD, p_job_type:document.getElementById("tjType").value,
+    p_job_note:note, p_date:date, p_job_address:document.getElementById("tjAddr").value.trim()||null });
+  btn.disabled=false; btn.textContent="Book it";
+  if(error) return tjErr(error.message);                 // raised in the database (not authorised, order not found)
+  if(!data||!data.ok) return tjErr((data&&data.error)||"Couldn’t book it — no reason was given back.");
+  closeTruckJob();
+  alert(data.message);
+  run(true);
 }
 
 /* ===== Application details ================================================
@@ -2957,6 +3058,43 @@ async function saveEditCust(){
     <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:18px">
       <button onclick="closeReassign()" style="background:none;border:1px solid #cbd4df;border-radius:8px;padding:9px 15px;cursor:pointer">Cancel</button>
       <button id="reSave" onclick="saveReassign()" style="background:#1c6b34;color:#fff;border:none;border-radius:8px;padding:9px 18px;font-weight:700;cursor:pointer">Move sale</button>
+    </div>
+  </div>
+</div>
+
+<!-- Book a truck job: a stop on a run that is NOT the original delivery — a
+     pickup, a swap, an extra product. It never touches the order's delivery
+     date or status; those mean the original delivery only. -->
+<div id="truckModal" class="modalbg">
+  <div class="modal" style="max-width:480px">
+    <h3 style="margin:0 0 4px">Book a truck job</h3>
+    <p class="muted" style="font-size:12.5px;margin:0 0 14px">
+      For <b id="tjWho"></b>. This puts a stop on that day's run. The driver reads exactly what you type below.
+    </p>
+    <div id="tjErr" style="display:none;background:#fdecec;border:1px solid #e0b4b0;color:#b4342e;border-radius:9px;padding:11px 13px;font-size:13.5px;margin-bottom:12px"></div>
+
+    <label class="ml" for="tjType">What kind of job</label>
+    <!-- no "delivery" here: the original delivery is booked on the delivery
+         screen, and a second route to it would be a trap -->
+    <select id="tjType" class="mi">
+      <option value="pickup">Pickup — collect something from the customer</option>
+      <option value="swap">Swap — take one away, leave another</option>
+      <option value="other">Other — an extra item, a warehouse move, anything else</option>
+    </select>
+
+    <label class="ml" for="tjNote">What the driver should do</label>
+    <textarea id="tjNote" class="mi" rows="3" placeholder="e.g. Collect the Queen, leave the Super King. Customer knows."></textarea>
+
+    <label class="ml" for="tjDate">Which day</label>
+    <input id="tjDate" class="mi" type="date">
+
+    <label class="ml" for="tjAddr">Different address <span class="muted" style="font-weight:400">(optional)</span></label>
+    <input id="tjAddr" class="mi" type="text" placeholder="">
+    <div class="muted" style="font-size:11.5px;margin-top:4px">Leave blank to use the address on file: <b id="tjAddrOnFile"></b></div>
+
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:18px">
+      <button onclick="closeTruckJob()" style="background:none;border:1px solid #cbd4df;border-radius:8px;padding:9px 15px;cursor:pointer">Cancel</button>
+      <button id="tjSave" onclick="saveTruckJob()" style="background:#1c6b34;color:#fff;border:none;border-radius:8px;padding:9px 18px;font-weight:700;cursor:pointer">Book it</button>
     </div>
   </div>
 </div>
