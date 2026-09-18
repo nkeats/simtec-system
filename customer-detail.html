@@ -103,6 +103,7 @@ let customerId = params.get("cust");
 const linkedOrderId = params.get("id");
 
 let ORDERS={}, ITEMSBY={}, CUST={};
+let ARRBY={}, ARR_EDIT=null;   // agreed payments per order (sim_payment_arrangements); the row being edited
 
 const fmt=n=>(n==null||n==="")?"—":"$"+Number(n).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
 function auDate(v){ if(!v) return "—"; const m=String(v).match(/^(\d{4})-(\d{2})-(\d{2})/); if(m) return m[3]+"/"+m[2]+"/"+m[1]; const d=new Date(v); return isNaN(d)?v:String(d.getDate()).padStart(2,"0")+"/"+String(d.getMonth()+1).padStart(2,"0")+"/"+d.getFullYear(); }
@@ -431,6 +432,15 @@ async function run(quiet){
         .in("order_id",ids).order("line_no");
       if(e3) throw new Error("Loading products: "+e3.message);
       (items||[]).forEach(i=>{ (ITEMSBY[i.order_id]=ITEMSBY[i.order_id]||[]).push(i); });
+    }
+    // agreed payments for orders collected "other" than by Ezidebit (an empty list is valid)
+    ARRBY={};
+    if(ids.length){
+      const {data:arrs,error:e3b}=await sb.from("sim_payment_arrangements")
+        .select("id,order_id,due_date,amount,note")
+        .in("order_id",ids).order("due_date",{ascending:true,nullsFirst:false}).order("created_at");
+      if(e3b) throw new Error("Loading agreed payments: "+e3b.message);
+      (arrs||[]).forEach(a=>{ (ARRBY[a.order_id]=ARRBY[a.order_id]||[]).push(a); });
     }
 
     // payments, grouped by the payer reference on each order
@@ -771,6 +781,7 @@ function orderSection(o, items, pays, open){
         ${p.silent?`<div style="font-size:11.5px;color:var(--red);margin-top:6px">\u26A0 ${esc(p.silentTxt)} — worth a call even though the balance looks on track.</div>`:""}
         ${p.fromView&&p.anchor?`<div style="font-size:11.5px;color:#8593a5;margin-top:6px">Counted from ${p.anchorIsReal?"their first debit":"the recorded schedule start"} (${auDate(p.anchor)}), up to the last settled payment date (${auDate(p.asAt)}). Ezidebit settles about two working days after it debits, so anything newer than that hasn't landed yet.</div>`:""}
         ${p.estimated?`<div style="font-size:11.5px;color:var(--amber);margin-top:6px">Estimated — this order's real instalment isn't recorded, so "expected by now" assumes the standard term.</div>`:""}
+        ${collectionBlock(o)}
       </div>`;
 
   const faLine = isMgr() ? (o.further_action
@@ -921,6 +932,104 @@ async function setFreePillow(orderId, on){
   if(error){ reportClientError("set the free pillow "+(on?"on":"off"), error, orderId); alert("Could not change it: "+error.message); return; }
   if(!data || !data.ok){ reportClientError("set the free pillow "+(on?"on":"off"), (data&&data.reason)||"no reason came back", orderId); alert(data && data.reason ? data.reason : "Could not change it."); return; }
   location.reload();
+}
+
+/* ===== How this order is collected =========================================
+   sim_orders.collection_method: 'ezidebit' (the default) or 'other' — a customer
+   paying by bank transfer, cash at the door, or an agreed set of part-payments.
+   For 'other' the office keeps the agreed payments in sim_payment_arrangements
+   (date, amount, note). An EMPTY list is valid: it means nothing was agreed.
+   "Recorded" is amount_paid_to_date — the one definition of what has been paid.
+   ⚠ This control writes collection_method and nothing else. ezidebit_payer_ref
+     and ezidebit_customer_id are left alone, so switching back to Ezidebit
+     finds them still there. */
+const CM_LABEL = { ezidebit:"Ezidebit", other:"Other" };
+const inputStyle = "padding:6px 8px;border:1px solid #cbd4df;border-radius:7px;font-size:13px;font-family:inherit";
+const smallBtn = (label, onclick, colour) =>
+  `<button onclick="${onclick}" style="background:${colour||"#fff"};color:${colour?"#fff":"var(--navy)"};border:1px solid ${colour||"#cbd4df"};border-radius:6px;padding:3px 9px;font-size:11.5px;font-weight:600;cursor:pointer">${label}</button>`;
+function collectionBlock(o){
+  const cm = o.collection_method || "ezidebit";
+  if(!isOffice()) return kv("Collected by", CM_LABEL[cm] || esc(cm));
+  const sel = `<select onchange="setCollectionMethod('${o.id}',this.value)" style="${inputStyle}">
+      <option value="ezidebit"${cm==="ezidebit"?" selected":""}>Ezidebit</option>
+      <option value="other"${cm==="other"?" selected":""}>Other — agreed payments</option>
+    </select>`;
+  let html = kv("How this order is collected", sel);
+  if(cm !== "other") return html;
+
+  const rows = ARRBY[o.id] || [];
+  const today = new Date().toISOString().slice(0,10);
+  const agreed   = rows.reduce((s,a)=>s+Number(a.amount||0), 0);
+  const dueToday = rows.filter(a=>a.due_date && a.due_date <= today).reduce((s,a)=>s+Number(a.amount||0), 0);
+  const recorded = Number(o.amount_paid_to_date||0);
+  let verdict;
+  if(!rows.length)                 verdict = `<span class="muted">nothing agreed yet</span>`;
+  else if(recorded >= dueToday)    verdict = `<span style="color:var(--green);font-weight:700">up to date</span>`;
+  else                             verdict = `<span style="color:var(--red);font-weight:700">${fmt(dueToday-recorded)} behind what was due by today</span>`;
+
+  const line = rows.map(a=>{
+    if(ARR_EDIT === a.id) return `<tr>
+        <td><input type="date" id="arD_${a.id}" value="${esc(a.due_date||"")}" style="${inputStyle}"></td>
+        <td class="num"><input type="number" step="0.01" min="0.01" id="arA_${a.id}" value="${Number(a.amount)}" style="${inputStyle};width:90px;text-align:right"></td>
+        <td><input type="text" id="arN_${a.id}" value="${esc(a.note||"")}" placeholder="note" style="${inputStyle};width:100%"></td>
+        <td style="white-space:nowrap">${smallBtn("Save",`arrSave('${a.id}','${o.id}')`,"#1c6b34")} ${smallBtn("Cancel",`arrEditCancel()`)}</td></tr>`;
+    return `<tr>
+        <td style="white-space:nowrap">${a.due_date?auDate(a.due_date):'<span class="muted">no date</span>'}</td>
+        <td class="num">${fmt(a.amount)}</td>
+        <td>${a.note?esc(a.note):'<span class="muted">—</span>'}</td>
+        <td style="white-space:nowrap">${smallBtn("Edit",`arrEdit('${a.id}')`)} ${smallBtn("Remove",`arrRemove('${a.id}','${o.id}')`)}</td></tr>`;
+  }).join("");
+
+  html += `<div style="margin-top:10px;border:1px solid var(--line);border-radius:10px;padding:10px 12px">
+    <div style="font-size:12px;font-weight:700;color:var(--navy);margin-bottom:6px">Agreed payments</div>
+    ${rows.length ? `<table style="width:100%;font-size:13px"><thead><tr><th>Date</th><th class="num">Amount</th><th style="width:40%">Note</th><th></th></tr></thead><tbody>${line}</tbody></table>`
+                  : `<div class="muted" style="font-size:12.5px;margin-bottom:6px">No payments agreed. That is fine — add them if and when they are.</div>`}
+    <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:8px">
+      <input type="date" id="arD_new_${o.id}" style="${inputStyle}">
+      <input type="number" step="0.01" min="0.01" id="arA_new_${o.id}" placeholder="amount" style="${inputStyle};width:100px">
+      <input type="text" id="arN_new_${o.id}" placeholder="note (optional)" style="${inputStyle};flex:1;min-width:120px">
+      ${smallBtn("+ Add",`arrAdd('${o.id}')`,"#122347")}
+    </div>
+    <div style="font-size:12.5px;margin-top:10px;padding-top:8px;border-top:1px dashed var(--line)">
+      Agreed <b>${fmt(agreed)}</b>${rows.length?` (${fmt(dueToday)} due by today)`:""} · Recorded <b>${fmt(recorded)}</b> · ${verdict}
+    </div>
+  </div>`;
+  return html;
+}
+async function setCollectionMethod(oid, val){
+  if(val!=="ezidebit" && val!=="other") return;
+  // ⚠ collection_method only — never the Ezidebit references
+  const {error}=await sb.from("sim_orders").update({collection_method:val}).eq("id",oid);
+  if(error){ reportClientError("set how the order is collected to "+val, error, oid); alert("Couldn't change it: "+error.message); run(true); return; }
+  run(true);
+}
+function arrEdit(id){ ARR_EDIT=id; run(true); }
+function arrEditCancel(){ ARR_EDIT=null; run(true); }
+function arrRead(prefix){
+  const d=(document.getElementById("arD_"+prefix)||{}).value||"";
+  const a=parseFloat((document.getElementById("arA_"+prefix)||{}).value);
+  const n=((document.getElementById("arN_"+prefix)||{}).value||"").trim();
+  if(!(a>0)){ alert("Enter the agreed amount (more than $0)."); return null; }
+  return { due_date:d||null, amount:a, note:n||null };
+}
+async function arrAdd(oid){
+  const row=arrRead("new_"+oid); if(!row) return;
+  const {error}=await sb.from("sim_payment_arrangements").insert({ order_id:oid, ...row, created_by:(window.SIMTEC_USER&&window.SIMTEC_USER.id)||null });
+  if(error){ reportClientError("add an agreed payment", error, oid); alert("Couldn't add it: "+error.message); return; }
+  run(true);
+}
+async function arrSave(id, oid){
+  const row=arrRead(id); if(!row) return;
+  const {error}=await sb.from("sim_payment_arrangements").update(row).eq("id",id);
+  if(error){ reportClientError("change an agreed payment", error, oid); alert("Couldn't save it: "+error.message); return; }
+  ARR_EDIT=null; run(true);
+}
+async function arrRemove(id, oid){
+  const a=(ARRBY[oid]||[]).find(x=>x.id===id)||{};
+  if(!confirm("Remove the agreed payment of "+fmt(a.amount)+(a.due_date?" on "+auDate(a.due_date):"")+"?")) return;
+  const {error}=await sb.from("sim_payment_arrangements").delete().eq("id",id);
+  if(error){ reportClientError("remove an agreed payment", error, oid); alert("Couldn't remove it: "+error.message); return; }
+  run(true);
 }
 
 /* ===== Book a truck job ====================================================
