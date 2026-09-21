@@ -59,6 +59,18 @@ tr:last-child td{border-bottom:none}
   <div id="state" class="text-center text-slate-500 py-20">Loading stock…</div>
 </div>
 
+<!-- unpacked count modal — 21 Sep -->
+<div class="ov" id="ovc"><div class="modal" style="max-width:26rem">
+  <h3 class="font-semibold text-white mb-1">This week's unpacked count</h3>
+  <p class="k mb-3">How many of each are already out of the wrapping. The faint number is last time's count &mdash; type what's there today. Leave a box empty to keep last time's figure for that one; it will show as out of date.</p>
+  <div id="ovcRows" style="max-height:55vh;overflow:auto;margin-bottom:14px"></div>
+  <div class="flex gap-3">
+    <button class="btn gold flex-1" id="ovcSave" onclick="saveCount()">Save count</button>
+    <button class="btn flex-1" onclick="closeCount()">Cancel</button>
+  </div>
+  <div id="ovcErr" class="text-xs mt-3" style="color:#f87171"></div>
+</div></div>
+
 <!-- stock movement modal -->
 <div class="ov" id="ov"><div class="modal">
   <h3 class="font-semibold text-white mb-1" id="ovtitle">Stock movement</h3>
@@ -287,35 +299,103 @@ async function loadUnpack(){
   UNPACK={rows:out, totals};
 }
 
-function renderUnpack(){
-  const {rows,totals}=UNPACK;
-  const units=Object.values(totals).reduce((a,b)=>a+b,0);
-  const badge=$('unpackCount'); if(badge) badge.textContent=units||'';
+// 21 Sep — Nigel: "On each Monday, I want to know what we need to unpack so we
+// always have a minimum of 3 weeks deliveries unpacked... I want 2 more of every
+// type than we expect to need over the next 3 weeks unpacked at all times."
+//
+// ⚠ WHAT THIS REPLACED. The old "To unpack" column was the 21-day NEED, set
+// against On hand — the WHOLE warehouse, packed and unpacked together. With 20
+// Super Kings already expanded and 24 due it said unpack 24; the job was 4.
+// Nothing recorded what was unpacked, so it could not have known.
+// Now: To unpack = (needed + 2) − already unpacked, never below zero, and never
+// more than is actually sitting there PACKED. The label stays "To unpack" on
+// Nigel's instruction — it is the job that needs doing this week.
+const UNPACK_SPARE = 2;        // "2 more of every type" — every type, including ones with nothing due
+const COUNT_STALE_DAYS = 7;    // a count older than this is last week's answer, and says so
 
-  if(!rows.length){
-    $('paneUnpack').innerHTML='<div class="card text-slate-400">Nothing needs unpacking in the next three weeks.</div>';
-    return;
-  }
-  const names=Object.keys(totals).sort((a,b)=>totals[b]-totals[a]||a.localeCompare(b));
+function unpackRow(it){
+  const need   = UNPACK.totals[it.product_name] || 0;
+  const target = need + UNPACK_SPARE;
+  const oh     = onHand(it);
+  const onOrder= +it.on_order || 0;
+  // NULL IS NOT ZERO. Never counted must not read as "none unpacked", or the page
+  // would tell the warehouse to unpack stock that is already unpacked.
+  if(it.unpacked_qty === null || it.unpacked_qty === undefined)
+    return { name:it.product_name, need, target, oh, up:null, job:null, short:0, over:false, onOrder };
+  const up     = +it.unpacked_qty;
+  const packed = Math.max(0, oh - up);
+  const want   = Math.max(0, target - up);
+  const job    = Math.min(want, packed);          // cannot unpack what is not there
+  return { name:it.product_name, need, target, oh, up, job, short: want - job,
+           over: up > oh,                         // the count is the truth; if it beats the
+           onOrder };                             // stock figure, the stock figure needs checking
+}
+
+function renderUnpack(){
+  const {rows}=UNPACK;
+  const mats = ITEMS.filter(i=>i.category==='mattress');          // ALL active types, in stock order
+  const R    = mats.map(unpackRow);
+
+  // how old is the count? the OLDEST type decides, so one stale row can't hide behind fresh ones
+  const stamps  = mats.map(i=>i.unpacked_counted_at).filter(Boolean).map(d=>new Date(d).getTime());
+  const uncount = R.filter(r=>r.up===null).length;
+  const oldest  = stamps.length ? Math.min(...stamps) : null;
+  const ageDays = oldest===null ? null : Math.floor((Date.now()-oldest)/864e5);
+  const stale   = uncount>0 || ageDays===null || ageDays>COUNT_STALE_DAYS;
+  const whoRow  = mats.find(i=>i.unpacked_counted_at && new Date(i.unpacked_counted_at).getTime()===oldest);
+  const when    = oldest===null ? '' : new Date(oldest).toLocaleDateString('en-NZ',{weekday:'short',day:'numeric',month:'short'});
+
+  const totJob = R.reduce((a,r)=>a+(r.job||0),0);
+  const badge=$('unpackCount');
+  if(badge) badge.textContent = stale ? '!' : (totJob ? String(totJob) : '');
+
+  const countLine = uncount===R.length
+      ? `<span style="color:#f87171;font-weight:600">Not counted yet.</span> Enter how many of each are already unpacked before using this list.`
+    : uncount>0
+      ? `<span style="color:#f87171;font-weight:600">${uncount} type${uncount===1?' has':'s have'} never been counted.</span> Their row says "count first".`
+    : ageDays>COUNT_STALE_DAYS
+      ? `<span style="color:#f87171;font-weight:600">Last counted ${ageDays} days ago (${when}).</span> Count again before unpacking — these figures are last week's.`
+      : `Counted ${when}${whoRow&&whoRow.unpacked_counted_by?' by '+esc(whoRow.unpacked_counted_by):''}.`;
+
   let html=`<div class="card mb-4" style="padding:0;overflow:hidden">
-    <div class="lbl" style="padding:12px 14px 6px">Unpack now — mattresses needed within ${UNPACK_DAYS} days</div>
-    <div class="k" style="padding:0 14px 10px">Everything already booked, already cleared and waiting on the office to ring, or clearing on its own inside three weeks. Bases and protectors aren't listed — they don't need the lead time.</div>
-    <table><thead><tr><th>Mattress</th><th class="num">On hand</th><th class="num">To unpack</th><th class="num">Short</th></tr></thead><tbody>`;
-  let tU=0,tS=0;
-  names.forEach(n=>{
-    const it=ITEMS.find(x=>x.product_name===n);
-    const oh=it?onHand(it):0, need=totals[n], short=Math.max(0,need-oh);
-    tU+=need; tS+=short;
-    html+=`<tr><td class="text-slate-100">${esc(n)}</td>
-      <td class="num text-slate-400">${NUM(oh)}</td>
-      <td class="num"><span class="pillc" style="color:#fbbf24;border-color:#5a4a24">${NUM(need)}</span></td>
-      <td class="num" style="color:${short>0?'#f87171':'#4ade80'};font-weight:600">${short>0?NUM(short):'—'}</td></tr>`;
+    <div class="flex items-start justify-between gap-3" style="padding:12px 14px 6px">
+      <div>
+        <div class="lbl">Unpack now — three weeks of deliveries, plus ${UNPACK_SPARE} of every type</div>
+        <div class="k" style="margin-top:4px">${countLine}</div>
+      </div>
+      <button class="btn gold" style="white-space:nowrap" onclick="openCount()">Enter this week's count</button>
+    </div>
+    <div class="k" style="padding:0 14px 10px">Needed is everything booked, cleared and waiting for the office to ring, or clearing on its own inside ${UNPACK_DAYS} days.
+      Target is that plus ${UNPACK_SPARE}. To unpack is the target less what is already unpacked. Bases and protectors aren't listed — they don't need the lead time.</div>
+    <table><thead><tr><th>Mattress</th><th class="num">Needed (${UNPACK_DAYS} days)</th><th class="num">Target</th><th class="num">Unpacked</th><th class="num">To unpack</th></tr></thead><tbody>`;
+
+  let tN=0,tT=0,tU=0;
+  R.forEach(r=>{
+    tN+=r.need; tT+=r.target; if(r.up!==null) tU+=r.up;
+    let jobCell;
+    if(r.up===null)       jobCell=`<span class="k">count first</span>`;
+    else if(r.job>0)      jobCell=`<span class="pillc" style="color:#fbbf24;border-color:#5a4a24">${NUM(r.job)}</span>`;
+    else                  jobCell=`<span style="color:#4ade80;font-weight:600">—</span>`;
+    const notes=[];
+    if(r.short>0) notes.push(`<span style="color:#f87171">${NUM(r.short)} short — ${r.oh<=0?'none in the warehouse':'only '+NUM(Math.max(0,r.oh-(r.up||0)))+' packed'}${r.onOrder?', '+NUM(r.onOrder)+' on order':''}</span>`);
+    if(r.over)    notes.push(`<span style="color:#fbbf24">counted ${NUM(r.up)}, but the system holds ${NUM(r.oh)} — the stock figure needs checking</span>`);
+    html+=`<tr><td class="text-slate-100">${esc(r.name)}${notes.length?`<div class="k" style="margin-top:3px">${notes.join('<br>')}</div>`:''}</td>
+      <td class="num text-slate-300">${NUM(r.need)}</td>
+      <td class="num text-slate-400">${NUM(r.target)}</td>
+      <td class="num text-slate-300">${r.up===null?'<span class="k">—</span>':NUM(r.up)}</td>
+      <td class="num">${jobCell}</td></tr>`;
   });
   html+=`<tr style="border-top:2px solid #334155;font-weight:700">
-      <td class="text-slate-100">Total</td><td class="num text-slate-400"></td>
-      <td class="num" style="color:#fbbf24">${NUM(tU)}</td>
-      <td class="num" style="color:${tS>0?'#f87171':'#4ade80'}">${tS>0?NUM(tS):'—'}</td>
+      <td class="text-slate-100">Total</td>
+      <td class="num text-slate-300">${NUM(tN)}</td>
+      <td class="num text-slate-400">${NUM(tT)}</td>
+      <td class="num text-slate-300">${NUM(tU)}</td>
+      <td class="num" style="color:${totJob>0?'#fbbf24':'#4ade80'}">${totJob>0?NUM(totJob):'—'}</td>
     </tr></tbody></table></div>`;
+
+  // the orders behind it — only when there are any; the table above always shows,
+  // because every type has a target of at least ${UNPACK_SPARE}
+  if(!rows.length){ $('paneUnpack').innerHTML=html; return; }
 
   html+=`<div class="card" style="padding:0;overflow:hidden">
     <div class="lbl" style="padding:12px 14px 6px">The ${rows.length} order${rows.length===1?'':'s'} behind that</div>
@@ -457,6 +537,44 @@ window.saveMove=async()=>{
   if(btn){btn.disabled=false;btn.textContent='Save';}
   if(error){ $('mverr').textContent=error.message; return; }
   closeOv(); await load();
+};
+
+// ── unpacked count, 21 Sep ────────────────────────────────────────────────
+// ⚠ LAST WEEK'S FIGURE IS A PLACEHOLDER, NOT A VALUE. Pre-filling it would let
+// somebody press Save without counting, stamp last week's numbers with today's
+// date, and defeat the staleness check completely.
+window.openCount=()=>{
+  const mats=ITEMS.filter(i=>i.category==='mattress');
+  $('ovcRows').innerHTML=mats.map(it=>{
+    const last=(it.unpacked_qty===null||it.unpacked_qty===undefined)?'':String(it.unpacked_qty);
+    return `<label class="flex items-center justify-between gap-3" style="padding:6px 0;border-bottom:1px solid #24324a">
+      <span class="text-slate-200" style="font-size:.9rem">${esc(it.product_name)}</span>
+      <input type="number" min="0" step="1" inputmode="numeric" class="inp" style="width:6rem;text-align:right"
+             data-name="${esc(it.product_name)}" placeholder="${last?'last '+last:'—'}">
+    </label>`;
+  }).join('');
+  $('ovcErr').textContent='';
+  $('ovc').classList.add('show');
+  const first=$('ovcRows').querySelector('input'); if(first) first.focus();
+};
+window.closeCount=()=>{ $('ovc').classList.remove('show'); };
+window.saveCount=async()=>{
+  const counts={}, bad=[];
+  $('ovcRows').querySelectorAll('input').forEach(inp=>{
+    const raw=inp.value.trim();
+    if(raw==='') return;                                   // empty = keep last time's figure
+    if(!/^\d+$/.test(raw)){ bad.push(inp.dataset.name); return; }
+    counts[inp.dataset.name]=parseInt(raw,10);             // a NUMBER — the database refuses text
+  });
+  if(bad.length){ $('ovcErr').textContent='Whole numbers only: '+bad.join(', ')+'.'; return; }
+  if(!Object.keys(counts).length){ $('ovcErr').textContent='Nothing entered.'; return; }
+  const by=(window.SIMTEC_USER&&(window.SIMTEC_USER.full_name||window.SIMTEC_USER.email))||null;
+  const btn=$('ovcSave'); btn.disabled=true; btn.textContent='Saving…';
+  // all-or-nothing in the database: if any one is refused, none of them is saved
+  const {error}=await sb.rpc('set_unpacked_counts',{p_counts:counts,p_by:by});
+  btn.disabled=false; btn.textContent='Save count';
+  if(error){ $('ovcErr').textContent=error.message; return; }
+  closeCount(); await load();
 };
 
 // live.js?v=3: refresh on data change / focus / once a minute
