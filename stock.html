@@ -29,6 +29,31 @@ tr:last-child td{border-bottom:none}
 .onhand{font-size:1.15rem;font-weight:800;font-variant-numeric:tabular-nums}
 .pillc{display:inline-block;font-size:11px;font-weight:700;padding:2px 9px;border-radius:999px;background:#0f1830;border:1px solid #26324a;color:#93a4bd}
 @media(max-width:640px){td .brk{display:none}}
+/* ── PRINT, 23 Sep ─────────────────────────────────────────────────────────
+   The warehouse takes this to the floor. #printArea is built by renderUnpack
+   from THE SAME rows as the screen table, so the paper and the screen can
+   never disagree. Dark theme is forced off - a navy background wastes toner
+   and reads badly under warehouse lighting. */
+#printArea{display:none}
+@media print{
+  body *{visibility:hidden!important}
+  #printArea,#printArea *{visibility:visible!important}
+  #printArea{display:block;position:absolute;left:0;top:0;width:100%;
+             background:#fff;color:#000;font:12pt/1.35 Arial,Helvetica,sans-serif}
+  #printArea h1{font-size:16pt;margin:0 0 2pt}
+  #printArea .sub{font-size:10pt;color:#333;margin:0 0 10pt}
+  #printArea table{width:100%;border-collapse:collapse;font-size:11pt}
+  #printArea th{text-align:right;border-bottom:1.5pt solid #000;padding:5pt 4pt;
+                font-size:9pt;text-transform:uppercase;letter-spacing:.04em}
+  #printArea th:first-child,#printArea td:first-child{text-align:left}
+  #printArea td{text-align:right;border-bottom:.5pt solid #bbb;padding:5pt 4pt}
+  #printArea .job{font-weight:700}
+  #printArea .note{font-size:9pt;color:#444}
+  #printArea .tot td{border-top:1.5pt solid #000;font-weight:700}
+  #printArea .tick{display:inline-block;width:16pt;height:11pt;border:1pt solid #555}
+  #printArea .foot{margin-top:12pt;font-size:9pt;color:#444}
+  @page{margin:14mm}
+}
 </style>
 </head>
 <body class="bg-slate-950 text-white min-h-screen">
@@ -363,7 +388,10 @@ function renderUnpack(){
         <div class="lbl">Unpack now — three weeks of deliveries, plus ${UNPACK_SPARE} of every type</div>
         <div class="k" style="margin-top:4px">${countLine}</div>
       </div>
-      <button class="btn gold" style="white-space:nowrap" onclick="openCount()">Enter this week's count</button>
+      <div class="flex gap-2" style="white-space:nowrap">
+        <button class="btn" onclick="window.print()">Print list</button>
+        <button class="btn gold" onclick="openCount()">Enter this week's count</button>
+      </div>
     </div>
     <div class="k" style="padding:0 14px 10px">Needed is everything booked, cleared and waiting for the office to ring, or clearing on its own inside ${UNPACK_DAYS} days.
       Target is that plus ${UNPACK_SPARE}. To unpack is the target less what is already unpacked. Bases and protectors aren't listed — they don't need the lead time.</div>
@@ -392,6 +420,39 @@ function renderUnpack(){
       <td class="num text-slate-300">${NUM(tU)}</td>
       <td class="num" style="color:${totJob>0?'#fbbf24':'#4ade80'}">${totJob>0?NUM(totJob):'—'}</td>
     </tr></tbody></table></div>`;
+
+  // ── THE PRINTED SHEET, 23 Sep ───────────────────────────────────────────
+  // Built from R - the SAME rows as the table above - so paper and screen can
+  // never show different numbers. Hidden on screen, visible only when printed.
+  const pj = R.filter(r=>r.job>0).reduce((a,r)=>a+r.job,0);
+  const printed = new Date().toLocaleDateString('en-NZ',{weekday:'long',day:'numeric',month:'long',year:'numeric'});
+  let ph=`<div id="printArea">
+    <h1>Unpack list — three weeks of deliveries, plus ${UNPACK_SPARE} of every type</h1>
+    <div class="sub">Printed ${printed}. ${
+      uncount===R.length ? '<b>NOT COUNTED YET — these figures cannot be relied on.</b>'
+      : uncount>0 ? `<b>${uncount} type${uncount===1?'':'s'} never counted</b> — shown as "count first".`
+      : ageDays>COUNT_STALE_DAYS ? `<b>Last counted ${ageDays} days ago (${when}) — count again before unpacking.</b>`
+      : `Counted ${when}${whoRow&&whoRow.unpacked_counted_by?' by '+esc(whoRow.unpacked_counted_by):''}.`}</div>
+    <table><thead><tr>
+      <th>Mattress</th><th>Needed (${UNPACK_DAYS} days)</th><th>Target</th>
+      <th>Already unpacked</th><th>TO UNPACK</th><th>Done</th>
+    </tr></thead><tbody>`;
+  R.forEach(r=>{
+    const note = r.up===null ? 'count this one first'
+      : r.short>0 ? `${NUM(r.short)} short — ${r.oh<=0?'none in the warehouse':'only '+NUM(Math.max(0,r.oh-r.up))+' packed'}${r.onOrder?', '+NUM(r.onOrder)+' on order':''}`
+      : r.over ? `counted ${NUM(r.up)} but the system holds ${NUM(r.oh)} — check the stock figure` : '';
+    ph+=`<tr><td>${esc(r.name)}${note?`<div class="note">${note}</div>`:''}</td>
+      <td>${NUM(r.need)}</td><td>${NUM(r.target)}</td>
+      <td>${r.up===null?'—':NUM(r.up)}</td>
+      <td class="job">${r.up===null?'?':(r.job>0?NUM(r.job):'—')}</td>
+      <td>${r.job>0?'<span class="tick"></span>':''}</td></tr>`;
+  });
+  ph+=`<tr class="tot"><td>Total</td><td>${NUM(tN)}</td><td>${NUM(tT)}</td><td>${NUM(tU)}</td><td>${pj>0?NUM(pj):'—'}</td><td></td></tr>
+    </tbody></table>
+    <div class="foot">Needed is everything booked, cleared and waiting for the office to ring, or clearing on its own inside ${UNPACK_DAYS} days.
+      Target is that plus ${UNPACK_SPARE}. To unpack is the target less what is already unpacked, and never more than is actually there packed.</div>
+  </div>`;
+  html += ph;
 
   // the orders behind it — only when there are any; the table above always shows,
   // because every type has a target of at least ${UNPACK_SPARE}
