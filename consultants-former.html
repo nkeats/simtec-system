@@ -41,6 +41,14 @@
   .thumb{width:34px;height:41px;object-fit:cover;border:1.5px solid #c1272d;border-radius:3px;background:#e9edf2;vertical-align:middle}
   .thumb.noph{display:inline-flex;align-items:center;justify-content:center;color:#9aa6b4;font-size:8px;text-align:center;line-height:1;border-style:dashed;border-color:#c7ccd4}
   .newphotoprev{width:44px;height:53px;object-fit:cover;border:1.5px solid #c1272d;border-radius:4px;background:#e9edf2}
+  /* kit register — 24 Sep */
+  .kit{display:inline-block;font-size:11px;font-weight:700;padding:3px 9px;border-radius:20px;background:#fdecec;color:#a02020;margin:2px 4px 2px 0}
+  .kit.ok{background:#e7f6ec;color:#1c6b34}
+  .kitbox{background:#f7f9fc;border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin-top:10px}
+  .kitrow{display:grid;grid-template-columns:1.3fr .8fr .7fr 1.6fr auto;gap:8px;align-items:end;margin-bottom:8px}
+  .kitrow input,.kitrow select{padding:7px 9px;font-size:13.5px}
+  .kitrow label{font-size:11px;margin-bottom:3px}
+  @media(max-width:760px){.kitrow{grid-template-columns:1fr}}
   .newphotoprev.noph{display:inline-flex;align-items:center;justify-content:center;color:#9aa6b4;font-size:9px;text-align:center;border-style:dashed;border-color:#c7ccd4}
 </style>
 </head>
@@ -52,6 +60,9 @@
 
 <div class="wrap">
   <div id="msg" style="display:none"></div>
+
+  <div id="kitAlert" style="display:none;background:#fdecec;border:1px solid #f2bdbd;color:#a02020;
+       border-radius:10px;padding:13px 15px;margin-bottom:16px;font-size:14px"></div>
 
   <div class="card">
     <h2>Former consultants</h2>
@@ -76,12 +87,47 @@ const $=id=>document.getElementById(id);
 const esc=s=>(s||"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 function show(t,ok){ const m=$("msg"); m.style.display="block"; m.className=ok?"msgok":"msgerr"; m.textContent=t; window.scrollTo({top:0,behavior:"smooth"}); }
 
+// ── KIT REGISTER, 24 Sep ──────────────────────────────────────────────────
+// The visual reminder of who still holds Simtec property, and the place to
+// record it coming back. A leaver no longer appears on the Consultants screen,
+// so this is the ONLY page where a late return can be recorded.
+// ⚠ The $250 equipment hold-back is released by the DATABASE when every issued
+// item is back in reasonable condition. This page records facts; it never
+// decides the money.
+let KIT={};            // consultant_id -> rows
+const KITITEMS=["Demo Mattress","Presentation Folder","iPad","ID Card","Polo Shirts"];
+
+async function loadKit(ids){
+  KIT={};
+  if(!ids.length) return;
+  const { data, error } = await sb.from("consultant_kit")
+    .select("id,consultant_id,item,qty,issued_on,returned_on,returned_qty,condition,note")
+    .in("consultant_id", ids);
+  if(error){ show("Couldn't load the kit register: "+error.message,false); return; }
+  (data||[]).forEach(r=>{ (KIT[r.consultant_id]=KIT[r.consultant_id]||[]).push(r); });
+}
+const outstanding = rows => (rows||[]).filter(r=>
+  r.issued_on && (!r.returned_on || r.condition!=="reasonable" || (r.returned_qty??r.qty) < r.qty));
+function kitChips(rows){
+  const out=outstanding(rows);
+  if(!(rows||[]).some(r=>r.issued_on)) return `<span class="kit ok">no kit issued</span>`;
+  if(!out.length) return `<span class="kit ok">&#10003; all kit returned</span>`;
+  return out.map(r=>{
+    const short=(r.returned_qty??r.qty)<r.qty && r.returned_on;
+    const what = !r.returned_on ? "still out"
+      : r.condition!=="reasonable" ? r.condition.replace("_"," ")
+      : (r.qty-(r.returned_qty||0))+" of "+r.qty+" not back";
+    return `<span class="kit">${esc(r.item)} — ${what}</span>`;
+  }).join("");
+}
+
 async function load(){
   const { data, error } = await sb.from("commission_consultants")
     .select("id,name,team_leader,is_team_leader,photo,id_card_no,phone,email,active")
     .eq("active", false).order("name");
   if(error){ $("listState").textContent="Couldn't load: "+error.message; return; }
   const LIST=data||[];
+  await loadKit(LIST.map(c=>c.id));
   if(!LIST.length){
     $("listState").textContent="No former consultants — everyone on file is active.";
     $("rows").innerHTML=""; return;
@@ -91,9 +137,67 @@ async function load(){
       <td>${c.photo?`<img class="thumb" src="${c.photo}" alt="">`:`<span class="thumb noph">No<br>photo</span>`}</td>
       <td><b>${esc(c.name)}</b><div class="muted" style="font-size:11.5px">${c.is_team_leader?"Team leader":"Consultant"} &middot; ID #: ${esc(c.id_card_no||"—")}</div>
         ${(c.phone||c.email)?`<div class="muted" style="font-size:11.5px">${esc(c.phone||"")}${c.phone&&c.email?" &middot; ":""}${esc(c.email||"")}</div>`:""}</td>
-      <td style="white-space:nowrap"><button class="mini" onclick="setActive('${c.id}',true)">&#8617; Reactivate</button></td>
-    </tr>`).join("");
+      <td>${kitChips(KIT[c.id])}</td>
+      <td style="white-space:nowrap">
+        ${outstanding(KIT[c.id]).length?`<button class="mini ghost" onclick="openKit('${c.id}')">Record return</button> `:""}
+        <button class="mini" onclick="setActive('${c.id}',true)">&#8617; Reactivate</button></td>
+    </tr><tr id="kitrow-${c.id}" style="display:none"><td colspan="4" id="kitcell-${c.id}"></td></tr>`).join("");
+
+  // the banner — who still holds something, without having to read the list
+  const owing = LIST.filter(c=>outstanding(KIT[c.id]).length);
+  const items = owing.reduce((a,c)=>a+outstanding(KIT[c.id]).length,0);
+  const box=$("kitAlert");
+  if(owing.length){
+    box.style.display="block";
+    box.innerHTML=`<b>${owing.length} former consultant${owing.length===1?"":"s"} still hold Simtec kit</b>
+      &mdash; ${items} item${items===1?"":"s"} outstanding: ${owing.map(c=>esc(c.name)).join(", ")}.`;
+  } else box.style.display="none";
 }
+
+// record a return, item by item. A reason is REQUIRED for anything not back in
+// reasonable condition — the database refuses it otherwise, and that reason is the
+// evidence needed before any cost can be recovered under clause 6.2.
+window.openKit=(id)=>{
+  const tr=$("kitrow-"+id), cell=$("kitcell-"+id);
+  if(tr.style.display!=="none"){ tr.style.display="none"; return; }
+  const rows=outstanding(KIT[id]);
+  cell.innerHTML=`<div class="kitbox">
+    <div class="muted" style="font-size:12px;margin-bottom:10px">Record what came back. A reason is required for anything not returned in reasonable condition.</div>
+    ${rows.map(r=>`<div class="kitrow" data-row="${r.id}">
+      <div><label>${esc(r.item)}${r.qty>1?" (x"+r.qty+")":""}</label>
+        <div class="muted" style="font-size:11.5px">issued ${esc(r.issued_on||"—")}</div></div>
+      <div><label>Date back</label><input type="date" class="k-date" max="${new Date().toISOString().slice(0,10)}"></div>
+      <div><label>How many</label><input type="number" class="k-qty" min="0" max="${r.qty}" value="${r.qty}"></div>
+      <div><label>Condition</label><select class="k-cond">
+        <option value="reasonable">Reasonable condition</option>
+        <option value="damaged">Damaged</option>
+        <option value="not_returned">Not returned</option></select>
+        <input class="k-note" placeholder="Reason — required unless reasonable" style="margin-top:6px">
+      </div>
+      <div><button class="mini" onclick="saveKit('${id}',${r.id},this)">Save</button></div>
+    </div>`).join("")}
+  </div>`;
+  tr.style.display="";
+};
+
+window.saveKit=async(cid,rowId,btn)=>{
+  const box=btn.closest(".kitrow");
+  const date=box.querySelector(".k-date").value;
+  const qty =box.querySelector(".k-qty").value;
+  const cond=box.querySelector(".k-cond").value;
+  const note=box.querySelector(".k-note").value.trim();
+  if(!date){ show("Put in the date it came back.",false); return; }
+  if(cond!=="reasonable" && !note){ show("A reason is required for anything not returned in reasonable condition.",false); return; }
+  btn.disabled=true; btn.textContent="Saving…";
+  const { error } = await sb.from("consultant_kit")
+    .update({ returned_on:date, returned_qty:qty===""?null:Number(qty), condition:cond,
+              note:note||null, updated_at:new Date().toISOString() })
+    .eq("id", rowId);
+  btn.disabled=false; btn.textContent="Save";
+  if(error){ show("Couldn't save: "+error.message,false); return; }
+  show("Recorded. If everything issued is now back in reasonable condition, the $250 equipment hold-back is raised automatically.",true);
+  await load();
+};
 
 // Reactivate — the only action available here. Making someone inactive happens
 // on the main Consultants screen, so a leaver is never removed by accident from

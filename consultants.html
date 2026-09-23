@@ -38,6 +38,15 @@
   .msgerr{background:var(--errbg);color:var(--err);border:1px solid #f2bdbd}
   @media(max-width:640px){.grid{grid-template-columns:1fr}}
   /* ID card photo thumbnail */
+  /* kit register — 24 Sep */
+  .kit{display:inline-block;font-size:11px;font-weight:700;padding:3px 9px;border-radius:20px;background:#fdecec;color:#a02020;margin:2px 4px 2px 0}
+  .kit.ok{background:#e7f6ec;color:#1c6b34}
+  .kit.none{background:#eef1f4;color:#7a8798}
+  .kitbox{background:#f7f9fc;border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin-top:10px}
+  .kitrow{display:grid;grid-template-columns:1.2fr .8fr .8fr auto;gap:8px;align-items:end;margin-bottom:8px}
+  .kitrow input,.kitrow select{padding:7px 9px;font-size:13.5px}
+  .kitrow label{font-size:11px;margin-bottom:3px}
+  @media(max-width:760px){.kitrow{grid-template-columns:1fr}}
   .thumb{width:34px;height:41px;object-fit:cover;border:1.5px solid #c1272d;border-radius:3px;background:#e9edf2;vertical-align:middle}
   .thumb.noph{display:inline-flex;align-items:center;justify-content:center;color:#9aa6b4;font-size:8px;text-align:center;line-height:1;border-style:dashed;border-color:#c7ccd4}
   .newphotoprev{width:44px;height:53px;object-fit:cover;border:1.5px solid #c1272d;border-radius:4px;background:#e9edf2}
@@ -121,10 +130,109 @@ function clearMsg(){ $("msg").style.display="none"; }
 
 let LIST=[];
 
+// ── KIT REGISTER, 24 Sep ──────────────────────────────────────────────────
+// Issue the kit and see at a glance who has what. Returns are recorded here for
+// people still active, and on the Former consultants page once they have left.
+// ⚠ The $250 equipment hold-back is released by the DATABASE when every issued
+// item is back in reasonable condition. This page records facts, never money.
+// ⚠ The iPad often goes out separately, so every item carries its OWN issue date.
+let KIT={};
+async function loadKit(ids){
+  KIT={};
+  if(!ids.length) return;
+  const { data, error } = await sb.from("consultant_kit")
+    .select("id,consultant_id,item,qty,issued_on,returned_on,returned_qty,condition,note")
+    .in("consultant_id", ids);
+  if(error){ show("Couldn't load the kit register: "+error.message,false); return; }
+  (data||[]).forEach(r=>{ (KIT[r.consultant_id]=KIT[r.consultant_id]||[]).push(r); });
+}
+const outstanding = rows => (rows||[]).filter(r=>
+  r.issued_on && (!r.returned_on || r.condition!=="reasonable" || (r.returned_qty??r.qty) < r.qty));
+const notIssued = rows => (rows||[]).filter(r=>!r.issued_on);
+function kitChips(rows){
+  if(!rows || !rows.length) return `<span class="kit none">no kit recorded</span>`;
+  const out=outstanding(rows), ni=notIssued(rows);
+  if(!rows.some(r=>r.issued_on)) return `<span class="kit none">kit not issued</span>`;
+  const bits=[];
+  if(out.length) out.forEach(r=>{
+    const what = !r.returned_on ? "out" : r.condition!=="reasonable" ? r.condition.replace("_"," ")
+      : (r.qty-(r.returned_qty||0))+" of "+r.qty+" not back";
+    bits.push(`<span class="kit">${esc(r.item)} — ${what}</span>`);
+  });
+  else bits.push(`<span class="kit ok">&#10003; kit returned</span>`);
+  if(ni.length) bits.push(`<span class="kit none">${ni.length} not issued yet</span>`);
+  return bits.join("");
+}
+
+window.openKit=async(id)=>{
+  const tr=$("kitrow-"+id), cell=$("kitcell-"+id);
+  if(tr.style.display!=="none"){ tr.style.display="none"; return; }
+  const rows=(KIT[id]||[]).slice().sort((a,b)=>a.item.localeCompare(b.item));
+  const today=new Date().toISOString().slice(0,10);
+  cell.innerHTML=`<div class="kitbox">
+    ${rows.length?"":`<div class="muted" style="font-size:12.5px;margin-bottom:10px">No kit recorded for this consultant yet.</div>`}
+    <div style="margin-bottom:10px">
+      <button class="mini" onclick="issueKit('${id}',null)">Issue the whole kit today</button>
+      <span class="muted" style="font-size:11.5px;margin-left:8px">Items already issued keep their own date.</span>
+    </div>
+    ${rows.map(r=>`<div class="kitrow" data-row="${r.id}">
+      <div><label>${esc(r.item)}${r.qty>1?" (x"+r.qty+")":""}</label>
+        <div class="muted" style="font-size:11.5px">${r.issued_on?"issued "+esc(r.issued_on):"not issued"}${r.returned_on?" · back "+esc(r.returned_on)+" ("+esc(r.condition||"")+")":""}</div></div>
+      ${!r.issued_on
+        ? `<div><label>Issue date</label><input type="date" class="k-iss" max="${today}" value="${today}"></div>
+           <div></div><div><button class="mini" onclick="issueKit('${id}','${r.item.replace(/'/g,"&#39;")}',this)">Issue</button></div>`
+        : `<div><label>Date back</label><input type="date" class="k-date" max="${today}" value="${r.returned_on||''}"></div>
+           <div><label>How many</label><input type="number" class="k-qty" min="0" max="${r.qty}" value="${r.returned_qty??r.qty}"></div>
+           <div><label>Condition</label><select class="k-cond">
+             <option value="reasonable"${r.condition==="reasonable"?" selected":""}>Reasonable</option>
+             <option value="damaged"${r.condition==="damaged"?" selected":""}>Damaged</option>
+             <option value="not_returned"${r.condition==="not_returned"?" selected":""}>Not returned</option></select></div>`}
+    </div>
+    ${r.issued_on?`<div style="display:grid;grid-template-columns:1fr auto;gap:8px;margin:-4px 0 12px" data-note="${r.id}">
+        <input class="k-note" placeholder="Reason — required unless reasonable" value="${esc(r.note||"")}">
+        <button class="mini" onclick="saveKit('${id}',${r.id},this)">Save</button></div>`:""}`).join("")}
+  </div>`;
+  tr.style.display="";
+};
+
+window.issueKit=async(id,item,btn)=>{
+  const box=btn?btn.closest(".kitrow"):null;
+  const on=box?box.querySelector(".k-iss").value:new Date().toISOString().slice(0,10);
+  if(!on){ show("Put in the issue date.",false); return; }
+  if(btn){ btn.disabled=true; btn.textContent="…"; }
+  const by=(window.SIMTEC_USER&&(window.SIMTEC_USER.full_name||window.SIMTEC_USER.email))||null;
+  const { data, error } = await sb.rpc("issue_kit",
+    { p_consultant:id, p_on:on, p_by:by, p_items:item?[item]:null });
+  if(btn){ btn.disabled=false; btn.textContent="Issue"; }
+  if(error){ show("Couldn't issue: "+error.message,false); return; }
+  show(data===0?"Nothing to issue — those items already have an issue date.":`Issued ${data} item${data===1?"":"s"}, dated ${on}.`,true);
+  await load(); openKit(id);
+};
+
+window.saveKit=async(id,rowId,btn)=>{
+  const wrap=btn.closest("[data-note]");
+  const row=wrap.previousElementSibling;
+  const date=row.querySelector(".k-date").value;
+  const qty =row.querySelector(".k-qty").value;
+  const cond=row.querySelector(".k-cond").value;
+  const note=wrap.querySelector(".k-note").value.trim();
+  if(!date){ show("Put in the date it came back.",false); return; }
+  if(cond!=="reasonable" && !note){ show("A reason is required for anything not returned in reasonable condition.",false); return; }
+  btn.disabled=true; btn.textContent="Saving…";
+  const { error } = await sb.from("consultant_kit")
+    .update({ returned_on:date, returned_qty:qty===""?null:Number(qty), condition:cond,
+              note:note||null, updated_at:new Date().toISOString() }).eq("id", rowId);
+  btn.disabled=false; btn.textContent="Save";
+  if(error){ show("Couldn't save: "+error.message,false); return; }
+  show("Recorded. The $250 equipment hold-back is raised automatically once everything issued is back in reasonable condition.",true);
+  await load(); openKit(id);
+};
+
 async function load(){
   const { data, error } = await sb.from("commission_consultants").select("id,name,team_leader,is_team_leader,photo,id_card_no,phone,email,active").order("name");
   if(error){ $("listState").textContent="Couldn't load: "+error.message; return; }
   LIST=data||[];
+  await loadKit(LIST.map(c=>c.id));
   // backfill any missing (cosmetic) ID numbers once, and persist
   LIST.forEach(c=>{ if(!c.id_card_no){ c.id_card_no=genId(); sb.from("commission_consultants").update({id_card_no:c.id_card_no}).eq("id",c.id); } });
   const ACTIVE   = LIST.filter(c=>c.active!==false);   // null (legacy) counts as active
@@ -152,8 +260,10 @@ async function load(){
         <button class="mini" onclick="openEdit('${c.id}')">✎ Edit</button>
         <button class="mini ghost" onclick="toggleTL('${c.id}',${c.is_team_leader?"false":"true"})">${c.is_team_leader?"Make consultant":"Make team leader"}</button>
         <button class="mini ghost" onclick="setActive('${c.id}',false)" title="Remove from the active list — their details are kept on file">Make inactive</button>
-      </div></td>
-    </tr>`;
+      </div>
+      <div style="margin-top:6px">${kitChips(KIT[c.id])}
+        <button class="mini ghost" onclick="openKit('${c.id}')" style="margin-top:4px">Kit</button></div></td>
+    </tr><tr id="kitrow-${c.id}" style="display:none"><td colspan="6" id="kitcell-${c.id}"></td></tr>`;
   }).join("");
 
   // Former consultants live on their own page — this list stays to current staff
@@ -167,6 +277,14 @@ async function load(){
 // Make a consultant inactive (removed from the active list, kept on file) or reactivate.
 async function setActive(id, on){
   clearMsg();
+  // ⚠ Say it BEFORE they disappear off this list. Once inactive they are only on
+  // the Former consultants page, and that is where the return gets recorded.
+  if(on===false){
+    const out=outstanding(KIT[id]);
+    if(out.length && !confirm(
+      "This consultant still holds Simtec kit:\n\n  "+out.map(r=>r.item+(r.qty>1?" (x"+r.qty+")":"")).join("\n  ")+
+      "\n\nMake them inactive anyway? Record the return on the Former consultants page when it comes back — the $250 equipment hold-back is not paid until it does.")) return;
+  }
   const { error } = await sb.from("commission_consultants").update({active:on}).eq("id",id);
   if(error){ show(error.message,false); return; }
   show(on?"Consultant reactivated.":"Consultant made inactive — moved to the Former consultants page, details kept on file.",true);

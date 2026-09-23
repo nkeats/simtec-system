@@ -1646,6 +1646,19 @@ async function showSettings(){
           <div class="mt-3"><div class="text-xs text-slate-400 mb-1">Running total owed</div><div id="ovlist">${ovListHTML()}</div></div>
           <div class="mt-4"><button class="btn dark text-sm" onclick="showOverridePayoutReport()">⬇ Print payout report</button></div>
         </div>
+        <div class="card" style="border:1px solid rgba(234,179,8,.35)">
+          <div class="flex items-center justify-between mb-1">
+            <h3 class="font-semibold text-sm uppercase tracking-wide">Accreditation &amp; Kit</h3>
+            <span class="text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full bg-yellow-900/40 text-yellow-400">admin only</span>
+          </div>
+          <p class="text-xs text-slate-500 mb-4">Schedule 1 of the contractor agreement. The accreditation fee is raised automatically when an accreditation date is entered. The equipment hold-back is raised when every issued item is back in reasonable condition, or after the months below if they are still working. <b>Changing these affects future accreditations only</b> — anything already raised keeps the figure it was raised at.</p>
+          <div class="grid grid-cols-3 gap-4 mb-2">
+            <div><label class="text-xs text-slate-400 block mb-1">Accreditation fee</label><div class="flex items-center gap-1"><span class="text-slate-500">$</span><input type="number" id="accfee" value="${s.accreditation_fee}" class="inp w-28"></div></div>
+            <div><label class="text-xs text-slate-400 block mb-1">Equipment hold-back</label><div class="flex items-center gap-1"><span class="text-slate-500">$</span><input type="number" id="kithold" value="${s.kit_holdback}" class="inp w-28"></div></div>
+            <div><label class="text-xs text-slate-400 block mb-1">Hold-back paid after</label><div class="flex items-center gap-1"><input type="number" id="kitmths" value="${s.kit_holdback_months}" class="inp w-20"><span class="text-slate-500 text-xs">months</span></div></div>
+          </div>
+          <div id="kitDue" class="mt-3 text-xs text-slate-400"></div>
+        </div>
         <button class="btn gold px-8 py-2.5" onclick="saveSettings()">Save Rates</button>
       </div>
     </div>`;
@@ -1661,6 +1674,18 @@ async function showSettings(){
     toast(`Payout of ${fmt(bal)} recorded. ${tl?tl.name:'Team leader'} reset to $0.`);
   };
 
+  // who still holds kit — context for the hold-back setting, read-only
+  (async()=>{
+    const el=$('kitDue'); if(!el) return;
+    const { data, error } = await sb.from('v_kit_outstanding').select('name,item,qty,problem');
+    if(error){ el.textContent=''; return; }
+    const rows=(data||[]).filter(r=>r.problem!=='not issued yet');
+    if(!rows.length){ el.innerHTML='<span class="text-green-400">No kit outstanding — nothing is holding a $'+(+$('kithold').value||0)+' payment up.</span>'; return; }
+    const by={}; rows.forEach(r=>{ (by[r.name]=by[r.name]||[]).push(r.item); });
+    el.innerHTML='<b class="text-yellow-400">Kit still out:</b> '+Object.entries(by)
+      .map(([n,items])=>esc(n)+' ('+items.map(esc).join(', ')+')').join(' &middot; ');
+  })();
+
   window.saveSettings=async()=>{
     const upd={id:1,tier1_max:+$('t1max').value,tier1_amount:+$('t1amt').value,
       tier2_max:+$('t2max').value,tier2_amount:+$('t2amt').value,
@@ -1668,7 +1693,12 @@ async function showSettings(){
       pillow_charge:+$('pillc').value,
       retention_rate:+$('rrate').value/100,retention_cap:+$('rcap').value,
       override_rate:+$('ovrate').value,
+      accreditation_fee:+$('accfee').value,
+      kit_holdback:+$('kithold').value,
+      kit_holdback_months:+$('kitmths').value,
       updated_at:new Date().toISOString()};
+    if(upd.accreditation_fee<0||upd.kit_holdback<0||upd.kit_holdback_months<1){
+      toast('Accreditation and kit figures must be zero or more, and the months at least 1.',false);return;}
     const{error}=await sb.from('commission_settings').upsert(upd);
     if(error){err(error);return;}
     settings={...settings,...upd};toast('Rates saved');
