@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Simtec — Parked orders on this device</title>
+<!-- ============================================================================
+     WHY THIS PAGE EXISTS — 29 Sep 2026
+     A consultant parked a real order (Sneddon, Kenzie Lam Sam, 28 Sep) after the
+     save was refused by the database. The order WAS parked — the failed
+     auto-upload at 13:19:36 carries the parked payload's own order id — but the
+     gold "Parked orders" panel could not be found on the iPad, and there is no
+     way on iPad to look inside the app's storage without a Mac.
+
+     A parked order is the ONLY copy of that sale. It lives in this device's
+     browser storage and nowhere else — not in the database, not in a backup.
+     So when it cannot be seen, the sale is invisible rather than gone, and
+     nobody can tell which.
+
+     This page reads that storage and shows it. Three things it answers that the
+     app itself cannot:
+       1. WHICH CONTAINER am I in? An app added to the Home Screen has storage
+          SEPARATE from Safari (WebKit bug 181849), so an order parked in one is
+          invisible in the other. This page says which one you are looking at.
+       2. IS ANYTHING THERE AT ALL? It lists every key, so an empty list can be
+          told apart from a list that failed to load.
+       3. WHAT WAS IN THE ORDER? So the office can key it in by hand if it will
+          not upload.
+
+     ⚠⚠ THIS PAGE IS READ-ONLY, DELIBERATELY. It has no Delete and no Upload.
+        Uploading belongs in the Sales App, which already retries and already
+        keeps the order when the upload fails. A rescue tool that can destroy
+        the thing it is rescuing is not a rescue tool.
+     ========================================================================= -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.112.2"></script>
+<script src="auth.js?v=3" data-roles="admin,manager,office,consultant"></script>
+<style>
+  :root{--navy:#122347;--gold:#c6a15b;--ink:#1a2334;--line:#c9d2de;--warn:#b3261e}
+  *{box-sizing:border-box}
+  body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;color:var(--ink);background:#eef1f5;margin:0;padding:0 0 60px}
+  header{background:var(--navy);color:#fff;padding:14px 18px;display:flex;align-items:center;gap:12px;position:sticky;top:0;z-index:5}
+  header .brand{font-weight:800;letter-spacing:.5px}
+  header .sp{margin-left:auto}
+  button{background:#fff;color:var(--navy);border:1px solid #cbd4df;border-radius:10px;padding:9px 15px;font-weight:600;font-size:14px;cursor:pointer}
+  button.solid{background:var(--gold);border-color:var(--gold);color:#1a1a1a}
+  .wrap{max-width:820px;margin:16px auto;padding:0 14px}
+  .card{background:#fff;border:1px solid var(--line);border-radius:12px;padding:16px 18px;margin-bottom:14px}
+  .card h2{margin:0 0 10px;font-size:15px;text-transform:uppercase;letter-spacing:.07em;color:var(--navy)}
+  .kv{display:flex;gap:10px;padding:5px 0;border-bottom:1px solid #eef1f5;font-size:14px}
+  .kv:last-child{border-bottom:none}
+  .kv b{min-width:170px;color:#5b6a80;font-weight:600}
+  .big{font-size:17px;font-weight:700}
+  .good{color:#1c6b34}.bad{color:var(--warn)}
+  .banner{border-radius:12px;padding:14px 16px;margin-bottom:14px;font-size:15px;line-height:1.5}
+  .banner.warn{background:#fff8e8;border:1px solid var(--gold)}
+  .banner.stop{background:#fdecea;border:1px solid var(--warn);color:#7a1c14;font-weight:600}
+  table{width:100%;border-collapse:collapse;margin-top:6px}
+  th,td{border:1px solid var(--line);padding:6px 9px;text-align:left;font-size:13.5px}
+  th{background:#f3f6fa;color:var(--navy);font-size:11.5px;text-transform:uppercase}
+  .order{border:2px solid var(--gold);border-radius:12px;padding:14px 16px;margin-bottom:14px;background:#fffdf7}
+  .order h3{margin:0 0 4px;font-size:18px;color:var(--navy)}
+  .order .when{font-size:13px;color:#6b7889;margin-bottom:10px}
+  .sect{margin-top:12px}
+  .sect h4{margin:0 0 4px;font-size:11.5px;text-transform:uppercase;letter-spacing:.07em;color:#7a8798}
+  pre{background:#f7f9fc;border:1px solid var(--line);border-radius:8px;padding:10px;font-size:12px;overflow:auto;max-height:260px;white-space:pre-wrap;word-break:break-word}
+  .muted{color:#6b7889;font-size:13.5px}
+</style>
+</head>
+<body>
+<header>
+  <span class="brand">Parked orders on this device</span>
+  <span class="sp"></span>
+  <button onclick="location.href='order-app.html'">Sales App</button>
+</header>
+
+<div class="wrap" id="out">Reading this device…</div>
+
+<script>
+const esc=s=>(s??"").toString().replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const PARK_KEYS=['simtec_parked_orders','simtec_parked_orders_walkthrough'];
+
+/* ⚠ An unreadable list must never look like an empty one — that is the whole
+   reason this page exists. Report WHICH it was, every time. */
+function readKey(k){
+  let raw=null;
+  try{ raw=localStorage.getItem(k); }catch(e){ return {k, state:'blocked', err:e.message||String(e)}; }
+  if(raw===null) return {k, state:'absent'};
+  let parsed=null;
+  try{ parsed=JSON.parse(raw); }catch(e){ return {k, state:'unreadable', raw, err:e.message||String(e)}; }
+  if(!Array.isArray(parsed)) return {k, state:'unexpected', raw, parsed};
+  return {k, state:'ok', raw, list:parsed};
+}
+
+function howAmIRunning(){
+  /* An app added to the Home Screen keeps its storage SEPARATE from Safari, so
+     an order parked in one is invisible in the other. Naming which one you are
+     looking at turns "it isn't there" into "you are in the wrong one". */
+  const standalone = (window.navigator.standalone === true) ||
+                     (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches);
+  return standalone
+    ? {mode:'Home Screen app', other:'Safari', note:'Storage here is SEPARATE from Safari. If the order was taken in a Safari tab it will not appear here — open the same web address in Safari and look again.'}
+    : {mode:'Safari browser tab', other:'the Home Screen app', note:'Storage here is SEPARATE from the Home Screen app. If the order was taken in the Home Screen "Simtec Orders" app, it will not appear here — open that app and go to this page from it.'};
+}
+
+function allKeys(){
+  const rows=[];
+  try{
+    for(let i=0;i<localStorage.length;i++){
+      const k=localStorage.key(i);
+      let n=0; try{ n=(localStorage.getItem(k)||'').length; }catch(e){}
+      rows.push({k, n});
+    }
+  }catch(e){ return null; }
+  return rows.sort((a,b)=>b.n-a.n);
+}
+
+function money(v){ const n=+v; return isFinite(n)?'$'+n.toLocaleString('en-NZ',{minimumFractionDigits:2}):esc(v); }
+function when(ts){ try{ return new Date(ts).toLocaleString('en-NZ',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'}); }catch(e){ return String(ts); } }
+
+/* The field snapshot is keyed by the form element's id. These are the ones the
+   office needs to re-key an order by hand; anything else still shows in the raw
+   block below, so nothing is hidden — this list only decides what gets a label. */
+const LABELS=[
+  ['a1first','First name'],['a1last','Last name'],['mobile','Mobile'],['email','Email'],
+  ['street','Street'],['suburb','Suburb'],['city','City'],['postcode','Postcode'],
+  ['visitDate','Date of visit'],['consultant','Consultant'],
+  ['a1dob','Date of birth'],['a1occupation','Occupation'],['a1employer','Employer'],
+  ['a1income','Income'],['a1idnumber','ID number'],['a1idtype','ID type'],
+  ['ref1name','Referee 1'],['ref1phone','Referee 1 phone'],
+  ['ref2name','Referee 2'],['ref2phone','Referee 2 phone'],
+  ['deliveryNotes','Delivery notes']
+];
+
+function renderOrder(P, idx){
+  const f=P.fields||{}, pr=P.products||[];
+  const total=pr.reduce((s,p)=>s+((+p.price||0)*(+p.qty||0)),0);
+  const named=LABELS.filter(([id])=>f[id]!==undefined && f[id]!=='' && f[id]!==false)
+                    .map(([id,lab])=>`<div class="kv"><b>${esc(lab)}</b><span>${esc(f[id])}</span></div>`).join('');
+  const others=Object.keys(f).filter(k=>!LABELS.some(([id])=>id===k) && f[k]!=='' && f[k]!==false).length;
+  const files=P.files||{};
+  const sigs=Object.keys(files).filter(k=>k.startsWith('sig')||k.startsWith('i')).filter(k=>files[k]).length;
+  const ids=(files.idA1||[]).length+(files.idA2||[]).length;
+  return `
+  <div class="order">
+    <h3>${esc(P.customerName||'(no name)')}</h3>
+    <div class="when">Parked ${esc(when(P.savedAt))} &middot; order id ${esc((P.ids&&P.ids.order)||'—')}</div>
+
+    <div class="sect"><h4>Products</h4>
+      ${pr.length?`<table><thead><tr><th>Product</th><th>Qty</th><th>Price</th></tr></thead><tbody>
+        ${pr.map(p=>`<tr><td>${esc(p.name)}</td><td>${esc(p.qty)}</td><td>${money(p.price)}</td></tr>`).join('')}
+        ${P.wantDel?'<tr><td>Delivery</td><td>1</td><td>(applied at upload)</td></tr>':''}
+        <tr><th>Products total</th><th></th><th>${money(total)}</th></tr>
+      </tbody></table>`:'<p class="muted">No products recorded.</p>'}
+    </div>
+
+    <div class="sect"><h4>Customer &amp; application</h4>
+      ${named||'<p class="muted">No fields recorded.</p>'}
+      ${others?`<div class="kv"><b>Other fields</b><span>${others} more — see the full record below</span></div>`:''}
+    </div>
+
+    <div class="sect"><h4>Attachments</h4>
+      <div class="kv"><b>Signatures captured</b><span>${sigs}</span></div>
+      <div class="kv"><b>ID photos</b><span>${ids}</span></div>
+      ${P.idMissing?`<div class="kv"><b>No ID available</b><span>${esc(P.idMissing.reason||'recorded')}</span></div>`:''}
+    </div>
+
+    <div class="sect"><h4>Full record (everything, for the office)</h4>
+      <pre id="raw${idx}">${esc(JSON.stringify(stripHeavy(P),null,1))}</pre>
+      <button onclick="copyRaw(${idx})">Copy this order</button>
+      <button onclick="downloadOne(${idx})">Download as a file</button>
+    </div>
+  </div>`;
+}
+
+/* The photos and signatures are data URLs — hundreds of kilobytes each, and
+   useless as text. Their PRESENCE is what matters here, so record that and drop
+   the bytes; the order itself on the iPad is untouched either way. */
+function stripHeavy(P){
+  const c=JSON.parse(JSON.stringify(P));
+  if(c.files){
+    Object.keys(c.files).forEach(k=>{
+      const v=c.files[k];
+      if(Array.isArray(v)) c.files[k]='['+v.length+' photo(s) held on the iPad]';
+      else if(typeof v==='string' && v.length>200) c.files[k]='[captured, '+Math.round(v.length/1024)+' KB]';
+    });
+  }
+  return c;
+}
+
+let ORDERS=[];
+window.copyRaw=function(i){
+  const t=document.getElementById('raw'+i).textContent;
+  navigator.clipboard.writeText(t).then(()=>alert('Copied. Paste it into an email to the office.'),
+                                        ()=>alert('Could not copy automatically — select the text and copy it by hand.'));
+};
+window.downloadOne=function(i){
+  const P=ORDERS[i];
+  const blob=new Blob([JSON.stringify(stripHeavy(P),null,1)],{type:'application/json'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download='parked-order-'+((P.customerName||'order').replace(/[^a-z0-9]+/gi,'-').toLowerCase())+'.json';
+  document.body.appendChild(a); a.click(); a.remove();
+};
+
+function run(){
+  const out=document.getElementById('out');
+  const env=howAmIRunning();
+  const keys=allKeys();
+  const reads=PARK_KEYS.map(readKey);
+  const real=reads[0], practice=reads[1];
+
+  let html='';
+
+  html+=`<div class="banner stop">⚠ Do not clear this iPad's website data, and do not tap Delete on a parked order.
+    A parked order is the only copy of that sale — it is not in the system and not in any backup.</div>`;
+
+  html+=`<div class="card"><h2>Which storage am I looking at?</h2>
+    <div class="kv"><b>Running as</b><span class="big">${esc(env.mode)}</span></div>
+    <div class="kv"><b>Web address</b><span>${esc(location.origin)}</span></div>
+    <div class="kv"><b>Private browsing</b><span>${keys===null?'<span class="bad">storage is blocked — this looks like a Private tab</span>':'no'}</span></div>
+    <p class="muted" style="margin:10px 0 0">${esc(env.note)}</p></div>`;
+
+  // the real parked list
+  if(real.state==='ok' && real.list.length){
+    ORDERS=real.list;
+    html+=`<div class="card"><h2>${real.list.length} parked order${real.list.length>1?'s':''} found</h2>
+      <p class="muted">These are still on this iPad and have not reached the system.
+      Open the Sales App and use <b>Upload</b> to send them. If the upload keeps failing,
+      copy or download each one below and send it to the office.</p></div>`;
+    html+=real.list.map((P,i)=>renderOrder(P,i)).join('');
+  } else if(real.state==='ok'){
+    html+=`<div class="banner warn"><b>No parked orders in this storage.</b><br>
+      The list exists and is readable — it is empty. If an order was parked on this iPad,
+      it was either uploaded already, deleted, or taken in ${esc(env.other)} (see above).</div>`;
+  } else if(real.state==='absent'){
+    html+=`<div class="banner warn"><b>Nothing has ever been parked in this storage.</b><br>
+      There is no parked-orders list here at all. If an order was parked on this iPad,
+      it was taken in ${esc(env.other)} — see the box above — or the website data has been cleared.</div>`;
+  } else {
+    html+=`<div class="banner stop"><b>The parked list is here but could not be read (${esc(real.state)}).</b><br>
+      Do not clear anything. Send this page to the office.
+      <pre>${esc(real.err||'')}\n${esc((real.raw||'').slice(0,4000))}</pre></div>`;
+  }
+
+  if(practice.state==='ok' && practice.list.length){
+    html+=`<div class="banner warn"><b>${practice.list.length} order(s) are in the PRACTICE (walkthrough) list.</b>
+      If a real sale was taken while the app was in walkthrough mode it landed here.
+      ${practice.list.map(P=>esc(P.customerName||'(no name)')+' — parked '+esc(when(P.savedAt))).join('<br>')}</div>`;
+  }
+
+  html+=`<div class="card"><h2>Everything in this storage</h2>
+    ${keys===null?'<p class="bad">Storage could not be listed at all.</p>'
+      :`<table><thead><tr><th>Key</th><th>Size</th></tr></thead><tbody>
+        ${keys.map(r=>`<tr><td>${esc(r.k)}</td><td>${r.n.toLocaleString()} chars</td></tr>`).join('')||'<tr><td colspan="2">Empty</td></tr>'}
+      </tbody></table>`}
+    <p class="muted" style="margin:10px 0 0">Shown so that an empty list can be told apart from one that failed to load.</p></div>`;
+
+  out.innerHTML=html;
+}
+run();
+</script>
+</body>
+</html>
