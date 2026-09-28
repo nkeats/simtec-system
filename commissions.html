@@ -872,7 +872,7 @@ async function showCon(){
             <button class="btn gold text-xs py-1.5 px-3" onclick="addDedModal()">+ Add Deduction</button>
           </div>
           ${cv.ret>0?`<div class="flex justify-between text-sm py-1.5 text-slate-400 italic">
-            <span>Retention (${s.retention_rate*100}% of ${fmt(cv.gs)})</span><span>-${fmt(cv.ret)}</span></div>`:''}
+            <span>Retention (${Math.abs(cv.ret-cv.sc*s.retention_rate)<0.005?`${s.retention_rate*100}% of ${fmt(cv.sc)} sales commission`:`capped at ${fmt(s.retention_cap)} held`})</span><span>-${fmt(cv.ret)}</span></div>`:''}
           ${(deds||[]).filter(d=>d.deduction_type!=='giveaway_repayment').map(d=>`<div class="flex items-center justify-between text-sm py-1.5 border-t border-slate-700/50">
             <span class="text-slate-300">${d.description||d.deduction_type}${d.quantity>1?` ×${d.quantity}`:''} <span class="text-xs text-slate-500">(${d.deduction_type})</span></span>
             <div class="flex items-center gap-3"><span class="text-red-400 font-medium">-${fmt(d.amount)}</span>
@@ -1137,6 +1137,16 @@ async function showInv(){
   const gstReg=!!gstRow?.gst_registered;
   const gstRate=+gstRow?.gst_rate||15;
   const gstAmt=gstReg?cv.net*gstRate/100:0;
+  /* ⚠ THE RETENTION LINE MUST NAME THE BASE THE MONEY WAS ACTUALLY TAKEN ON.
+     Since 9 Sep retention is 25% of SALES COMMISSION ALONE, but this line read
+     "25% of cv.gs" — commission PLUS the cash bonus. Tame Cooper's invoice
+     therefore printed "25% of $300" beside $50, which is 16.7%. Where the
+     $5,000 cap clips the amount it is not a percentage of anything, so the
+     label says that instead of quoting a rate that doesn't hold. */
+  const retIsPct=Math.abs(cv.ret-cv.sc*s.retention_rate)<0.005;
+  const retLabel=retIsPct
+    ?`Retention withheld (${s.retention_rate*100}% of ${fmt(cv.sc)} sales commission)`
+    :`Retention withheld (capped at ${fmt(s.retention_cap)} held)`;
   /* ⚠ READ THE ALLOCATION, DO NOT REDO IT. calc() has already decided which
      mattresses were paid at a starting rate and which at the ordinary rate, in
      sale order. Re-deriving it here is what made the lines disagree with the
@@ -1223,13 +1233,29 @@ async function showInv(){
         <div style="font-size:8pt;font-weight:bold;color:#0f1e3c;border-bottom:1pt solid #ddd;padding-bottom:1.5mm;margin-bottom:2mm;text-transform:uppercase;letter-spacing:.5px">Deductions</div>
         <table style="width:100%;border-collapse:collapse;font-size:8pt;margin-bottom:5mm"><tbody>
           ${cv.ret>0?`<tr style="border-bottom:.5pt solid #eee">
-            <td style="padding:1.5mm 3mm;color:#555">Retention withheld (${s.retention_rate*100}% of ${fmt(cv.gs)})</td>
+            <td style="padding:1.5mm 3mm;color:#555">${retLabel}</td>
             <td style="padding:1.5mm 3mm;text-align:right;font-weight:600;color:#c00">(${fmt(cv.ret)})</td>
           </tr>`:''}
           ${(deds||[]).map(d=>`<tr style="border-bottom:.5pt solid #eee">
             <td style="padding:1.5mm 3mm;color:#555">${d.description||d.deduction_type}${d.quantity>1?` ×${d.quantity}`:''} <span style="color:#999;font-size:7.5pt">(${d.deduction_type})</span></td>
             <td style="padding:1.5mm 3mm;text-align:right;font-weight:600;color:#c00">(${fmt(d.amount)})</td>
           </tr>`).join('')}
+        </tbody></table>`:''}
+
+        <!-- Retention released -->
+        ${/* ⚠ THE BALANCE PANEL IS GONE (see below), SO A RELEASE NEEDS ITS OWN LINE.
+              calc() adds payout into net (net = gross − ret − deds + payout) and the
+              __RETENTION_PAYOUT__ bonus is filtered out of the Bonuses table, so
+              without this row a released amount would swell the net with nothing on
+              the page to explain it. It sits outside the Bonuses table on purpose —
+              Total Bonuses is cv.ac+cv.mb and does not include the payout. */
+          cv.payout>0?`
+        <div style="font-size:8pt;font-weight:bold;color:#0f1e3c;border-bottom:1pt solid #ddd;padding-bottom:1.5mm;margin-bottom:2mm;text-transform:uppercase;letter-spacing:.5px">Retention Released</div>
+        <table style="width:100%;border-collapse:collapse;font-size:8pt;margin-bottom:5mm"><tbody>
+          <tr style="border-bottom:.5pt solid #eee">
+            <td style="padding:1.5mm 3mm;color:#555">Retention released to you this week</td>
+            <td style="padding:1.5mm 3mm;text-align:right;font-weight:600;color:#1a7a1a">${fmt(cv.payout)}</td>
+          </tr>
         </tbody></table>`:''}
 
         <!-- Net payable -->
@@ -1253,19 +1279,21 @@ async function showInv(){
           <div style="font-size:20pt;font-weight:bold;color:#1a3a6b">${fmt(cv.net+gstAmt)}</div>
         </div>`:''}
 
-        <!-- Retention -->
-        <div style="background:#f5f5f5;border:1pt solid #ddd;border-radius:2mm;padding:3mm 4mm;font-size:8pt">
-          <div style="font-weight:bold;color:#0f1e3c;margin-bottom:2mm;font-size:8.5pt;text-transform:uppercase;letter-spacing:.5px">Retention Account Balance</div>
-          <table style="width:100%;border-collapse:collapse"><tbody>
-            <tr><td style="padding:.8mm 0;color:#555">Opening balance</td><td style="text-align:right">${fmt(retBal)}</td></tr>
-            <tr><td style="padding:.8mm 0;color:#555">Plus: withheld this week</td><td style="text-align:right">+${fmt(cv.ret)}</td></tr>
-            ${cv.payout>0?`<tr><td style="padding:.8mm 0;color:#555">Less: released to consultant</td><td style="text-align:right;color:#c00">-${fmt(cv.payout)}</td></tr>`:''}
-            <tr style="border-top:1pt solid #ddd;font-weight:bold">
-              <td style="padding:1mm 0;color:#0f1e3c">Closing balance ${cv.retAfter>=s.retention_cap?'(CAP REACHED)':'/ '+fmt(s.retention_cap)+' cap'}</td>
-              <td style="text-align:right;color:${cv.retAfter>=s.retention_cap?'#1a7a1a':'#0f1e3c'}">${fmt(cv.retAfter)}</td>
-            </tr>
-          </tbody></table>
-        </div>
+        <!-- Retention account balance — DELIBERATELY NOT PRINTED -->
+        ${/* ⚠⚠ DO NOT PUT THE BALANCE PANEL BACK. [stated] Nigel, 28 Sep: "show the
+              amount retained for the retention account, but remove the current
+              balance of the account from each invoice." The invoice shows what was
+              withheld THIS WEEK (the Deductions line) and nothing about the running
+              balance — no opening, no closing, no cap.
+              WHY IT MATTERS: on 28 Sep eleven of the twenty-one balances were
+              NEGATIVE, the deepest −$2,375, because clawbacks had run past what was
+              ever held. The old panel printed that figure on the consultant's own
+              invoice as a "closing balance", which reads as a debt statement on a
+              document they keep for tax. The balance is still visible to the office
+              on the pay-run screen and on the Money Owed / former-consultants card;
+              it is only off the printed invoice.
+              retBal is STILL NEEDED above — calc() uses it for the cap test — so the
+              commission_retention query and openingRetBal() must stay. */''}
 
         <div style="margin-top:8mm;padding-top:3mm;border-top:.5pt solid #ddd;font-size:7pt;color:#999;text-align:center">
           Simtec Therapeutic Ltd &nbsp;|&nbsp; 297 Neilsons Rd Onehunga, Auckland &nbsp;|&nbsp; 09 886 9897
