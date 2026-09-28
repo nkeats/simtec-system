@@ -212,7 +212,14 @@ async function savePrices(){
     for(let i=0;i<PRICES.length;i++){
       const p=PRICES[i];
       const v=Object.assign({}, p.value, {retail:num($("pr"+i).value), cost:num($("pc"+i).value)});
-      const {error}=await sb.from("config").update({value:v}).eq("category","products").eq("key",p.key);
+      /* ⚠ STAMP THE DATE. config.updated_at has no trigger behind it, and this save
+         wrote `value` alone — so every product row still read 6 June 2026 (the
+         original seed) however many times a price had been changed since. The only
+         record of when a price moved was frozen, and on 28 Sep it made prices
+         changed that week look four months old. Keep updated_at in this update. */
+      const {error}=await sb.from("config")
+        .update({value:v, updated_at:new Date().toISOString()})
+        .eq("category","products").eq("key",p.key);
       if(error) throw error;
       p.value=v;
     }
