@@ -30,6 +30,7 @@
   .f{margin:5px 0;min-width:200px;flex:1}
   .f .l{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:#7a8798}
   .f .v{font-size:15.5px;font-weight:600;border-bottom:1px solid var(--line);min-height:25px;padding:2px 0}
+  .f .v.addr{min-height:42px}
   table{width:100%;border-collapse:collapse;margin-top:4px}
   th,td{border:1px solid var(--line);padding:6px 9px;text-align:left;font-size:13.5px}
   th{background:#f3f6fa;color:var(--navy);font-size:11.5px;text-transform:uppercase}
@@ -60,6 +61,42 @@
     .copy:last-child{page-break-after:auto}
     .top .brand,.box,.copytag{-webkit-print-color-adjust:exact;print-color-adjust:exact}
     @page{margin:12mm}
+
+    /* ⚠⚠ ONE COPY MUST FIT ON ONE PAGE, AND A SIGNATURE MUST NEVER SPLIT.
+       Reported 29 Sep: the customer's signature was spilling onto the next
+       page. Reproduced by rendering: a 4-item docket ran 27px over A4 and
+       pushed the footer over; a 7-item docket pushed the WHOLE photo-consent
+       signature and date onto page two, so the driver came back with a
+       docket signed in the wrong place or not at all.
+       Two separate defences, because either alone can still fail:
+         (a) the blocks below are tightened so a realistic docket fits; and
+         (b) break-inside:avoid means that if one ever does overflow again —
+             a long note, a big order — the block moves WHOLE to the next
+             page instead of tearing in half across the signature line.
+       ⚠ These are print-only. The screen layout is untouched: the office
+         types the delivery note on screen and that must stay comfortable. */
+    .consent,.notebox,.sign,.sign .s,.ticks{break-inside:avoid;page-break-inside:avoid}
+    tr,thead{break-inside:avoid;page-break-inside:avoid}
+    h3{break-after:avoid;page-break-after:avoid;margin:7px 0 4px;padding-bottom:3px}
+    .copytag{margin-bottom:6px}
+    .top{padding-bottom:7px;margin-bottom:4px}
+    .top .brand{font-size:20px}
+    .doctitle{margin:7px 0 3px}
+    .doctitle .t{font-size:17px}
+    .f{margin:3px 0}
+    .f .v{min-height:20px;font-size:14.5px}
+    .f .v.addr{min-height:26px}
+    th,td{padding:3px 8px;font-size:13px}
+    .notebox{padding:8px 13px 4px}
+    .noteln{height:21px}
+    .noteprint.hasnote .noteln:nth-last-child(-n+2){display:none}
+    .foot{font-size:10px}
+    .consent{padding:9px 13px}
+    .consent p{margin:0 0 6px;font-size:13px;line-height:1.45}
+    .ticks{margin:6px 0}
+    .sign{margin-top:10px}
+    .sign .line{height:26px}
+    .foot{margin-top:8px;padding-top:5px}
   }
 </style>
 </head>
@@ -99,7 +136,7 @@ function docket(d, label, cls){
       <div class="f"><div class="l">Name</div><div class="v">${esc(d.name)||"&nbsp;"}</div></div>
       <div class="f"><div class="l">Phone</div><div class="v">${esc(d.phone)||"&nbsp;"}</div></div>
     </div>
-    <div class="f"><div class="l">Delivery address</div><div class="v" style="min-height:42px">${esc(d.address)||"&nbsp;"}</div></div>
+    <div class="f"><div class="l">Delivery address</div><div class="v addr">${esc(d.address)||"&nbsp;"}</div></div>
     <div class="row">
       <div class="f"><div class="l">Delivery date</div><div class="v">${esc(d.deldate)||"&nbsp;"}</div></div>
       <div class="f"><div class="l">Delivery time</div><div class="v">${esc(d.deltime)||"&nbsp;"}</div></div>
@@ -114,7 +151,7 @@ function docket(d, label, cls){
     <div class="notebox">
       ${d.id?`<textarea class="noteedit no-print" data-oid="${d.id}" rows="3" placeholder="Type a delivery note for the driver…" oninput="noteInput(this)" onblur="noteSave(this)">${esc(d.note||"")}</textarea>
       <div class="notectl no-print"><span class="notestate" data-oid="${d.id}">${d.note?"Saved ✓":""}</span></div>`:""}
-      <div class="noteprint">
+      <div class="noteprint${(d.note||"").trim()?" hasnote":""}" data-oid="${d.id||""}">
         <div class="noteprinttext" data-oid="${d.id||""}">${esc(d.note||"")}</div>
         <div class="noteln"></div><div class="noteln"></div><div class="noteln"></div>
       </div>
@@ -189,6 +226,10 @@ async function dataForOrder(o){
 function noteInput(el){
   const oid=el.dataset.oid, v=el.value;
   document.querySelectorAll('.noteprinttext[data-oid="'+oid+'"]').forEach(x=>{ x.textContent=v; });
+  /* ⚠ the printed note box drops its last blank line once a note is typed —
+     keep that in step with the typing, or a docket printed straight after an
+     edit is a different height from the one that was measured. */
+  document.querySelectorAll('.noteprint[data-oid="'+oid+'"]').forEach(x=>{ x.classList.toggle('hasnote', !!v.trim()); });
   document.querySelectorAll('.noteedit[data-oid="'+oid+'"]').forEach(t=>{ if(t!==el) t.value=v; });
   document.querySelectorAll('.notestate[data-oid="'+oid+'"]').forEach(s=>{ s.textContent='Unsaved…'; s.style.color='#a9791f'; });
 }
