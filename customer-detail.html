@@ -794,8 +794,10 @@ function orderSection(o, items, pays, open){
     ${kv("Order status",cap(o.order_status))}
     ${faLine}
     ${o.delivery_authorised
-      ? kv("Delivery clearance",`<span style="color:var(--green);font-weight:700">✓ Authorised${o.delivery_authorised_by?" by "+esc(o.delivery_authorised_by):""}</span>`)
-      : (isAdmin()?`<div style="margin-top:10px"><button onclick="authoriseDelivery('${o.id}')" style="background:#1c6b34;color:#fff;border:none;border-radius:8px;padding:9px 15px;font-size:13.5px;font-weight:600;cursor:pointer">✓ Authorise delivery (override)</button></div>`:"")}
+      ? kv("Delivery clearance",`<span style="color:var(--green);font-weight:700">✓ Authorised${o.delivery_authorised_by?" by "+esc(o.delivery_authorised_by):""}</span>`
+          +(o.delivery_authorised_reason?`<div style="font-size:11.5px;color:var(--sub);margin-top:3px">${esc(o.delivery_authorised_reason)}</div>`:"")
+          +(isMgr()?`<div style="margin-top:6px"><button onclick="authoriseDelivery('${o.id}',false)" style="font-size:11px;background:none;border:1px solid var(--line);border-radius:5px;padding:1px 6px;cursor:pointer;color:var(--sub)">remove</button></div>`:""))
+      : (isMgr()?`<div style="margin-top:10px"><button onclick="authoriseDelivery('${o.id}')" style="background:#1c6b34;color:#fff;border:none;border-radius:8px;padding:9px 15px;font-size:13.5px;font-weight:600;cursor:pointer">✓ Authorise delivery (override)</button></div>`:"")}
     ${gateBlock(o)}
     ${isOffice()?`<div style="margin-top:12px"><button onclick="openTruckJob('${o.id}')" style="background:#fff;color:var(--navy);border:1px solid #cbd4df;border-radius:8px;padding:8px 14px;font-size:13px;font-weight:600;cursor:pointer">🚚 Book a truck job</button>
       <span class="muted" style="font-size:11.5px;margin-left:8px">a pickup, swap or extra item — not the delivery itself</span></div>`:""}
@@ -1467,12 +1469,34 @@ window.removeGate=async function(oid){
   }catch(e){ reportClientError("remove the agreed delivery deal", e); alert("Couldn't remove: "+(e.message||e)); }
 };
 
-async function authoriseDelivery(oid){
-  if(!isAdmin()){ alert("Admins only."); return; }
-  if(!confirm("Authorise this customer for delivery, overriding the payment-history check? This is recorded against your name.")) return;
-  const who=(window.SIMTEC_USER.full_name||window.SIMTEC_USER.email||"admin");
-  const {error}=await sb.from("sim_orders").update({delivery_authorised:true,delivery_authorised_by:who,delivery_authorised_at:new Date().toISOString()}).eq("id",oid);
-  if(error){ reportClientError("authorise delivery (admin override)", error, oid); alert("Couldn't authorise: "+error.message); return; }
+// Managers and admins only. The database enforces this too: the columns can
+// only be written by authorise_delivery(), which demands a reason and keeps
+// every change in delivery_authorisation_log.
+async function authoriseDelivery(oid, on){
+  const turningOn = (on !== false);
+  if(!isMgr()){ alert("Only a manager or an administrator can authorise a delivery."); return; }
+
+  const o = ORDERS[oid] || {};
+  let why;
+  if(turningOn){
+    const warn=[];
+    const cool=o.cooling_off_expires;
+    if(cool && new Date(cool+"T12:00:00") > new Date()) warn.push("• the cooling-off period, which runs until "+auDate(cool));
+    if(o.affordability_passed===false) warn.push("• the affordability check, which this order did not pass");
+    why = prompt(
+      "Authorise this order for delivery.\n\n"
+      + "This clears it straight away, ahead of the payment rule"
+      + (warn.length?" and ahead of:\n"+warn.join("\n"):".")
+      + "\n\nWhy? This is recorded against your name and kept.");
+  }else{
+    why = prompt("Remove the delivery authorisation?\n\nThe order goes back to the normal rule.\n\nWhy?");
+  }
+  if(why===null) return;
+  if(!why.trim()){ alert("A reason is needed — it is recorded against the order."); return; }
+
+  const {data,error}=await sb.rpc("authorise_delivery",{p_order:oid,p_reason:why.trim(),p_on:turningOn});
+  if(error){ reportClientError(turningOn?"authorise delivery (manager override)":"remove a delivery authorisation", error, oid); alert("Couldn't save: "+(error.message||error)); return; }
+  if(!data||data.ok!==true){ alert("Couldn't save — nothing was changed."); return; }
   run();
 }
 async function reinstate(oid){

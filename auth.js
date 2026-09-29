@@ -18,6 +18,15 @@
   window.__SIMTEC_ROLES__ = (me && me.dataset && me.dataset.roles)
     ? me.dataset.roles.split(',').map(function (s) { return s.trim(); }).filter(Boolean)
     : null;
+  /* ⚠ THE DEVICE BINDING IS OPT-IN, PER PAGE, AND ONLY order-app.html ASKS FOR IT.
+     The first version bound on EVERY page a consultant can open — diary, my-sales,
+     training as well. A consultant checking their sales on the office computer
+     would have claimed that computer, and the next consultant to try would have
+     been locked out of a page that does no harm. The damage this prevents — one
+     sale's ids being reused by the next — happens only where orders are taken, so
+     that is the only place it is enforced. Do not add this attribute to a page
+     unless orders are written from it. */
+  window.__SIMTEC_ONE_CONSULTANT__ = !!(me && me.dataset && me.dataset.oneConsultant !== undefined);
   try {
     // Open the connections to Supabase and the CDN NOW, in parallel with the
     // rest of the page, rather than waiting until the first query. On mobile
@@ -90,6 +99,24 @@
   // If the library never arrived we cannot check who you are. Revealing the page
   // anyway would mean an unchecked page render whenever the CDN is slow or blocked,
   // so say so and offer a retry instead.
+  /* ⚠⚠ WAIT FOR <body> BEFORE ANY GATE CAN RUN.
+     auth.js is loaded from <head>. Every gate screen below — "Can't check your
+     sign-in", "No access", and the device block — replaces document.body. When the
+     session and the profile both resolve before the parser reaches <body>, which is
+     the normal case for a warm session on a fast connection, document.body is still
+     NULL: the assignment throws, this async function rejects, and every check after
+     it is abandoned. The page has already been revealed by then, so THE GATE FAILS
+     OPEN and the real page is left on screen unchecked.
+     Found 29 Sep 2026 while testing the device binding — it let the blocked
+     consultant straight through, and "No access" had the same hole.
+     Waiting here costs nothing once the body exists, and makes all three safe. */
+  if (!document.body) {
+    await new Promise(function (r) {
+      document.addEventListener('DOMContentLoaded', function () { r(); }, { once: true });
+      setTimeout(r, 5000);   // never hang the app on an event that somehow never comes
+    });
+  }
+
   if (typeof supabase === 'undefined') { cannotVerify('We could not load the sign-in check.'); return; }
 
   var _sb = supabase.createClient(URL_, KEY_);
@@ -177,6 +204,108 @@
     var lo = document.getElementById('_simlo');
     if (lo) lo.onclick = async function (e) { e.preventDefault(); await _sb.auth.signOut(); toLogin(); };
     return;
+  }
+
+  /* ══ ONE iPAD, ONE CONSULTANT ══════════════════════════════════════════════
+     [stated] Nigel, 29 Sep 2026: "Please make it so ipads can only be used by one
+     consultant. Once they are sent the log in, it is theirs."
+
+     ⚠⚠ WHAT THIS PREVENTS, and it cost a sale the morning it was written.
+     Kenzie borrowed Amy's tablet, signed Amy out, signed herself in, and took a
+     sale on it. The TAB still held the customer id and order id minted for AMY's
+     previous sale — sessionStorage belongs to the tab, not to the login, and
+     signing out does not clear it. So every save tried to write the new sale onto
+     the previous customer's records. The database refused it four times (the
+     consultant could only reach her own customers), and when the office retried
+     with admin rights nothing was refused: the rows all collided and did nothing,
+     while the FILE uploads, which collide with nothing, wrote the new customer's
+     ID photo, signature and initials straight over the previous customer's. One
+     sale lost, one customer's signed evidence destroyed.
+
+     ⚠ THIS BINDS THE DEVICE, NOT THE ACCOUNT. A consultant may sign in on any
+       device that has no owner yet. What they may not do is sign in on one that
+       already belongs to somebody else.
+     ⚠ CONSULTANTS ONLY. The office share machines and the warehouse iPad passes
+       between whoever is on shift; binding those would stop people doing work
+       they are entitled to do.
+     ⚠ IT FAILS OPEN. If storage cannot be read or written — private browsing, a
+       full device — the check is SKIPPED and the person is let in. A consultant
+       locked out of their own iPad in a customer's lounge is a worse outcome than
+       the fault this prevents, and the database gate underneath is what actually
+       protects the data. This is a guard against an honest mistake, not a lock.
+     ⚠ The office releases a device by signing in on it themselves (below). Do not
+       add a way for a consultant to release it — that is the whole mechanism. */
+  var OWNER_KEY = 'simtec_device_owner';
+  function deviceOwner() {
+    try { var raw = localStorage.getItem(OWNER_KEY); return raw ? JSON.parse(raw) : null; }
+    catch (e) { return null; }          // unreadable === no owner === let them in
+  }
+  function setDeviceOwner(o) {
+    try { localStorage.setItem(OWNER_KEY, JSON.stringify(o)); } catch (e) {}
+  }
+  function releaseDevice() { try { localStorage.removeItem(OWNER_KEY); } catch (e) {} }
+  window.SIMTEC_RELEASE_DEVICE = releaseDevice;
+
+  var owner = deviceOwner();
+
+  if (window.__SIMTEC_ONE_CONSULTANT__ && role === 'consultant') {
+    if (!owner || !owner.uid) {
+      // first consultant to sign in here takes the device
+      setDeviceOwner({ uid: session.user.id,
+                       name: window.SIMTEC_USER.full_name || window.SIMTEC_USER.email || '',
+                       at: new Date().toISOString() });
+    } else if (owner.uid !== session.user.id) {
+      reveal();
+      var ownerName = owner.name || 'another consultant';
+      var when = '';
+      try { when = owner.at ? new Date(owner.at).toLocaleDateString('en-NZ',
+              { day: 'numeric', month: 'short', year: 'numeric' }) : ''; } catch (e) {}
+      document.body.innerHTML =
+        '<div style="max-width:460px;margin:80px auto;padding:0 20px;font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;text-align:center;color:#1a2334">' +
+        '<div style="font-size:24px;font-weight:800;color:#122347;letter-spacing:.5px">SIMTEC</div>' +
+        '<h2 style="color:#122347;margin-top:22px">This iPad belongs to someone else</h2>' +
+        '<p style="color:#6b7889;line-height:1.6">It is assigned to <b>' +
+          String(ownerName).replace(/[&<>]/g, '') + '</b>' + (when ? ', since ' + when : '') + '.<br>' +
+          'Please use your own iPad and your own log-in.</p>' +
+        '<p style="color:#6b7889;line-height:1.6;font-size:13.5px">Taking an order on somebody else\u2019s iPad ' +
+          'can attach it to their last customer, and the sale is lost. If this iPad really is yours now, ' +
+          'the office can reassign it.</p>' +
+        '<p style="margin-top:20px"><a href="#" id="_simlo2" style="color:#1c3363;font-weight:600">Log out</a></p></div>';
+      var lo2 = document.getElementById('_simlo2');
+      if (lo2) lo2.onclick = async function (e) { e.preventDefault(); await _sb.auth.signOut(); toLogin(); };
+      return;
+    }
+  }
+
+  /* The hand-over route. An admin or manager signing in on a consultant's iPad
+     can hand it to the next person — the office is the only one who can, which
+     is what makes the block above hold. Shown as a quiet bar, never a dialog, so
+     it cannot be tapped through by accident. */
+  if (window.__SIMTEC_ONE_CONSULTANT__ && owner && owner.uid && (role === 'admin' || role === 'manager')) {
+    /* ⚠ NOT on DOMContentLoaded. The wait added above means that event has already
+       fired by the time we get here, so a listener registered now would never run —
+       which is exactly how this bar silently disappeared in testing. <body> is
+       guaranteed to exist at this point, so build it straight away. */
+    (function () {
+      try {
+        if (document.getElementById('simtec-devbar')) return;
+        var bar = document.createElement('div');
+        bar.id = 'simtec-devbar';
+        bar.style.cssText = 'position:fixed;left:0;right:0;bottom:0;z-index:99998;background:#122347;' +
+          'color:#fff;font:600 12.5px -apple-system,Segoe UI,Roboto,Arial,sans-serif;padding:9px 14px;' +
+          'display:flex;gap:12px;align-items:center;justify-content:center;flex-wrap:wrap';
+        bar.innerHTML = '<span>This device is assigned to <b>' +
+          String(owner.name || 'a consultant').replace(/[&<>]/g, '') + '</b>.</span>' +
+          '<button id="simtec-devrel" style="background:#c6a15b;color:#122347;border:0;border-radius:7px;' +
+          'padding:6px 13px;font:700 12.5px inherit;cursor:pointer">Reassign this iPad</button>';
+        document.body.appendChild(bar);
+        document.getElementById('simtec-devrel').onclick = function () {
+          if (!confirm('Reassign this iPad?\n\nThe next consultant who signs in here becomes its owner.')) return;
+          releaseDevice();
+          bar.innerHTML = '<span>Released. The next consultant to sign in takes this iPad.</span>';
+        };
+      } catch (e) {}
+    })();
   }
 
   // inject a Log out button

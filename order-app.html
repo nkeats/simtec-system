@@ -15,7 +15,9 @@
 <!-- Login gate: STAFF ONLY for now (admin/manager/office) so consultants can't
      reach the order app before go-live. When you roll out to consultants, add
      ",consultant" to data-roles below and add a New Order button to my-sales.html. -->
-<script src="auth.js?v=3" data-roles="admin,manager,office,consultant"></script>
+<!-- data-one-consultant: this iPad belongs to the first consultant who signs in on it.
+     Orders are written from here, so this is the only page that asks for the binding. -->
+<script src="auth.js?v=5" data-roles="admin,manager,office,consultant" data-one-consultant></script>
 <script>window.SIMTEC_BUILD="2026-09-16-01";</script>
 <script src="update.js?v=2"></script>
 
@@ -1087,6 +1089,58 @@ let TEAM={"Kenzie Lam Sam":"Kenzie Lam Sam","PJ Tonga":"Kenzie Lam Sam","Rita Ne
 // team mapping. Falls back to the hardcoded list above if the fetch fails.
 /* The reason the list would not load, kept for the one report below rather than
    filed three times over while bootLists() retries. */
+/* ══ THE SALE BELONGS TO WHOEVER IS SIGNED IN ═══════════════════════════════
+   [stated] Nigel, 29 Sep 2026: "rather than a consultant having a drop down list at
+   the start of the order, would it be easier for every order done on that iPad to be
+   assigned to the consultant logged on to it. That way we can just reassign the
+   consultant in the office if required."
+
+   ⚠ WHY THIS IS SAFER THAN THE LIST, not just quicker. The list is loaded from
+     list_active_consultants(), but when that call fails the page keeps the built-in
+     fallback below, which still names five consultants who have left and none of the
+     ones hired since July. A consultant who cannot find themselves picks something,
+     and the commission goes to the wrong person. Taking the name from the login
+     removes the choice, and with it the mistake.
+
+   ⚠ THE OFFICE KEEP THE LIST. admin, manager and office all key orders in and none
+     of them has a consultant name of their own, so for them nothing changes.
+
+   ⚠ THIS IS ALSO ENFORCED IN THE DATABASE. The insert policy on sim_orders now
+     requires a consultant's order to carry their own name. A rule that lives only
+     on the page is a convention, and today has been a long lesson in what those
+     are worth. Do not rely on this function alone.
+
+   ⚠ If the login carries no consultant name, the list is LEFT ALONE rather than
+     locked to nothing — a consultant must never be stranded unable to start a sale. */
+async function lockConsultantToLogin(){
+  try{
+    /* auth.js resolves the profile asynchronously; wait briefly rather than assume
+       it has landed by the time the lists boot. */
+    for(let i=0;i<40 && !window.SIMTEC_USER;i++) await new Promise(r=>setTimeout(r,50));
+    const me = window.SIMTEC_USER;
+    if(!me || me.role !== 'consultant') return;
+    const name = String(me.consultant_name||'').trim();
+    if(!name) return;
+    const sel = document.getElementById('consultant');
+    if(!sel) return;
+    /* ⚠ ADD THE OPTION IF IT IS MISSING. On the stale fallback list the consultant's
+       own name may not be there at all, and setting .value to a name that is not an
+       option leaves it BLANK — silently, which is the exact fault being removed. */
+    if(!Array.prototype.some.call(sel.options, o => o.value===name || o.text===name)){
+      const o=document.createElement('option'); o.textContent=name; sel.appendChild(o);
+    }
+    sel.value = name;
+    sel.style.display='none';
+    if(!document.getElementById('consultantFixed')){
+      const d=document.createElement('div');
+      d.id='consultantFixed';
+      d.style.cssText='font-size:16px;font-weight:600;padding:10px 0 2px;color:#122347';
+      d.textContent=name;
+      sel.parentNode.appendChild(d);
+    }
+  }catch(e){ try{ reportClientError('show the signed-in consultant on the order', e); }catch(_e){} }
+}
+
 let CONSULTANTS_ERR = '';
 async function loadConsultants(){
   try{
@@ -1142,9 +1196,10 @@ async function bootLists(){
   const cat  = loadCatalogue().then(()=>{ try{ renderProducts(); }catch(_e){} });
   for(let attempt=0; attempt<3; attempt++){
     const got = await loadConsultants();
-    if(got){ await affs; await cat; return; }
+    if(got){ await lockConsultantToLogin(); await affs; await cat; return; }
     await new Promise(r=>setTimeout(r,800));
   }
+  await lockConsultantToLogin();   /* still lock it — this is the path where the stale list is showing */
   await affs; await cat;
   console.warn('consultant list did not load — the fallback list is in use');
   /* ⚠ Reported once, after the last retry. The built-in fallback list is missing
