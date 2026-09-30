@@ -18,7 +18,7 @@
 <!-- data-one-consultant: this iPad belongs to the first consultant who signs in on it.
      Orders are written from here, so this is the only page that asks for the binding. -->
 <script src="auth.js?v=5" data-roles="admin,manager,office,consultant" data-one-consultant></script>
-<script>window.SIMTEC_BUILD="2026-09-16-01";</script>
+<script>window.SIMTEC_BUILD="2026-09-30-01";</script>
 <script src="update.js?v=2"></script>
 
 
@@ -1184,6 +1184,10 @@ async function loadAffiliations(){
 // (which is missing every consultant added since July). Wait for the session,
 // then retry a couple of times if the list still comes back short.
 async function bootLists(){
+  /* ⚠ FIRST THING, BEFORE ANY SALE CAN START. On a Home-Screen web app the tab
+     is never closed, so ids from yesterday's sale are still in sessionStorage
+     when the consultant opens the app this morning. */
+  dropFinishedIds();
   // Poll every 50ms for up to 5s, but the moment the session lands we move —
   // this used to feel slow on an older iPad because the first check happened
   // after a fixed wait rather than immediately.
@@ -1766,14 +1770,64 @@ function newUuid(){
    worse than a duplicate. sessionStorage dies with the tab, and clearIds() is
    called on every new order. Never move this to localStorage. */
 var ID_KEY='simtec_order_ids_v1';
+var ID_MAX_AGE_MS = 8*60*60*1000;   // no single sale runs longer than a working day
+
+/* ⚠⚠ 30 Sep 2026 — THE COMMENT ABOVE IS WRONG ABOUT THIS iPAD, AND IT COST A SALE.
+   "sessionStorage dies with the tab" is true in Safari. It is NOT true of a
+   HOME-SCREEN web app, which is ONE tab that iOS keeps and restores for days.
+   So the ids from a finished sale were still sitting there the next morning,
+   the next order was written onto the PREVIOUS customer's record, and
+   tg_id_belongs_to_one_sale refused it — correctly, but the consultant was then
+   stuck in front of a customer with a sale that would not save, and a parked
+   copy that could never upload because it carried the same bad ids inside it.
+   Daisy Emerson-Levi, 30 Sep, wearing Tino Williams' ids from the day before:
+   seven refusals in seventy seconds.
+
+   Two things now end a set of ids, and both are checked before they are reused:
+     * spent — the sale reached finalizeOrder(), so those ids are finished;
+     * age   — minted more than ID_MAX_AGE_MS ago, so they cannot be this sale.
+
+   ⚠ WHAT MUST NOT CHANGE: within ONE sale the ids stay stable. A reload, an
+     iOS memory-pressure discard, or the Ezidebit round-trip must still resubmit
+     the SAME rows rather than create a second order. That is why 'spent' is set
+     in finalizeOrder() and NOT at the draft save in submitOrder() — the gap
+     between those two is exactly when the consultant is out at Ezidebit. */
+function readStoredIds(){
+  try{ var raw=sessionStorage.getItem(ID_KEY); if(!raw) return null;
+       var v=JSON.parse(raw); return (v && v.cust && v.order) ? v : null;
+  }catch(e){ return null; }
+}
+function idsAreFinished(v){
+  if(!v) return false;
+  if(v.spent) return true;
+  if(!v.at) return true;                 // written by a build before this fix
+  return (Date.now() - v.at) > ID_MAX_AGE_MS;
+}
+/* Called once at start-up, before any sale can begin. */
+function dropFinishedIds(){
+  var v=readStoredIds();
+  if(v && idsAreFinished(v)){
+    clearIds();
+    console.warn('SIMTEC: cleared ids from a finished sale (spent='+!!v.spent+', minted='+(v.at?new Date(v.at).toISOString():'unknown')+')');
+  }
+}
+/* Called when the sale is genuinely over. The ids stay readable for the rest of
+   this session so an immediate resubmit is still idempotent, but they can never
+   be picked up by a NEW sale after the app restarts. */
+function markIdsSpent(){
+  try{ var v=readStoredIds(); if(!v) return; v.spent=true;
+       sessionStorage.setItem(ID_KEY, JSON.stringify(v));
+       if(S.orderIds) S.orderIds.spent=true;
+  }catch(e){}
+}
 function orderIds(){
   if(!S.orderIds){
-    try{ var raw=sessionStorage.getItem(ID_KEY);
-         if(raw){ var v=JSON.parse(raw); if(v && v.cust && v.order) S.orderIds=v; }
-    }catch(e){ reportClientError('read this order\'s ids back after a reload (a resubmit would write a SECOND order)', e); }
+    var v=readStoredIds();
+    if(v && !idsAreFinished(v)) S.orderIds=v;
+    else if(v) clearIds();
   }
   if(!S.orderIds){
-    S.orderIds={ cust:newUuid(), order:newUuid() };
+    S.orderIds={ cust:newUuid(), order:newUuid(), at:Date.now() };
     try{ sessionStorage.setItem(ID_KEY, JSON.stringify(S.orderIds)); }
     catch(e){ reportClientError('hold this order\'s ids for the length of the sale (a reload would write a second order)', e); }
   }
@@ -1856,11 +1910,34 @@ async function savePayload(P){
   /* ⚠ THE SAME IDS ON EVERY ATTEMPT. A retry re-writes these exact rows, so the
      database refuses the second copy instead of creating a duplicate order. */
   const IDS = (P && P.ids && P.ids.cust && P.ids.order) ? P.ids : orderIds();
-  const custId = IDS.cust, orderId = IDS.order;
+  let custId = IDS.cust, orderId = IDS.order;
   const custRec={id:custId, first_name:f.a1first,last_name:f.a1last,mobile:e164,email:f.email||null,address:address||null};
   { const _a=document.getElementById('affiliationSel'); if(_a&&_a.value) custRec.affiliation_id=_a.value; }  // only sent when a group is chosen
   /* ignoreDuplicates → ON CONFLICT DO NOTHING. A second attempt is a no-op. */
-  const {error:e1}=await sb.from('sim_customers').upsert(custRec,{onConflict:'id',ignoreDuplicates:true});
+  let {error:e1}=await sb.from('sim_customers').upsert(custRec,{onConflict:'id',ignoreDuplicates:true});
+
+  /* ⚠⚠ 30 Sep 2026 — RECOVER FROM IDS THAT BELONG TO SOMEBODY ELSE'S SALE.
+     tg_id_belongs_to_one_sale refuses a write whose id already holds a DIFFERENT
+     person. That refusal is right and stays. But until now the consultant could
+     do nothing about it: the sale would not save, and the PARKED copy carried
+     the same bad ids inside it, so it was refused again on every retry for ever.
+     The guard firing PROVES these ids are not this sale's, so the only correct
+     answer is a clean pair — and that is safe precisely BECAUSE the guard only
+     fires when the id holds someone else. A genuine retry of the same sale does
+     not trip it and keeps its ids, so resubmits stay idempotent.
+     This also repairs a parked order in place, which is what gets Daisy's
+     stuck sale off her iPad without anyone re-keying it. */
+  if(e1 && /trying to save a new (customer|order) onto an existing/i.test(e1.message||'')){
+    const stale = custId;
+    custId = newUuid(); orderId = newUuid();
+    if(P && P.ids){ P.ids.cust=custId; P.ids.order=orderId; P.ids.at=Date.now(); delete P.ids.spent; }
+    else { clearIds(); S.orderIds={cust:custId, order:orderId, at:Date.now()};
+           try{ sessionStorage.setItem(ID_KEY, JSON.stringify(S.orderIds)); }catch(_e){} }
+    reportClientError('recover a sale whose iPad was still holding the previous sale\'s ids (saved under new ids '+custId+')',
+                      new Error('stale customer id '+stale+' — '+(e1.message||'')), stale);
+    custRec.id = custId;
+    ({error:e1} = await sb.from('sim_customers').upsert(custRec,{onConflict:'id',ignoreDuplicates:true}));
+  }
   if(e1) throw new Error('customer: '+e1.message);
   // 2) order
   const total=P.products.reduce((s,p)=>s+(p.price*p.qty||0),0)+(P.wantDel?DELIVERY_FEE:0);
@@ -1904,7 +1981,20 @@ async function savePayload(P){
   };
   /* ⚠ NO .select() HERE ANY MORE. The id is ours already, and a consultant
      cannot reliably read the row back. On a retry this writes nothing. */
-  const {error:e2}=await sb.from('sim_orders').upsert(order,{onConflict:'id',ignoreDuplicates:true});
+  let {error:e2}=await sb.from('sim_orders').upsert(order,{onConflict:'id',ignoreDuplicates:true});
+  /* The same recovery for the order id. The customer has already saved by this
+     point, so ONLY the order id is replaced — the order stays attached to the
+     customer this sale is actually for. */
+  if(e2 && /trying to save a new (customer|order) onto an existing/i.test(e2.message||'')){
+    const staleOrder = orderId;
+    orderId = newUuid(); order.id = orderId;
+    if(P && P.ids) P.ids.order = orderId;
+    else if(S.orderIds){ S.orderIds.order=orderId;
+      try{ sessionStorage.setItem(ID_KEY, JSON.stringify(S.orderIds)); }catch(_e){} }
+    reportClientError('recover a sale whose iPad was still holding the previous ORDER id (saved under new id '+orderId+')',
+                      new Error('stale order id '+staleOrder+' — '+(e2.message||'')), staleOrder);
+    ({error:e2} = await sb.from('sim_orders').upsert(order,{onConflict:'id',ignoreDuplicates:true}));
+  }
   if(e2) throw new Error('order: '+e2.message);
   // reason for purchasing — best-effort; never blocks the order even if the column isn't present yet
   const _reason=[f.purchaseReason,f.purchaseReasonNotes].map(x=>String(x||'').trim()).filter(Boolean).join(' — ')||null;
@@ -2445,6 +2535,17 @@ async function finalizeOrder(){
       upd.consultant_account_note = [noIdNote(S.lastP), eziSkipNote(), (existing ? 'Consultant\'s own note: '+existing : '')].filter(Boolean).join('\n\n');
     }
     await sb.from('sim_orders').update(upd).eq('id', S.orderId);
+    /* ⚠⚠ THE SALE IS OVER — ONLY NOW ARE THE IDS FINISHED. 30 Sep 2026.
+       This deliberately does NOT happen at the draft save in submitOrder().
+       Between that save and here the consultant goes out to Ezidebit and comes
+       back, and iOS can discard the page in between. If the ids were retired at
+       the draft save, that reload would leave no ids and no S.orderId, and
+       finishing the sale would write a SECOND order instead of completing the
+       draft. Retiring them here keeps the existing mid-sale protection intact
+       for the whole length of the sale. The 8-hour rule is the backstop for a
+       sale that never reaches this line — which is what happened on Daisy's
+       iPad, still wearing ids minted 27 hours earlier. */
+    markIdsSpent();
   }catch(e){ console.warn('could not hand the order to the office:', e&&e.message||e);
              reportClientError('mark the order ready for the confirmation call', e, S.orderId); }
 
@@ -2553,7 +2654,7 @@ function renderParked(){
   }).join('');
   wrap.innerHTML='<div class="card" style="border-color:#f0dca8;background:#fff8e8">'
     +'<h3 style="color:#7a5b12;margin-bottom:6px">Parked orders on this iPad ('+list.length+')</h3>'
-    +'<p class="sub" style="margin:0 0 12px">Saved offline. They upload automatically when you have internet.'
+    +'<p class="sub" style="margin:0 0 12px">Held on this iPad. They upload automatically once they can.'
       +(navigator.onLine?'':' <b>You\'re offline right now.</b>')+'</p>'
     +rowsHtml
     +(syncing?'<p class="sub" style="margin:10px 0 0">Uploading…</p>'
