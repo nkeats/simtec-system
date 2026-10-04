@@ -93,7 +93,7 @@ function srLabel(c){
   if(!c.accredited_on) return 'not yet accredited — ordinary rates until a date is entered';
   if(c.starting_rates_ended_on) return 'ordinary rates from '+c.starting_rates_ended_on;
   const mon=new Date(); const dow=(mon.getDay()+6)%7; mon.setDate(mon.getDate()-dow);
-  const today=mon.toISOString().slice(0,10);
+  const today=localISO(mon);
   const wk=startingWeekNo(c.accredited_on, today);
   if(wk){
     const r=startingRateFor(wk);
@@ -104,7 +104,7 @@ function srLabel(c){
   const acc=new Date(c.accredited_on+'T00:00:00');
   const d=new Date(acc); d.setDate(d.getDate()+1);
   const dd=(d.getDay()+6)%7; if(dd!==0) d.setDate(d.getDate()+(7-dd));
-  const first=d.toISOString().slice(0,10);
+  const first=localISO(d);
   return (today < first)
     ? 'starting rates begin the week of '+first
     : 'starting rates finished — ordinary rates';
@@ -130,8 +130,16 @@ function srCtx(con, run){
 // ── Helpers ────────────────────────────────────────────────────────────────
 const fmt=n=>'$'+(+n||0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,',');
 const fmtD=d=>d?new Date(d+'T12:00:00').toLocaleDateString('en-NZ',{day:'2-digit',month:'short',year:'numeric'}):'';
-const toMon=d=>{const dt=new Date(d+'T12:00:00');const dy=dt.getDay();dt.setDate(dt.getDate()+(dy===0?-6:1-dy));return dt.toISOString().split('T')[0]};
-const weekMS=d=>{const dt=new Date(d+'T12:00:00');const dy=dt.getDay();const mon=new Date(dt);mon.setDate(dt.getDate()+(dy===0?-6:1-dy));const sun=new Date(mon);sun.setDate(mon.getDate()+6);const iso=x=>x.toISOString().split('T')[0];return{start:iso(mon),ending:iso(sun)};};
+/* ⚠⚠ 5 Oct 2026 — NEVER turn a NZ calendar date into text with toISOString().
+   toISOString() gives the date in UTC. NZ is 12–13 hours ahead, so midday on a
+   Sunday during daylight saving is still SATURDAY in UTC. That is how the run
+   created on 28 Sep was saved as Mon 21 – Sat 26 Sep, and every run from then
+   until April would have been Sunday–Saturday. localISO() reads the date as NZ
+   sees it. The database also refuses any run that is not Monday–Sunday
+   (constraint pay_run_is_monday_to_sunday), so a page cannot get this wrong again. */
+function localISO(x){const y=x.getFullYear(),m=String(x.getMonth()+1).padStart(2,'0'),d=String(x.getDate()).padStart(2,'0');return y+'-'+m+'-'+d;}
+const toMon=d=>{const dt=new Date(d+'T12:00:00');const dy=dt.getDay();dt.setDate(dt.getDate()+(dy===0?-6:1-dy));return localISO(dt)};
+const weekMS=d=>{const dt=new Date(d+'T12:00:00');const dy=dt.getDay();const mon=new Date(dt);mon.setDate(dt.getDate()+(dy===0?-6:1-dy));const sun=new Date(mon);sun.setDate(mon.getDate()+6);return{start:localISO(mon),ending:localISO(sun)};};
 const $=id=>document.getElementById(id);
 const go=(p,r,c)=>{page=p;runId=r||runId;consId=c||consId;renderNav();renderApp()};
 const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -616,9 +624,9 @@ async function showRuns(){
 }
 
 function newRun(){
-  const t=new Date(new Date().toISOString().split('T')[0]+'T12:00:00');
+  const t=new Date(localISO(new Date())+'T12:00:00');
   t.setDate(t.getDate()-t.getDay());           // most recent Sunday (today if Sunday)
-  const sun=t.toISOString().split('T')[0];
+  const sun=localISO(t);
   openMod(`<h3 class="font-semibold text-white mb-4">New Pay Run</h3>
     <label class="text-xs text-slate-400 block mb-1">Week ending — any day you pick snaps to Mon–Sun</label>
     <input type="date" id="md" value="${sun}" class="inp mb-2" onchange="previewWeek()" oninput="previewWeek()">
@@ -720,14 +728,13 @@ async function showRun(){
     sb.from('commission_retention').select('*'),
   ]);
   if(re)throw re;
-  // Gather: pull any unassigned auto-fed sales for this week into the draft run
-  // (sales arrive from the orders feed with pay_run_id = null; opening the week's run claims them)
+  // Gather: opening a draft run claims its sales. The rule lives in ONE place,
+  // claim_sales_for_run() in the database: every sale dated inside this week, PLUS
+  // any sale entered late after its own week was already paid (5 Oct 2026 —
+  // Delwyn Taia sat unpaid because the old in-week-only rule could never reach her).
   if(run&&run.status!=='finalised'){
-    await sb.from('commission_sales').update({pay_run_id:runId})
-      .is('pay_run_id',null)
-      .neq('status','cancelled')
-      .gte('sale_date',run.week_start)
-      .lte('sale_date',run.week_ending);
+    const{error:eClaim}=await sb.rpc('claim_sales_for_run',{p_run:runId});
+    if(eClaim){console.error(eClaim);toast('Could not collect this week\'s sales: '+eClaim.message,false);}
   }
   const retMap={};(ret||[]).forEach(x=>retMap[x.consultant_id]=+x.balance||0);
   const active=consultants.filter(c=>c.active);
