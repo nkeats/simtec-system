@@ -150,6 +150,8 @@
   </div>
 </div>
 
+<script>/* 5 Oct 2026: today's date as the person using this page sees it. NEVER use toISOString() for a date - it gives the UTC date, which is YESTERDAY in NZ every morning. */
+function localISO(d){d=d||new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}</script>
 <script>
 const SUPABASE_URL = "https://jvqjoenaungubpoegyvf.supabase.co";
 const SUPABASE_KEY = "sb_publishable_J4MYTdJJyEaWe-GadpwdYA_upPT2rKw";
@@ -518,7 +520,7 @@ function clearForm(){
   $("deposit").value="0";
   $("saleType").value=""; $("payMethod").value=""; $("payFreq").value=""; $("delStatus").value="pending";
   $("consultant").value="";
-  $("orderDate").value = new Date().toISOString().slice(0,10);   // reset to today
+  $("orderDate").value = localISO(new Date());   // reset to today
   const mh=$("mobileHint"); if(mh) mh.textContent="";
   hideDupe();
   const sp=$("schedPreview"); if(sp) sp.innerHTML="";
@@ -531,7 +533,7 @@ function clearForm(){
 }
 
 // init
-$("orderDate").value = new Date().toISOString().slice(0,10);
+$("orderDate").value = localISO(new Date());
 loadConsultants();
 loadPrices();
 loadRecent();

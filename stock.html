@@ -116,6 +116,8 @@ tr:last-child td{border-bottom:none}
   <div id="mverr" class="text-xs mt-3" style="color:#f87171"></div>
 </div></div>
 
+<script>/* 5 Oct 2026: today's date as the person using this page sees it. NEVER use toISOString() for a date - it gives the UTC date, which is YESTERDAY in NZ every morning. */
+function localISO(d){d=d||new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}</script>
 <script>
 const SUPABASE_URL='https://jvqjoenaungubpoegyvf.supabase.co';
 const SUPABASE_KEY='sb_publishable_J4MYTdJJyEaWe-GadpwdYA_upPT2rKw';
@@ -277,7 +279,7 @@ let UNPACK = { rows:[], totals:{} };
 async function loadUnpack(){
   const today = new Date(new Intl.DateTimeFormat('en-CA',{timeZone:'Pacific/Auckland'}).format(new Date())+'T00:00:00');
   const horizon = new Date(today); horizon.setDate(horizon.getDate()+UNPACK_DAYS);
-  const hIso = horizon.toISOString().slice(0,10);
+  const hIso = localISO(horizon);
 
   const {data:clr,error}=await sb.from('v_delivery_clearance')
     .select('order_id,cleared,booked,clears_on,payments_to_go');

@@ -177,6 +177,8 @@
   </div>
 </dialog>
 
+<script>/* 5 Oct 2026: today's date as the person using this page sees it. NEVER use toISOString() for a date - it gives the UTC date, which is YESTERDAY in NZ every morning. */
+function localISO(d){d=d||new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}</script>
 <script>
 /* ⚠⚠ AUSTRALIA IS REACHED THROUGH AN EDGE FUNCTION, NOT DIRECTLY.
    The AU database is a separate Supabase project. This site is PUBLIC GitHub
@@ -217,7 +219,7 @@ let ALL=[], TAB='chase', SORT={k:'fails_60d',dir:-1}, CURRENT=null;
 const TABS = [
   ['chase',   'Needs chasing',  r => ['chronic','serious','watch'].includes(r.chase)],
   ['chronic', 'Chronic',        r => r.chase==='chronic'],
-  ['due',     'Call back today',r => r.next_action && r.next_action <= new Date().toISOString().slice(0,10)],
+  ['due',     'Call back today',r => r.next_action && r.next_action <= localISO(new Date())],
   ['hold',    'On hold',        r => r.chase==='on hold'],
   ['never',   'Never contacted',r => !r.last_contacted && ['chronic','serious','watch'].includes(r.chase)],
   /* Paysmart customers have no Ezidebit event history, so the failure grading
@@ -257,7 +259,7 @@ function drawKpis(){
   const pct   = book ? Math.round(gone/book*100) : 0;
 
   const need  = ALL.filter(r => ['chronic','serious','watch'].includes(r.chase));
-  const today = new Date().toISOString().slice(0,10);
+  const today = localISO(new Date());
   const due   = ALL.filter(r => r.next_action && r.next_action <= today);
 
   const ezi = live.filter(r => r.provider !== 'paysmart')
@@ -437,7 +439,7 @@ function openVisit(payer, name, addr, city){
   $('vWho').textContent = name || payer;
   $('vAddr').value = addr || '';
   $('vCity').textContent = city || '';
-  $('vDate').value = new Date(Date.now() + 86400000).toISOString().slice(0,10);
+  $('vDate').value = localISO(new Date(Date.now() + 86400000));
   $('vPlan').value = '';
   $('visitDlg').showModal();
 }
@@ -464,7 +466,7 @@ async function saveVisit(){
 function openResult(id, name, when){
   $('rId').value = id;
   $('rWho').textContent = name + ' — booked ' + when;
-  $('rDate').value = new Date().toISOString().slice(0,10);
+  $('rDate').value = localISO(new Date());
   $('rResult').value = 'nobody_home';
   $('rAmt').value = ''; $('rPromised').value = ''; $('rBy').value = ''; $('rNote').value = '';
   onResultChange();

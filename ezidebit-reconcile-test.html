@@ -36,6 +36,8 @@ label{font-size:.72rem;letter-spacing:.05em;text-transform:uppercase;color:#7c8a
   <pre id="out">Ready. Set the dates and press “Run reconciliation”.</pre>
 </div>
 
+<script>/* 5 Oct 2026: today's date as the person using this page sees it. NEVER use toISOString() for a date - it gives the UTC date, which is YESTERDAY in NZ every morning. */
+function localISO(d){d=d||new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}</script>
 <script>
 const sb = supabase.createClient(
   'https://jvqjoenaungubpoegyvf.supabase.co',
@@ -46,7 +48,7 @@ const $ = id => document.getElementById(id);
 // default both dates to yesterday
 (function(){
   const y = new Date(Date.now() - 864e5);
-  const iso = y.toISOString().slice(0,10);
+  const iso = localISO(y);
   $('from').value = iso; $('to').value = iso;
 })();
 

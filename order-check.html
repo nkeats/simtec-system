@@ -114,6 +114,8 @@
   </div>
 </div>
 
+<script>/* 5 Oct 2026: today's date as the person using this page sees it. NEVER use toISOString() for a date - it gives the UTC date, which is YESTERDAY in NZ every morning. */
+function localISO(d){d=d||new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}</script>
 <script>
 const sb = supabase.createClient("https://jvqjoenaungubpoegyvf.supabase.co","sb_publishable_J4MYTdJJyEaWe-GadpwdYA_upPT2rKw");
 const $=id=>document.getElementById(id);
@@ -124,7 +126,7 @@ function nzToday(){
   const p=new Intl.DateTimeFormat("en-CA",{timeZone:"Pacific/Auckland",year:"numeric",month:"2-digit",day:"2-digit"}).format(new Date());
   return p;   // en-CA gives YYYY-MM-DD
 }
-function shiftDay(ds,n){ const d=new Date(ds+"T12:00:00"); d.setDate(d.getDate()+n); return d.toISOString().slice(0,10); }
+function shiftDay(ds,n){ const d=new Date(ds+"T12:00:00"); d.setDate(d.getDate()+n); return localISO(d); }
 
 let SRC="app", ROWS=[], OPEN=null;
 

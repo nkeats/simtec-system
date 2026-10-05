@@ -1476,7 +1476,7 @@ async function showGiveaways(){
       :`<input type="hidden" id="gitem" value="${kind==='advance'?'Cash advance':'Loan'}">
         <input type="hidden" id="gqty" value="1">`}
       <label class="text-xs text-slate-400 block mb-1">${kind==='advance'?'Date advanced':kind==='loan'?'Date borrowed':'Date taken'}</label>
-      <input type="date" id="gdate" value="${new Date().toISOString().split('T')[0]}" class="inp mb-3">
+      <input type="date" id="gdate" value="${localISO(new Date())}" class="inp mb-3">
       <label class="text-xs text-slate-400 block mb-1">Amount ($)</label>
       <input type="number" id="gamt" value="${isGiv?rt:''}" min="0" step="0.01" class="inp mb-3" ${isGiv?'':'placeholder="0.00"'}>
       <label class="text-xs text-slate-400 block mb-1">${kind==='loan'?'What the loan is for (required)':kind==='advance'?'Which pay it comes off (optional)':'Notes (optional)'}</label>
@@ -1507,11 +1507,11 @@ async function showGiveaways(){
       <label class="text-xs text-slate-400 block mb-1">Opening amount owed ($)</label>
       <input type="number" id="oamt" value="0" min="0" step="0.01" class="inp mb-3">
       <label class="text-xs text-slate-400 block mb-1">Notes (optional)</label>
-      <input type="text" id="onotes" class="inp mb-4" placeholder="e.g. opening balance as at ${fmtD(new Date().toISOString().split('T')[0])}">
+      <input type="text" id="onotes" class="inp mb-4" placeholder="e.g. opening balance as at ${fmtD(localISO(new Date()))}">
       <div class="flex gap-3"><button class="btn gold flex-1" onclick="saveOpening('${cid}')">Save</button><button class="btn dark flex-1" onclick="closeMod()">Cancel</button></div>`);
     window.saveOpening=async(id)=>{
       const amt=+$('oamt').value;if(!amt){toast('Enter an amount',false);return;}
-      const{error}=await sb.from('commission_giveaways').insert({consultant_id:id,kind:'opening',item:'Opening balance',amount:amt,taken_date:new Date().toISOString().split('T')[0],notes:$('onotes').value.trim()||null});
+      const{error}=await sb.from('commission_giveaways').insert({consultant_id:id,kind:'opening',item:'Opening balance',amount:amt,taken_date:localISO(new Date()),notes:$('onotes').value.trim()||null});
       if(error){err(error);return;}
       closeMod();toast('Opening balance set');go('giveaways');
     };
@@ -1702,7 +1702,7 @@ async function showSettings(){
     const tl=ovTls.find(t=>t.id===tlId);const bal=+(ovTotals[tlId]||0);
     if(bal<=0){toast('Nothing owed to pay out.',false);return;}
     if(!confirm(`Record override payout for ${tl?tl.name:'this team leader'}?\n\nThis pays out ${fmt(bal)} and resets their running total to $0. Only do this after you have actually paid them.`))return;
-    const{error}=await sb.from('commission_overrides').insert({team_leader_id:tlId,amount:-bal,reason:'payout',notes:'Override payout — reset to zero '+new Date().toISOString().split('T')[0]});
+    const{error}=await sb.from('commission_overrides').insert({team_leader_id:tlId,amount:-bal,reason:'payout',notes:'Override payout — reset to zero '+localISO(new Date())});
     if(error){err(error);return;}
     await loadOverrides();
     if($('ovlist'))$('ovlist').innerHTML=ovListHTML();
@@ -1934,7 +1934,7 @@ async function showSetup(){
         const d=$('srenddate_'+id);
         if(!d)return;
         d.disabled=!on;
-        if(on&&!d.value){ const t=new Date(); d.value=t.toISOString().slice(0,10); }
+        if(on&&!d.value){ const t=new Date(); d.value=localISO(t); }
         if(!on) d.value='';
       };
       window.saveSrEnd=async(id)=>{
@@ -2194,7 +2194,7 @@ window.confirmCancel=async(saleId,commissionPaid,consId,isPaid)=>{
   // 1. Mark sale cancelled
   const{error:e1}=await sb.from('commission_sales').update({
     status:'cancelled',
-    cancelled_date:new Date().toISOString().split('T')[0],
+    cancelled_date:localISO(new Date()),
     cancellation_notes:notes
   }).eq('id',saleId);
   if(e1){err(e1);return;}
@@ -2371,7 +2371,7 @@ window.finaliseRun=async(rid)=>{
     if(re)throw re;
     if(run.status==='finalised'){toast('This run is already finalised.',false);return;}
     const s=S();
-    const today=new Date().toISOString().split('T')[0];
+    const today=localISO(new Date());
     const{data:retRows}=await sb.from('commission_retention').select('*');
     const retMap={};(retRows||[]).forEach(x=>retMap[x.consultant_id]=+x.balance||0);
     const active=consultants.filter(c=>c.active);

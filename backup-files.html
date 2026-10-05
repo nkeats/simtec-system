@@ -64,6 +64,8 @@
   </div>
 </div>
 
+<script>/* 5 Oct 2026: today's date as the person using this page sees it. NEVER use toISOString() for a date - it gives the UTC date, which is YESTERDAY in NZ every morning. */
+function localISO(d){d=d||new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}</script>
 <script>
 const sb = supabase.createClient(
   "https://jvqjoenaungubpoegyvf.supabase.co",
@@ -168,7 +170,7 @@ async function run(){
     tick();
 
     // A plain list so you can tell later what should be in here
-    const stamp = new Date().toISOString().slice(0,10);
+    const stamp = localISO(new Date());
     zip.file("MANIFEST.txt",
       "SIMTEC document backup\ntaken: " + new Date().toString() + "\n" +
       "files saved: " + (FILES.length - failed.length) + " of " + FILES.length + "\n" +

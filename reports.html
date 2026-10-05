@@ -141,6 +141,8 @@
 
 </div>
 
+<script>/* 5 Oct 2026: today's date as the person using this page sees it. NEVER use toISOString() for a date - it gives the UTC date, which is YESTERDAY in NZ every morning. */
+function localISO(d){d=d||new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}</script>
 <script>
 const sb = supabase.createClient("https://jvqjoenaungubpoegyvf.supabase.co","sb_publishable_J4MYTdJJyEaWe-GadpwdYA_upPT2rKw");
 const fmt=n=>"$"+Math.round(n||0).toLocaleString();
@@ -324,7 +326,7 @@ function draw(weeks){
 
   // tiles: this week + last 4 weeks + all-time.
   // NOTE: tiles always use every week, regardless of how many rows the table shows.
-  const thisWk=weekStart(new Date().toISOString().slice(0,10));
+  const thisWk=weekStart(localISO(new Date()));
   const tw=weeks[thisWk]||{mattresses:0,value:0};
   let l4m=0,l4v=0; order.slice(0,4).forEach(k=>{l4m+=weeks[k].mattresses;l4v+=weeks[k].value;});
   let allM=0,allV=0; order.forEach(k=>{allM+=weeks[k].mattresses;allV+=weeks[k].value;});
@@ -689,7 +691,7 @@ function gridErr(m){ const b=$("gridErr"); if(!m){b.style.display="none";return;
 async function loadGrid(){
   gridErr("");
   try{
-    const thisMon = weekStart(new Date().toISOString().slice(0,10));
+    const thisMon = weekStart(localISO(new Date()));
     // 14 days: this sales week (Mon-Sun) + next.
     const days=[];
     const p=thisMon.split("-").map(Number);
@@ -718,7 +720,7 @@ async function loadGrid(){
       return tb-ta;   // busiest consultant first
     });
 
-    const today=new Date().toISOString().slice(0,10);
+    const today=localISO(new Date());
     const DOWs=["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
     const dnum=ds=>ds.split("-")[2];
 

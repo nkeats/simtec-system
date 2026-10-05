@@ -89,6 +89,8 @@ body{font-family:system-ui,sans-serif}
   </div>
 </div>
 
+<script>/* 5 Oct 2026: today's date as the person using this page sees it. NEVER use toISOString() for a date - it gives the UTC date, which is YESTERDAY in NZ every morning. */
+function localISO(d){d=d||new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}</script>
 <script>
 const SUPABASE_URL='https://jvqjoenaungubpoegyvf.supabase.co';
 const SUPABASE_KEY='sb_publishable_J4MYTdJJyEaWe-GadpwdYA_upPT2rKw';
@@ -314,7 +316,7 @@ function render(){
   $('list').innerHTML=view.map(r=>{
     const sev=r.weeks>=3?'#dc2626':'#e0a010';
     const strip=r.cells.filter(c=>c.due&&c.due<=today).slice(-24)
-      .map(c=>`<span class="sq" style="background:${c.cls}" title="Week ${c.w} — ${c.label} (${fmtD(c.due.toISOString().slice(0,10))})"></span>`).join('');
+      .map(c=>`<span class="sq" style="background:${c.cls}" title="Week ${c.w} — ${c.label} (${fmtD(localISO(c.due))})"></span>`).join('');
     const nm=esc(r.name).replace(/'/g,"\\'");
     // watch state badges + button
     let watchBadge='';

@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Simtec — Order Confirmation Calls</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.112.2"></script>
+<script>/* 5 Oct 2026: today's date as the person using this page sees it. NEVER use toISOString() for a date - it gives the UTC date, which is YESTERDAY in NZ every morning. */
+function localISO(d){d=d||new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}</script>
 <script>window.SIMTEC_BUILD="2026-09-17-01";</script>
 <script src="client-errors.js?v=1"></script>
 <script src="auth.js?v=4" data-roles="admin,manager,office"></script>
@@ -538,7 +540,7 @@ window.reviewCancel=async function(id){
   const {error:e2}=await sb.from('sim_orders').update({
     confirmation_status:'cancelled',
     order_status:'cancelled',
-    cancellation_date:new Date().toISOString().slice(0,10),
+    cancellation_date:localISO(new Date()),
     cancellation_reason:'Confirmation call — not accepted (management cancelled)'
   }).eq('id',id);
   if(e2){ reportClientError('cancel the order after management declined it (decision saved, order NOT cancelled)', e2, id); setState(id,'Saved decision, but order update failed: '+e2.message,'#b4342e'); return; }

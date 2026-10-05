@@ -8,6 +8,8 @@
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://unpkg.com/@supabase/supabase-js@2.38.4/dist/umd/supabase.js"></script>
+<script>/* 5 Oct 2026: today's date as the person using this page sees it. NEVER use toISOString() for a date - it gives the UTC date, which is YESTERDAY in NZ every morning. */
+function localISO(d){d=d||new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}</script>
 <script>window.SIMTEC_BUILD="2026-09-17-01";</script>
 <script src="client-errors.js?v=1"></script>
 <script src="live.js?v=3" defer></script>
@@ -924,7 +926,7 @@ async function applyDelivered(orderId, delivered){
   if(e1) throw e1;
   const ids=(its||[]).filter(i=>isMattress(i.product_name)).map(i=>i.id);
   if(delivered){
-    const todayD=new Date().toISOString().slice(0,10);
+    const todayD=localISO(new Date());
     if(ids.length){
       const {error:e2}=await sb.from('sim_order_items').update({delivered:true,delivered_date:todayD,delivered_by:whoNow()}).in('id',ids);
       if(e2) throw e2;

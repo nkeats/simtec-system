@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Simtec — Customer</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.112.2"></script>
+<script>/* 5 Oct 2026: today's date as the person using this page sees it. NEVER use toISOString() for a date - it gives the UTC date, which is YESTERDAY in NZ every morning. */
+function localISO(d){d=d||new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}</script>
 <script>window.SIMTEC_BUILD="2026-09-17-01";</script>
 <script src="client-errors.js?v=1"></script>
 <script src="live.js?v=3" defer></script>
@@ -960,7 +962,7 @@ function collectionBlock(o){
   if(cm !== "other") return html;
 
   const rows = ARRBY[o.id] || [];
-  const today = new Date().toISOString().slice(0,10);
+  const today = localISO(new Date());
   const agreed   = rows.reduce((s,a)=>s+Number(a.amount||0), 0);
   const dueToday = rows.filter(a=>a.due_date && a.due_date <= today).reduce((s,a)=>s+Number(a.amount||0), 0);
   const recorded = Number(o.amount_paid_to_date||0);
@@ -1222,7 +1224,7 @@ async function markItemCancelled(itemId, oid, val){
   if(!isStaff()){ alert("Staff only."); return; }
   if(val && !confirm("Cancel this item from the order? It stays on record but is excluded from sales figures.")) return;
   const who=(window.SIMTEC_USER.full_name||window.SIMTEC_USER.email||"staff");
-  const patch = val ? {cancelled:true, cancelled_date:new Date().toISOString().slice(0,10), cancelled_by:who}
+  const patch = val ? {cancelled:true, cancelled_date:localISO(new Date()), cancelled_by:who}
                     : {cancelled:false, cancelled_date:null, cancelled_by:null};
   const {error}=await sb.from("sim_order_items").update(patch).eq("id",itemId);
   if(error){ reportClientError((val?"cancel":"reinstate")+" a product line", error, oid); alert("Couldn't update: "+error.message); return; }
@@ -1231,7 +1233,7 @@ async function markItemCancelled(itemId, oid, val){
 async function markItem(itemId, oid, val){
   if(!isStaff()){ alert("Staff only."); return; }
   const who=(window.SIMTEC_USER.full_name||window.SIMTEC_USER.email||"staff");
-  const patch = val ? {delivered:true, delivered_date:new Date().toISOString().slice(0,10), delivered_by:who}
+  const patch = val ? {delivered:true, delivered_date:localISO(new Date()), delivered_by:who}
                     : {delivered:false, delivered_date:null, delivered_by:null};
   const {error}=await sb.from("sim_order_items").update(patch).eq("id",itemId);
   if(error){ reportClientError("mark a product line "+(val?"delivered":"not delivered"), error, oid); alert("Couldn't update: "+error.message); return; }
@@ -1253,7 +1255,7 @@ async function markItem(itemId, oid, val){
 async function setFurtherAction(oid, val){
   if(!isMgr()){ alert("Admins and managers only."); return; }
   const who=(window.SIMTEC_USER.full_name||window.SIMTEC_USER.email||"admin");
-  const patch = val ? {further_action:true,further_action_date:new Date().toISOString().slice(0,10),further_action_by:who} : {further_action:false};
+  const patch = val ? {further_action:true,further_action_date:localISO(new Date()),further_action_by:who} : {further_action:false};
   const {error}=await sb.from("sim_orders").update(patch).eq("id",oid);
   if(error){ reportClientError((val?"move the order to":"take the order out of")+" further action", error, oid); alert("Couldn't update: "+error.message); return; }
   run();
@@ -1612,7 +1614,7 @@ async function confirmCancel(){
   const oid=CXORD;
   const notes=(document.getElementById("cxNotes").value||"").trim();
   const patch={ order_status:"cancelled",
-    cancellation_date:new Date().toISOString().slice(0,10),
+    cancellation_date:localISO(new Date()),
     cancellation_type:document.getElementById("cxType").value,
     refunded:document.getElementById("cxRefund").checked,
     cancellation_reason:notes||null };
@@ -1633,7 +1635,7 @@ async function confirmCancel(){
         const amt=Number(cs.commission_paid);
         await sb.from("commission_retention_adjustments").insert({
           consultant_id:cs.consultant_id,
-          adjustment_date:new Date().toISOString().slice(0,10),
+          adjustment_date:localISO(new Date()),
           amount:-amt,
           reason:"cancellation_clawback",
           sale_id:cs.id,
@@ -1648,14 +1650,14 @@ async function confirmCancel(){
             .eq("consultant_id",cs.consultant_id);
         }
         await sb.from("commission_sales").update({
-          status:"cancelled", cancelled_date:new Date().toISOString().slice(0,10),
+          status:"cancelled", cancelled_date:localISO(new Date()),
           cancellation_notes:"[retention clawback $"+amt+" applied]"
         }).eq("id",cs.id);
         if(window.SIMTEC_TOAST) window.SIMTEC_TOAST("Order cancelled. $"+amt+" commission clawed back from retention.");
       } else {
         // not paid -> just cancel the commission, no money moved
         await sb.from("commission_sales").update({
-          status:"cancelled", cancelled_date:new Date().toISOString().slice(0,10),
+          status:"cancelled", cancelled_date:localISO(new Date()),
           cancellation_notes:"Order cancelled"+(notes?" — "+notes:"")
         }).eq("id",cs.id);
       }
@@ -2866,7 +2868,7 @@ function openPay(oid){
   const o=ORDERS[oid]; if(!o) return;
   PAYORD=o; payErr("");
   document.getElementById("payAmt").value="";
-  document.getElementById("payDate").value=new Date().toISOString().slice(0,10);
+  document.getElementById("payDate").value=localISO(new Date());
   document.getElementById("payMethod").value="bank transfer";
   document.getElementById("payType").value="paid";
   document.getElementById("payNotes").value="";

@@ -143,6 +143,8 @@
   </div>
 </div>
 
+<script>/* 5 Oct 2026: today's date as the person using this page sees it. NEVER use toISOString() for a date - it gives the UTC date, which is YESTERDAY in NZ every morning. */
+function localISO(d){d=d||new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}</script>
 <script>
 /* ============================================================================
    ⚠⚠ WHY THIS PAGE EXISTS.
@@ -186,7 +188,7 @@ const digits = s => String(s||'').replace(/\D/g,'');
    and a real date cell on the next. Read both, and return null rather than
    guessing: a wrong next-payment date would make a dead account look live. */
 function isoOf(v){
-  if(v instanceof Date && !isNaN(v)) return v.toISOString().slice(0,10);
+  if(v instanceof Date && !isNaN(v)) return localISO(v);
   const s = String(v||'').trim();
   let m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);        if(m) return m[1]+'-'+m[2]+'-'+m[3];
   m = s.match(/^(\d{2})\/(\d{2})\/(\d{4})/);          if(m) return m[3]+'-'+m[2]+'-'+m[1];
