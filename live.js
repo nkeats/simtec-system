@@ -166,9 +166,105 @@
     flashTitle(name);
   }
 
+  /* ---------------------------------------------------------------
+     SALES IN PROGRESS — 9 Oct 2026. [stated] Nigel: "can we have it trigger
+     earlier with a message like 'Confirmation call needed soon, waiting on ED'
+     and then another saying call now when the rest of the application is done".
+
+     ⚠ WHY THIS IS AMBER, SILENT AND SAYS "DON'T CALL YET". The green banner used
+       to fire on INSERT and the office rang customers while the consultant was
+       still sitting with them. So this strip never chimes, and it says plainly
+       not to call. The green banner + chime (below) still mean "call now".
+     ⚠ BUILT FROM THE DATABASE, NOT FROM EVENTS. Every sale still at 'draft' is
+       listed, so a screen opened or refreshed mid-sale still shows it, and it
+       goes the moment the sale is finished (pending) or cancelled.
+     ⚠ RED AT 30 MINUTES — the same moment stuck_orders_to_alert() texts the
+       office. Measured: finished sales go from saved to Done in under 7 minutes.
+       Kiri Manga (PJ, 9 Oct) stalled at Ezidebit and nobody knew; two August
+       sales had sat at draft for six weeks.
+     --------------------------------------------------------------- */
+  var STUCK_MIN = 30;
+  var IP = { rows: [], dismissedKey: null, client: null, failed: false };
+
+  function ipName(o) {
+    var c = (o && o.sim_customers) || {};
+    return [c.first_name, c.last_name].filter(Boolean).join(" ") || "New customer";
+  }
+  function ipMinutes(o) { return Math.max(0, Math.floor((Date.now() - new Date(o.created_at).getTime()) / 60000)); }
+  function ipAge(m) {
+    if (m < 60) return m + " min";
+    if (m < 2880) return Math.floor(m / 60) + " hr";
+    return Math.floor(m / 1440) + " days";
+  }
+
+  function renderInProgress() {
+    var el = document.getElementById("simtecInProgress");
+    var rows = IP.rows || [];
+    if (!rows.length) { if (el) el.remove(); return; }
+    var stuck = rows.filter(function (o) { return ipMinutes(o) >= STUCK_MIN; });
+    var key = rows.map(function (o) { return o.id; }).sort().join(",") + "|" + stuck.length;
+    if (IP.dismissedKey === key) { if (el) el.remove(); return; }
+    if (!el) {
+      el = document.createElement("div");
+      el.id = "simtecInProgress";
+      document.body.appendChild(el);
+    }
+    var red = stuck.length > 0;
+    // ⚠ Every property that decides size and position is set INLINE, for the same
+    //   reason as the green banner: this lands on 18 pages with different CSS.
+    el.style.cssText =
+      "position:fixed;top:0;left:0;right:0;z-index:9999;color:#fff;padding:9px 18px;" +
+      "display:flex;align-items:center;gap:14px;box-shadow:0 3px 12px rgba(0,0,0,.25);" +
+      "font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;" +
+      "background:" + (red ? "#b4342e" : "#a86a12");
+    var ctl = 'font-family:inherit;font-size:13px;font-weight:600;line-height:1.2;margin:0;width:auto;' +
+              'display:inline-block;box-sizing:border-box;flex:0 0 auto;white-space:nowrap;';
+    var lines = rows.slice(0, 4).map(function (o) {
+      var m = ipMinutes(o), who = esc(ipName(o)) + " (" + esc(o.consultant_name || "no consultant") + ")";
+      if (m >= STUCK_MIN) return "<b>" + who + "</b> not finished after " + ipAge(m) + " — ring the consultant";
+      var stage = (o.ezidebit_payer_ref || o.ezidebit_customer_id) ? "finishing the application" : "waiting on Ezidebit";
+      return "<b>" + who + "</b> · " + stage + " · " + ipAge(m);
+    });
+    if (rows.length > 4) lines.push("and " + (rows.length - 4) + " more");
+    var head = red
+      ? (stuck.length === 1 ? "Sale not finished" : stuck.length + " sales not finished")
+      : (rows.length === 1 ? "Sale in progress — confirmation call needed soon. Don’t call yet."
+                           : rows.length + " sales in progress — confirmation calls needed soon. Don’t call yet.");
+    el.innerHTML =
+      '<button type="button" id="simtecInProgressX" style="' + ctl + 'background:transparent;border:1px solid #fff;color:#fff;' +
+      'border-radius:8px;padding:6px 12px;cursor:pointer">Dismiss</button>' +
+      '<div style="flex:1;font-size:13px;line-height:1.35"><div style="font-weight:800;font-size:14px">' + head + "</div>" +
+      lines.join("<br>") + "</div>";
+    document.getElementById("simtecInProgressX").onclick = function () { IP.dismissedKey = key; el.remove(); };
+  }
+
+  function refreshInProgress() {
+    var sb = IP.client;
+    if (!sb || IP.failed) return;
+    sb.from("sim_orders")
+      .select("id, created_at, consultant_name, ezidebit_payer_ref, ezidebit_customer_id, sim_customers(first_name,last_name)")
+      .eq("confirmation_status", "draft")
+      .is("cancelled_at", null)
+      .order("created_at", { ascending: true })
+      .then(function (r) {
+        if (r && r.error) {
+          // A page whose user cannot read orders simply shows nothing — report once.
+          IP.failed = true;
+          report("read the sales in progress for the amber banner", r.error);
+          return;
+        }
+        IP.rows = (r && r.data) || [];
+        renderInProgress();
+      })
+      .catch(function (e) { report("read the sales in progress for the amber banner", e); });
+  }
+
   function subscribe(sb) {
     if (started) return;
     started = true;
+    IP.client = sb;
+    refreshInProgress();
+    setInterval(function () { if (!document.hidden) refreshInProgress(); }, 30000);   // minutes tick, and the poll safety net
 
     var ch = sb.channel("simtec-live-" + Math.random().toString(36).slice(2, 8));
 
@@ -195,9 +291,11 @@
     }
     ch.on("postgres_changes", { event: "INSERT", schema: "public", table: "sim_orders" }, function (p) {
       maybeAnnounce(p && p.new);
+      refreshInProgress();
     });
     ch.on("postgres_changes", { event: "UPDATE", schema: "public", table: "sim_orders" }, function (p) {
       maybeAnnounce(p && p.new);
+      refreshInProgress();
     });
 
     TABLES.forEach(function (t) {
@@ -232,7 +330,7 @@
 
   // Someone cancelled a customer in another tab, then switched back to this one.
   document.addEventListener("visibilitychange", function () {
-    if (!document.hidden) reload("visible");
+    if (!document.hidden) { reload("visible"); refreshInProgress(); }
   });
   window.addEventListener("focus", function () { reload("focus"); });
 
