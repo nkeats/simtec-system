@@ -18,7 +18,7 @@
 <!-- data-one-consultant: this iPad belongs to the first consultant who signs in on it.
      Orders are written from here, so this is the only page that asks for the binding. -->
 <script src="auth.js?v=5" data-roles="admin,manager,office,consultant" data-one-consultant></script>
-<script>window.SIMTEC_BUILD="2026-09-30-01";</script>
+<script>window.SIMTEC_BUILD="2026-10-09-01";</script>
 <script src="update.js?v=2"></script>
 
 
@@ -1288,6 +1288,14 @@ async function validateStep(ds){
   if(ds===0){ if(!val('consultant')||!val('visitDate')||!S.saleType){alert('Enter consultant, date and sale type.');return false;} }
   if(ds===1){ if(!S.products.some(p=>p.name)){alert('Add at least one product.');return false;} }
   if(ds===2){ if(!val('a1first')||!val('a1last')||!val('mobile')||!val('email')||!val('street')){alert('Fill the required customer fields.');return false;}
+    /* ⚠ 9 Oct 2026 — CHECK THE MOBILE BEFORE IT GOES ANYWHERE. normNZ() has always
+       worked out whether a number is a real NZ mobile, and nothing ever used the
+       answer. Kiri Manga's was saved as 021 083 303 079 (one digit too many), went
+       to Ezidebit's form, and Ezidebit failed with "Sequence contains no elements"
+       on the doorstep. Not a hard block — an overseas number can be genuine — but
+       the consultant has to look at it, and a number that fails this check is
+       never sent to Ezidebit (see buildEddrUrl). */
+    if(normNZ(val('mobile')).flag!=='ok' && !confirm('That mobile number does not look like a New Zealand mobile (they start 02 and have 9 to 11 digits). Please check it with the customer.\n\nOK = it is correct, carry on.   Cancel = fix it.')) return false;
     if(!S.emailVerified && !confirm('Email not verified. Continue anyway?')) return false; }
   if(ds===4){ if(!document.getElementById('tncAgree').checked){alert('Customer must read and agree to the Terms & Conditions.');return false;}
     const ackMax = (S.saleType==='solicited') ? 3 : 4;   // cooling-off row hidden for solicited
@@ -2800,7 +2808,7 @@ function setEziDefaults(){
 
 // Build the sandbox eDDR URL with the schedule + customer pre-fill.
 function buildEddrUrl(){
-  const {e164}=normNZ(val('mobile'));
+  const {e164, flag:mobFlag}=normNZ(val('mobile'));
   const q=new URLSearchParams();
   q.set('a', EZI_PUBLIC_KEY);
   /* ⚠ ed=1 MAKES THE PRE-FILLED FIELDS EDITABLE. Ezidebit's default is that any
@@ -2820,7 +2828,10 @@ function buildEddrUrl(){
      12 digits BEGINNING WITH 02. We were sending "64211234567" (the + stripped
      off e164), which begins with 64 and is not what they validate against.
      normNZ gives us +64 + national number, so drop the +64 and put the 0 back. */
-  if(e164){
+  /* ⚠ 9 Oct 2026 — ONLY A VALID NZ MOBILE IS SENT. A number Ezidebit cannot read
+     made its form fail outright ("Sequence contains no elements", Kiri Manga).
+     If ours fails the check, send nothing and the customer types it on the form. */
+  if(e164 && mobFlag==='ok'){
     const nsn = e164.replace(/^\+64/,'');        // national number, no leading 0
     if(nsn) q.set('mobile', '0'+nsn);            // 0272741942
   }
