@@ -50,6 +50,15 @@
   .aunav .sp{flex:1}
   .aunav .au{color:#8fb0dd;font-size:12px;letter-spacing:.04em}
 </style>
+<script>/* 9 Oct 2026 — WAIT FOR THE SIGN-IN, DON'T RACE IT. auth.js signs the person in
+   asynchronously (it may have to refresh an overnight token and fetch the profile over
+   the network). These pages used to read window.SIMTEC_SB the instant they loaded, so
+   after a restart the client did not exist yet and every load said "Not signed in"
+   (Cherelee, 9 Oct). Wait up to 15 seconds for it instead. */
+window.simtecClient = window.simtecClient || async function(){
+  for (let i = 0; i < 150 && !window.SIMTEC_SB; i++) await new Promise(r => setTimeout(r, 100));
+  return window.SIMTEC_SB || null;
+};</script>
 </head>
 <body>
 <div class="aunav">
@@ -116,7 +125,7 @@
 const GW_URL = "https://jvqjoenaungubpoegyvf.supabase.co/functions/v1/au-gateway";
 const NZ_KEY = "sb_publishable_J4MYTdJJyEaWe-GadpwdYA_upPT2rKw";
 async function auCall(op, payload){
-  const sb = window.SIMTEC_SB;
+  const sb = await window.simtecClient();
   if(!sb) throw new Error('Not signed in — refresh the page and sign in.');
   const s = await sb.auth.getSession();
   const token = s && s.data && s.data.session ? s.data.session.access_token : '';
