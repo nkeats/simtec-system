@@ -197,23 +197,42 @@
     return Math.floor(m / 1440) + " days";
   }
 
+  /* The amber "in progress" strip and the blue "waiting for a call" strip can
+     both be up at once. They live in ONE fixed container, stacked, so neither
+     ever sits on top of the other and hides it. (The green new-order banner
+     stays separate and above both: it is the moment, these are the state.) */
+  function stripStack() {
+    var s = document.getElementById("simtecStrips");
+    if (!s) {
+      s = document.createElement("div");
+      s.id = "simtecStrips";
+      s.style.cssText = "position:fixed;top:0;left:0;right:0;z-index:9999;display:flex;flex-direction:column;margin:0;padding:0;";
+      document.body.appendChild(s);
+    }
+    return s;
+  }
+  function tidyStack() {
+    var s = document.getElementById("simtecStrips");
+    if (s && !s.children.length) s.remove();
+  }
+
   function renderInProgress() {
     var el = document.getElementById("simtecInProgress");
     var rows = IP.rows || [];
-    if (!rows.length) { if (el) el.remove(); return; }
+    if (!rows.length) { if (el) el.remove(); tidyStack(); return; }
     var stuck = rows.filter(function (o) { return ipMinutes(o) >= STUCK_MIN; });
     var key = rows.map(function (o) { return o.id; }).sort().join(",") + "|" + stuck.length;
-    if (IP.dismissedKey === key) { if (el) el.remove(); return; }
+    if (IP.dismissedKey === key) { if (el) el.remove(); tidyStack(); return; }
     if (!el) {
       el = document.createElement("div");
       el.id = "simtecInProgress";
-      document.body.appendChild(el);
+      stripStack().insertBefore(el, stripStack().firstChild);   // amber always on top of the stack
     }
     var red = stuck.length > 0;
     // ⚠ Every property that decides size and position is set INLINE, for the same
     //   reason as the green banner: this lands on 18 pages with different CSS.
     el.style.cssText =
-      "position:fixed;top:0;left:0;right:0;z-index:9999;color:#fff;padding:9px 18px;" +
+      "position:relative;margin:0;box-sizing:border-box;width:100%;color:#fff;padding:9px 18px;" +
       "display:flex;align-items:center;gap:14px;box-shadow:0 3px 12px rgba(0,0,0,.25);" +
       "font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;" +
       "background:" + (red ? "#b4342e" : "#a86a12");
@@ -233,10 +252,89 @@
     el.innerHTML =
       '<button type="button" id="simtecInProgressX" style="' + ctl + 'background:transparent;border:1px solid #fff;color:#fff;' +
       'border-radius:8px;padding:6px 12px;cursor:pointer">Dismiss</button>' +
-      '<div style="flex:1;font-size:13px;line-height:1.35"><div style="font-weight:800;font-size:14px">' + head + "</div>" +
+      '<div style="margin:0;flex:1;font-size:13px;line-height:1.35"><div style="margin:0;font-weight:800;font-size:14px">' + head + "</div>" +
       lines.join("<br>") + "</div>";
-    document.getElementById("simtecInProgressX").onclick = function () { IP.dismissedKey = key; el.remove(); };
+    document.getElementById("simtecInProgressX").onclick = function () { IP.dismissedKey = key; el.remove(); tidyStack(); };
   }
+
+  /* ---------------------------------------------------------------
+     WAITING FOR A CONFIRMATION CALL — 12 Oct 2026. [stated] Nigel, after
+     Jong-Pung Tonganibeia's Saturday sale went uncalled: an order finished
+     when nobody was in the office got no reminder later. The green banner
+     fires once, at the moment of the sale, on whatever screens were open —
+     on a weekend, none.
+     ⚠ BUILT FROM THE DATABASE, NOT FROM EVENTS: every finished app order still
+       'pending' is listed on every screen until its call is recorded, however
+       long ago it came in and whoever was or wasn't watching.
+     ⚠ Dismiss hides it until the list changes or the page is reloaded — it
+       cannot hide a sale permanently, because nothing but the call should.
+     --------------------------------------------------------------- */
+  var AW = { rows: [], dismissedKey: null, failed: false };
+  var DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  function awSince(o) {
+    var t = new Date(o.confirmation_pending_at || o.created_at);
+    var mins = Math.max(0, Math.floor((Date.now() - t.getTime()) / 60000));
+    var hh = t.getHours(), mm = String(t.getMinutes()).padStart(2, "0");
+    var clock = (hh % 12 || 12) + ":" + mm + (hh < 12 ? "am" : "pm");
+    var sameDay = new Date().toDateString() === t.toDateString();
+    return { mins: mins, label: (sameDay ? "today " : DAYS[t.getDay()] + " ") + clock };
+  }
+
+  function renderAwaiting() {
+    var el = document.getElementById("simtecAwaiting");
+    var rows = AW.rows || [];
+    var key = rows.map(function (o) { return o.id; }).sort().join(",");
+    if (!rows.length || AW.dismissedKey === key) { if (el) el.remove(); tidyStack(); return; }
+    if (!el) {
+      el = document.createElement("div");
+      el.id = "simtecAwaiting";
+      stripStack().appendChild(el);
+    }
+    var here = /confirmation\.html/i.test(location.pathname);
+    el.style.cssText =
+      "position:relative;margin:0;box-sizing:border-box;width:100%;color:#fff;padding:9px 18px;background:#1d4f91;" +
+      "display:flex;align-items:center;gap:14px;box-shadow:0 3px 12px rgba(0,0,0,.25);" +
+      "font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif";
+    var ctl = 'font-family:inherit;font-size:13px;font-weight:600;line-height:1.2;margin:0;width:auto;' +
+              'display:inline-block;box-sizing:border-box;flex:0 0 auto;white-space:nowrap;';
+    var lines = rows.slice(0, 4).map(function (o) {
+      var s = awSince(o);
+      return "<b>" + esc(ipName(o)) + "</b> (" + esc(o.consultant_name || "no consultant") + ") · waiting since " +
+             s.label + " · " + ipAge(s.mins);
+    });
+    if (rows.length > 4) lines.push("and " + (rows.length - 4) + " more");
+    var head = rows.length === 1 ? "Confirmation call needed" : rows.length + " confirmation calls needed";
+    el.innerHTML =
+      '<button type="button" id="simtecAwaitingX" style="' + ctl + 'background:transparent;border:1px solid #fff;color:#fff;' +
+      'border-radius:8px;padding:6px 12px;cursor:pointer">Dismiss</button>' +
+      '<div style="margin:0;flex:1;font-size:13px;line-height:1.35"><div style="margin:0;font-weight:800;font-size:14px">' + head + "</div>" +
+      lines.join("<br>") + "</div>" +
+      (here ? "" :
+        '<a href="confirmation.html" style="' + ctl + 'background:#fff;color:#1d4f91;border-radius:8px;padding:7px 14px;' +
+        'font-weight:700;text-decoration:none">Open confirmation calls</a>');
+    document.getElementById("simtecAwaitingX").onclick = function () { AW.dismissedKey = key; el.remove(); tidyStack(); };
+  }
+
+  function refreshAwaiting() {
+    var sb = IP.client;
+    if (!sb || AW.failed) return;
+    sb.from("sim_orders")
+      .select("id, created_at, confirmation_pending_at, consultant_name, sim_customers(first_name,last_name)")
+      .eq("confirmation_status", "pending")
+      .is("cancelled_at", null)
+      .order("created_at", { ascending: true })
+      .then(function (r) {
+        if (r && r.error) {
+          AW.failed = true;
+          report("read the orders waiting for a confirmation call", r.error);
+          return;
+        }
+        AW.rows = (r && r.data) || [];
+        renderAwaiting();
+      })
+      .catch(function (e) { report("read the orders waiting for a confirmation call", e); });
+  }
+  function refreshStrips() { refreshInProgress(); refreshAwaiting(); }
 
   function refreshInProgress() {
     var sb = IP.client;
@@ -263,8 +361,8 @@
     if (started) return;
     started = true;
     IP.client = sb;
-    refreshInProgress();
-    setInterval(function () { if (!document.hidden) refreshInProgress(); }, 30000);   // minutes tick, and the poll safety net
+    refreshStrips();
+    setInterval(function () { if (!document.hidden) refreshStrips(); }, 30000);   // minutes tick, and the poll safety net
 
     var ch = sb.channel("simtec-live-" + Math.random().toString(36).slice(2, 8));
 
@@ -291,11 +389,11 @@
     }
     ch.on("postgres_changes", { event: "INSERT", schema: "public", table: "sim_orders" }, function (p) {
       maybeAnnounce(p && p.new);
-      refreshInProgress();
+      refreshStrips();
     });
     ch.on("postgres_changes", { event: "UPDATE", schema: "public", table: "sim_orders" }, function (p) {
       maybeAnnounce(p && p.new);
-      refreshInProgress();
+      refreshStrips();
     });
 
     TABLES.forEach(function (t) {
@@ -330,7 +428,7 @@
 
   // Someone cancelled a customer in another tab, then switched back to this one.
   document.addEventListener("visibilitychange", function () {
-    if (!document.hidden) { reload("visible"); refreshInProgress(); }
+    if (!document.hidden) { reload("visible"); refreshStrips(); }
   });
   window.addEventListener("focus", function () { reload("focus"); });
 
