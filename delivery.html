@@ -10,7 +10,7 @@
 <script src="https://unpkg.com/@supabase/supabase-js@2.38.4/dist/umd/supabase.js"></script>
 <script>/* 5 Oct 2026: today's date as the person using this page sees it. NEVER use toISOString() for a date - it gives the UTC date, which is YESTERDAY in NZ every morning. */
 function localISO(d){d=d||new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}</script>
-<script>window.SIMTEC_BUILD="2026-09-17-01";</script>
+<script>window.SIMTEC_BUILD="2026-10-13-01";</script>
 <script src="client-errors.js?v=1"></script>
 <script src="live.js?v=3" defer></script>
 <script src="auth.js?v=3" data-roles="admin,manager,office"></script>
@@ -261,13 +261,16 @@ function weekStart(d){
   return x;
 }
 
-// Fetch EVERY row for these payer_refs, paging past Supabase's 1000-row cap so no
+// Fetch EVERY row for these ORDERS, paging past Supabase's 1000-row cap so no
 // customer's payment history is ever truncated. orderCol keeps paging stable.
-async function fetchAllByRef(table, cols, refs, orderCol){
+// ⚠ 13 Oct 2026: by order_id, never by Ezidebit reference. The database stamps
+//   every payment and failure with its order from either Ezidebit number, so the
+//   order id is the one key that is always complete.
+async function fetchAllByRef(table, cols, ids, orderCol){
   const PAGE=1000; let out=[];
   for(let from=0; ; from+=PAGE){
-    let q=sb.from(table).select(cols).in('payer_ref',refs).range(from, from+PAGE-1);
-    if(orderCol) q=q.order(orderCol,{ascending:true}).order('payer_ref',{ascending:true});
+    let q=sb.from(table).select(cols).in('order_id',ids).range(from, from+PAGE-1);
+    if(orderCol) q=q.order(orderCol,{ascending:true}).order('id',{ascending:true});
     const {data,error}=await q;
     if(error){ console.warn('fetchAllByRef '+table+':', error.message);
                // ⚠ payments not loaded means clearance is judged on nothing
@@ -296,13 +299,12 @@ async function load(quiet){
   const pvIds=[...new Set((orders||[]).map(o=>o.paid_via_order_id).filter(Boolean))];
   let payerMap={};
   if(pvIds.length){
-    const {data:po}=await sb.from('sim_orders').select('id,contract_value,amount_paid_to_date,first_payment_date,next_payment_date,instalment_amount,payment_frequency,order_date,payment_method,paid_in_full,deposit_amount,ezidebit_payer_ref').in('id',pvIds);
+    const {data:po}=await sb.from('sim_orders').select('id,contract_value,amount_paid_to_date,first_payment_date,next_payment_date,instalment_amount,payment_frequency,order_date,payment_method,paid_in_full,deposit_amount,ezidebit_payer_ref,ezidebit_customer_id').in('id',pvIds);
     (po||[]).forEach(p=>payerMap[p.id]=p);
   }
   // payment + dishonour counts per payer ref (one RPC)
-  const refs=[...new Set((orders||[]).map(o=>{const pa=o.paid_via_order_id?(payerMap[o.paid_via_order_id]||o):o; return pa.ezidebit_payer_ref;}).filter(Boolean))];
+  const refs=[...new Set((orders||[]).map(o=>{const pa=o.paid_via_order_id?(payerMap[o.paid_via_order_id]||o):o; return pa.id;}).filter(Boolean))];   /* 13 Oct: keyed by the PAYING order's id — see fetchAllByRef */
   let counts={};
-  if(refs.length){ const {data:cd}=await sb.rpc('sim_delivery_counts',{refs}); (cd||[]).forEach(r=>counts[r.payer_ref]={paid_count:r.paid_count,dishonour_count:r.dishonour_count}); }
   // actual payment + dishonour rows per payer ref (for the clean-run rule + scorecard).
   // IMPORTANT: Supabase caps one query at 1000 rows. With every active customer's
   // payer_ref in this query, the payments table blows past 1000 and only the most
@@ -311,19 +313,25 @@ async function load(quiet){
   // new payments land). So we page through the full set instead of one capped query.
   let paysByRef={}, disByRef={};
   if(refs.length){
-    const pmts=await fetchAllByRef('sim_payments','payer_ref,payment_date,amount,result',refs,'payment_date');
-    pmts.forEach(p=>{ (paysByRef[p.payer_ref]=paysByRef[p.payer_ref]||[]).push(p); });
+    const pmts=(await fetchAllByRef('sim_payments','id,order_id,payer_ref,payment_date,amount,result',refs,'payment_date'))
+                 .filter(p=>p.payer_ref);   // Ezidebit-type payments, as the clearance rule counts them
+    pmts.forEach(p=>{ (paysByRef[p.order_id]=paysByRef[p.order_id]||[]).push(p); });
     // dishonours: select * (the table has no payment_date column — selecting it 400'd
     // and made this silently ignore every dishonour). Small table, one page is plenty.
     const dis=await fetchAllByRef('sim_dishonours','*',refs,null);
-    dis.forEach(d=>{ (disByRef[d.payer_ref]=disByRef[d.payer_ref]||[]).push(d); });
+    dis.forEach(d=>{ (disByRef[d.order_id]=disByRef[d.order_id]||[]).push(d); });
+    // counts come from the same rows (the old per-reference RPC is no longer needed)
+    Object.keys(paysByRef).forEach(k=>{ counts[k]=counts[k]||{paid_count:0,dishonour_count:0};
+      counts[k].paid_count=paysByRef[k].filter(p=>String(p.result||'paid').toLowerCase()!=='refund').length; });
+    Object.keys(disByRef).forEach(k=>{ counts[k]=counts[k]||{paid_count:0,dishonour_count:0};
+      counts[k].dishonour_count=disByRef[k].length; });
   }
   rows=[];
   for(const o of (orders||[])){
     const payAcct = o.paid_via_order_id ? (payerMap[o.paid_via_order_id]||o) : o;
     const cust=o.sim_customers||{};
     const items=(o.sim_order_items||[]).map(i=>({name:i.product_name,qty:+i.quantity||1}));
-    const ref=payAcct.ezidebit_payer_ref;
+    const ref=payAcct.id;   /* the key into paysByRef / disByRef / counts */
     const contract=+payAcct.contract_value||0;
     const paid=+payAcct.amount_paid_to_date||0;
     const instal=+payAcct.instalment_amount||0;

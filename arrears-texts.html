@@ -103,8 +103,8 @@ function behindNow(order_id){
 // ── Load active customers + their current paid figure ──
 async function loadCustomers(){
   const {data:orders,error}=await sb.from('sim_orders')
-    .select('id,customer_id,ezidebit_payer_ref,order_status,paid_in_full,amount_paid_to_date')
-    .not('ezidebit_payer_ref','is',null).eq('order_status','active');
+    .select('id,customer_id,ezidebit_payer_ref,ezidebit_customer_id,order_status,paid_in_full,amount_paid_to_date')
+    .or('ezidebit_payer_ref.not.is.null,ezidebit_customer_id.not.is.null').eq('order_status','active');   /* 13 Oct: either Ezidebit number */
   if(error){console.error(error);return;}
   const ids=[...new Set((orders||[]).map(o=>o.customer_id).filter(Boolean))];
   const cust={};
@@ -136,7 +136,7 @@ async function loadCustomers(){
       name:`${c.first_name||''} ${c.last_name||''}`.trim()||'(no name)',
       firstName:(c.first_name||'').trim()||'there',
       mobile:c.mobile||'', order_id:o.id, customer_id:o.customer_id,
-      payer_ref:o.ezidebit_payer_ref, paid:Number(o.amount_paid_to_date||0)
+      payer_ref:o.ezidebit_payer_ref||o.ezidebit_customer_id, paid:Number(o.amount_paid_to_date||0)
     };
     custByRef[norm(o.ezidebit_payer_ref)]=rec;
     orderById[o.id]=rec;
@@ -198,11 +198,13 @@ async function loadAll(){
   const {data:latest}=await sb.from('sim_dishonours').select('settlement_date').order('settlement_date',{ascending:false}).limit(1);
   if(latest&&latest.length){
     const sd=latest[0].settlement_date;
-    const {data:dis}=await sb.from('sim_dishonours').select('payer_ref,dishonour_date,amount,failed_reason').eq('settlement_date',sd);
+    const {data:dis}=await sb.from('sim_dishonours').select('order_id,payer_ref,dishonour_date,amount,failed_reason').eq('settlement_date',sd);
     $('reportdate').textContent='— settlement '+auDate(sd);
     const seen=new Set();
     (dis||[]).forEach(d=>{
-      const c=custByRef[norm(d.payer_ref)];
+      /* 13 Oct 2026: by ORDER — the database stamps each failure with its order
+         from either Ezidebit number, so no reference lookup is needed. */
+      const c=orderById[d.order_id];
       if(!c || !c.mobile) return;
       if(inSequence.has(c.order_id)) return;         // already mid-sequence
       if(seen.has(c.order_id)) return;               // one text per customer

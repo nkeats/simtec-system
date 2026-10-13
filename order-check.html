@@ -131,13 +131,13 @@ function shiftDay(ds,n){ const d=new Date(ds+"T12:00:00"); d.setDate(d.getDate()
 let SRC="app", ROWS=[], OPEN=null;
 
 /* ── The checks ───────────────────────────────────────────────────────────
-   Every one of these is answerable from our own database. The single most
-   valuable is the reference SHAPE: Ezidebit gives the hosted form back an
-   internal 8-digit customer id, while the settlement file — and therefore
-   every payment we ever import — uses the 9-digit customer reference. An
-   order carrying the 8-digit number will be debited normally and the money
-   will never land against the order. That fault has happened before and is
-   invisible until the customer looks like they have paid nothing.        */
+   Every one of these is answerable from our own database.
+   13 Oct 2026 — Ezidebit numbers: an order needs EITHER the 8-digit Ezidebit
+   customer number OR the 9-digit payer reference. The database files each by
+   its shape whoever types it, and stamps every payment and failure with the
+   order it belongs to, so money lands on the order from either number. A
+   missing 9-digit reference is therefore NOT a fault and must not be shown as
+   one (it sent the office chasing Jong-Pung Tonganibeia's order for nothing). */
 function assess(o, refUse){
   const checks=[], cash=(o.payment_method||"").toLowerCase()==="cash";
   const ref=(o.ezidebit_payer_ref||"").trim();
@@ -154,21 +154,18 @@ function assess(o, refUse){
   }
 
   if(!ref && o.ezidebit_customer_id){
-    // 15 Aug: the Sales App now REFUSES to store a malformed reference and files it
-    // as the customer id instead, so this is a known, recoverable state — not a
-    // failed sign-up. Say which it is, or the office chases the wrong thing.
-    add("bad","Reference not returned by Ezidebit - office must enter it",
-        "The direct debit IS set up (their id is "+esc(o.ezidebit_customer_id)+"). Look the customer up in EziOnline, copy the 9-digit reference, and enter it on the customer page under Amend order.");
+    checks.push({level:"ok",label:"Direct debit set up — Ezidebit customer no. "+esc(o.ezidebit_customer_id),
+        detail:"Payments match this order automatically. The 9-digit reference is not needed."});
   }
   else if(!ref){ add("bad","No direct debit reference","The Ezidebit step never completed, or it did not report back."); }
   else if(!/^\d+$/.test(ref)){ add("bad","Reference is not a number", esc(ref)); }
-  else if(ref.length===8){ add("bad","Reference is Ezidebit's internal 8-digit id, not the settlement reference",
-        "Payments will be taken but will never match this order. Read the 9-digit customer reference off EziOnline and correct it."); }
+  else if(ref.length===8){ add("bad","8-digit number in the reference box",
+        "The database normally moves this to the customer-number box automatically. If you see this, tell Nigel."); }
   else if(ref.length!==9){ add("warn","Reference is "+ref.length+" digits — expected 9", esc(ref)); }
   else checks.push({level:"ok",label:"Reference present and the right shape"});
 
   if(ref && (refUse[ref]||0)>1) add("bad","This reference is on "+refUse[ref]+" orders",
-        "Balances are summed by reference, so two orders sharing one will double-count.");
+        "Two orders cannot share one Ezidebit number — the money can only go to one of them.");
 
   if(!(Number(o.instalment_amount)>0)) add("bad","No instalment amount");
   else checks.push({level:"ok",label:"Instalment "+fmt(o.instalment_amount)+" "+(o.payment_frequency||"")});
@@ -185,8 +182,8 @@ function assess(o, refUse){
   if(o.confirmation_status==="draft")
     add("warn","Order was started but never finished","It has not reached the confirmation call list.");
 
-  if(!o.ezidebit_customer_id)
-    checks.push({level:"na",label:"Ezidebit customer id not mapped yet — normal, it fills in automatically"});
+  if(!o.ezidebit_customer_id && ref)
+    checks.push({level:"na",label:"Ezidebit customer no. not linked yet — normal, it fills in automatically overnight"});
 
   return {worst,checks};
 }

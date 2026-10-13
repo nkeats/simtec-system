@@ -7,7 +7,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.112.2"></script>
 <script>/* 5 Oct 2026: today's date as the person using this page sees it. NEVER use toISOString() for a date - it gives the UTC date, which is YESTERDAY in NZ every morning. */
 function localISO(d){d=d||new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}</script>
-<script>window.SIMTEC_BUILD="2026-09-17-01";</script>
+<script>window.SIMTEC_BUILD="2026-10-13-01";</script>
 <script src="client-errors.js?v=1"></script>
 <script src="live.js?v=3" defer></script>
 <script src="auth.js?v=3" data-roles="admin,manager,office"></script>
@@ -445,19 +445,26 @@ async function run(quiet){
       (arrs||[]).forEach(a=>{ (ARRBY[a.order_id]=ARRBY[a.order_id]||[]).push(a); });
     }
 
-    // payments, grouped by the payer reference on each order
-    const refs=[...new Set((orders||[]).map(o=>o.ezidebit_payer_ref).filter(Boolean))];
+    // payments, grouped by order (and by each Ezidebit number on the order)
+    /* ⚠⚠ 13 Oct 2026 — THIS WHOLE BLOCK USED TO SIT INSIDE if(refs.length), where
+       refs was only the 9-digit payer reference. An order Ezidebit had given only
+       its 8-digit customer number (104 orders, 28 active — every app sale where
+       the callback returned the 8-digit id) therefore loaded NO payments and NO
+       failures at all, though the money was on the order. Rangimahora Phillips:
+       $500 paid, two failures, and an empty history. Load by order id always, and
+       by BOTH Ezidebit numbers — the same three keys order_paid_total() uses. */
+    const refs=[...new Set((orders||[]).flatMap(o=>[o.ezidebit_payer_ref, o.ezidebit_customer_id]).filter(Boolean).map(String))];
     let paysByRef={};
-    if(refs.length){
+    {
       // A manual payment on a cash customer has no payer_ref — it identifies its
       // order directly. Read by either key or the lump sum stays invisible.
+      /* ⚠ 13 Oct 2026: by ORDER ID ONLY. The database stamps every payment and
+         failure with its order from either Ezidebit number (ezidebit_resolve_order),
+         so order_id is complete and references are never needed to find money. */
       const orderIds=Object.keys(ORDERS);
-      const filters=[];
-      if(refs.length)     filters.push(`payer_ref.in.(${refs.join(",")})`);
-      if(orderIds.length) filters.push(`order_id.in.(${orderIds.join(",")})`);
-      const {data:pays,error:e4}= filters.length
+      const {data:pays,error:e4}= orderIds.length
         ? await sb.from("sim_payments").select("payer_ref,order_id,payment_date,amount,source,method,notes")
-            .or(filters.join(",")).order("payment_date",{ascending:false})
+            .in("order_id",orderIds).order("payment_date",{ascending:false})
         : {data:[],error:null};
       if(e4) throw new Error("Loading payments: "+e4.message);
       /* ⚠⚠ FILE BY ORDER, NOT ONLY BY EZIDEBIT REFERENCE.
@@ -471,10 +478,7 @@ async function run(quiet){
            order is known. */
       const fileIt = (key, row) => { if(!key) return;
         (paysByRef[key] = paysByRef[key] || []).push(row); };
-      (pays||[]).forEach(p=>{
-        fileIt(p.order_id, p);
-        if(p.payer_ref && p.payer_ref !== p.order_id) fileIt(p.payer_ref, p);
-      });
+      (pays||[]).forEach(p=>{ fileIt(p.order_id, p); });
 
       /* ⚠ THE FAILED ATTEMPTS TOO. 782 dishonours across 258 customers were
          invisible on this page, so a customer who failed a debit and made it up
@@ -482,22 +486,14 @@ async function run(quiet){
          ⚠ sim_dishonours has NO order_id — it is keyed on the Ezidebit
            references only, so it is read by payer_ref / customer id, never by
            order. A cash customer has no dishonours by definition. */
-      const ediRefs = [...new Set(Object.values(ORDERS)
-        .flatMap(o => [o.ezidebit_payer_ref, o.ezidebit_customer_id])
-        .filter(Boolean).map(String))];
-      if(ediRefs.length){
+      if(orderIds.length){
         const { data:dis } = await sb.from("sim_dishonours")
-          .select("payer_ref,ezidebit_customer_id,dishonour_date,amount,failed_reason")
-          .or(`payer_ref.in.(${ediRefs.join(",")}),ezidebit_customer_id.in.(${ediRefs.join(",")})`)
+          .select("order_id,payer_ref,dishonour_date,amount,failed_reason")
+          .in("order_id",orderIds)
           .order("dishonour_date",{ascending:false});
         (dis||[]).forEach(d=>{
-          const k = d.payer_ref || d.ezidebit_customer_id;
-          const row = { payer_ref: k, payment_date: d.dishonour_date, amount: d.amount,
-                        source: "ezidebit", failed: true, failed_reason: d.failed_reason };
-          Object.values(ORDERS).forEach(o=>{
-            if(String(o.ezidebit_payer_ref||"") === String(k) ||
-               String(o.ezidebit_customer_id||"") === String(k)) fileIt(o.id, row);
-          });
+          fileIt(d.order_id, { payer_ref: d.payer_ref, payment_date: d.dishonour_date, amount: d.amount,
+                               source: "ezidebit", failed: true, failed_reason: d.failed_reason });
         });
       }
     }
@@ -745,7 +741,8 @@ function orderSection(o, items, pays, open){
     ${kv("Sale date",auDate(o.order_date)+(isMgr()?` <button onclick="openSaleDate('${o.id}')" style="background:#fff;color:var(--navy);border:1px solid #cbd4df;border-radius:6px;padding:2px 8px;font-size:11.5px;font-weight:600;cursor:pointer;margin-left:8px">change</button>`:""))}
     ${kv("Payment method",PM[o.payment_method]||o.payment_method||"—")}
     ${kv("Frequency",cap(o.payment_frequency))}
-    ${kv("Ezidebit Payer ID",esc(o.ezidebit_payer_ref)||"—")}
+    ${kv("Ezidebit Payer ID",esc(o.ezidebit_payer_ref)||(o.ezidebit_customer_id?'<span style="color:var(--sub)">not given by Ezidebit</span>':"—"))}
+    ${o.ezidebit_customer_id?kv("Ezidebit customer no.",esc(o.ezidebit_customer_id)):""}
     ${kv("First payment",auDate(o.first_payment_date))}
 
   </div>`;
@@ -1397,7 +1394,7 @@ function gateBlock(o){
     <div style="font-weight:700;color:#1f5aa8;font-size:13px">⚑ Early delivery agreed</div>
     <div style="font-size:13px;margin-top:3px">Deliver once <b>${need}</b> payment${need===1?"":"s"} have cleared since <b>${auDate(since)}</b>.</div>
     <div id="gp_${o.id}" data-gate-order="${o.id}" data-gate-since="${since}" data-gate-need="${need}"
-         data-gate-ref="${esc(o.ezidebit_payer_ref||"")}" style="font-size:12.5px;color:var(--sub);margin-top:4px">Checking progress…</div>
+         data-gate-ref="${esc(o.ezidebit_payer_ref||"")}" data-gate-cid="${esc(o.ezidebit_customer_id||"")}" style="font-size:12.5px;color:var(--sub);margin-top:4px">Checking progress…</div>
     ${o.delivery_gate_note?`<div style="font-size:12.5px;color:var(--sub);margin-top:4px">“${esc(o.delivery_gate_note)}”</div>`:""}
     ${o.delivery_gate_set_by?`<div style="font-size:11.5px;color:var(--sub);margin-top:3px">Agreed by ${esc(o.delivery_gate_set_by)}</div>`:""}
     ${canEdit?`<div style="margin-top:8px;display:flex;gap:6px">
@@ -1411,11 +1408,13 @@ function gateBlock(o){
 async function fillGateProgress(){
   const els=document.querySelectorAll("[data-gate-order]");
   for(const el of els){
-    const since=el.dataset.gateSince, need=+el.dataset.gateNeed, ref=el.dataset.gateRef;
-    if(!ref){ el.textContent="No payer reference on this order — progress can't be tracked."; continue; }
+    const since=el.dataset.gateSince, need=+el.dataset.gateNeed, ref=el.dataset.gateRef,
+          cid=el.dataset.gateCid, oid=el.dataset.gateOrder;
+    if(!ref && !cid){ el.textContent="No Ezidebit number on this order — progress can't be tracked."; continue; }
     try{
-      const {data:p}=await sb.from("sim_payments").select("payment_date,result").eq("payer_ref",ref);
-      const {data:d}=await sb.from("sim_dishonours").select("payment_date,dishonour_date").eq("payer_ref",ref);
+      const {data:p0}=await sb.from("sim_payments").select("payment_date,result,payer_ref").eq("order_id",oid);
+      const p=(p0||[]).filter(x=>x.payer_ref);   /* Ezidebit-type payments, as the clearance rule counts them */
+      const {data:d}=await sb.from("sim_dishonours").select("dishonour_date").eq("order_id",oid);
       const clean=(p||[]).filter(x=>!(x.result&&String(x.result).toLowerCase()==="refund")
                       && String(x.payment_date||"").slice(0,10)>since).length;
       const miss=(d||[]).filter(x=>String(x.payment_date||x.dishonour_date||"").slice(0,10)>since).length;
@@ -2446,8 +2445,7 @@ window.printStatement=async function(oid){
   const {data:items}=await sb.from("sim_order_items")
       .select("product_name,quantity,unit_price,cancelled").eq("order_id",oid).order("line_no");
   const filters=[];
-  if(o.ezidebit_payer_ref) filters.push(`payer_ref.eq.${o.ezidebit_payer_ref}`);
-  filters.push(`order_id.eq.${oid}`);
+  filters.push(`order_id.eq.${oid}`);   /* 13 Oct: order id is the one complete key */
   const {data:paysRaw}=await sb.from("sim_payments")
       .select("payment_date,amount,source,method,notes,payer_ref,order_id").or(filters.join(","));
   const pays=(paysRaw||[]).slice().sort((a,b)=>String(a.payment_date||"").localeCompare(String(b.payment_date||"")));
@@ -2539,7 +2537,7 @@ window.printStatement=async function(oid){
     ${c&&c.address?`<tr><td class="l">Address</td><td class="v">${esc(c.address)}</td></tr>`:""}
     <tr><td class="l">Order date</td><td class="v">${auDate(o.order_date)}</td></tr>
     <tr><td class="l">Payment method</td><td class="v">${PM[o.payment_method]||o.payment_method||"—"}</td></tr>
-    ${o.ezidebit_payer_ref?`<tr><td class="l">Ezidebit payer ID</td><td class="v">${esc(o.ezidebit_payer_ref)}</td></tr>`:""}
+    ${(o.ezidebit_payer_ref||o.ezidebit_customer_id)?`<tr><td class="l">Ezidebit payer ID</td><td class="v">${esc(o.ezidebit_payer_ref||o.ezidebit_customer_id)}</td></tr>`:""}
   </table>
 
   <h2>Your order</h2>
@@ -2999,13 +2997,13 @@ async function savePay(){
 
 // The one place amount_paid_to_date is written on this page.
 async function rebuildPaid(o){
-  let q=sb.from("sim_payments").select("amount");
-  q = o.ezidebit_payer_ref
-      ? q.or(`order_id.eq.${o.id},payer_ref.eq.${o.ezidebit_payer_ref}`)
-      : q.eq("order_id", o.id);
-  const {data,error}=await q;
+  /* ⚠ 13 Oct — this used to add up the rows itself, matching only by order id
+     and the 9-digit reference, and counting refunds as money IN. It now asks
+     order_paid_total(), the single definition every other screen uses
+     (order id, 9-digit ref AND 8-digit customer no.; refunds subtracted). */
+  const {data:paid,error}=await sb.rpc("order_paid_total",{p_order:o.id});
   if(error) throw new Error("Re-reading the ledger: "+error.message);
-  const total=Math.round((data||[]).reduce((s,r)=>s+Number(r.amount||0),0)*100)/100;
+  const total=Math.round(Number(paid||0)*100)/100;
   const {error:e2}=await sb.from("sim_orders").update({amount_paid_to_date:total}).eq("id",o.id);
   if(e2) throw new Error("Updating the balance: "+e2.message);
 }

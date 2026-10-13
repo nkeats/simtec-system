@@ -18,7 +18,7 @@
 <!-- data-one-consultant: this iPad belongs to the first consultant who signs in on it.
      Orders are written from here, so this is the only page that asks for the binding. -->
 <script src="auth.js?v=5" data-roles="admin,manager,office,consultant" data-one-consultant></script>
-<script>window.SIMTEC_BUILD="2026-10-09-01";</script>
+<script>window.SIMTEC_BUILD="2026-10-13-01";</script>
 <script src="update.js?v=2"></script>
 
 
@@ -3095,7 +3095,7 @@ async function applyEzidebitCallback(cb){
   };
   if(good){
     upd.ezidebit_payer_ref = returned;      // S.eziRef is set below once this saves
-  }else if(returned){
+  }else if(/^\d{8}$/.test(returned)){
     upd.ezidebit_customer_id = returned;    // it IS the customer id — file it correctly
     /* ⚠ WORDING CORRECTED 23 Aug 2026. This note used to say the customer's
        payments "will not match their order" until the 9-digit reference was
@@ -3107,12 +3107,20 @@ async function applyEzidebitCallback(cb){
        GetCustomerDetails returns 24 fields and it is not among them — so this
        is normal, not a fault. The reference is only still wanted for the office
        PDF import, which is now the backup path. */
+    // 13 Oct 2026: nothing for the office to do — money matches by this number.
     upd.consultant_account_note =
-      'Ezidebit reference to be added. Their form returned "'+returned+'", which is the '
-      + 'Ezidebit customer id — their form does not give us the 9-digit payment reference. '
-      + 'The direct debit IS set up, and payments WILL be matched to this order '
-      + 'automatically. When someone is next in EziOnline, copy the 9-digit reference onto '
-      + 'the customer page under Amend order → Ezidebit Payer ID. Not urgent.';
+      'Direct debit set up — Ezidebit customer no. '+returned+'. Payments match this order '
+      + 'automatically. Nothing to do.';
+  }
+  else if(returned){
+    /* 13 Oct 2026: the database now refuses any Ezidebit number that is not 8 or 9
+       digits. Never let an odd value from Ezidebit's form stop the schedule saving —
+       keep it in the note for the office and save everything else. The scheduled
+       Ezidebit sync links the real customer number automatically. */
+    upd.consultant_account_note =
+      'Ezidebit\'s form returned "'+returned+'", which is not an Ezidebit number. '
+      + 'The schedule has been saved. The Ezidebit customer number links automatically '
+      + 'at the next Ezidebit sync — if it has not by tomorrow, look the customer up in EziOnline.';
   }
   // If the 50% deposit was paid by BANK TRANSFER, deposit_amount already holds it —
   // don't let an Ezidebit one-off overwrite it. In every other case (full DD, or a

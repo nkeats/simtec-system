@@ -432,7 +432,7 @@ function isBehindDelivered(o){
 async function loadUrgent(){
   try{
     const {data:orders}=await sb.from("sim_orders")
-      .select("id,customer_id,order_date,first_payment_date,loan_start_date,schedule_start_date,payment_frequency,instalment_amount,contract_value,amount_paid_to_date,delivery_status,delivery_date,consultant_name,order_status,paid_via_order_id,ezidebit_payer_ref,arrears_contacted_at,arrears_watch_paid_base,arrears_watch_payments")
+      .select("id,customer_id,order_date,first_payment_date,loan_start_date,schedule_start_date,payment_frequency,instalment_amount,contract_value,amount_paid_to_date,delivery_status,delivery_date,consultant_name,order_status,paid_via_order_id,ezidebit_payer_ref,ezidebit_customer_id,arrears_contacted_at,arrears_watch_paid_base,arrears_watch_payments")
       .eq("order_status","active");
 
     // ── status strip: deliveries booked for today ──
@@ -441,16 +441,18 @@ async function loadUrgent(){
     document.getElementById("sDelivSub").textContent=delivToday.length?"booked for today":"none booked today";
 
     // dishonours since contact (for the watch buckets)
-    const watched=(orders||[]).filter(o=>o.arrears_contacted_at && o.ezidebit_payer_ref);
+    /* 13 Oct 2026: by ORDER ID — the database stamps every failure with its order,
+       so the watch no longer depends on which Ezidebit number an order holds. */
+    const watched=(orders||[]).filter(o=>o.arrears_contacted_at);
     if(watched.length){
-      const refs=[...new Set(watched.map(o=>o.ezidebit_payer_ref))];
       const earliest=watched.reduce((m,o)=>o.arrears_contacted_at<m?o.arrears_contacted_at:m, watched[0].arrears_contacted_at);
       const {data:dis}=await sb.from("sim_dishonours")
-        .select("payer_ref,dishonour_date").in("payer_ref",refs).gte("dishonour_date",String(earliest).slice(0,10));
-      const failByRef={};
-      (dis||[]).forEach(d=>{ (failByRef[d.payer_ref]=failByRef[d.payer_ref]||[]).push(d.dishonour_date); });
+        .select("order_id,dishonour_date").in("order_id",watched.map(o=>o.id))
+        .gte("dishonour_date",String(earliest).slice(0,10));
+      const failByOrder={};
+      (dis||[]).forEach(d=>{ (failByOrder[d.order_id]=failByOrder[d.order_id]||[]).push(d.dishonour_date); });
       watched.forEach(o=>{
-        const fails=failByRef[o.ezidebit_payer_ref]||[];
+        const fails=failByOrder[o.id]||[];
         const contactDay=String(o.arrears_contacted_at).slice(0,10);
         o._dishonourAfter = fails.some(d=>d >= contactDay);
       });
