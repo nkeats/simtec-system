@@ -7,7 +7,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.112.2"></script>
 <script>/* 5 Oct 2026: today's date as the person using this page sees it. NEVER use toISOString() for a date - it gives the UTC date, which is YESTERDAY in NZ every morning. */
 function localISO(d){d=d||new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}</script>
-<script>window.SIMTEC_BUILD="2026-10-13-01";</script>
+<script>window.SIMTEC_BUILD="2026-10-15-01";</script>
 <script src="client-errors.js?v=1"></script>
 <script src="live.js?v=3" defer></script>
 <script src="auth.js?v=3" data-roles="admin,manager,office"></script>
@@ -3060,9 +3060,11 @@ async function rebuildPaid(o){
       Everything the customer signed on the iPad, kept against this order. Links last five minutes.
     </p>
     <div id="docsErr" style="display:none;background:#fdecec;border:1px solid #e0b4b0;color:#b4342e;border-radius:9px;padding:11px 13px;font-size:13.5px;margin-bottom:12px"></div>
+    <div id="docsHold" style="display:none;background:#fff5e0;border:1px solid #e8d9a0;color:#8a5b00;border-radius:9px;padding:11px 13px;font-size:13.5px;margin-bottom:12px"></div>
     <div id="docsBody" class="muted">Loading…</div>
     <div style="margin-top:16px;display:flex;gap:8px;flex-wrap:wrap">
-      <button id="docsPrint" onclick="printPack()" style="background:#122347;color:#fff;border:none;border-radius:8px;padding:9px 16px;font-size:13.5px;font-weight:700;cursor:pointer">\u{1F5A8}\u{FE0F} Print the pack</button>
+      <button id="docsRegen" onclick="regenSummary()" style="background:#fff;color:var(--navy);border:1px solid #cbd4df;border-radius:8px;padding:9px 14px;font-size:13.5px;font-weight:600;cursor:pointer">&#8635; Regenerate order summary</button>
+      <button id="docsPrint" onclick="printPack()" style="background:#122347;color:#fff;border:none;border-radius:8px;padding:9px 16px;font-size:13.5px;font-weight:700;cursor:pointer">&#128424;&#65039; Print the pack</button>
       <button onclick="document.getElementById('docsModal').style.display='none'" style="margin-left:auto;background:#fff;color:var(--navy);border:1px solid #cbd4df;border-radius:8px;padding:9px 14px;font-size:13.5px;font-weight:600;cursor:pointer">Close</button>
     </div>
   </div>
@@ -3382,9 +3384,112 @@ function docLabel(n){
   return n;
 }
 
+/* ---------------- regenerate the order summary (15 Oct 2026) ----------------
+   The summary PDF is made on the iPad at the moment of sale. If the order is
+   corrected afterwards (Lishire Vahaakolo: 91 bed bases typed instead of 1), the
+   PDF still shows the mistake and is what the customer's welcome email attaches.
+   This rebuilds it from the order AS IT NOW STANDS, in the same layout the iPad
+   uses, marks it as updated, replaces the stored copy, and then releases the
+   welcome email if it was being held for this. The signatures and initials are
+   separate files and are never touched. */
+async function showWelcomeHold(orderId){
+  const box=document.getElementById('docsHold'); box.style.display='none';
+  try{
+    const {data}=await sb.from('sim_orders').select('welcome_held_at,welcome_held_reason').eq('id',orderId).maybeSingle();
+    if(data && data.welcome_held_at){
+      box.innerHTML='<b>Welcome email on hold.</b> '+esc(data.welcome_held_reason||'')+
+        '<br>Regenerating the summary releases it and sends it to the customer.';
+      box.style.display='block';
+    }
+  }catch(e){ /* the note is advisory */ }
+}
+function loadJsPdf(){
+  if(window.jspdf) return Promise.resolve();
+  return new Promise(function(res,rej){
+    const s=document.createElement('script');
+    s.src='https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
+    s.onload=function(){ res(); }; s.onerror=function(){ rej(new Error('Could not load the PDF tool. Check the internet connection and try again.')); };
+    document.head.appendChild(s);
+  });
+}
+function dmy(iso){ if(!iso) return ''; const p=String(iso).slice(0,10).split('-'); return p[2]+'/'+p[1]+'/'+p[0]; }
+async function regenSummary(){
+  const orderId=DOCS.orderId; if(!orderId) return;
+  if(!isStaff()){ alert('Only the office can regenerate an order summary.'); return; }
+  if(!confirm('Rebuild the order summary from the order as it is now?\n\nIt replaces the summary made on the iPad, and is marked as updated. Signatures are not changed.')) return;
+  const btn=document.getElementById('docsRegen'); btn.disabled=true; btn.textContent='Working\u2026';
+  try{
+    await loadJsPdf();
+    const {data:o,error:e1}=await sb.from('sim_orders')
+      .select('id,customer_id,order_date,consultant_name,contract_value,payment_method,payment_frequency,instalment_amount,schedule_start_date,first_payment_date,term_periods,deposit_amount')
+      .eq('id',orderId).single();
+    if(e1) throw e1;
+    const {data:c,error:e2}=await sb.from('sim_customers').select('first_name,last_name,mobile,email,address').eq('id',o.customer_id).single();
+    if(e2) throw e2;
+    const {data:items,error:e3}=await sb.from('sim_order_items').select('product_name,quantity,unit_price,cancelled,line_no').eq('order_id',orderId).order('line_no');
+    if(e3) throw e3;
+    const lines=(items||[]).filter(function(i){ return !i.cancelled; });
+
+    const { jsPDF } = window.jspdf;
+    const doc=new jsPDF({unit:'pt',format:'a4'});
+    const M=48, R=547; let y=54;
+    doc.setFont('helvetica','bold'); doc.setFontSize(18); doc.text('Simtec \u2014 Order Summary', M, y); y+=8;
+    doc.setDrawColor(200); doc.line(M,y,R,y); y+=24;
+    doc.setFontSize(10);
+    const name=((c.first_name||'')+' '+(c.last_name||'')).trim()||'(no name)';
+    const info=[['Order ID',o.id],['Date',dmy(o.order_date)],['Consultant',o.consultant_name||''],['Customer',name],
+      ['Mobile',c.mobile||''],['Email',c.email||''],['Address',c.address||'']];
+    doc.setFont('helvetica','bold'); doc.text('Customer & order', M, y); y+=16; doc.setFont('helvetica','normal');
+    info.forEach(function(kv){ doc.setTextColor(120); doc.text(kv[0],M,y); doc.setTextColor(20); doc.text(String(kv[1]||'-'),M+120,y); y+=15; });
+    y+=12; doc.setFont('helvetica','bold'); doc.text('Products',M,y); y+=16; doc.setFont('helvetica','normal');
+    let total=0;
+    lines.forEach(function(i){
+      const amt=(Number(i.unit_price)||0)*(Number(i.quantity)||0); total+=amt;
+      doc.setTextColor(20);
+      doc.text(i.product_name==='Delivery fee' ? 'Delivery fee' : (i.product_name+'   x'+i.quantity), M, y);
+      doc.text('$'+amt.toFixed(2), R, y, {align:'right'}); y+=15;
+    });
+    if(Math.abs(total-(Number(o.contract_value)||0))>0.01){
+      throw new Error('The products add up to $'+total.toFixed(2)+' but the order total is $'+(Number(o.contract_value)||0).toFixed(2)+'. Fix the order first, then regenerate.');
+    }
+    y+=6; doc.setDrawColor(200); doc.line(M,y,R,y); y+=18;
+    doc.setFont('helvetica','bold'); doc.text('Total',M,y); doc.text('$'+total.toFixed(2),R,y,{align:'right'}); y+=26;
+    const payLabel={weekly_dd:'Ezidebit direct debit',fortnightly_dd:'Ezidebit direct debit',deposit_50:'50% deposit',pay_in_full:'Paid in full',cash:'Cash'}[o.payment_method]||'\u2014';
+    doc.setFont('helvetica','normal'); doc.setTextColor(20); doc.text('Payment method: '+payLabel,M,y); y+=20;
+    if(Number(o.instalment_amount)>0){
+      const freq={weekly:'Weekly',fortnightly:'Fortnightly',monthly:'Monthly'}[o.payment_frequency]||o.payment_frequency||'';
+      const start=o.schedule_start_date||o.first_payment_date;
+      doc.setFont('helvetica','bold'); doc.text('Ezidebit payment schedule',M,y); y+=16; doc.setFont('helvetica','normal');
+      doc.text(freq+' payments: $'+Number(o.instalment_amount).toFixed(2)+(start?' from '+dmy(start):'')+' until the balance is paid',M,y); y+=23;
+    }
+    doc.setTextColor(120); doc.setFontSize(9);
+    doc.text('This order is confirmed on the confirmation call. Terms & Conditions and the 15-year warranty apply.',M,y); y+=13;
+    doc.text('Updated '+new Date().toLocaleDateString('en-NZ')+' to correct the order details. This replaces the summary produced at the time of sale.',M,y);
+
+    const blob=doc.output('blob');
+    const bytes=new Uint8Array(await blob.arrayBuffer());
+    const up=await sb.storage.from('order-documents').upload(orderId+'/order-summary.pdf', bytes, {contentType:'application/pdf', upsert:true});
+    if(up.error) throw up.error;
+
+    const {data:rel,error:e4}=await sb.rpc('release_held_welcome',{p_order:orderId});
+    if(e4) throw e4;
+    alert(rel==='released'
+      ? 'Order summary regenerated. The welcome email was on hold for this and has now been sent to the customer.'
+      : 'Order summary regenerated.');
+    openDocs(orderId);
+  }catch(e){
+    reportClientError('regenerate the order summary', e, orderId);
+    alert('Could not regenerate the summary: '+(e.message||e));
+  }finally{
+    btn.disabled=false; btn.textContent='\u21BB Regenerate order summary';
+  }
+}
+
 async function openDocs(orderId){
   DOCS = { orderId:orderId, files:[], urls:{} };
   document.getElementById('docsErr').style.display='none';
+  document.getElementById('docsRegen').style.display = isStaff() ? '' : 'none';
+  showWelcomeHold(orderId);
   document.getElementById('docsBody').innerHTML='Loading\u2026';
   document.getElementById('docsModal').style.display='flex';
   try{
