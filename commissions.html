@@ -159,8 +159,15 @@ function isMattress(name){
 }
 
 // ── Commission calc ────────────────────────────────────────────────────────
-function calc(sales,bonuses,deds,retBal,payBasis,sr){
+function calc(sales,bonuses,deds,retBal,payBasis,sr,ctx){
   const s=S();
+  /* ctx (15 Oct 2026) = { status:{saleId:{paid_in_full,retention_exempt,reason}},
+     releases:[…due now…] }  for a DRAFT run, or { status, banked:{ret,perSale,releases} }
+     for a FINALISED run. status comes from commission_sale_status() in the database —
+     ONE RULE, ONE PLACE. Without ctx the old copied flag is the fallback. */
+  const st=(ctx&&ctx.status)||{};
+  const pifOf=sale=>st[sale.id]?!!st[sale.id].paid_in_full:!!sale.paid_in_full;
+  const exemptOf=sale=>st[sale.id]?!!st[sale.id].retention_exempt:!!sale.paid_in_full;
   let units=0;
   // Tier volume counts mattress units, INCLUDING zero-commission mattresses.
   // Commission itself is still only paid on 'fixed'/'tier' products below, so a
@@ -205,7 +212,7 @@ function calc(sales,bonuses,deds,retBal,payBasis,sr){
        what Tame Cooper's invoice did: one sale reading $300 over a $200
        subtotal, the extra $100 being the cash bonus already listed below.
        bySale is COMMISSION ONLY, and must stay that way. */
-    if(elig&&sale.paid_in_full) ac+=s.cash_bonus;
+    if(elig&&pifOf(sale)) ac+=s.cash_bonus;
     if(sale.id!==undefined) bySale[sale.id]=thisSale;
   }
   const payout=(bonuses||[]).find(b=>b.description==='__RETENTION_PAYOUT__');
@@ -220,13 +227,40 @@ function calc(sales,bonuses,deds,retBal,payBasis,sr){
      not of the $300 gross. It used to use `gs` (commission + cash bonus), which
      took $75 from him. The retention account exists to cover a sale that later
      cancels, and what would be clawed back is the sales commission. */
-  if(payBasis!=='retainer' && retBal<s.retention_cap)ret=Math.min(sc*s.retention_rate,s.retention_cap-retBal);
+  /* ⚠⚠ RETENTION IS WORKED OUT PER SALE (15 Oct 2026). [stated] Nigel: "retention
+     needs to be calculated per sale. If it is a cash sale for example, there should be
+     no retention and $100 bonus on top of their normal commission for that sale."
+     Decided with him the same day: "paid in full" = cash, card or bank transfer, and a
+     sale only loses its retention once the FULL PAYMENT IS RECORDED. Until then its 25%
+     is held, and released automatically in a later run (ctx.releases) once the money
+     shows. Financed (MTF) sales will join the same rule in commission_sale_status().
+     Each sale's share is recorded on commission_sales.retention_held at finalise, so a
+     sale can be released or re-collected on its own later. The $5,000 cap still
+     applies, filled in sale order. Retainer consultants: none, as before. */
+  const retBySale={}; let retBase=0, exemptCount=0;
+  if(payBasis!=='retainer'){
+    let room=Math.max(0,s.retention_cap-retBal);
+    for(const sale of sales){
+      if(sale.status==='cancelled'||sale.id===undefined)continue;
+      const c=+bySale[sale.id]||0; if(c<=0)continue;
+      if(exemptOf(sale)){exemptCount++;retBySale[sale.id]=0;continue;}
+      retBase+=c;
+      const r=Math.min(Math.round(c*s.retention_rate*100)/100,room);
+      retBySale[sale.id]=r; room=Math.max(0,room-r); ret+=r;
+    }
+  }
+  /* A FINALISED run shows what was actually banked, never a recalculation — the rule
+     changed on 15 Oct and older runs were finalised under the weekly rule. */
+  if(ctx&&ctx.banked){ret=+ctx.banked.ret||0;Object.assign(retBySale,ctx.banked.perSale||{});}
+  const releases=ctx?(ctx.banked?(ctx.banked.releases||[]):(ctx.releases||[])):[];
+  const rel=releases.reduce((a,r)=>a+(+r.amount||0),0);
   const td=(deds||[]).reduce((a,d)=>a+(+d.amount||0),0);
   /* scOrdinary lets the office show the consultant BOTH figures each week, which
      is what clause (a) of Schedule 1 requires before they can elect. */
   const grossOrdinary=scOrdinary+ac+mb;
-  return{units,rate,sc,ac,mb,gs,gross,ret,td,payout:payoutAmt,net:gross-ret-td+payoutAmt,bySale,
-    retAfter:retBal+ret-payoutAmt,
+  return{units,rate,sc,ac,mb,gs,gross,ret,td,payout:payoutAmt,net:gross-ret-td+payoutAmt+rel,bySale,
+    retBySale,retBase,exemptCount,releases,rel,banked:!!(ctx&&ctx.banked),
+    retAfter:retBal+ret-payoutAmt-rel,
     srWeek:sr?sr.weekNo:0, srRate:sr?sr.amount:0, srUsed, srValue,
     scOrdinary, grossOrdinary, ordinaryBetter: sr ? (grossOrdinary>gross) : false};
 }
@@ -239,9 +273,53 @@ async function openingRetBal(storedBal, run, consultantId){
   if(!run || run.status!=='finalised') return storedBal;
   const{data}=await sb.from('commission_retention_adjustments')
     .select('amount').eq('pay_run_id',run.id).eq('consultant_id',consultantId)
-    .in('reason',['weekly_retention','retention_payout']);
-  const net=(data||[]).reduce((a,r)=>a+(+r.amount||0),0);   // weekly_retention(+) + payout(−)
+    .in('reason',['weekly_retention','retention_payout','sale_retention_release']);
+  const net=(data||[]).reduce((a,r)=>a+(+r.amount||0),0);   // weekly_retention(+) + payout(−) + per-sale releases(−)
   return storedBal - net;
+}
+
+/* Per-sale context for calc() — see the note at the top of calc(). One query to the
+   database rule for every sale on the run, plus either the releases now due (draft)
+   or what was actually banked (finalised). Errors are thrown, never swallowed: a
+   pay run worked out without this would silently fall back to the old copied flag. */
+async function saleCtx(run, consId, sales){
+  const ids=(sales||[]).map(x=>x.id).filter(Boolean);
+  const status={};
+  if(ids.length){
+    const{data,error}=await sb.rpc('commission_sale_status',{p_sale_ids:ids});
+    if(error)throw error;
+    (data||[]).forEach(r=>status[r.sale_id]=r);
+  }
+  if(run&&run.status==='finalised'){
+    const{data:adj,error:e2}=await sb.from('commission_retention_adjustments').select('amount,reason,sale_id')
+      .eq('pay_run_id',run.id).eq('consultant_id',consId).in('reason',['weekly_retention','sale_retention_release']);
+    if(e2)throw e2;
+    const perSale={};(sales||[]).forEach(x=>{if(x.retention_held!==null&&x.retention_held!==undefined)perSale[x.id]=+x.retention_held;});
+    const banked=(adj||[]).filter(a=>a.reason==='weekly_retention').reduce((a,r)=>a+(+r.amount||0),0);
+    const relRows=(adj||[]).filter(a=>a.reason==='sale_retention_release');
+    const names={};
+    if(relRows.length){
+      const{data:ns,error:e4}=await sb.from('commission_sales').select('id,customer_name,sale_date').in('id',relRows.map(r=>r.sale_id));
+      if(e4)throw e4;
+      (ns||[]).forEach(n=>names[n.id]=n);
+    }
+    return{status,banked:{ret:banked,perSale,releases:relRows.map(r=>({sale_id:r.sale_id,amount:-(+r.amount||0),
+      customer_name:names[r.sale_id]?.customer_name||'',sale_date:names[r.sale_id]?.sale_date||null}))}};
+  }
+  if(!consId)return{status,releases:[]};
+  const{data:rel,error:e3}=await sb.rpc('commission_retention_releases_due',{p_consultant:consId});
+  if(e3)throw e3;
+  return{status,releases:rel||[]};
+}
+
+/* The retention line must name the base the money was actually taken on (9 Sep, Tame
+   Cooper). Per sale since 15 Oct: 25% of the commission on sales NOT paid in full. */
+function retLabel(cv,s){
+  const pct=Math.abs(cv.ret-cv.retBase*s.retention_rate)<0.01;
+  if(cv.banked&&!pct)return 'Retention withheld';
+  if(!pct)return `Retention withheld (capped at ${fmt(s.retention_cap)} held)`;
+  const none=cv.exemptCount?`; ${cv.exemptCount} paid-in-full sale${cv.exemptCount!==1?'s':''} carr${cv.exemptCount!==1?'y':'ies'} none`:'';
+  return `Retention withheld (${s.retention_rate*100}% of ${fmt(cv.retBase)} sales commission${none})`;
 }
 
 // Giveaway balances: balance owed = SUM(giveaways) − SUM(repayments in finalised runs)
@@ -686,13 +764,16 @@ window.delRun=async(id,weekEnding)=>{
       for(const cid of Object.keys(byCon)){
         const{data:ret}=await sb.from('commission_retention').select('*').eq('consultant_id',cid).maybeSingle();
         const cur=+ret?.balance||0;
-        await sb.from('commission_retention').upsert({consultant_id:cid,balance:Math.max(0,cur-byCon[cid]),updated_at:new Date().toISOString()},{onConflict:'consultant_id'});
+        // exact reversal (it used to floor at $0, wiping negative balances)
+        await sb.from('commission_retention').upsert({consultant_id:cid,balance:cur-byCon[cid],updated_at:new Date().toISOString()},{onConflict:'consultant_id'});
       }
       // 3. Remove those adjustment rows (clears references + avoids orphans)
       if(adjs.length){
         await sb.from('commission_retention_adjustments').delete().eq('pay_run_id',id);
         if(saleIds.length)await sb.from('commission_retention_adjustments').delete().in('sale_id',saleIds);
       }
+      // earlier sales whose retention this run released go back to "not yet released"
+      await sb.from('commission_sales').update({retention_released_run:null}).eq('retention_released_run',id);
       // 4. Delete line items, then sales/bonuses/deductions, then the run
       if(saleIds.length){
         const{error:eItems}=await sb.from('commission_sale_items').delete().in('sale_id',saleIds);
@@ -747,7 +828,8 @@ async function showRun(){
       sb.from('commission_deductions').select('*').eq('pay_run_id',runId).eq('consultant_id',c.id),
     ]);
     const sales=(sl||[]).map(s=>({...s,items:(s.commission_sale_items||[]).map(i=>({...i,product:i.commission_products}))}));
-    sums[c.id]=calc(sales,bo||[],de||[],retMap[c.id]||0,c.pay_basis,srCtx(c,run));
+    const ctx=await saleCtx(run,c.id,sales);
+    sums[c.id]=calc(sales,bo||[],de||[],retMap[c.id]||0,c.pay_basis,srCtx(c,run),ctx);
   }));
 
   $('app').innerHTML=`
@@ -801,6 +883,7 @@ async function showCon(){
   ]);
   const sales=(rawSales||[]).map(s=>({...s,items:(s.commission_sale_items||[]).map(i=>({...i,product:i.commission_products}))}));
   const retBal=await openingRetBal(+ret?.balance||0, run, consId);
+  const sctx=await saleCtx(run, consId, sales);
   // Giveaways owed before this run's repayment (finalised repayments from other runs already applied)
   const givTaken=(givRows||[]).reduce((a,g)=>a+(+g.amount||0),0);
   const finSet=new Set((finRows||[]).map(r=>r.id));
@@ -809,15 +892,15 @@ async function showCon(){
 
   function saleComm(sale){
     const s=S();let c=0,el=false;
-    const r=calc(sales,bonuses||[],deds||[],retBal,con.pay_basis,srCtx(con,run)).rate;
+    const r=calc(sales,bonuses||[],deds||[],retBal,con.pay_basis,srCtx(con,run),sctx).rate;
     for(const it of sale.items){const p=it.product;if(!p)continue;
       if(p.commission_type==='fixed'){c+=p.fixed_amount*it.quantity;el=true;}
       if(p.commission_type==='tier'){c+=r*it.quantity;el=true;}
-    }if(el&&sale.paid_in_full)c+=S().cash_bonus;return c;
+    }const sst=sctx.status[sale.id];if(el&&(sst?sst.paid_in_full:sale.paid_in_full))c+=S().cash_bonus;return c;
   }
 
   function render(){
-    const cv=calc(sales,bonuses||[],deds||[],retBal,con.pay_basis,srCtx(con,run));
+    const cv=calc(sales,bonuses||[],deds||[],retBal,con.pay_basis,srCtx(con,run),sctx);
     const s=S();
     const locked=run?.status==='finalised';
     $('app').innerHTML=`
@@ -845,7 +928,7 @@ async function showCon(){
             <tbody class="divide-y divide-slate-700/50">
               ${sales.map(sale=>`<tr${sale.status==='cancelled'?' class="opacity-60"':''}>
                 <td class="py-2 pr-3 text-slate-400 whitespace-nowrap">${fmtD(sale.sale_date)}</td>
-                <td class="py-2 pr-3 font-medium${sale.status==='cancelled'?' line-through text-slate-400':''}">${esc(sale.customer_name)}</td>
+                <td class="py-2 pr-3 font-medium${sale.status==='cancelled'?' line-through text-slate-400':''}">${esc(sale.customer_name)}${(()=>{const t=sctx.status[sale.id];if(!t||sale.status==='cancelled'||!t.paid_in_full)return '';return t.retention_exempt?' <span class="text-xs text-green-400 font-normal">paid in full · no retention</span>':' <span class="text-xs text-amber-300 font-normal">paid in full · 25% held until the money arrives</span>';})()}</td>
                 <td class="py-2 pr-3 text-slate-400 text-xs">${sale.items.map(it=>`${it.product?.name||''}${it.quantity>1?` ×${it.quantity}`:''}`).join(', ')}</td>
                 <td class="py-2 text-right font-medium ${sale.status==='cancelled'?'text-slate-500':'text-yellow-400'}">${sale.status==='cancelled'?'CNX':fmt(saleComm(sale))}</td>
                 <td class="py-2 pl-2"><button onclick="delSale('${sale.id}')" class="text-slate-600 hover:text-red-400 text-xs">✕</button></td>
@@ -879,7 +962,7 @@ async function showCon(){
             <button class="btn gold text-xs py-1.5 px-3" onclick="addDedModal()">+ Add Deduction</button>
           </div>
           ${cv.ret>0?`<div class="flex justify-between text-sm py-1.5 text-slate-400 italic">
-            <span>Retention (${Math.abs(cv.ret-cv.sc*s.retention_rate)<0.005?`${s.retention_rate*100}% of ${fmt(cv.sc)} sales commission`:`capped at ${fmt(s.retention_cap)} held`})</span><span>-${fmt(cv.ret)}</span></div>`:''}
+            <span>${retLabel(cv,s)}</span><span>-${fmt(cv.ret)}</span></div>`:''}
           ${(deds||[]).filter(d=>d.deduction_type!=='giveaway_repayment').map(d=>`<div class="flex items-center justify-between text-sm py-1.5 border-t border-slate-700/50">
             <span class="text-slate-300">${d.description||d.deduction_type}${d.quantity>1?` ×${d.quantity}`:''} <span class="text-xs text-slate-500">(${d.deduction_type})</span></span>
             <div class="flex items-center gap-3"><span class="text-red-400 font-medium">-${fmt(d.amount)}</span>
@@ -915,6 +998,7 @@ async function showCon(){
             <span class="text-slate-400">Cash bonuses</span><span class="text-right">${fmt(cv.ac)}</span>
             ${cv.mb>0?`<span class="text-slate-400">Extra bonuses</span><span class="text-right">${fmt(cv.mb)}</span>`:''}
             <span class="text-slate-400">Less: retention</span><span class="text-right text-red-400">-${fmt(cv.ret)}</span>
+            ${cv.rel>0?`<span class="text-slate-400">Plus: retention released</span><span class="text-right text-green-400">+${fmt(cv.rel)}</span>`:''}
             ${cv.td>0?`<span class="text-slate-400">Less: deductions</span><span class="text-right text-red-400">-${fmt(cv.td)}</span>`:''}
             <div class="col-span-2 border-t border-slate-600 mt-2 pt-3 flex justify-between items-center">
               <span class="font-bold text-base">Net Payable</span>
@@ -924,6 +1008,7 @@ async function showCon(){
           <div class="mt-4 pt-4 border-t border-slate-700 text-sm space-y-1">
             <div class="flex justify-between text-slate-400"><span>Opening retention</span><span>${fmt(retBal)}</span></div>
             <div class="flex justify-between text-slate-400"><span>+ This week</span><span>+${fmt(cv.ret)}</span></div>
+            ${cv.releases.map(r=>`<div class="flex justify-between text-slate-400"><span>- Released: ${esc(r.customer_name||'')} now paid in full</span><span>-${fmt(r.amount)}</span></div>`).join('')}
             <div class="flex items-center justify-between text-slate-400">
               <span>- Release to consultant</span>
               <div class="flex items-center gap-2">
@@ -932,7 +1017,7 @@ async function showCon(){
               </div>
             </div>
             <div class="flex justify-between font-medium"><span>Closing balance</span>
-              <span id="retclose" class="${(cv.retAfter-(cv.payout||0))>=s.retention_cap?'text-green-400':'text-yellow-400'}">${fmt(cv.retAfter-(cv.payout||0))} ${(cv.retAfter-(cv.payout||0))>=s.retention_cap?'✓ CAPPED':'/ '+fmt(s.retention_cap)}</span>
+              <span id="retclose" class="${cv.retAfter>=s.retention_cap?'text-green-400':'text-yellow-400'}">${fmt(cv.retAfter)} ${cv.retAfter>=s.retention_cap?'✓ CAPPED':'/ '+fmt(s.retention_cap)}</span>
             </div>
           </div>
         </div>
@@ -1140,7 +1225,8 @@ async function showInv(){
   ]);
   const sales=(rawSales||[]).map(s=>({...s,items:(s.commission_sale_items||[]).map(i=>({...i,product:i.commission_products}))}));
   const retBal=await openingRetBal(+ret?.balance||0, run, consId);
-  const cv=calc(sales,bons||[],deds||[],retBal,con.pay_basis,srCtx(con,run));
+  const sctx=await saleCtx(run, consId, sales);
+  const cv=calc(sales,bons||[],deds||[],retBal,con.pay_basis,srCtx(con,run),sctx);
   const gstReg=!!gstRow?.gst_registered;
   const gstRate=+gstRow?.gst_rate||15;
   const gstAmt=gstReg?cv.net*gstRate/100:0;
@@ -1150,10 +1236,7 @@ async function showInv(){
      therefore printed "25% of $300" beside $50, which is 16.7%. Where the
      $5,000 cap clips the amount it is not a percentage of anything, so the
      label says that instead of quoting a rate that doesn't hold. */
-  const retIsPct=Math.abs(cv.ret-cv.sc*s.retention_rate)<0.005;
-  const retLabel=retIsPct
-    ?`Retention withheld (${s.retention_rate*100}% of ${fmt(cv.sc)} sales commission)`
-    :`Retention withheld (capped at ${fmt(s.retention_cap)} held)`;
+  const retLine=retLabel(cv,s);
   /* ⚠ READ THE ALLOCATION, DO NOT REDO IT. calc() has already decided which
      mattresses were paid at a starting rate and which at the ordinary rate, in
      sale order. Re-deriving it here is what made the lines disagree with the
@@ -1240,7 +1323,7 @@ async function showInv(){
         <div style="font-size:8pt;font-weight:bold;color:#0f1e3c;border-bottom:1pt solid #ddd;padding-bottom:1.5mm;margin-bottom:2mm;text-transform:uppercase;letter-spacing:.5px">Deductions</div>
         <table style="width:100%;border-collapse:collapse;font-size:8pt;margin-bottom:5mm"><tbody>
           ${cv.ret>0?`<tr style="border-bottom:.5pt solid #eee">
-            <td style="padding:1.5mm 3mm;color:#555">${retLabel}</td>
+            <td style="padding:1.5mm 3mm;color:#555">${retLine}</td>
             <td style="padding:1.5mm 3mm;text-align:right;font-weight:600;color:#c00">(${fmt(cv.ret)})</td>
           </tr>`:''}
           ${(deds||[]).map(d=>`<tr style="border-bottom:.5pt solid #eee">
@@ -1256,13 +1339,17 @@ async function showInv(){
               without this row a released amount would swell the net with nothing on
               the page to explain it. It sits outside the Bonuses table on purpose —
               Total Bonuses is cv.ac+cv.mb and does not include the payout. */
-          cv.payout>0?`
+          (cv.payout>0||cv.rel>0)?`
         <div style="font-size:8pt;font-weight:bold;color:#0f1e3c;border-bottom:1pt solid #ddd;padding-bottom:1.5mm;margin-bottom:2mm;text-transform:uppercase;letter-spacing:.5px">Retention Released</div>
         <table style="width:100%;border-collapse:collapse;font-size:8pt;margin-bottom:5mm"><tbody>
-          <tr style="border-bottom:.5pt solid #eee">
+          ${cv.releases.map(r=>`<tr style="border-bottom:.5pt solid #eee">
+            <td style="padding:1.5mm 3mm;color:#555">Retention released — ${esc(r.customer_name||'')}${r.sale_date?' ('+fmtD(r.sale_date)+')':''}, now paid in full</td>
+            <td style="padding:1.5mm 3mm;text-align:right;font-weight:600;color:#1a7a1a">${fmt(r.amount)}</td>
+          </tr>`).join('')}
+          ${cv.payout>0?`<tr style="border-bottom:.5pt solid #eee">
             <td style="padding:1.5mm 3mm;color:#555">Retention released to you this week</td>
             <td style="padding:1.5mm 3mm;text-align:right;font-weight:600;color:#1a7a1a">${fmt(cv.payout)}</td>
-          </tr>
+          </tr>`:''}
         </tbody></table>`:''}
 
         <!-- Net payable -->
@@ -2362,7 +2449,7 @@ window.saveEditedSale=async()=>{
 // ── Finalise / Un-finalise (mark a run paid, advance retention) ─────
 window.finaliseRun=async(rid)=>{
   rid=rid||runId;
-  if(!confirm('Finalise this pay run?\n\nThis records exactly what each consultant was paid for each customer, and adds this week\'s 25% to their retention accounts (up to the $5,000 cap). Only do this AFTER you have actually paid everyone.'))return;
+  if(!confirm('Finalise this pay run?\n\nThis records exactly what each consultant was paid for each customer, adds 25% of each sale\'s commission to their retention accounts (none on sales paid in full, and up to the $5,000 cap), and releases retention on earlier sales that are now paid in full. Only do this AFTER you have actually paid everyone.'))return;
   if(window.__FINALISING__){toast('Already finalising - give it a moment.',false);return;}
   window.__FINALISING__=true;
   document.querySelectorAll('[data-finalise]').forEach(b=>b.disabled=true);
@@ -2386,7 +2473,8 @@ window.finaliseRun=async(rid)=>{
         sb.from('commission_deductions').select('*').eq('pay_run_id',rid).eq('consultant_id',c.id),
       ]);
       const sales=(sl||[]).map(x=>({...x,items:(x.commission_sale_items||[]).map(i=>({...i,product:i.commission_products}))}));
-      const cv=calc(sales,bo||[],de||[],retMap[c.id]||0,c.pay_basis,srCtx(c,run));
+      const ctx=await saleCtx(run,c.id,sales);
+      const cv=calc(sales,bo||[],de||[],retMap[c.id]||0,c.pay_basis,srCtx(c,run),ctx);
       const rate=cv.rate;
       for(const sale of sales){
         if(sale.status==='cancelled')continue;
@@ -2394,8 +2482,10 @@ window.finaliseRun=async(rid)=>{
         for(const it of(sale.items||[])){const pr=it.product;if(!pr)continue;
           if(pr.commission_type==='fixed'){base+=pr.fixed_amount*it.quantity;elig=true;}
           if(pr.commission_type==='tier'){base+=rate*it.quantity;elig=true;}}
-        const paid=base+((elig&&sale.paid_in_full)?s.cash_bonus:0);
-        await sb.from('commission_sales').update({commission_paid:paid,paid_date:today}).eq('id',sale.id);
+        const pif=ctx.status[sale.id]?ctx.status[sale.id].paid_in_full:sale.paid_in_full;
+        const paid=base+((elig&&pif)?s.cash_bonus:0);
+        const{error:eSale}=await sb.from('commission_sales').update({commission_paid:paid,paid_date:today,retention_held:+cv.retBySale[sale.id]||0}).eq('id',sale.id);
+        if(eSale)throw eSale;
         // TL override — accrue for every commissionable sale (elig), including a team leader's own sales.
         // Skipped automatically for Mk I King Single-only sales (not elig) and when the consultant has no team leader set (e.g. Matt).
         if(elig&&tlId&&ovRate>0){
@@ -2403,8 +2493,8 @@ window.finaliseRun=async(rid)=>{
         }
       }
       const opening=retMap[c.id]||0;
-      const newBal=opening+cv.ret-cv.payout;
-      if(cv.ret!==0||cv.payout!==0){
+      const newBal=opening+cv.ret-cv.payout-cv.rel;
+      if(cv.ret!==0||cv.payout!==0||cv.rel!==0){
         await sb.from('commission_retention').upsert({consultant_id:c.id,balance:newBal,updated_at:new Date().toISOString()},{onConflict:'consultant_id'});
       }
       if(cv.ret>0){
@@ -2412,6 +2502,13 @@ window.finaliseRun=async(rid)=>{
       }
       if(cv.payout>0){
         await sb.from('commission_retention_adjustments').insert({consultant_id:c.id,amount:-cv.payout,reason:'retention_payout',pay_run_id:rid,notes:'Retention released — week ending '+run.week_ending});
+      }
+      // per-sale releases: retention held on an earlier sale that is now paid in full
+      for(const r of cv.releases){
+        const{error:eRel}=await sb.from('commission_retention_adjustments').insert({consultant_id:c.id,amount:-(+r.amount||0),reason:'sale_retention_release',sale_id:r.sale_id,pay_run_id:rid,notes:'Retention released — '+(r.customer_name||'')+' now paid in full'});
+        if(eRel)throw eRel;
+        const{error:eMark}=await sb.from('commission_sales').update({retention_released_run:rid}).eq('id',r.sale_id);
+        if(eMark)throw eMark;
       }
     }
     await sb.from('commission_pay_runs').update({status:'finalised'}).eq('id',rid);
@@ -2436,17 +2533,20 @@ window.unfinaliseRun=async(rid)=>{
   try{
     const{data:run}=await sb.from('commission_pay_runs').select('*').eq('id',rid).single();
     if(!run||run.status!=='finalised'){toast('This run is not finalised.',false);return;}
-    const{data:adjs}=await sb.from('commission_retention_adjustments').select('*').eq('pay_run_id',rid).in('reason',['weekly_retention','retention_payout']);
+    const{data:adjs}=await sb.from('commission_retention_adjustments').select('*').eq('pay_run_id',rid).in('reason',['weekly_retention','retention_payout','sale_retention_release']);
     const byCon={};(adjs||[]).forEach(a=>{byCon[a.consultant_id]=(byCon[a.consultant_id]||0)+(+a.amount||0);});
     for(const cid of Object.keys(byCon)){
       const{data:ret}=await sb.from('commission_retention').select('*').eq('consultant_id',cid).maybeSingle();
       const cur=+ret?.balance||0;
-      await sb.from('commission_retention').upsert({consultant_id:cid,balance:Math.max(0,cur-byCon[cid]),updated_at:new Date().toISOString()},{onConflict:'consultant_id'});
+      /* exact reversal — it used to floor at $0, which wiped a negative balance back to
+         nothing whenever a run was un-finalised (12 balances were negative on 15 Oct) */
+      await sb.from('commission_retention').upsert({consultant_id:cid,balance:cur-byCon[cid],updated_at:new Date().toISOString()},{onConflict:'consultant_id'});
     }
-    if(adjs&&adjs.length)await sb.from('commission_retention_adjustments').delete().eq('pay_run_id',rid).in('reason',['weekly_retention','retention_payout']);
+    if(adjs&&adjs.length)await sb.from('commission_retention_adjustments').delete().eq('pay_run_id',rid).in('reason',['weekly_retention','retention_payout','sale_retention_release']);
+    await sb.from('commission_sales').update({retention_released_run:null}).eq('retention_released_run',rid);
     // TL override — remove this run's accruals (mirrors the retention reversal above)
     await sb.from('commission_overrides').delete().eq('pay_run_id',rid).eq('reason','finalise_accrual');
-    await sb.from('commission_sales').update({commission_paid:null,paid_date:null}).eq('pay_run_id',rid).neq('status','cancelled');
+    await sb.from('commission_sales').update({commission_paid:null,paid_date:null,retention_held:null}).eq('pay_run_id',rid).neq('status','cancelled');
     await sb.from('commission_pay_runs').update({status:'draft'}).eq('id',rid);
     toast('Run un-finalised and unlocked.');
     showRun();
