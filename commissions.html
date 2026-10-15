@@ -332,7 +332,7 @@ const fmtDay=d=>d?new Date(d+'T12:00:00').toLocaleDateString('en-NZ',{weekday:'s
    bonus row written at finalise. */
 function incDesc(x){
   let t=`${x.name} — ${fmtDay(x.day)}`;
-  if(x.rule==='per_unit'||x.rule==='per_unit_after_time')t+=` (${x.units} mattress${x.units===1?'':'es'})`;
+  if(x.rule==='per_unit'||x.rule==='per_unit_after_time'||x.rule==='per_unit_between_times')t+=` (${x.units} mattress${x.units===1?'':'es'})`;
   if(+x.paid>0)t+=' — balance';
   return t;
 }
@@ -735,10 +735,11 @@ async function showRuns(){
    in the database). Counting is per MATTRESS; time-based offers use the iPad
    signing time or the time the office types for a paper order; a sale cancelled
    before delivery does not count. */
-const INC_RULES={sale_before_time:'Sale before a time',units_on_day:'Mattresses in a day',per_unit:'Per mattress sold',per_unit_after_time:'Per mattress from a time'};
+const INC_RULES={sale_before_time:'Sale before a time',units_on_day:'Mattresses in a day',per_unit:'Per mattress sold',per_unit_after_time:'Per mattress from a time',per_unit_between_times:'Per mattress between two times'};
 function incRuleText(i){
   if(i.rule==='sale_before_time')return `a sale before ${String(i.cutoff_time||'').slice(0,5)} → ${fmt(i.amount)}`;
   if(i.rule==='units_on_day')return `${i.min_units} or more mattresses in a day → ${fmt(i.amount)}`;
+  if(i.rule==='per_unit_between_times')return `${fmt(i.amount)} per mattress sold between ${String(i.cutoff_time||'').slice(0,5)} and ${String(i.end_time||'').slice(0,5)}`;
   if(i.rule==='per_unit_after_time')return `${fmt(i.amount)} per mattress sold from ${String(i.cutoff_time||'').slice(0,5)} for the rest of the day`;
   return `${fmt(i.amount)} per mattress`;
 }
@@ -770,8 +771,9 @@ window.incModal=()=>{
       <option value="units_on_day">A number of mattresses in one day</option>
       <option value="per_unit">An amount for every mattress sold</option>
       <option value="per_unit_after_time">An amount for every mattress sold from a set time, for the rest of the day</option>
+      <option value="per_unit_between_times">An amount for every mattress sold between two times</option>
     </select>
-    <div id="itimeRow"><label id="itimeLbl" class="text-xs text-slate-400 block mb-1">Sold before</label><input id="itime" type="time" value="13:00" class="inp mb-3"></div>
+    <div id="itimeRow"><label id="itimeLbl" class="text-xs text-slate-400 block mb-1">Sold before</label><input id="itime" type="time" value="13:00" class="inp mb-3"><div id="iendRow" style="display:none"><label class="text-xs text-slate-400 block mb-1">Until (sales from this time do not count)</label><input id="iend" type="time" value="17:00" class="inp mb-3"></div></div>
     <div id="iunitsRow" style="display:none"><label class="text-xs text-slate-400 block mb-1">Mattresses needed in the day</label><input id="iunits" type="number" min="1" value="3" class="inp mb-3"></div>
     <label class="text-xs text-slate-400 block mb-1">Amount ($)</label>
     <input id="iamt" type="number" min="1" step="1" value="100" class="inp mb-3">
@@ -783,7 +785,7 @@ window.incModal=()=>{
     <div class="max-h-40 overflow-y-auto mb-4 border border-slate-700 rounded p-2">${cons.map(c=>`<label class="flex items-center gap-2 text-sm py-0.5"><input type="checkbox" class="icon" value="${c.id}"> ${esc(c.name)}</label>`).join('')}</div>
     <div class="flex gap-3"><button class="btn gold flex-1" onclick="saveIncentive()">Save</button><button class="btn dark flex-1" onclick="closeMod()">Cancel</button></div>`);
 };
-window.incRuleChanged=()=>{const r=$('irule').value;const timed=r==='sale_before_time'||r==='per_unit_after_time';$('itimeRow').style.display=timed?'':'none';$('itimeLbl').textContent=r==='per_unit_after_time'?'Sold from (this time onwards, until the end of the day)':'Sold before';$('iunitsRow').style.display=r==='units_on_day'?'':'none';};
+window.incRuleChanged=()=>{const r=$('irule').value;const timed=r==='sale_before_time'||r==='per_unit_after_time'||r==='per_unit_between_times';$('itimeRow').style.display=timed?'':'none';$('iendRow').style.display=r==='per_unit_between_times'?'':'none';$('itimeLbl').textContent=r==='per_unit_after_time'?'Sold from (this time onwards, until the end of the day)':r==='per_unit_between_times'?'Sold from':'Sold before';$('iunitsRow').style.display=r==='units_on_day'?'':'none';};
 window.saveIncentive=async()=>{
   const rule=$('irule').value, name=($('iname').value||'').trim(), amount=+$('iamt').value;
   const start_date=$('ifrom').value, end_date=$('ito').value||start_date;
@@ -793,7 +795,8 @@ window.saveIncentive=async()=>{
   const ids=[...document.querySelectorAll('.icon:checked')].map(x=>x.value);
   const row={name,rule,amount,start_date,end_date,consultant_ids:ids.length?ids:null,
     created_by:(window.SIMTEC_USER&&(window.SIMTEC_USER.full_name||window.SIMTEC_USER.email))||null};
-  if(rule==='sale_before_time'||rule==='per_unit_after_time'){if(!$('itime').value){toast('Enter the time.',false);return;}row.cutoff_time=$('itime').value;}
+  if(rule==='sale_before_time'||rule==='per_unit_after_time'||rule==='per_unit_between_times'){if(!$('itime').value){toast('Enter the time.',false);return;}row.cutoff_time=$('itime').value;}
+  if(rule==='per_unit_between_times'){if(!$('iend').value){toast('Enter the end time.',false);return;}if($('iend').value<=$('itime').value){toast('The end time must be after the start time.',false);return;}row.end_time=$('iend').value;}
   if(rule==='units_on_day'){const u=parseInt($('iunits').value,10);if(!(u>=1)){toast('Enter how many mattresses.',false);return;}row.min_units=u;}
   const{error}=await sb.from('commission_incentives').insert(row);
   if(error){err(error);return;}
