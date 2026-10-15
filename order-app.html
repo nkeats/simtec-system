@@ -18,7 +18,7 @@
 <!-- data-one-consultant: this iPad belongs to the first consultant who signs in on it.
      Orders are written from here, so this is the only page that asks for the binding. -->
 <script src="auth.js?v=5" data-roles="admin,manager,office,consultant" data-one-consultant></script>
-<script>window.SIMTEC_BUILD="2026-10-13-01";</script>
+<script>window.SIMTEC_BUILD="2026-10-15-01";</script>
 <script src="update.js?v=2"></script>
 
 
@@ -84,6 +84,10 @@
   table.prod select{padding:11px 8px;}
   table.prod input{padding:11px 8px;text-align:right;}
   .rmv{background:none;border:none;color:var(--danger);font-size:22px;cursor:pointer;line-height:1;}
+  .qstep{display:inline-flex;align-items:center;gap:6px}
+  .qstep button{width:36px;height:36px;border-radius:8px;border:1px solid #cbd4df;background:#fff;font-size:20px;font-weight:700;color:#122347;cursor:pointer;line-height:1}
+  .qstep button:disabled{opacity:.35;cursor:default}
+  .qstep b{min-width:18px;text-align:center;font-size:17px}
   .add-line{margin-top:10px;background:var(--blue-soft);color:var(--navy);border:1px dashed var(--blue);
     padding:12px;border-radius:10px;width:100%;font-weight:600;cursor:pointer;font-size:15px;}
   .delivery-row{display:flex;align-items:center;gap:12px;margin-top:14px;padding:12px;border:1px solid var(--line);border-radius:10px;background:#fafbfd;}
@@ -1532,14 +1536,26 @@ function findProduct(v){
   if(!c) c = CATALOG.find(p => p.name === v);
   return c || null;
 }
+/* 15 Oct: a typed quantity box let "1" become "91" (91 bed bases on Lishire
+   Vahaakolo's order). Quantity is now − / + buttons only, 1 to 3. More than 3 of
+   one product needs Matt's authorisation: paper order, office enters it. The
+   database refuses more than 3 from a consultant login as a backstop. */
+const MAX_QTY=3;
+function clampQty(q){ q=parseInt(q,10); return (q>=1)?Math.min(q,MAX_QTY):1; }
+function stepQty(i,d){
+  const q=S.products[i].qty+d;
+  if(q>MAX_QTY){ alert('More than '+MAX_QTY+' of one product needs Matt\'s authorisation. Do this sale on a paper order and the office will enter it.'); return; }
+  S.products[i].qty=clampQty(q); renderProducts();
+}
 function addProduct(){ S.products.push({idx:'',name:'',price:0,qty:1}); renderProducts(); }
 function renderProducts(){
   const b=document.getElementById('prodBody'); b.innerHTML='';
+  S.products.forEach(p=>{ p.qty=clampQty(p.qty); });   // parked orders saved before this change
   S.products.forEach((p,i)=>{
     const tr=document.createElement('tr');
     tr.innerHTML='<td><select onchange="pickProduct('+i+',this.value)">'+catalogOptions(p.idx===''?null:p.idx)+'</select></td>'+
       '<td class="num">'+(p.name?('$'+p.price.toFixed(2)):'—')+'</td>'+
-      '<td class="num"><input type="number" min="1" value="'+p.qty+'" oninput="upQty('+i+',this.value)"></td>'+
+      '<td class="num"><span class="qstep"><button type="button" aria-label="One less" onclick="stepQty('+i+',-1)"'+(p.qty<=1?' disabled':'')+'>−</button><b>'+p.qty+'</b><button type="button" aria-label="One more" onclick="stepQty('+i+',1)">+</button></span></td>'+
       '<td class="num">$'+((p.price*p.qty)||0).toFixed(2)+'</td>'+
       '<td><button class="rmv" onclick="rmP('+i+')">×</button></td>';
     b.appendChild(tr);
@@ -1557,7 +1573,7 @@ function pickProduct(i,v){
          S.products[i].price = Number(c.retail) || 0; }
   renderProducts();
 }
-function upQty(i,v){ S.products[i].qty=Math.max(1,parseInt(v||1)); renderProducts(); }
+function upQty(i,v){ S.products[i].qty=clampQty(v); renderProducts(); }
 function rmP(i){ S.products.splice(i,1); if(S.products.length===0) addProduct(); else renderProducts(); }
 
 // ----- email verify (STUB) -----
