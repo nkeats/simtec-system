@@ -18,7 +18,7 @@
 <!-- data-one-consultant: this iPad belongs to the first consultant who signs in on it.
      Orders are written from here, so this is the only page that asks for the binding. -->
 <script src="auth.js?v=5" data-roles="admin,manager,office,consultant" data-one-consultant></script>
-<script>window.SIMTEC_BUILD="2026-10-15-01";</script>
+<script>window.SIMTEC_BUILD="2026-10-15-02";</script>
 <script src="update.js?v=2"></script>
 
 
@@ -2917,7 +2917,7 @@ function buildEddrUrl(){
 const EZI_RESUME='simtec_ezi_resume'+WT_SUFFIX;
 const EZI_RESUME_MAX_MIN=120;                    // an abandoned form must not resume tomorrow
 
-function launchEzidebit(){
+async function launchEzidebit(){
   const msg=document.getElementById('eziMsg'); msg.textContent='';
   if(!S.orderId){ msg.textContent='Save the order first (go back and submit) before setting up the direct debit.'; return; }
   const rAmt=numOrNull(val('eziPlanAmount')), oAmt=numOrNull(val('eziOneoffAmount'));
@@ -2976,6 +2976,16 @@ function launchEzidebit(){
       return;
     }
   }
+  /* 15 Oct: note the moment the form opens, so a slow sale can later be split
+     into "customer on Ezidebit's form" and "our side" (the return is already
+     logged by ezidebit-return.html). Best-effort ONLY: never more than 1.5 s,
+     and a failure changes nothing — the customer still goes to Ezidebit. */
+  try{
+    await Promise.race([
+      sb.rpc('log_ezidebit_form_open', { p_order:S.orderId, p_build:window.SIMTEC_BUILD||null }),
+      new Promise(r=>setTimeout(r,1500))
+    ]);
+  }catch(e){ /* deliberately ignored — logging must never block a sale */ }
   location.href = eziUrl;                          // the whole page goes to Ezidebit
 }
 

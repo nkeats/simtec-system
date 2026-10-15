@@ -362,7 +362,31 @@
     started = true;
     IP.client = sb;
     refreshStrips();
-    setInterval(function () { if (!document.hidden) refreshStrips(); }, 30000);   // minutes tick, and the poll safety net
+    setInterval(function () { if (!document.hidden) { refreshStrips(); pollAnnounce(); } }, 30000);   // minutes tick, and the poll safety net
+
+    /* 15 Oct: THE CHIME MUST NOT DEPEND ON THE LIVE CONNECTION.
+       The office screen's live link dropped ~15 times on 15 Oct. The list still
+       caught up via the 60-second poll, but the new-order banner and chime only
+       ever came from the live link, so a sale finishing during a drop arrived
+       silently. This asks every 30 seconds for orders that have just become
+       'pending' and hands them to the SAME maybeAnnounce() the live link uses,
+       so an order is still announced exactly once per screen (announced{}).
+       Only orders that went pending after this page opened, and within the last
+       15 minutes, so opening the page or returning to a hidden tab never
+       replays old sales. */
+    var annSince = Date.now();
+    function pollAnnounce() {
+      var since = new Date(Math.max(annSince, Date.now() - 15 * 60000)).toISOString();
+      sb.from("sim_orders").select("id, confirmation_status")
+        .eq("confirmation_status", "pending")
+        .or("confirmation_pending_at.gt." + since + ",and(confirmation_pending_at.is.null,created_at.gt." + since + ")")
+        .limit(10)
+        .then(function (r) {
+          if (r && r.error) { report("check for newly finished orders (banner may not appear)", r.error); return; }
+          ((r && r.data) || []).forEach(maybeAnnounce);
+        })
+        .catch(function (e) { report("check for newly finished orders (banner may not appear)", e); });
+    }
 
     var ch = sb.channel("simtec-live-" + Math.random().toString(36).slice(2, 8));
 
