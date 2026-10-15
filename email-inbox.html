@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Simtec — Customer emails</title>
+<!-- ============================================================================
+     CUSTOMER EMAILS — 15 Oct 2026
+     Staff forward a customer's email to customers@in.simtectp.com (or copy that
+     address on a reply). The email-inbound function puts it straight onto the
+     customer's contact history when it can match ONE customer. Everything it
+     could not place safely lands here, with the reason, for the office to
+     assign by hand or dismiss. Nothing is ever guessed onto a customer.
+     ========================================================================= -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.112.2"></script>
+<script src="auth.js?v=3" data-roles="admin,manager,office"></script>
+<script src="live.js?v=3" defer></script>
+<style>
+  :root{--navy:#122347;--gold:#c6a15b;--ink:#1a2334;--line:#d9e0ea;--bg:#eef1f5;--red:#c0332e;--grey:#7a8798;--green:#2a7a4b}
+  *{box-sizing:border-box}
+  body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(--bg);color:var(--ink);margin:0}
+  header{background:var(--navy);color:#fff;padding:16px 22px;display:flex;align-items:center;gap:14px}
+  header a.back{color:#b9c6de;text-decoration:none;font-size:13px;font-weight:600} header a.back:hover{color:#fff}
+  header h1{font-size:18px;margin:0;font-weight:600}
+  .wrap{max-width:980px;margin:22px auto;padding:0 16px}
+  .card{background:#fff;border:1px solid var(--line);border-radius:12px;margin-bottom:18px;padding:16px 18px}
+  .card h2{font-size:13px;text-transform:uppercase;letter-spacing:.07em;color:var(--navy);margin:0 0 6px}
+  .muted{color:var(--grey)} .small{font-size:12.5px}
+  .mail{border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin-top:12px}
+  .mail .top{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap}
+  .mail .subj{font-weight:700}
+  .why{background:#fff5e0;border:1px solid #e8d9a0;color:#8a5b00;border-radius:8px;padding:7px 10px;font-size:12.5px;margin:8px 0}
+  .body{white-space:pre-wrap;font-size:13px;background:#f7f9fc;border-radius:8px;padding:9px 11px;max-height:160px;overflow:auto;margin:8px 0}
+  .body.open{max-height:none}
+  .att a{display:inline-block;margin:2px 8px 2px 0;font-size:12.5px;color:var(--navy);cursor:pointer;text-decoration:underline}
+  .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px}
+  input,select{border:1px solid #cbd4df;border-radius:8px;padding:7px 9px;font-size:13.5px}
+  input.search{flex:1;min-width:220px}
+  button{border:none;border-radius:8px;padding:8px 13px;font-size:13px;font-weight:700;cursor:pointer}
+  .b-navy{background:var(--navy);color:#fff} .b-plain{background:#fff;color:var(--navy);border:1px solid #cbd4df}
+  .results{border:1px solid var(--line);border-radius:8px;margin-top:6px;max-height:200px;overflow:auto;display:none}
+  .results div{padding:7px 10px;cursor:pointer;font-size:13px;border-bottom:1px solid #eef1f5}
+  .results div:hover,.results div.sel{background:#eef4ff}
+  table{width:100%;border-collapse:collapse;font-size:13px} td,th{padding:7px 8px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+  th{font-size:11.5px;text-transform:uppercase;color:var(--navy);background:#f3f6fa}
+  .pill{display:inline-block;font-size:11px;font-weight:700;padding:2px 8px;border-radius:20px;background:#e8f4ec;color:var(--green)}
+</style>
+</head>
+<body>
+<header>
+  <a href="home.html" class="back">‹ Home</a>
+  <h1>Customer emails</h1>
+</header>
+<div class="wrap">
+  <div class="card">
+    <h2>How it works</h2>
+    <div class="small">Forward a customer's email to <b>customers@in.simtectp.com</b>, or copy that address on a reply.
+      It goes onto the customer's Communications automatically when it can be matched to one customer.
+      Anything it can't place safely waits below.</div>
+  </div>
+  <div class="card">
+    <h2>Waiting to be assigned <span id="nUn" class="muted"></span></h2>
+    <div id="unmatched" class="muted small">Loading…</div>
+  </div>
+  <div class="card">
+    <h2>Recently logged</h2>
+    <div id="recent" class="muted small">Loading…</div>
+  </div>
+</div>
+<script>
+const sb = supabase.createClient("https://jvqjoenaungubpoegyvf.supabase.co","sb_publishable_J4MYTdJJyEaWe-GadpwdYA_upPT2rKw");
+const $=id=>document.getElementById(id);
+const esc=s=>String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const when=v=>v?new Date(v).toLocaleString("en-NZ",{day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"}):"";
+const PICK={};   // inbox id -> chosen customer id
+
+async function openAtt(path){
+  const w=window.open("","_blank");   // open now so iPad Safari doesn't block it
+  const {data,error}=await sb.storage.from("customer-emails").createSignedUrl(path,300);
+  if(error||!data){ if(w) w.close(); alert("Could not open the attachment: "+(error?error.message:"")); return; }
+  if(w) w.location=data.signedUrl; else window.location=data.signedUrl;
+}
+function attLinks(list){
+  return (list||[]).length ? `<div class="att">📎 ${list.map(a=>`<a href="#" data-p="${esc(a.path)}" onclick="openAtt(this.dataset.p);return false">${esc(a.name)}</a>`).join("")}</div>` : "";
+}
+
+async function load(){
+  const [{data:un,error:e1},{data:rec,error:e2}] = await Promise.all([
+    sb.from("customer_email_inbox").select("*").eq("status","unmatched").order("received_at",{ascending:false}).limit(100),
+    sb.from("customer_email_inbox").select("id,received_at,from_addr,subject,status,customer_id,handled_by,sim_customers(first_name,last_name)")
+      .in("status",["logged","assigned"]).order("received_at",{ascending:false}).limit(30)
+  ]);
+  if(e1){ $("unmatched").textContent="Couldn't load: "+e1.message; return; }
+  $("nUn").textContent = un.length ? "("+un.length+")" : "";
+  $("unmatched").innerHTML = !un.length ? "Nothing waiting. 👍" : un.map(m=>`
+    <div class="mail" id="m${m.id}">
+      <div class="top"><div><div class="subj">${esc(m.subject||"(no subject)")}</div>
+        <div class="muted small">From ${esc(m.from_addr||"")} · ${when(m.received_at)}</div></div></div>
+      <div class="why">${esc(m.match_note||"")}</div>
+      <div class="body" onclick="this.classList.toggle('open')" title="Click to show all">${esc((m.text_body||"").slice(0,20000))}</div>
+      ${attLinks(m.attachments)}
+      <div class="row">
+        <input class="search" placeholder="Find the customer — name, email or mobile" oninput="findCust(${m.id},this.value)">
+        <select id="d${m.id}"><option value="inbound">From the customer</option><option value="outbound">To the customer</option></select>
+        <button class="b-navy" onclick="assign(${m.id})">Assign</button>
+        <button class="b-plain" onclick="dismiss(${m.id})">Not a customer email</button>
+      </div>
+      <div class="results" id="r${m.id}"></div>
+    </div>`).join("");
+  $("recent").innerHTML = (e2||!(rec||[]).length) ? "None yet." : `<table><tr><th>Received</th><th>Customer</th><th>Subject</th><th>From</th><th></th></tr>${
+    rec.map(r=>`<tr><td>${when(r.received_at)}</td>
+      <td><a href="customer-detail.html?id=${esc(r.customer_id)}">${esc(((r.sim_customers||{}).first_name||"")+" "+((r.sim_customers||{}).last_name||""))}</a></td>
+      <td>${esc(r.subject||"")}</td><td class="muted">${esc(r.from_addr||"")}</td>
+      <td>${r.status==="assigned"?`<span class="pill">assigned by ${esc(r.handled_by||"office")}</span>`:`<span class="pill">automatic</span>`}</td></tr>`).join("")}</table>`;
+}
+
+let tmr=null;
+function findCust(id,q){
+  clearTimeout(tmr);
+  tmr=setTimeout(async()=>{
+    const box=$("r"+id); q=(q||"").replace(/[,()*%]/g," ").trim();
+    if(q.length<2){ box.style.display="none"; return; }
+    const digits=q.replace(/\D/g,"");
+    const ors=[`first_name.ilike.%${q}%`,`last_name.ilike.%${q}%`,`email.ilike.%${q}%`];
+    if(digits.length>=4) ors.push(`mobile.ilike.%${digits.slice(-7)}%`);
+    const parts=q.split(/\s+/);
+    if(parts.length>=2) ors.push(`and(first_name.ilike.%${parts[0]}%,last_name.ilike.%${parts.slice(1).join(" ")}%)`);
+    const {data,error}=await sb.from("sim_customers").select("id,first_name,last_name,email,mobile,suburb").or(ors.join(",")).limit(15);
+    if(error){ box.innerHTML=`<div>${esc(error.message)}</div>`; box.style.display="block"; return; }
+    box.innerHTML=(data||[]).length? data.map(c=>`<div onclick="pick(${id},'${c.id}',this)">${esc((c.first_name||"")+" "+(c.last_name||""))} <span class="muted">· ${esc(c.email||"")} · ${esc(c.mobile||"")} · ${esc(c.suburb||"")}</span></div>`).join("") : `<div class="muted">No customer found</div>`;
+    box.style.display="block";
+  },250);
+}
+function pick(id,cid,el){
+  PICK[id]=cid;
+  [...$("r"+id).children].forEach(d=>d.classList.remove("sel")); el.classList.add("sel");
+}
+async function assign(id){
+  const cid=PICK[id];
+  if(!cid){ alert("Search for the customer and click their name first."); return; }
+  const {error}=await sb.rpc("assign_inbound_email",{p_inbox:id,p_customer:cid,p_direction:$("d"+id).value});
+  if(error){ alert("Could not assign: "+error.message); return; }
+  load();
+}
+async function dismiss(id){
+  if(!confirm("Mark this as not a customer email? It will be taken off the list.")) return;
+  const {error}=await sb.rpc("dismiss_inbound_email",{p_inbox:id});
+  if(error){ alert("Could not dismiss: "+error.message); return; }
+  load();
+}
+load();
+</script>
+</body>
+</html>

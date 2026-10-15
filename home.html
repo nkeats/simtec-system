@@ -144,6 +144,7 @@
 
       <div class="nav-grp"><div class="nav-gl">Payments &amp; Risk</div>
         <a href="payments-risk.html"><span class="ni"><svg viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/></svg></span>Payments &amp; risk</a>
+        <a href="email-inbox.html"><span class="ni"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg></span>Customer emails <b id="nMail" style="color:#c0332e"></b></a>
         <a href="arrears.html"><span class="ni"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h10"/></svg></span>Arrears overview</a>
         <a href="arrears-texts.html"><span class="ni"><svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H8l-4 4V5a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2z"/></svg></span>Arrears texts</a>
         <a href="send-text.html"><span class="ni"><svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H8l-4 4V5a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2z"/><path d="M8 10h8M8 13h5"/></svg></span>Send a text</a>
@@ -296,6 +297,7 @@
         </div></div>
 
         <div class="grp"><div class="gl">Payments &amp; Risk</div><div class="cards">
+          <a class="card" href="email-inbox.html"><span class="ic"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg></span><span class="ct"><div class="t">Customer emails</div><div class="d">Emails sent to customers@in.simtectp.com that need assigning to a customer.</div></span></a>
           <a class="card" href="arrears.html"><span class="ic"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h10"/></svg></span><span class="ct"><div class="t">Arrears overview</div><div class="d">Worst-first arrears, watch &amp; contact list.</div></span></a>
           <a class="card" href="arrears-texts.html"><span class="ic"><svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H8l-4 4V5a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2z"/></svg></span><span class="ct"><div class="t">Arrears texts</div><div class="d">Review and send arrears reminders.</div></span></a>
         </div></div>
@@ -796,6 +798,14 @@ function homeChime(){
 
 
 
+</script>
+<script>
+/* unmatched customer emails waiting — shown beside the menu link */
+(async()=>{ try{
+  const c=window.sb||(window.supabase&&supabase.createClient("https://jvqjoenaungubpoegyvf.supabase.co","sb_publishable_J4MYTdJJyEaWe-GadpwdYA_upPT2rKw"));
+  const {count}=await c.from("customer_email_inbox").select("id",{count:"exact",head:true}).eq("status","unmatched");
+  if(count) document.getElementById("nMail").textContent="("+count+")";
+}catch(e){} })();
 </script>
 </body>
 </html>

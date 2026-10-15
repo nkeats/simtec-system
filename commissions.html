@@ -218,7 +218,17 @@ function calc(sales,bonuses,deds,retBal,payBasis,sr,ctx){
   const payout=(bonuses||[]).find(b=>b.description==='__RETENTION_PAYOUT__');
   const payoutAmt=+payout?.amount||0;
   const mb=(bonuses||[]).filter(b=>b.description!=='__RETENTION_PAYOUT__').reduce((a,b)=>a+(+b.amount||0),0);
-  const gs=sc+ac,gross=gs+mb;
+  /* Daily incentives (15 Oct 2026) — worked out by commission_incentives_due() in the
+     database. Draft runs only: once finalised they are ordinary bonus rows (mb), so
+     they are never counted twice. A negative line is a clawback (sale cancelled
+     before delivery after the incentive was paid). No retention on incentives. */
+  /* Only money OWED TO the consultant is paid here. A clawback never comes out of pay:
+     [stated] Nigel, 15 Oct — "take the bonus back from the retention account, not their
+     next pay". The database does that the moment the order is cancelled
+     (commission_incentive_clawbacks_apply, trigger zz_incentive_clawback). */
+  const incentives=(ctx&&!ctx.banked)?(ctx.incentives||[]).filter(x=>(+x.due||0)>0.005):[];
+  const inc=incentives.reduce((a,x)=>a+(+x.due||0),0);
+  const gs=sc+ac,gross=gs+mb+inc;
   let ret=0;
   /* Retention only accrues for consultants on 'commission'. On 'retainer' → none.
      ⚠ RETENTION IS TAKEN ON SALES COMMISSION ONLY, NOT ON THE CASH BONUS.
@@ -257,9 +267,9 @@ function calc(sales,bonuses,deds,retBal,payBasis,sr,ctx){
   const td=(deds||[]).reduce((a,d)=>a+(+d.amount||0),0);
   /* scOrdinary lets the office show the consultant BOTH figures each week, which
      is what clause (a) of Schedule 1 requires before they can elect. */
-  const grossOrdinary=scOrdinary+ac+mb;
+  const grossOrdinary=scOrdinary+ac+mb+inc;
   return{units,rate,sc,ac,mb,gs,gross,ret,td,payout:payoutAmt,net:gross-ret-td+payoutAmt+rel,bySale,
-    retBySale,retBase,exemptCount,releases,rel,banked:!!(ctx&&ctx.banked),
+    retBySale,retBase,exemptCount,releases,rel,banked:!!(ctx&&ctx.banked),inc,incentives,
     retAfter:retBal+ret-payoutAmt-rel,
     srWeek:sr?sr.weekNo:0, srRate:sr?sr.amount:0, srUsed, srValue,
     scOrdinary, grossOrdinary, ordinaryBetter: sr ? (grossOrdinary>gross) : false};
@@ -306,10 +316,25 @@ async function saleCtx(run, consId, sales){
     return{status,banked:{ret:banked,perSale,releases:relRows.map(r=>({sale_id:r.sale_id,amount:-(+r.amount||0),
       customer_name:names[r.sale_id]?.customer_name||'',sale_date:names[r.sale_id]?.sale_date||null}))}};
   }
-  if(!consId)return{status,releases:[]};
-  const{data:rel,error:e3}=await sb.rpc('commission_retention_releases_due',{p_consultant:consId});
-  if(e3)throw e3;
-  return{status,releases:rel||[]};
+  if(!consId)return{status,releases:[],incentives:[],needTime:[]};
+  const upto=run&&run.week_ending;
+  const[{data:rel,error:e3},{data:incs,error:e5},{data:nt,error:e6}]=await Promise.all([
+    sb.rpc('commission_retention_releases_due',{p_consultant:consId}),
+    upto?sb.rpc('commission_incentives_due',{p_consultant:consId,p_upto:upto}):Promise.resolve({data:[]}),
+    upto?sb.rpc('commission_sales_needing_time',{p_consultant:consId,p_upto:upto}):Promise.resolve({data:[]}),
+  ]);
+  if(e3)throw e3; if(e5)throw e5; if(e6)throw e6;
+  return{status,releases:rel||[],incentives:incs||[],needTime:nt||[]};
+}
+
+const fmtDay=d=>d?new Date(d+'T12:00:00').toLocaleDateString('en-NZ',{weekday:'short',day:'numeric',month:'short'}):'';
+/* One wording for an incentive line, used on screen, on the invoice and in the
+   bonus row written at finalise. */
+function incDesc(x){
+  let t=`${x.name} — ${fmtDay(x.day)}`;
+  if(x.rule==='per_unit')t+=` (${x.units} mattress${x.units===1?'':'es'})`;
+  if(+x.paid>0)t+=' — balance';
+  return t;
 }
 
 /* The retention line must name the base the money was actually taken on (9 Sep, Tame
@@ -678,6 +703,9 @@ window.cwPost=async(conId,weekEnd,amount)=>{
 async function showRuns(){
   const{data:runs,error}=await sb.from('commission_pay_runs').select('*').order('week_ending',{ascending:false});
   if(error)throw error;
+  const{data:incs,error:eInc}=await sb.from('commission_incentives').select('*').order('start_date',{ascending:false}).limit(40);
+  if(eInc)throw eInc;
+  window._incs=incs||[];
   $('app').innerHTML=`
     <div class="p-8 max-w-4xl mx-auto">
       <div class="flex items-center justify-between mb-8">
@@ -685,6 +713,7 @@ async function showRuns(){
         <p class="text-slate-400 text-sm mt-1">Select a week to process commissions</p></div>
         <button class="btn gold" onclick="newRun()">+ New Pay Run</button>
       </div>
+      ${incentivesCard(window._incs)}
       <div id="runlist">${!runs?.length
         ?'<p class="text-center text-slate-500 py-16">No pay runs yet. Create your first one above.</p>'
         :runs.map(r=>`
@@ -700,6 +729,80 @@ async function showRuns(){
       }</div>
     </div>`;
 }
+
+/* ── Daily incentives (15 Oct 2026) ─────────────────────────────────────────
+   Set up once; every pay run works out who qualified (commission_incentives_due()
+   in the database). Counting is per MATTRESS; time-based offers use the iPad
+   signing time or the time the office types for a paper order; a sale cancelled
+   before delivery does not count. */
+const INC_RULES={sale_before_time:'Sale before a time',units_on_day:'Mattresses in a day',per_unit:'Per mattress sold'};
+function incRuleText(i){
+  if(i.rule==='sale_before_time')return `a sale before ${String(i.cutoff_time||'').slice(0,5)} → ${fmt(i.amount)}`;
+  if(i.rule==='units_on_day')return `${i.min_units} or more mattresses in a day → ${fmt(i.amount)}`;
+  return `${fmt(i.amount)} per mattress`;
+}
+function incentivesCard(list){
+  const today=localISO(new Date());
+  const names=id=>{const c=consultants.find(x=>x.id===id);return c?c.name:'?';};
+  const rows=(list||[]).map(i=>`<div class="flex items-center justify-between gap-3 py-2 border-t border-slate-700/50 text-sm ${i.active?'':'opacity-50'}">
+      <div><div class="font-medium text-white">${esc(i.name)} ${!i.active?'<span class="text-xs text-slate-500">(switched off)</span>':i.end_date<today?'<span class="text-xs text-slate-500">(ended)</span>':''}</div>
+      <div class="text-xs text-slate-400">${fmtDay(i.start_date)}${i.end_date!==i.start_date?' – '+fmtDay(i.end_date):''} · ${incRuleText(i)} · ${i.consultant_ids&&i.consultant_ids.length?esc(i.consultant_ids.map(names).join(', ')):'everyone'}</div></div>
+      ${i.active?`<button class="btn dark text-xs py-1 px-2" onclick="incOff('${i.id}')">Switch off</button>`:''}
+    </div>`).join('');
+  return `<div class="card mb-6">
+    <div class="flex items-center justify-between mb-2">
+      <div><h3 class="font-semibold">Daily incentives</h3><p class="text-xs text-slate-400">Worked out automatically in each pay run. No retention is held on incentives; if a sale is cancelled before delivery, the incentive is taken back from the retention account, not from pay.</p></div>
+      <button class="btn gold text-xs py-1.5 px-3" onclick="incModal()">+ Add incentive</button>
+    </div>
+    ${rows||'<p class="text-slate-500 text-sm py-2">No incentives set up yet.</p>'}
+  </div>`;
+}
+window.incModal=()=>{
+  const today=localISO(new Date());
+  const cons=consultants.filter(c=>c.active);
+  openMod(`<h3 class="font-semibold text-white mb-4">New incentive</h3>
+    <label class="text-xs text-slate-400 block mb-1">Name (shows on the invoice)</label>
+    <input id="iname" class="inp mb-3" placeholder="e.g. 1 before 1">
+    <label class="text-xs text-slate-400 block mb-1">Type</label>
+    <select id="irule" class="inp mb-3" onchange="incRuleChanged()">
+      <option value="sale_before_time">A sale before a set time</option>
+      <option value="units_on_day">A number of mattresses in one day</option>
+      <option value="per_unit">An amount for every mattress sold</option>
+    </select>
+    <div id="itimeRow"><label class="text-xs text-slate-400 block mb-1">Sold before</label><input id="itime" type="time" value="13:00" class="inp mb-3"></div>
+    <div id="iunitsRow" style="display:none"><label class="text-xs text-slate-400 block mb-1">Mattresses needed in the day</label><input id="iunits" type="number" min="1" value="3" class="inp mb-3"></div>
+    <label class="text-xs text-slate-400 block mb-1">Amount ($)</label>
+    <input id="iamt" type="number" min="1" step="1" value="100" class="inp mb-3">
+    <div class="grid grid-cols-2 gap-3">
+      <div><label class="text-xs text-slate-400 block mb-1">From</label><input id="ifrom" type="date" value="${today}" class="inp mb-3"></div>
+      <div><label class="text-xs text-slate-400 block mb-1">To (same day for a one-day offer)</label><input id="ito" type="date" value="${today}" class="inp mb-3"></div>
+    </div>
+    <label class="text-xs text-slate-400 block mb-1">Who (leave all unticked for everyone)</label>
+    <div class="max-h-40 overflow-y-auto mb-4 border border-slate-700 rounded p-2">${cons.map(c=>`<label class="flex items-center gap-2 text-sm py-0.5"><input type="checkbox" class="icon" value="${c.id}"> ${esc(c.name)}</label>`).join('')}</div>
+    <div class="flex gap-3"><button class="btn gold flex-1" onclick="saveIncentive()">Save</button><button class="btn dark flex-1" onclick="closeMod()">Cancel</button></div>`);
+};
+window.incRuleChanged=()=>{const r=$('irule').value;$('itimeRow').style.display=r==='sale_before_time'?'':'none';$('iunitsRow').style.display=r==='units_on_day'?'':'none';};
+window.saveIncentive=async()=>{
+  const rule=$('irule').value, name=($('iname').value||'').trim(), amount=+$('iamt').value;
+  const start_date=$('ifrom').value, end_date=$('ito').value||start_date;
+  if(!name){toast('Give the incentive a name.',false);return;}
+  if(!(amount>0)){toast('Enter an amount.',false);return;}
+  if(!start_date||end_date<start_date){toast('Check the dates.',false);return;}
+  const ids=[...document.querySelectorAll('.icon:checked')].map(x=>x.value);
+  const row={name,rule,amount,start_date,end_date,consultant_ids:ids.length?ids:null,
+    created_by:(window.SIMTEC_USER&&(window.SIMTEC_USER.full_name||window.SIMTEC_USER.email))||null};
+  if(rule==='sale_before_time'){if(!$('itime').value){toast('Enter the time.',false);return;}row.cutoff_time=$('itime').value;}
+  if(rule==='units_on_day'){const u=parseInt($('iunits').value,10);if(!(u>=1)){toast('Enter how many mattresses.',false);return;}row.min_units=u;}
+  const{error}=await sb.from('commission_incentives').insert(row);
+  if(error){err(error);return;}
+  closeMod();toast('Incentive saved');showRuns();
+};
+window.incOff=async id=>{
+  if(!confirm('Switch this incentive off?\n\nIt stops counting in pay runs that are not finalised yet. Anything already paid stays paid.'))return;
+  const{error}=await sb.from('commission_incentives').update({active:false}).eq('id',id);
+  if(error){err(error);return;}
+  toast('Incentive switched off');showRuns();
+};
 
 function newRun(){
   const t=new Date(localISO(new Date())+'T12:00:00');
@@ -883,7 +986,7 @@ async function showCon(){
   ]);
   const sales=(rawSales||[]).map(s=>({...s,items:(s.commission_sale_items||[]).map(i=>({...i,product:i.commission_products}))}));
   const retBal=await openingRetBal(+ret?.balance||0, run, consId);
-  const sctx=await saleCtx(run, consId, sales);
+  let sctx=await saleCtx(run, consId, sales);
   // Giveaways owed before this run's repayment (finalised repayments from other runs already applied)
   const givTaken=(givRows||[]).reduce((a,g)=>a+(+g.amount||0),0);
   const finSet=new Set((finRows||[]).map(r=>r.id));
@@ -944,6 +1047,15 @@ async function showCon(){
             <button class="btn gold text-xs py-1.5 px-3" onclick="addBonusModal()">+ Add Bonus</button>
           </div>
           <div id="accredWaiting"></div>
+          ${cv.incentives.map(x=>`<div class="flex justify-between text-sm py-1.5 border-t border-slate-700/50">
+            <span class="text-slate-300">${esc(incDesc(x))} <span class="text-xs text-slate-500">(incentive — automatic)</span></span>
+            <span class="${+x.due<0?'text-red-400':'text-yellow-400'} font-medium">${fmt(x.due)}</span></div>`).join('')}
+          ${(!locked&&(sctx.needTime||[]).length)?`<div class="mt-2 mb-2 rounded-lg border border-amber-500/40 bg-amber-900/20 p-3 text-sm">
+            <div class="text-amber-300 font-medium mb-2">Sale time needed for a time-based incentive</div>
+            <p class="text-xs text-slate-400 mb-2">These were entered on paper, so the system doesn't know what time they were sold. Type the time the order was signed.</p>
+            ${sctx.needTime.map(n=>`<div class="flex items-center justify-between gap-2 py-1"><span class="text-slate-300">${esc(n.customer_name)} · ${fmtDay(n.sale_date)} <span class="text-xs text-slate-500">(${esc(n.incentive)})</span></span>
+              <input type="time" class="inp w-28 text-sm py-1" onchange="setSaleTime('${n.sale_id}',this.value)"></div>`).join('')}
+          </div>`:''}
           ${cv.ac>0?`<div class="flex justify-between text-sm py-1.5 text-slate-400 italic">
             <span>Auto cash bonuses (${s.cash_bonus?Math.round(cv.ac/s.cash_bonus):0} × ${fmt(s.cash_bonus)} — paid-in-full only)</span>
             <span>${fmt(cv.ac)}</span></div>`:''}
@@ -952,7 +1064,7 @@ async function showCon(){
             <div class="flex items-center gap-3"><span class="text-yellow-400 font-medium">${fmt(b.amount)}</span>
             <button onclick="delBonus('${b.id}')" class="text-slate-600 hover:text-red-400 text-xs">✕</button></div>
           </div>`).join('')}
-          ${!(bonuses||[]).filter(b=>b.description!=='__RETENTION_PAYOUT__').length&&cv.ac===0?'<p class="text-slate-500 text-sm text-center py-3">No bonuses</p>':''}
+          ${!(bonuses||[]).filter(b=>b.description!=='__RETENTION_PAYOUT__').length&&cv.ac===0&&!cv.incentives.length?'<p class="text-slate-500 text-sm text-center py-3">No bonuses</p>':''}
         </div>
 
         <!-- DEDUCTIONS -->
@@ -997,6 +1109,7 @@ async function showCon(){
             <span class="text-slate-400">On ordinary rates</span><span class="text-right ${cv.ordinaryBetter?'text-amber-300':''}">${fmt(cv.grossOrdinary)}${cv.ordinaryBetter?' (better)':''}</span>`:''}
             <span class="text-slate-400">Cash bonuses</span><span class="text-right">${fmt(cv.ac)}</span>
             ${cv.mb>0?`<span class="text-slate-400">Extra bonuses</span><span class="text-right">${fmt(cv.mb)}</span>`:''}
+            ${cv.inc!==0?`<span class="text-slate-400">Incentives</span><span class="text-right">${fmt(cv.inc)}</span>`:''}
             <span class="text-slate-400">Less: retention</span><span class="text-right text-red-400">-${fmt(cv.ret)}</span>
             ${cv.rel>0?`<span class="text-slate-400">Plus: retention released</span><span class="text-right text-green-400">+${fmt(cv.rel)}</span>`:''}
             ${cv.td>0?`<span class="text-slate-400">Less: deductions</span><span class="text-right text-red-400">-${fmt(cv.td)}</span>`:''}
@@ -1148,6 +1261,14 @@ window.delBonus=async id=>{if(run?.status==='finalised'){toast('Run finalised �
     };
   };
 
+  window.setSaleTime=async(saleId,val)=>{
+    if(run?.status==='finalised'){toast('Run finalised — un-finalise first.',false);return;}
+    if(!val)return;
+    const{error}=await sb.from('commission_sales').update({sale_time:val}).eq('id',saleId);
+    if(error){err(error);return;}
+    sctx=await saleCtx(run, consId, sales);
+    render();toast('Sale time saved');
+  };
   window.addBonusModal=()=>{
     openMod(`<h3 class="font-semibold text-white mb-4">Add Bonus</h3>
       <label class="text-xs text-slate-400 block mb-1">Description</label>
@@ -1301,7 +1422,7 @@ async function showInv(){
         </table>
 
         <!-- Bonuses -->
-        ${(cv.ac>0||(bons||[]).length>0)?`
+        ${(cv.ac>0||(bons||[]).length>0||cv.incentives.length>0)?`
         <div style="font-size:8pt;font-weight:bold;color:#0f1e3c;border-bottom:1pt solid #ddd;padding-bottom:1.5mm;margin-bottom:2mm;text-transform:uppercase;letter-spacing:.5px">Bonuses</div>
         <table style="width:100%;border-collapse:collapse;font-size:8pt;margin-bottom:5mm"><tbody>
           ${cv.ac>0?`<tr style="border-bottom:.5pt solid #eee">
@@ -1312,9 +1433,13 @@ async function showInv(){
             <td style="padding:1.5mm 3mm;color:#555">${esc(b.description)}</td>
             <td style="padding:1.5mm 3mm;text-align:right;font-weight:600;color:#1a3a6b">${fmt(b.amount)}</td>
           </tr>`).join('')}
+          ${cv.incentives.map(x=>`<tr style="border-bottom:.5pt solid #eee">
+            <td style="padding:1.5mm 3mm;color:#555">${esc(incDesc(x))}</td>
+            <td style="padding:1.5mm 3mm;text-align:right;font-weight:600;color:${+x.due<0?'#c00':'#1a3a6b'}">${fmt(x.due)}</td>
+          </tr>`).join('')}
           <tr style="background:#f0f0f0;font-weight:bold">
             <td style="padding:2mm 3mm">Total Bonuses</td>
-            <td style="padding:2mm 3mm;text-align:right">${fmt(cv.ac+cv.mb)}</td>
+            <td style="padding:2mm 3mm;text-align:right">${fmt(cv.ac+cv.mb+cv.inc)}</td>
           </tr>
         </tbody></table>`:''}
 
@@ -2503,6 +2628,11 @@ window.finaliseRun=async(rid)=>{
       if(cv.payout>0){
         await sb.from('commission_retention_adjustments').insert({consultant_id:c.id,amount:-cv.payout,reason:'retention_payout',pay_run_id:rid,notes:'Retention released — week ending '+run.week_ending});
       }
+      // daily incentives: written as ordinary bonus rows, linked to the incentive and day
+      for(const x of cv.incentives){
+        const{error:eInc}=await sb.from('commission_bonuses').insert({pay_run_id:rid,consultant_id:c.id,amount:+x.due,description:incDesc(x),incentive_id:x.incentive_id,incentive_day:x.day});
+        if(eInc)throw eInc;
+      }
       // per-sale releases: retention held on an earlier sale that is now paid in full
       for(const r of cv.releases){
         const{error:eRel}=await sb.from('commission_retention_adjustments').insert({consultant_id:c.id,amount:-(+r.amount||0),reason:'sale_retention_release',sale_id:r.sale_id,pay_run_id:rid,notes:'Retention released — '+(r.customer_name||'')+' now paid in full'});
@@ -2544,6 +2674,8 @@ window.unfinaliseRun=async(rid)=>{
     }
     if(adjs&&adjs.length)await sb.from('commission_retention_adjustments').delete().eq('pay_run_id',rid).in('reason',['weekly_retention','retention_payout','sale_retention_release']);
     await sb.from('commission_sales').update({retention_released_run:null}).eq('retention_released_run',rid);
+    // incentive rows were written by finalise; they are worked out again while the run is a draft
+    await sb.from('commission_bonuses').delete().eq('pay_run_id',rid).not('incentive_id','is',null);
     // TL override — remove this run's accruals (mirrors the retention reversal above)
     await sb.from('commission_overrides').delete().eq('pay_run_id',rid).eq('reason','finalise_accrual');
     await sb.from('commission_sales').update({commission_paid:null,paid_date:null,retention_held:null}).eq('pay_run_id',rid).neq('status','cancelled');

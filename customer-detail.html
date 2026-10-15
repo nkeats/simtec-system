@@ -7,7 +7,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.112.2"></script>
 <script>/* 5 Oct 2026: today's date as the person using this page sees it. NEVER use toISOString() for a date - it gives the UTC date, which is YESTERDAY in NZ every morning. */
 function localISO(d){d=d||new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}</script>
-<script>window.SIMTEC_BUILD="2026-10-15-01";</script>
+<script>window.SIMTEC_BUILD="2026-10-15-02";</script>
 <script src="client-errors.js?v=1"></script>
 <script src="live.js?v=3" defer></script>
 <script src="auth.js?v=3" data-roles="admin,manager,office"></script>
@@ -509,7 +509,16 @@ async function run(quiet){
         (pos||[]).forEach(r=>{ POS[r.order_id]=r; });
       } }
     { const {data}=await sb.from("sim_contacts").select("*").eq("customer_id",customerId).order("contacted_at",{ascending:false});
-      comms=data||[]; }
+      comms=data||[];
+      /* Emails captured by the customers@in.simtectp.com inbox keep their
+         attachments in the private customer-emails bucket; fetch the list so
+         each email row can link to them (signed links, opened on click). */
+      const inboxIds=comms.filter(x=>x.auto_source==="email_inbox"&&/^\d+$/.test(x.auto_ref||"")).map(x=>Number(x.auto_ref));
+      window.__MAIL_ATT__={};
+      if(inboxIds.length){
+        const {data:mx}=await sb.from("customer_email_inbox").select("id,attachments").in("id",inboxIds);
+        (mx||[]).forEach(m=>{ window.__MAIL_ATT__[String(m.id)]=m.attachments||[]; });
+      } }
 
     // reminder-text opt-out state (notif_optout is office-full under RLS)
     { const {data}=await sb.from("notif_optout").select("channel").eq("customer_id",customerId).eq("channel","sms");
@@ -526,6 +535,13 @@ async function run(quiet){
     reportClientError("load the customer page"+(quiet?" (quiet reload — stale page left on screen)":""), e);
     if(!quiet) content.innerHTML='<div id="err">'+esc(e.message||e)+'</div>';
   }
+}
+
+async function openMailAtt(path){
+  const w=window.open("","_blank");   // open now so iPad Safari doesn't block it
+  const {data,error}=await sb.storage.from("customer-emails").createSignedUrl(path,300);
+  if(error||!data){ if(w) w.close(); alert("Could not open the attachment: "+(error?error.message:"")); return; }
+  if(w) w.location=data.signedUrl; else window.location=data.signedUrl;
 }
 
 // ---------- render ----------
@@ -584,13 +600,18 @@ function renderAll(c, orders, paysByRef, comms){
         const dir = (x.direction==="inbound")
           ? `<span title="Customer contacted us" style="color:#2a7">\u2199 In</span>`
           : `<span title="We contacted the customer" style="color:#c6841b">\u2197 Out</span>`;
-        const auto = x.auto_source ? ` <span class="muted" title="Auto-logged on send (${esc(x.auto_ref||"")})" style="font-size:11px">\u2699\uFE0F auto</span>` : "";
+        const auto = x.auto_source==="email_inbox"
+          ? ` <span class="muted" title="Captured from the customers@in.simtectp.com inbox" style="font-size:11px">\u{1F4E5} inbox</span>`
+          : x.auto_source ? ` <span class="muted" title="Auto-logged on send (${esc(x.auto_ref||"")})" style="font-size:11px">\u2699\uFE0F auto</span>` : "";
         const body = esc(x.body||"").replace(/\n/g,"<br>");
+        const atts = (x.auto_source==="email_inbox" && (window.__MAIL_ATT__||{})[x.auto_ref]) || [];
+        const attHtml = atts.length ? `<div style="font-size:12px;margin-top:4px">\u{1F4CE} ${atts.map(a=>
+            `<a href="#" onclick="openMailAtt(this.dataset.p);return false" data-p="${esc(a.path)}" style="margin-right:10px;color:var(--navy)">${esc(a.name)}</a>`).join("")}</div>` : "";
         const outcome = x.outcome ? `<div class="muted" style="font-size:11.5px;margin-top:3px">Outcome: ${esc(x.outcome)}</div>` : "";
         return `<tr>
           <td style="white-space:nowrap;vertical-align:top">${auDate(x.contacted_at)}<div class="muted" style="font-size:11px">${new Date(x.contacted_at).toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"})}</div></td>
           <td style="vertical-align:top;white-space:nowrap">${ICON[x.channel]||""} ${CHLABEL[x.channel]||esc(x.channel||"")}<div style="font-size:11px">${dir}${auto}</div></td>
-          <td style="vertical-align:top">${x.subject?`<b>${esc(x.subject)}</b><br>`:""}${body}${outcome}<div class="muted" style="font-size:11px;margin-top:2px">${esc(x.staff_name||"")}</div></td>
+          <td style="vertical-align:top">${x.subject?`<b>${esc(x.subject)}</b><br>`:""}${body}${attHtml}${outcome}<div class="muted" style="font-size:11px;margin-top:2px">${esc(x.staff_name||"")}</div></td>
         </tr>`;
       }).join("")
     : `<tr><td colspan="3" class="muted">No contacts recorded yet.</td></tr>`;
@@ -3474,7 +3495,7 @@ async function regenSummary(){
     const {data:rel,error:e4}=await sb.rpc('release_held_welcome',{p_order:orderId});
     if(e4) throw e4;
     alert(rel==='released'
-      ? 'Order summary regenerated. The welcome email was on hold for this and has now been sent to the customer.'
+      ? 'Order summary regenerated. The welcome email was on hold for this. It is released and goes to the customer within the next 5 minutes.'
       : 'Order summary regenerated.');
     openDocs(orderId);
   }catch(e){
