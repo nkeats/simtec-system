@@ -18,7 +18,7 @@
 <!-- data-one-consultant: this iPad belongs to the first consultant who signs in on it.
      Orders are written from here, so this is the only page that asks for the binding. -->
 <script src="auth.js?v=5" data-roles="admin,manager,office,consultant" data-one-consultant></script>
-<script>window.SIMTEC_BUILD="2026-10-15-02";</script>
+<script>window.SIMTEC_BUILD="2026-10-15-03";</script>
 <script src="update.js?v=2"></script>
 
 
@@ -606,7 +606,7 @@
     <!-- 8 EZIDEBIT -->
     <section class="step" data-step="8">
       <h2 class="title">Ezidebit direct debit</h2>
-      <p class="sub">Set the schedule, then the customer completes their payment details and signs the direct-debit authority.</p>
+      <p class="sub">Set the schedule, then hand the iPad to the customer: they enter their own bank details, tick the agreement and submit.</p>
       <div class="note"><b>Failed payment fee:</b> Simtec charges nothing when a payment is declined or returned. However, <b>Ezidebit charges the customer $11.50</b> directly for each failed payment. Please make sure the customer understands this before signing.</div>
       <div id="eziDepositNote" class="note hidden" style="margin-bottom:12px;background:#fff8e8;border-color:#f0dca8;color:#7a5b12;"></div>
 
@@ -656,14 +656,11 @@
         </div>
       </div>
 
-      <div class="card" style="border:2px solid var(--navy);background:#f3f6ff;">
-        <div style="display:flex;align-items:center;gap:9px;margin-bottom:2px;"><span style="background:var(--navy);color:#fff;font-size:11px;font-weight:800;letter-spacing:.5px;padding:3px 10px;border-radius:20px;">FINAL STEP</span><h3 style="margin:0;">Direct-debit authority signature</h3></div>
-        <p class="sub" style="margin-top:2px">A signed copy for Simtec's file — the binding authority is captured inside the Ezidebit form above. <b>Don't forget to sign below to finish the order.</b></p>
-        <div class="sigwrap" style="border:2px solid var(--navy);">
-          <div class="sighead" style="background:#e7edff;color:var(--navy);font-weight:700;"><span>✍ Sign here to authorise the direct debit</span><button class="clr" onclick="clearSig('sigEzi')">Clear</button></div>
-          <canvas class="sig" id="sigEzi"></canvas>
-        </div>
-      </div>
+      <!-- 15 Oct 2026: the drawn "direct-debit authority signature" was removed.
+           It proved nothing — anyone could draw it — and the binding authority is
+           the customer's own tick on Ezidebit's form. The proof now is the
+           RECORDED confirmation call, where the office reads the plan back and
+           the customer confirms they agreed to it (confirmation.html item 5). -->
 
       <!-- ─────────────────────────────────────────────────────────────────
            TEMPORARY (13 Aug 2026) — the Ezidebit form has been refusing some
@@ -1363,10 +1360,6 @@ async function validateStep(ds){
         + 'to finish the order and hand it to the office.');
       return false;
     }
-    if(!exempt && isBlank('sigEzi')){
-      alert('Please sign the direct-debit authority — the last box on this page — to finish.');
-      return false;
-    }
   }
   if(ds===6){ if(!S.pay){alert('Select a payment method.');return false;} }
   if(ds===7){ if(isBlank('sigA1')){alert('Applicant 1 must sign.');return false;} if(S.a2&&isBlank('sigA2')){alert('Applicant 2 must sign.');return false;} }
@@ -1886,7 +1879,7 @@ async function collectOrder(){
   const products=S.products.filter(p=>p.name).map(p=>({name:p.name,price:p.price,qty:p.qty}));
   const wantDel=document.getElementById('wantDelivery').checked;
   const files={ idA1:(S.idPhotos.A1||[]).slice(), idA2:(S.a2?(S.idPhotos.A2||[]).slice():[]),
-    sigA1:canvasDataURL('sigA1'), sigA2:(S.a2?canvasDataURL('sigA2'):null), sigEzi:canvasDataURL('sigEzi'),
+    sigA1:canvasDataURL('sigA1'), sigA2:(S.a2?canvasDataURL('sigA2'):null),
     iTnc:canvasDataURL('iTnc'), iAck1:canvasDataURL('iAck1'), iAck2:canvasDataURL('iAck2'), iAck3:canvasDataURL('iAck3'),
     iAck4:(S.saleType==='solicited'?null:canvasDataURL('iAck4')),
     iTnc_2:(S.a2?canvasDataURL('iTnc_2'):null), iAck1_2:(S.a2?canvasDataURL('iAck1_2'):null), iAck2_2:(S.a2?canvasDataURL('iAck2_2'):null), iAck3_2:(S.a2?canvasDataURL('iAck3_2'):null),
@@ -2230,7 +2223,6 @@ async function saveExtrasPayload(orderId,P){
   uploads.id_a2=idA2Paths[0]||null;
   await put('sig_a1', files.sigA1, 'signature1.png', 'Applicant 1 signature');
   if(fl.a2) await put('sig_a2', files.sigA2, 'signature2.png', 'Applicant 2 signature');
-  await put('sig_ezi', files.sigEzi, 'signature-dd.png', 'DD authority signature');
   await put('init_tnc', files.iTnc, 'initials-tnc.png', 'T&C initials');
   for(let i=1;i<=4;i++){ await put('init_ack'+i, files['iAck'+i], 'initials-ack'+i+'.png', 'Acknowledgement '+i+' initials'); }
   if(fl.a2){
@@ -2518,26 +2510,6 @@ async function finalizeOrder(){
   if(!sb || !S.orderId || S.finalized) return;
   S.finalized=true;
 
-  /* ------------------------------------------------------------------
-     The direct-debit authority signature.
-
-     The order is saved — and all its documents uploaded — at the END OF
-     STEP 7, because the Ezidebit step needs an order id to attach to.
-     But the DD signature is signed on STEP 8, AFTER that upload has
-     already happened. So it was captured into the payload while the
-     canvas was still blank, and never made it to storage: zero of 36
-     orders had one. Upload it here, once it actually exists.
-  ------------------------------------------------------------------ */
-  try{
-    const durl = canvasDataURL('sigEzi');
-    if(durl){
-      const ok = await safeUpload(S.orderId, S.orderId+'/signature-dd.png', durl, 'image/png');
-      if(!ok){ console.warn('DD authority signature could not be attached');
-               reportClientError('attach the direct-debit authority signature',
-                                 'every upload route refused it — see sim_upload_failures', S.orderId); }
-    }
-  }catch(e){ console.warn('DD signature upload threw:', e&&e.message||e);
-             reportClientError('attach the direct-debit authority signature', e, S.orderId); }
 
   if((S.pay==='ezidebit' || S.pay==='deposit50') && S.lastP){
     try{ await generateAndUploadOrderPdf(S.orderId, S.lastP); }
@@ -2730,7 +2702,7 @@ function resetForm(){
   document.querySelectorAll('main input, main textarea').forEach(el=>{ if(el.type==='checkbox') el.checked=false; else if(el.type!=='file') el.value=''; });
   document.querySelectorAll('main select').forEach(s=>s.selectedIndex=0);
   document.querySelectorAll('.choice.sel').forEach(c=>c.classList.remove('sel'));
-  ['sigA1','sigA2','sigEzi'].forEach(clearSig);
+  ['sigA1','sigA2'].forEach(clearSig);
   Object.assign(S,{step:0,saleType:'',pay:'',depositMethod:'ezidebit',fullMethod:'bank',a2:false,products:[],emailVerified:false,sentCode:null,tncRead:false,orderId:null,finalized:false,lastP:null,idPhotos:{A1:[],A2:[]},idMissing:{A1:null,A2:null}});
   clearIds();   /* ⚠ a NEW order must never inherit the last one's ids */
   clearNoId('A1'); clearNoId('A2');

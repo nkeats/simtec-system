@@ -7,7 +7,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.112.2"></script>
 <script>/* 5 Oct 2026: today's date as the person using this page sees it. NEVER use toISOString() for a date - it gives the UTC date, which is YESTERDAY in NZ every morning. */
 function localISO(d){d=d||new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}</script>
-<script>window.SIMTEC_BUILD="2026-09-17-01";</script>
+<script>window.SIMTEC_BUILD="2026-10-15-01";</script>
 <script src="client-errors.js?v=1"></script>
 <script src="auth.js?v=4" data-roles="admin,manager,office"></script>
 <script src="live.js?v=3" defer></script>
@@ -102,8 +102,25 @@ const CHECKS=[
   ['confirmed_income','Income'],
   ['confirmed_affordability','Affordability'],
   ['confirmed_understanding','Understanding of commitment'],
-  ['confirmed_happy_consultant','Happy with consultant']
+  ['confirmed_happy_consultant','Happy with consultant'],
+  ['confirmed_direct_debit','Direct debit authority']
 ];
+/* 15 Oct 2026 — THE DIRECT DEBIT IS CONFIRMED ON THE RECORDED CALL.
+   On Ezidebit's form the authority is a tick-box, and nobody can later prove
+   whether the customer or the consultant ticked it. The drawn "DD signature" on
+   the iPad proved no more, so it was removed. The proof is now this call: the
+   caller reads back the plan Ezidebit actually set up and the customer confirms
+   they agreed to it themselves. Orders with no direct debit (cash) skip it. */
+function needsDD(o){ return o.collection_method==='ezidebit' || !!o.ezidebit_customer_id || !!o.ezidebit_payer_ref; }
+const FREQ_WORD={weekly:'every week',fortnightly:'every fortnight',monthly:'every month',four_weekly:'every four weeks'};
+function ddReadBack(o){
+  const amt=o.instalment_amount!=null?money(o.instalment_amount):null;
+  const fq=FREQ_WORD[o.payment_frequency]||null;
+  const d=o.first_payment_date||o.schedule_start_date;
+  const when=d?new Date(d+'T12:00:00').toLocaleDateString('en-NZ',{weekday:'long',day:'numeric',month:'long'}):null;
+  if(!amt||!fq||!when) return '<span style="color:#b4342e;font-weight:700">\u26A0 The plan is not on this order — read it from EziOnline before ticking.</span>';
+  return 'Read back: <b>'+amt+' '+fq+', first debit '+esc(when)+'</b>';
+}
 const PAYLBL={weekly_dd:'Weekly direct debit',fortnightly_dd:'Fortnightly direct debit',deposit_50:'50% deposit',pay_in_full:'Paid in full',cash:'Cash'};
 let TAB='pending';
 let APPS={};
@@ -374,8 +391,16 @@ function summaryHTML(o){
 
 function pendingCard(o){
   const id=o.id;
-  const checks=CHECKS.map(([f,lbl])=>
-    '<label class="chk" id="lab_'+f+'_'+id+'"><input type="checkbox" class="conf-chk" data-order="'+id+'" data-field="'+f+'" onchange="onCheck(\''+id+'\',this)">'+esc(lbl)+'</label>').join('');
+  const checks=CHECKS.map(([f,lbl])=>{
+    if(f==='confirmed_direct_debit'){
+      if(!needsDD(o)) return '<div class="chk" style="cursor:default;color:var(--sub);font-weight:500">Direct debit authority — not needed, no direct debit on this order</div>';
+      return '<label class="chk" id="lab_'+f+'_'+id+'" style="align-items:flex-start"><input type="checkbox" class="conf-chk" data-order="'+id+'" data-field="'+f+'" onchange="onCheck(\''+id+'\',this)">'
+        +'<span>Direct debit authority<span style="display:block;font-weight:500;font-size:13px;margin-top:3px">'+ddReadBack(o)
+        +'<br>Ask: <i>"Is that the right amount and day, and did you agree to the direct debit yourself?"</i></span></span></label>';
+    }
+    return '<label class="chk" id="lab_'+f+'_'+id+'"><input type="checkbox" class="conf-chk" data-order="'+id+'" data-field="'+f+'" onchange="onCheck(\''+id+'\',this)">'+esc(lbl)+'</label>';
+  }).join('');
+  const nChecks=CHECKS.filter(([f])=>f!=='confirmed_direct_debit'||needsDD(o)).length;
   const cl = CLAIMS[id];
   const mine = cl && cl.claimed_by === MYID;
   const claimBar = cl
@@ -396,13 +421,15 @@ function pendingCard(o){
       +'<button class="btn2 warn" onclick="toReview(\''+id+'\')">Not accepted — send to review</button>'
     +'</div>'
     +'<textarea class="rvnote" id="note_'+id+'" placeholder="Optional note (reason to send to management review, or anything the reviewer should know)…"></textarea>'
-    +'<div class="stateline" id="st_'+id+'">Tick all five to enable Accept. If anything can\'t be confirmed, send it to management review instead.</div>'
+    +'<div class="stateline" id="st_'+id+'">Tick all '+nChecks+' to enable Accept. If anything can\'t be confirmed, send it to management review instead.</div>'
     +'</div></div>';
 }
 
 function reviewCard(o){
   const id=o.id; const conf=CONF[id]||{};
-  const ticked=CHECKS.map(([f,lbl])=>'<span class="badge '+(conf[f]?'g':'n')+'">'+(conf[f]?'✓':'○')+' '+esc(lbl)+'</span>').join(' ');
+  const ticked=CHECKS.map(([f,lbl])=>(f==='confirmed_direct_debit'&&!needsDD(o))
+      ? '<span class="badge n">n/a '+esc(lbl)+'</span>'
+      : '<span class="badge '+(conf[f]?'g':'n')+'">'+(conf[f]?'✓':'○')+' '+esc(lbl)+'</span>').join(' ');
   return '<div class="ocard" id="card_'+id+'">'
     +'<div class="ohead"><div><div class="who">'+esc(fullName(o))+'</div>'
       +'<div class="meta">'+(o.order_no?('Order '+esc(o.order_no)+' · '):'')+fmtDate(o.order_date)+' · '+esc(o.consultant_name||'')+'</div></div>'
@@ -494,7 +521,8 @@ function setState(id,txt,color){ const s=document.getElementById('st_'+id); if(s
 
 window.accept=async function(id){
   const checks=gather(id);
-  if(!CHECKS.every(([f])=>checks[f])){ setState(id,'Tick all '+CHECKS.length+' items before accepting.','#b4342e'); return; }
+  const boxes=[...document.querySelectorAll('#card_'+id+' .conf-chk')];
+  if(!boxes.length || !boxes.every(c=>c.checked)){ setState(id,'Tick all '+boxes.length+' items before accepting.','#b4342e'); return; }
   setState(id,'Saving…');
   const row={order_id:id,...checks,accepted:true,status:'accepted',called_by:me(),called_at:nowISO(),updated_at:nowISO()};
   const {error}=await upsertConf(row);
