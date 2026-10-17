@@ -18,7 +18,7 @@
 <!-- data-one-consultant: this iPad belongs to the first consultant who signs in on it.
      Orders are written from here, so this is the only page that asks for the binding. -->
 <script src="auth.js?v=5" data-roles="admin,manager,office,consultant" data-one-consultant></script>
-<script>window.SIMTEC_BUILD="2026-10-15-03";</script>
+<script>window.SIMTEC_BUILD="2026-10-16-01";</script>
 <script src="update.js?v=2"></script>
 
 
@@ -1863,6 +1863,9 @@ function deviceInfo(){
              screen:(screen && screen.width ? screen.width+'x'+screen.height : null),
              dpr:(window.devicePixelRatio||null),
              online:!!navigator.onLine,
+             /* 16 Oct: Home Screen app or a browser tab — settles where a lost
+                Ezidebit hand-back happened. Diagnostic only. */
+             standalone:!!((window.matchMedia && matchMedia('(display-mode: standalone)').matches) || navigator.standalone),
              at:new Date().toISOString() };
   }catch(e){ return null; }
 }
@@ -2954,7 +2957,10 @@ async function launchEzidebit(){
      and a failure changes nothing — the customer still goes to Ezidebit. */
   try{
     await Promise.race([
-      sb.rpc('log_ezidebit_form_open', { p_order:S.orderId, p_build:window.SIMTEC_BUILD||null }),
+      /* 16 Oct: also records whether a bank-transfer deposit must be kept, so the
+         SERVER can store the hand-back exactly as this iPad would. */
+      sb.rpc('note_ezidebit_launch', { p_order:S.orderId, p_build:window.SIMTEC_BUILD||null,
+                                       p_keep_deposit:(S.pay==='deposit50' && S.depositMethod==='bank') }),
       new Promise(r=>setTimeout(r,1500))
     ]);
   }catch(e){ /* deliberately ignored — logging must never block a sale */ }
@@ -2994,17 +3000,34 @@ async function resumeFromEzidebit(){
   try{ localStorage.removeItem('simtec_ezidebit_return'); }catch(e){}
 
   if(params && (params.cref||params.uref)){
-    await logEziCallback(params,'returned');
+    // (the 'returned' log line is now written by store_ezidebit_handback itself)
     try{ await applyEzidebitCallback(params); }
     catch(e){ await logEziCallback(params,'store_failed:'+(e.message||e)); }
     S.eziRef=params.cref||params.uref||null;
     clearEziSkipIfRealDebit();
     showEziDone(params);
   }else{
-    // Came back with nothing usable — say so plainly rather than pretend.
-    await logEziCallback(params||{},'came_back_empty');
+    /* 16 Oct 2026 — came back with nothing on THIS iPad. Before saying so, ask
+       the server: the return page may already have saved it there, or the
+       server can find the customer at Ezidebit itself (ezidebit-handback,
+       mode "find" — read-only at Ezidebit). Only if both come up empty is it
+       logged as came_back_empty, which texts the office within a minute. */
     const m=document.getElementById('eziMsg');
-    if(m) m.textContent='Ezidebit did not send the direct debit details back. If the customer did finish the form, ring the office before you leave — do not start it again.';
+    if(m) m.textContent='Checking with Ezidebit…';
+    const found = await findEzidebitOnServer();
+    if(found){
+      S.eziRef=found.ref; S.eziRefBad=null;
+      clearEziSkipIfRealDebit();
+      showEziDone({cref:found.ref});
+      const dm=document.getElementById('eziDoneMsg');
+      if(dm) dm.textContent='Direct debit confirmed with Ezidebit — customer no. '+found.ref
+        + (found.amount ? ', $'+Number(found.amount).toFixed(2)+' '+(eziFreqWord(found.freq)||'') : '')
+        + (found.first ? ' from '+found.first : '') + '. Saved on the order.';
+    }else{
+      await logEziCallback(params||{},'came_back_empty');
+      if(m) m.textContent='Ezidebit did not send the direct debit details back, and Ezidebit has no record of this customer yet. '
+        + 'The office has been told. If the customer did finish the form, ring the office before you leave — do not start it again.';
+    }
   }
   showStep(8);
   return true;
@@ -3040,6 +3063,28 @@ async function logEziCallback(params,outcome){
     });
   }catch(e){ console.warn('callback log failed:',e&&e.message||e);
              reportClientError('log the Ezidebit return ('+outcome+')', e, S.orderId); }
+}
+
+/* 16 Oct 2026 — ask the server whether this order's direct debit exists: either
+   already saved by the return page, or found at Ezidebit. Never more than 20 s,
+   never throws, and never runs in the walkthrough (whose orders are not real). */
+async function findEzidebitOnServer(){
+  if(!sb || !S.orderId || WALKTHROUGH) return null;
+  try{
+    const call = sb.functions.invoke('ezidebit-handback', { body:{ mode:'find', orderId:S.orderId } });
+    const res = await Promise.race([call, new Promise(r=>setTimeout(()=>r({timeout:true}),20000))]);
+    if(res && res.timeout){ reportClientError('ask the server for the Ezidebit hand-back (timed out)', new Error('timeout'), S.orderId); return null; }
+    const d = res && res.data;
+    if(res && res.error){ reportClientError('ask the server for the Ezidebit hand-back', res.error, S.orderId); return null; }
+    if(d && d.found && d.ref){
+      return { ref:String(d.ref), amount:d.amount||null, first:d.first||null, freq:d.freq||null };
+    }
+  }catch(e){ reportClientError('ask the server for the Ezidebit hand-back', e, S.orderId); }
+  return null;
+}
+function eziFreqWord(f){
+  const m={'1':'weekly','2':'fortnightly','4':'monthly',weekly:'weekly',fortnightly:'fortnightly',monthly:'monthly'};
+  return m[String(f||'')]||'';
 }
 
 /* The return page is no longer framed, so there is no postMessage. It hands the
@@ -3078,54 +3123,28 @@ function eziRefLooksRight(v){ return /^\d{9}$/.test(String(v||'').trim()); }
 
 async function applyEzidebitCallback(cb){
   if(!sb||!S.orderId) return;
-  const freqMap={1:'weekly',2:'fortnightly',4:'monthly',8:'four_weekly',16:'quarterly',32:'half_yearly',64:'yearly'};
-  const freq=freqMap[Number(cb.freq)]||null;
-  const methodMap={weekly:'weekly_dd',fortnightly:'fortnightly_dd',monthly:'monthly_dd'};
-  const rIso=eziDateToIso(cb.rdate);
+  /* ⚠⚠ 16 Oct 2026 — THE FIELDS ARE NO LONGER WRITTEN HERE. They are written by
+     the database function store_ezidebit_handback(), which is a line-for-line
+     port of the code that used to be here (checked against the last hand-back
+     of 66 real orders) and is ALSO what the server uses when the return page
+     hands the result straight to it. One rule, one place: the two routes can
+     never store a hand-back differently. The function also refuses to put a
+     DIFFERENT Ezidebit number over one already on the order, and logs itself.
+     Only the on-screen flag below stays here, because it is about this screen. */
   const returned=String((cb.cref||cb.uref||'')||'').trim();
-  const good=eziRefLooksRight(returned);
-  S.eziRefBad = good ? null : (returned||null);
-
-  const upd={
-    payment_method:(methodMap[freq]||'weekly_dd'), payment_frequency:freq,
-    instalment_amount:numOrNull(cb.ramount), term_periods:numOrNull(cb.numpayments),
-    first_payment_date:rIso, schedule_start_date:rIso, next_payment_date:rIso
-  };
-  if(good){
-    upd.ezidebit_payer_ref = returned;      // S.eziRef is set below once this saves
-  }else if(/^\d{8}$/.test(returned)){
-    upd.ezidebit_customer_id = returned;    // it IS the customer id — file it correctly
-    /* ⚠ WORDING CORRECTED 23 Aug 2026. This note used to say the customer's
-       payments "will not match their order" until the 9-digit reference was
-       entered. THAT IS NO LONGER TRUE and it caused unnecessary alarm — the
-       outstanding report even counted them as money we were not collecting.
-       Payments now match on the Ezidebit customer id as well (order_paid_total
-       and v_order_position both accept either). Ezidebit's eDDR does not return
-       the 9-digit reference at all — proved against their API on 23 Aug 2026:
-       GetCustomerDetails returns 24 fields and it is not among them — so this
-       is normal, not a fault. The reference is only still wanted for the office
-       PDF import, which is now the backup path. */
-    // 13 Oct 2026: nothing for the office to do — money matches by this number.
-    upd.consultant_account_note =
-      'Direct debit set up — Ezidebit customer no. '+returned+'. Payments match this order '
-      + 'automatically. Nothing to do.';
+  /* 16 Oct: an 8-digit Ezidebit customer number is normal and complete (payments
+     match on it since 23 Aug), so it no longer shows the consultant the old
+     "Ezidebit sent back their internal number… the office has been asked" box on
+     every sale. Only a number that is neither 8 nor 9 digits is flagged. */
+  S.eziRefBad = (eziRefLooksRight(returned) || /^\d{8}$/.test(returned)) ? null : (returned||null);
+  const keep = (S.pay==='deposit50' && S.depositMethod==='bank');
+  const {data, error}=await sb.rpc('store_ezidebit_handback',
+    { p_order:S.orderId, p_params:cb, p_keep_deposit:keep, p_source:'app' });
+  if(error) throw new Error(error.message||'could not store the Ezidebit schedule');
+  if(data && data.conflict){
+    // the order already carries a DIFFERENT Ezidebit customer — the office decides
+    throw new Error('this order already has Ezidebit customer '+data.existing+' — Ezidebit sent '+data.returned);
   }
-  else if(returned){
-    /* 13 Oct 2026: the database now refuses any Ezidebit number that is not 8 or 9
-       digits. Never let an odd value from Ezidebit's form stop the schedule saving —
-       keep it in the note for the office and save everything else. The scheduled
-       Ezidebit sync links the real customer number automatically. */
-    upd.consultant_account_note =
-      'Ezidebit\'s form returned "'+returned+'", which is not an Ezidebit number. '
-      + 'The schedule has been saved. The Ezidebit customer number links automatically '
-      + 'at the next Ezidebit sync — if it has not by tomorrow, look the customer up in EziOnline.';
-  }
-  // If the 50% deposit was paid by BANK TRANSFER, deposit_amount already holds it —
-  // don't let an Ezidebit one-off overwrite it. In every other case (full DD, or a
-  // deposit collected AS the Ezidebit one-off), the one-off IS the deposit to record.
-  const oAmt=numOrNull(cb.oamount); if(oAmt!=null && !(S.pay==='deposit50' && S.depositMethod==='bank')) upd.deposit_amount=oAmt;
-  const {error:eUpd}=await sb.from('sim_orders').update(upd).eq('id',S.orderId);
-  if(eUpd) throw new Error(eUpd.message||'could not store the Ezidebit schedule');
 }
 
 // ----- init -----

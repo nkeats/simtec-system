@@ -28,10 +28,21 @@
 /* Ezidebit sends the customer here (cMethod=GET) with the result in the query
    string, after the whole page went to their form — there is no iframe any more.
 
-   This page's only job is to hand the result to the order app and send the
-   consultant back. Same origin, so localStorage is the same store the app reads.
+   This page's only job is to hand the result over and send the consultant back.
    ⚠ It must NEVER dead-end: if anything at all fails there is a visible button,
-   because the alternative is a consultant stranded in a customer's lounge. */
+   because the alternative is a consultant stranded in a customer's lounge.
+
+   16 Oct 2026 — THE RESULT NOW GOES TO THE SERVER FIRST.
+   Until today it only went into this iPad's own storage, for the order app to
+   pick up when it reopened. If the iPad froze, the Ezidebit panel was closed, or
+   the app reopened somewhere else, the direct debit was lost (Stein O'Neill,
+   Moala). Now it is posted straight to the edge function ezidebit-handback,
+   which checks it with Ezidebit and saves it on the order — so it is on the
+   order within seconds whatever the iPad does next. The iPad hand-over below is
+   KEPT as the second route: if the server cannot be reached, the app still
+   stores it exactly as before (both use the same database function).
+   ⚠ text/plain ON PURPOSE: a "simple" request needs no CORS preflight, so it
+     leaves in one trip; keepalive lets it finish even if the page is closing. */
 (function(){
   var params={};
   try{ new URLSearchParams(location.search).forEach(function(v,k){ params[k]=v; }); }catch(e){}
@@ -39,17 +50,16 @@
   var back = 'order-app.html';
   try{ back = new URL('order-app.html', location.href).href; }catch(e){}
   var btn=document.getElementById('back'), msg=document.getElementById('msg');
+  var gone=false;
+  function goBack(){ if(gone) return; gone=true;
+    try{ location.replace(back); }catch(e){ location.href=back; } }
 
+  // 1. the iPad hand-over (unchanged) — the second route
+  var stored=true;
   try{
     localStorage.setItem('simtec_ezidebit_return',
       JSON.stringify({ __simtec:'ezidebit-return', at:Date.now(), params:params }));
-  }catch(e){
-    // Storage refused. The order app can still be told by the office; don't pretend.
-    msg.textContent='Direct debit complete, but this iPad would not let us pass the '
-      + 'details back automatically. Tap below, then tell the office before you leave.';
-    btn.style.display='inline-block';
-    return;
-  }
+  }catch(e){ stored=false; }
 
   // Old behaviour kept for safety: if this ever loads inside a frame again, the
   // parent still gets told rather than nothing happening at all.
@@ -60,7 +70,31 @@
   }catch(e){}
 
   btn.style.display='inline-block';
-  setTimeout(function(){ try{ location.replace(back); }catch(e){ location.href=back; } }, 900);
+
+  // 2. the server — the first route. Never waits more than 6 seconds.
+  var serverDone=false;
+  function finish(savedOnServer){
+    if(serverDone) return; serverDone=true;
+    if(savedOnServer){
+      msg.textContent='Direct debit saved. Taking you back to the order…';
+    }else if(!stored){
+      msg.textContent='Direct debit complete, but this iPad would not let us pass the '
+        + 'details back automatically. Tap below, then tell the office before you leave.';
+      return;                                      // stay: the consultant must see this
+    }
+    setTimeout(goBack, savedOnServer ? 700 : 300);
+  }
+  if(!params.uref){ finish(false); return; }       // nothing to send: behave exactly as before
+  msg.textContent='Saving the direct debit…';
+  var t=setTimeout(function(){ finish(false); }, 6000);
+  try{
+    fetch('https://jvqjoenaungubpoegyvf.supabase.co/functions/v1/ezidebit-handback', {
+      method:'POST', keepalive:true, headers:{ 'Content-Type':'text/plain' },
+      body: JSON.stringify({ mode:'return', params:params })
+    }).then(function(r){ return r.json().catch(function(){ return {}; }); })
+      .then(function(j){ clearTimeout(t); finish(!!(j && j.ok)); })
+      .catch(function(){ clearTimeout(t); finish(false); });
+  }catch(e){ clearTimeout(t); finish(false); }
 })();
 </script>
 </body>
