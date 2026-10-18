@@ -7,7 +7,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.112.2"></script>
 <script>/* 5 Oct 2026: today's date as the person using this page sees it. NEVER use toISOString() for a date - it gives the UTC date, which is YESTERDAY in NZ every morning. */
 function localISO(d){d=d||new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}</script>
-<script>window.SIMTEC_BUILD="2026-10-15-02";</script>
+<script>window.SIMTEC_BUILD="2026-10-19-01";</script>
 <script src="client-errors.js?v=1"></script>
 <script src="live.js?v=3" defer></script>
 <script src="auth.js?v=3" data-roles="admin,manager,office"></script>
@@ -792,6 +792,7 @@ function orderSection(o, items, pays, open){
         <div class="cancelbanner" style="background:#eef4ff;color:#1a3a6b;border-color:#c7d8f0">Payments are covered by another account.</div></div>`
     : `<div class="card"><h2>Account</h2>
         ${kv("Total sale value",fmt(o.contract_value))}
+        ${Number(o.discount_amount||0)>0?kv("Discount given",`−${fmt(o.discount_amount)} <span class="muted">${esc(o.discount_reason||"")}</span>`):""}
         ${termsLine}
         ${kv("Paid to date",fmt(o.amount_paid_to_date)+payBtn)}
         ${kv("Balance owing",fmt(p.balance))}
@@ -834,7 +835,7 @@ function orderSection(o, items, pays, open){
         : i.delivered
           ? `<td class="num"><span style="color:var(--green);font-weight:700">✓ ${i.delivered_date?auDate(i.delivered_date):"Delivered"}</span>${isStaff()?` <button onclick="markItem('${i.id}','${o.id}',false)" style="margin-left:6px;font-size:11px;background:none;border:1px solid var(--line);border-radius:5px;padding:1px 6px;cursor:pointer;color:var(--sub)">undo</button>`:""}</td>`
           : `<td class="num">${isStaff()?`<button onclick="markItem('${i.id}','${o.id}',true)" style="background:#1c6b34;color:#fff;border:none;border-radius:6px;padding:3px 9px;font-size:12px;cursor:pointer">Mark delivered</button> <button onclick="markItemCancelled('${i.id}','${o.id}',true)" style="background:none;border:1px solid #e0b4b0;color:var(--red);border-radius:6px;padding:3px 8px;font-size:11.5px;cursor:pointer">Cancel item</button>`:`<span class="muted">Not delivered</span>`}</td>`;
-      return `<tr><td>${esc(i.product_name)}</td><td class="num">${i.quantity}</td><td class="num">${i.unit_price!=null?fmt(i.unit_price):""}</td>${delivCell}</tr>`;
+      return `<tr><td>${esc(i.product_name)}</td><td class="num">${i.quantity}</td><td class="num">${i.unit_price==null?"":(Number(i.unit_price)===0?'<b style="color:var(--green)">Free</b>':fmt(i.unit_price))}</td>${delivCell}</tr>`;
     }).join("") : `<tr><td colspan="4" class="muted">No product lines recorded.</td></tr>`;
 
   /* Free pillow for 10+ referrals. The consultant collects the referrals on a
@@ -2073,7 +2074,12 @@ function amAdd(){
 }
 
 function amNewValue(){
-  return AM.lines.filter(l=>!l.removed).reduce((v,l)=>v + Number(l.price||0)*Number(l.qty||1), 0);
+  /* 19 Oct: a discount recorded on the order (discount_amount) still applies after
+     an amendment — otherwise amending a discounted sale would quietly put the price
+     back up and the order would no longer agree with the Ezidebit form. */
+  const lines = AM.lines.filter(l=>!l.removed).reduce((v,l)=>v + Number(l.price||0)*Number(l.qty||1), 0);
+  const disc = Number((window._O&&window._O.discount_amount)||0);
+  return Math.max(0, lines - disc);
 }
 function amMattressesAfter(){
   return AM.lines.filter(l=>!l.removed && isMatt(l.name)).map(l=>l.name);

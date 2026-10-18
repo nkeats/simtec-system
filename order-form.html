@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Sales Order Form — Simtec Therapeutic</title>
-<!-- SIMTEC_BUILD: order-form 2026-09-14 v1 -->
+<!-- SIMTEC_BUILD: order-form 2026-10-19 v2 (free items + discount line) -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.112.2"></script>
 <script src="auth.js?v=3" data-roles="admin,manager"></script>
 <style>
@@ -238,6 +238,7 @@ function itemsTable(items, o){
     <table><tr><th>Product</th><th style="text-align:right">Qty</th>
       <th style="text-align:right">Unit Cost</th><th style="text-align:right">Total</th></tr>
       ${rows}
+      ${Number(o.discount_amount||0)>0?`<tr><td>Discount${o.discount_reason?' — '+esc(o.discount_reason):''}</td><td class="n"></td><td class="n"></td><td class="n">−${money(o.discount_amount)}</td></tr>`:''}
       <tr class="tot"><td colspan="3">Total Cost (incl. delivery fee)</td>
         <td class="n">${money(o.contract_value)}</td></tr></table>`;
 }

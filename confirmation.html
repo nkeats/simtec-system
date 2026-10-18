@@ -7,7 +7,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.112.2"></script>
 <script>/* 5 Oct 2026: today's date as the person using this page sees it. NEVER use toISOString() for a date - it gives the UTC date, which is YESTERDAY in NZ every morning. */
 function localISO(d){d=d||new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}</script>
-<script>window.SIMTEC_BUILD="2026-10-15-01";</script>
+<script>window.SIMTEC_BUILD="2026-10-19-01";</script>
 <script src="client-errors.js?v=1"></script>
 <script src="auth.js?v=4" data-roles="admin,manager,office"></script>
 <script src="live.js?v=3" defer></script>
@@ -368,7 +368,12 @@ function summaryHTML(o){
   const c=custOf(o); const [aTxt,aCls]=afford(o);
   const addr=o.delivery_address||c.address||'—';
   const income=o.income_amount!=null?(money(o.income_amount)+(o.income_frequency?(' / '+o.income_frequency):'')):'—';
-  const prods=itemsOf(o).map(i=>'<div class="p"><span>'+esc(i.product_name)+' × '+(i.quantity||1)+'</span><span>'+money((i.unit_price||0)*(i.quantity||1))+'</span></div>').join('')||'<div class="p"><span>No line items</span><span></span></div>';
+  /* 19 Oct: free items read "Free", and a recorded discount is its own line, so the
+     products add up to the total read back to the customer. */
+  const prods=(itemsOf(o).map(i=>'<div class="p"><span>'+esc(i.product_name)+' × '+(i.quantity||1)+'</span><span>'
+      +(Number(i.unit_price)===0?'<b style="color:#1a7f37">Free</b>':money((i.unit_price||0)*(i.quantity||1)))+'</span></div>').join('')
+    +(Number(o.discount_amount||0)>0?('<div class="p"><span>Discount'+(o.discount_reason?' — '+esc(o.discount_reason):'')+'</span><span>−'+money(o.discount_amount)+'</span></div>'):''))
+    ||'<div class="p"><span>No line items</span><span></span></div>';
   return ''
     +(o.consultant_account_note?('<div class="flag"><span class="ic">⚑</span><span><b>Account set-up note (from the consultant)</b>'+esc(o.consultant_account_note)+'</span></div>'):'')
     +'<div class="kv">'
