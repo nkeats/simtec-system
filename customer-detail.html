@@ -7,7 +7,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.112.2"></script>
 <script>/* 5 Oct 2026: today's date as the person using this page sees it. NEVER use toISOString() for a date - it gives the UTC date, which is YESTERDAY in NZ every morning. */
 function localISO(d){d=d||new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}</script>
-<script>window.SIMTEC_BUILD="2026-10-19-01";</script>
+<script>window.SIMTEC_BUILD="2026-10-21-01";</script>
 <script src="client-errors.js?v=1"></script>
 <script src="live.js?v=3" defer></script>
 <script src="auth.js?v=3" data-roles="admin,manager,office"></script>
@@ -683,7 +683,7 @@ async function loadTruckVisits(orderIds){
       <td>${type}</td>
       <td>${note?esc(note):'<span class="muted">—</span>'}${extra?`<div class="muted" style="font-size:12px;margin-top:2px">${extra}</div>`:""}</td>
       <td>${outcomeTxt(s)}${s.photo_count?`<div class="muted" style="font-size:12px">${s.photo_count} photo${s.photo_count==1?"":"s"}</div>`:""}</td>
-      <td style="white-space:nowrap">${sig}</td>
+      <td style="white-space:nowrap">${sig}<div><a class="link" href="docket.html?${t==="delivery"?"id="+encodeURIComponent(s.order_id):"stop="+encodeURIComponent(s.id)}" target="_blank" style="font-size:12px">🖨 Docket</a></div></td>
     </tr>`;
   }).join("");
   box.innerHTML=`<h2>Truck visits</h2>

@@ -116,11 +116,22 @@ function localISO(d){d=d||new Date();return d.getFullYear()+'-'+String(d.getMont
 const sb = supabase.createClient("https://jvqjoenaungubpoegyvf.supabase.co","sb_publishable_J4MYTdJJyEaWe-GadpwdYA_upPT2rKw");
 const id = new URLSearchParams(location.search).get("id");
 const dateParam = new URLSearchParams(location.search).get("date");
+/* 21 Oct 2026: ?stop=<driver stop id> prints the docket for a truck JOB — a swap, a
+   pickup, an extra item — rather than the original delivery. Michael Taaka's swap to
+   a Mk I (8 Oct) had no paper of its own: this page only ever printed an order's
+   product lines, and the driver app hid the Docket button on jobs. */
+const stopParam = new URLSearchParams(location.search).get("stop");
+const JOB_TITLE = { swap:"Swap Docket", pickup:"Pickup Docket", other:"Job Docket" };
+const JOB_CONFIRM = {
+  swap:"I confirm the exchange described above was carried out: the new items were delivered, the old items were taken away, and I am satisfied with the condition of what I received.",
+  pickup:"I confirm the items described above were collected from me.",
+  other:"I confirm the work described above was carried out." };
 const esc=s=>(s||"").toString().replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
 function auDate(v){ if(!v) return ""; const m=String(v).match(/^(\d{4})-(\d{2})-(\d{2})/); if(m) return m[3]+"/"+m[2]+"/"+m[1]; const d=new Date(v); return isNaN(d)?v:String(d.getDate()).padStart(2,"0")+"/"+String(d.getMonth()+1).padStart(2,"0")+"/"+d.getFullYear(); }
 const TODAY = auDate(localISO(new Date()));
 
 function docket(d, label, cls){
+  const job = d.kind && d.kind !== "delivery";
   const itemRows = (d.items && d.items.length)
     ? d.items.map(i=>`<tr><td>${esc(i.name)}</td><td class="num">${i.qty}</td></tr>`).join("")
     : `<tr><td>&nbsp;</td><td class="num"></td></tr><tr><td>&nbsp;</td><td class="num"></td></tr><tr><td>&nbsp;</td><td class="num"></td></tr>`;
@@ -131,22 +142,27 @@ function docket(d, label, cls){
       <div class="brand">SIMTEC<small>THERAPEUTIC</small></div>
       <div class="co"><b>Simtec Therapeutic Limited</b><br>297 Neilsons Rd, Onehunga, Auckland<br>Phone 09 886 9897</div>
     </div>
-    <div class="doctitle"><div class="t">Delivery Docket</div><div class="s">Delivery date: ${esc(d.deldate)||TODAY}${d.deltime?` &middot; ${esc(d.deltime)}`:""}</div></div>
+    <div class="doctitle"><div class="t">${job?(JOB_TITLE[d.kind]||"Job Docket"):"Delivery Docket"}</div><div class="s">${job?"Visit date":"Delivery date"}: ${esc(d.deldate)||TODAY}${d.deltime?` &middot; ${esc(d.deltime)}`:""}</div></div>
 
     <h3>Customer</h3>
     <div class="row">
       <div class="f"><div class="l">Name</div><div class="v">${esc(d.name)||"&nbsp;"}</div></div>
       <div class="f"><div class="l">Phone</div><div class="v">${esc(d.phone)||"&nbsp;"}</div></div>
     </div>
-    <div class="f"><div class="l">Delivery address</div><div class="v addr">${esc(d.address)||"&nbsp;"}</div></div>
+    <div class="f"><div class="l">${job?"Address":"Delivery address"}</div><div class="v addr">${esc(d.address)||"&nbsp;"}</div></div>
     <div class="row">
-      <div class="f"><div class="l">Delivery date</div><div class="v">${esc(d.deldate)||"&nbsp;"}</div></div>
-      <div class="f"><div class="l">Delivery time</div><div class="v">${esc(d.deltime)||"&nbsp;"}</div></div>
-      <div class="f"><div class="l">Driver</div><div class="v">&nbsp;</div></div>
+      <div class="f"><div class="l">${job?"Visit date":"Delivery date"}</div><div class="v">${esc(d.deldate)||"&nbsp;"}</div></div>
+      <div class="f"><div class="l">${job?"Visit time":"Delivery time"}</div><div class="v">${esc(d.deltime)||"&nbsp;"}</div></div>
+      <div class="f"><div class="l">Driver</div><div class="v">${esc(d.driver)||"&nbsp;"}</div></div>
     </div>
 
-    <h3>Items to deliver</h3>
-    <table><thead><tr><th>Product</th><th class="num">Qty</th></tr></thead><tbody>${itemRows}</tbody></table>
+    ${job?`<h3>What happens on this visit</h3>
+    <div style="border:2px solid #8a3b00;background:#fff6ef;border-radius:8px;padding:10px 12px;margin-bottom:8px;font-size:15px;font-weight:600">${esc(d.jobNote)||"&nbsp;"}</div>
+    ${d.kind==="swap"?`<table><thead><tr><th>Delivered to the customer</th><th>Taken away</th></tr></thead><tbody>
+      <tr><td>&nbsp;</td><td></td></tr><tr><td>&nbsp;</td><td></td></tr></tbody></table>`:""}
+    ${d.doneTxt?`<div style="font-size:13px;margin-top:6px;color:#1c6b34"><b>✓ ${esc(d.doneTxt)}</b></div>`:""}`
+    :`<h3>Items to deliver</h3>
+    <table><thead><tr><th>Product</th><th class="num">Qty</th></tr></thead><tbody>${itemRows}</tbody></table>`}
 
     <h3>Notes</h3>
     ${d.consultantNote?`<div style="border:1px solid #c9a84c;background:#fff8e8;border-radius:8px;padding:8px 11px;margin-bottom:8px;font-size:14px">📝 <b>Consultant note:</b> ${esc(d.consultantNote)}</div>`:""}
@@ -159,13 +175,13 @@ function docket(d, label, cls){
       </div>
     </div>
 
-    <h3>Delivery confirmation</h3>
+    <h3>${job?"Customer confirmation":"Delivery confirmation"}</h3>
     <div class="consent">
-      <p>I confirm I have received the items listed above and am satisfied with their condition and the delivery.</p>
+      <p>${job?(JOB_CONFIRM[d.kind]||JOB_CONFIRM.other):"I confirm I have received the items listed above and am satisfied with their condition and the delivery."}</p>
       <div class="sign">
-        <div class="s"><div class="line"></div><div class="cap">Customer signature</div></div>
+        <div class="s">${d.sigUrl?`<img src="${esc(d.sigUrl)}" alt="Customer signature" onerror="this.remove()" style="display:block;max-height:54px;max-width:100%;margin:0 0 -6px">`:""}<div class="line"></div><div class="cap">Customer signature${d.sigUrl?" (signed on the driver's device)":""}</div></div>
         <div class="s"><div class="line"></div><div class="cap">Print name</div></div>
-        <div class="s" style="max-width:140px"><div class="line"></div><div class="cap">Date</div></div>
+        <div class="s" style="max-width:140px">${d.sigDate?`<div style="font-size:14px;margin-bottom:-4px">${esc(d.sigDate)}</div>`:""}<div class="line"></div><div class="cap">Date</div></div>
       </div>
     </div>
 
@@ -221,6 +237,37 @@ async function dataForOrder(o){
   };
 }
 
+/* a truck job: the stop says what to do; the order and customer supply who and where.
+   The order's own delivery note is NOT editable here (d.id stays null) — it belongs to
+   the original delivery, not to this visit. */
+async function dataForStop(stopId){
+  const {data:st,error}=await sb.from("v_driver_stops").select("*").eq("id",stopId).maybeSingle();
+  if(error) throw error;
+  if(!st) throw new Error("That truck job could not be found.");
+  let base={name:"",phone:"",address:"",items:[]};
+  if(st.order_id){ const {data:o}=await sb.from("sim_orders").select("*").eq("id",st.order_id).maybeSingle(); if(o) base=await dataForOrder(o); }
+  let sigUrl=null;
+  if(st.signature_path){
+    // the signature is a nicety on the paper — if it cannot be fetched the docket still prints
+    try{ const {data:su}=await sb.storage.from("delivery-proof").createSignedUrl(st.signature_path, 3600);
+         sigUrl=(su&&su.signedUrl)||null; }catch(_e){ sigUrl=null; }
+  }
+  const doneAt = st.departed_at || st.arrived_at || null;
+  const nzDate = v => v ? auDate(new Date(v).toLocaleDateString("en-CA",{timeZone:"Pacific/Auckland"})) : "";
+  return Object.assign({}, base, {
+    id:null, note:"", consultantNote:"",
+    kind:st.job_type||"delivery",
+    jobNote:st.job_note||"",
+    address:st.job_address||base.address,
+    deldate:auDate(st.run_date),
+    deltime:"",
+    driver:st.driver_name||"",
+    sigUrl,
+    sigDate: sigUrl ? nzDate(doneAt) : "",
+    doneTxt: st.status==="done" ? ("Completed "+nzDate(doneAt)+(st.signature_path?" — signed by the customer on the driver's device":"")) : ""
+  });
+}
+
 // ---- editable delivery note (office types here; prints on the docket) --------
 // Each order renders twice (customer + office copy). Typing updates both copies'
 // printed text live so a print always matches what's on screen; blur saves it to
@@ -255,6 +302,12 @@ async function run(){
       list.sort((a,b)=>(a.address||"").localeCompare(b.address||""));
       renderMany(list);
     }catch(e){ document.getElementById("out").innerHTML=`<div class="copy"><p>Couldn't load dockets: ${e.message||e}</p></div>`; }
+    return;
+  }
+  // a truck job (swap / pickup / other)
+  if(stopParam){
+    try{ render(await dataForStop(stopParam)); }
+    catch(e){ document.getElementById("out").innerHTML=`<div class="copy"><p>Couldn't load that truck job: ${esc(e.message||String(e))}</p></div>`; }
     return;
   }
   // single docket
