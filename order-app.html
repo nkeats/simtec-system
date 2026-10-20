@@ -18,7 +18,7 @@
 <!-- data-one-consultant: this iPad belongs to the first consultant who signs in on it.
      Orders are written from here, so this is the only page that asks for the binding. -->
 <script src="auth.js?v=5" data-roles="admin,manager,office,consultant" data-one-consultant></script>
-<script>window.SIMTEC_BUILD="2026-10-16-01";</script>
+<script>window.SIMTEC_BUILD="2026-10-20-01";</script>
 <script src="update.js?v=2"></script>
 
 
@@ -452,6 +452,111 @@
           <p>These Terms and Conditions are given to the Customer before the order form is signed. By signing the order form the Customer acknowledges that they have received, read and agree to be bound by them.</p>
           <p style="color:var(--ok);font-weight:600;">— End of terms —</p>
         </div>
+          <!-- ⚠⚠ TERMS v1.2 (20 Oct 2026) — NOT SHOWN until finance_settings.terms_version
+               is switched to '1.2' (finance.html). Until then the v1.1 text above is what
+               every customer reads. This text MUST match terms-of-sale-v1.2.pdf, which the
+               welcome email attaches for an order that recorded terms_version 1.2. Change
+               both together. -->
+          <template id="tncV12">
+          <h4 style="text-align:center;margin-bottom:2px">SIMTEC THERAPEUTIC</h4>
+          <p style="text-align:center;font-weight:700;margin:0">Terms and Conditions of Sale</p>
+          <p style="text-align:center;font-style:italic;color:var(--muted);margin:2px 0 12px">Version 1.2<span class="tncV12Date"></span></p>
+
+          <p><b>1. General</b><br>These Terms and Conditions of Sale ("Agreement") govern the purchase of a Simtec Therapeutic mattress and any other goods on the order form ("Product") from Simtec Therapeutic Limited ("Company"). They bind the purchaser ("Customer") when the order form is signed.<br>
+          (a) These Terms and Conditions are given to the Customer <b>before the order form is signed</b> and form part of the Agreement. A copy is left with the Customer at the time of sale.<br>
+          (b) In this Agreement: <b>"Payment Plan"</b> means paying the purchase price to the Company by regular direct debit instalments, as set out on the order form. <b>"Finance"</b> means any arrangement under which a third party pays the Company for the Product and the Customer repays that third party. It includes a loan, a credit contract, a buy now pay later arrangement and a credit card. <b>"Finance Provider"</b> means the business providing the Finance. It is not the Company.</p>
+
+          <p><b>2. Price and Payment</b><br>The purchase price is the total shown on the order form. The Customer may pay it in one of these ways:<br>
+          (a) <b>In full</b>, by bank transfer, by card, or by a single direct debit.<br>
+          (b) <b>By Payment Plan</b>, by direct debit instalments to the Company.<br>
+          (c) <b>By Finance</b>, where the Company offers Finance from a Finance Provider and the Finance Provider approves the Customer.<br>
+          (d) <b>The Company charges no interest, no credit fees and no card surcharge on any of these. The Company does not take any security interest in the Product.</b><br>
+          (e) Card payments are processed by a secure payment provider. The Company does not see or keep the Customer's card number.</p>
+
+          <p><b>3. Finance</b><br>This clause applies only where the Customer applies for Finance.<br>
+          (a) <b>The Finance agreement is separate.</b> It is between the Customer and the Finance Provider. The Company is not the lender, is not a party to it and does not set its terms. The Finance Provider's agreement sets out any interest, fees and repayments, and the Customer's rights under the Credit Contracts and Consumer Finance Act 2003, including any right to cancel the Finance agreement.<br>
+          (b) <b>The application.</b> With the consent of each applicant, the Company sends the Finance Provider the information it needs to assess the application, as set out in clause 14(d). Each person named as a Customer on the order form is included in the application.<br>
+          (c) <b>If the Finance is approved and the Finance Provider pays the Company,</b> the purchase price is paid in full. From then on the Customer owes the repayments to the Finance Provider under the Finance agreement, not to the Company.<br>
+          (d) <b>If the Finance is not approved,</b> or does not go ahead for any other reason, the Company will tell the Customer. The Customer may then choose to pay under the Payment Plan, using the direct debit authority the Customer signed at the time of sale for that purpose; or pay the purchase price in full; or <b>cancel this Agreement at no cost to the Customer</b>.<br>
+          (e) <b>The back-up direct debit authority.</b> A direct debit authority signed while the Finance application is assessed is used only as set out in clause 3(d). If the Finance is approved, or the Customer chooses to pay in full or cancel, the Company does not use it and destroys it securely.<br>
+          (f) <b>If this Agreement is cancelled,</b> including under clause 6, the Company will tell the Finance Provider straight away and repay to the Finance Provider any money it paid the Company. Where the law treats the Finance agreement as ending with this Agreement, the Customer owes nothing under it to the Finance Provider or the Company.<br>
+          (g) <b>The Customer's rights against the Company are not affected by Finance.</b> Rights under the Consumer Guarantees Act 1993, the Fair Trading Act 1986 and this Agreement apply in the same way however the purchase is paid for. Questions about the Product go to the Company. Questions about the Finance go to the Finance Provider.<br>
+          (h) The Company does not receive any payment from a Finance Provider for arranging Finance. Using Finance does not change the price the Customer pays.<br>
+          (i) Clauses 9, 11, 12 and 13 do not apply to any amount the Finance Provider has paid to the Company.</p>
+
+          <p><b>4. Manufacturer's Warranty</b><br>All Simtec Therapeutic mattresses are covered by a fifteen (15) year warranty against defects in materials and workmanship, backed by the original equipment manufacturer ("OEM"). This warranty applies only to faults arising from the manufacture of the Product.<br>
+          (a) The warranty does not cover damage, deterioration, soiling or loss of performance caused by factors outside the manufacturing process, including misuse, neglect or failure to follow the care instructions; accidental damage; staining, spills, burns, cuts, tears or soiling; unhygienic use; damage caused by an inadequate or unsupportive base or frame; normal wear and tear; or any alteration, modification or repair not authorised in writing by the manufacturer.<br>
+          (b) The warranty is administered through the manufacturer and is non-transferable, applying to the original purchaser only unless otherwise stated in writing by the manufacturer.<br>
+          (c) <b>Nothing in this clause limits or excludes any rights the Customer has under the Consumer Guarantees Act 1993.</b></p>
+
+          <p><b>5. Comfort Guarantee</b><br>Mk III Queen and Super King mattresses are covered by a thirty (30) day comfort guarantee.<br>
+          (a) The full terms of the comfort guarantee are <b>given to the Customer with these Terms and Conditions before the order form is signed</b>, and are also emailed to the Customer on confirmation of sale.<br>
+          (b) Where the purchase was paid by Finance, any refund under the comfort guarantee is paid to the Finance Provider, and the Company will ask the Finance Provider to adjust or close the Finance agreement accordingly.</p>
+
+          <p><b>6. Cooling-Off Period — Uninvited Sales</b><br>Where the purchase has arisen from an uninvited approach by a Company representative, the Customer has <b>five (5) working days to cancel</b> under the Fair Trading Act 1986.<br>
+          (a) <b>The five working days run from the day the Customer receives a copy of this Agreement.</b> The Customer's consultant explains this right to the Customer before the order form is signed. Where the Customer applies for Finance, the consultant also tells the Customer, before the order form is signed, that the Finance agreement carries its own cancellation rights and that the Finance Provider's agreement explains them.<br>
+          (b) The Customer may cancel for any reason, by telling the Company in writing, by phone on <b>09 886 9897</b>, by email to <b>info@simtectp.com</b>, or by using the cancellation form provided with the order. <b>The Customer does not have to give a reason.</b><br>
+          (c) <b>If the Customer cancels within the five working days, the Company will immediately refund everything the Customer has paid to the Company, in full.</b> Where the purchase was paid by Finance, clause 3(f) also applies.<br>
+          (d) If the Product has already been delivered, the Company will collect it at the Company's own cost, from the delivery address, at a reasonable time arranged with the Customer. The Customer must take reasonable care of the Product until it is collected, as the Fair Trading Act 1986 requires. The Customer is not responsible for normal use or for anything outside the Customer's control.<br>
+          (e) The Company may accept payment and may deliver the Product during the five working days. <b>Doing so does not affect the Customer's right to cancel or to a full refund.</b></p>
+
+          <p><b>7. Solicited Sales</b><br>Whether the cooling-off period in clause 6 applies depends on <b>whether the Customer personally invited the Company to attend</b>.<br>
+          (a) <b>Where the Customer contacted the Company, or asked the Company to visit or call them, the sale is a solicited sale and clause 6 does not apply.</b> The Company records how and when the Customer made that request.<br>
+          (b) <b>In every other case clause 6 applies</b> and the Customer has the cooling-off period. Where another person referred the Customer, the Company records that referral so any referral reward can be paid.</p>
+
+          <p><b>8. Delivery</b><br>When the Product is delivered depends on how the Customer pays.<br>
+          (a) <b>Paid in full:</b> delivery is arranged once the payment has cleared.<br>
+          (b) <b>Payment Plan:</b> delivery will not occur until the total amount paid is at least ten percent (10%) of the purchase price. The Company may also defer delivery where payments have been missed or dishonoured. <b>If it does, it will tell the Customer in writing, say why, and say what is needed before delivery will proceed. The Company will not continue to take payments for more than 8 weeks beyond the 10% threshold without either delivering the Product or offering the Customer a full refund.</b><br>
+          (c) <b>Finance:</b> delivery is arranged once the Finance Provider has approved the Finance and paid the Company. If the Finance is not approved, delivery follows the payment method the Customer chooses under clause 3(d).</p>
+
+          <p><b>9. Cancellation by the Company Before Delivery</b><br>This clause applies only to a Payment Plan. The Company may cancel the Customer's order before delivery where payments have been missed or dishonoured and the Customer has not remedied this after being asked to.<br>
+          (a) Where the Company cancels, it may retain from monies paid a reasonable amount to recover its <b>actual</b> administrative costs, up to a maximum of five hundred dollars (NZD $500.00). The balance is refunded to the Customer.<br>
+          (b) <b>The Company will give the Customer a written breakdown of any amount it retains.</b> The Company retains only what it has actually spent, and does not retain any amount as a profit or penalty.<br>
+          (c) Where the Customer demonstrates that cancellation has arisen from genuine financial hardship, evidenced by reasonable documentation, the Company will give favourable consideration to a full refund of all monies paid.</p>
+
+          <p><b>10. Binding Contract</b><br>By signing the order form the Customer enters into a legally binding contract for the purchase of the Product.<br>
+          (a) On expiry of any cooling-off period under clause 6, the purchase price remains due and payable in the way the Customer has chosen to pay it under clause 2, subject to clause 3(d) where Finance is not approved.<br>
+          (b) <b>Nothing in this clause affects the Customer's rights under the Consumer Guarantees Act 1993, the Fair Trading Act 1986, or the Contract and Commercial Law Act 2017</b>, including any right to cancel where the Product is faulty or where the Customer was misled.</p>
+
+          <p><b>11. Continuing Payment Obligation — Payment Plan</b><br>Where the Customer pays by Payment Plan, the Customer remains liable after delivery for the full outstanding balance of the purchase price, which continues to be due and payable in accordance with the agreed payment terms. Delivery does not discharge, reduce or otherwise affect that obligation.<br>
+          (a) The Customer must continue making all scheduled payments until the purchase price is paid in full. Failure to do so is a default under this Agreement.<br>
+          (b) <b>If the Customer is having difficulty paying, they should contact the Company.</b> The Company will consider a payment arrangement.</p>
+
+          <p><b>12. Recovery of Costs on Default</b><br>If the Customer does not pay an amount owed to the Company when it is due and the Company has to take steps to recover it, the Customer must pay the reasonable costs the Company <b>actually incurs</b> in recovering it.<br>
+          (a) Those costs are limited to the fees a debt collection agency or lawyer actually charges the Company for recovering the Customer's account, and any costs a court or tribunal orders the Customer to pay.<br>
+          (b) <b>The Company charges the Customer only what the Company is actually charged.</b> The Company does not add any margin, commission or administration charge of its own, and does not recover the cost of pursuing any other customer's account.<br>
+          (c) The Company will tell the Customer the amount before adding it to the balance, and will give a breakdown on request.<br>
+          (d) <b>The Company does not charge interest on late payments. The Company does not charge any fee for entering into, administering, or ending the Customer's purchase.</b><br>
+          (e) <b>Whether the Customer must pay any court or tribunal costs is a matter for the court or tribunal to decide.</b><br>
+          (f) The Company may pursue recovery of the outstanding balance, including by a claim before the Disputes Tribunal or another court or tribunal of competent jurisdiction in New Zealand.</p>
+
+          <p><b>13. Credit Reporting</b><br><b>If the Customer defaults on an amount owed to the Company and the default is not remedied, the Company may disclose that default to a credit reporter.</b><br>
+          (a) The Company may give a credit reporter the Customer's name, contact details, the amount in default and the status of the account. Credit reporters operating in New Zealand include Centrix, Equifax and illion.<br>
+          (b) <b>A default listing remains on the Customer's credit record for five years</b> and may affect the Customer's ability to obtain credit.<br>
+          (c) Before listing a default the Company will write to the Customer at their last known address, tell them the payment is overdue, and ask them to pay.<br>
+          (d) If the Customer pays the amount, the Company will tell the credit reporter so the listing is updated.<br>
+          (e) The Company may also give a credit reporter or debt collection agency the Customer's information for the purpose of recovering the debt.<br>
+          (f) Repayments owed to a Finance Provider are a matter between the Customer and the Finance Provider. The Company does not report them.</p>
+
+          <p><b>14. Privacy</b><br>The Company collects the Customer's personal information to supply the Product, to arrange and administer payment (including any Finance application), and to recover any amount not paid.<br>
+          (a) The information is held by Simtec Therapeutic Limited, 297 Neilson Street, Onehunga, Auckland, in accordance with the Privacy Act 2020.<br>
+          (b) The Customer may ask to see the information the Company holds about them and may ask for it to be corrected, by contacting <b>09 886 9897</b> or <b>info@simtectp.com</b>.<br>
+          (c) The Company may give the Customer's information to a credit reporter or debt collection agency as set out in clause 13, and to its delivery contractors for the purpose of delivering the Product.<br>
+          (d) <b>Finance applications.</b> Where the Customer applies for Finance, each applicant authorises the Company to give the Finance Provider their name, address, contact details, date of birth, identification type and number, and the order details, so the Finance Provider can assess the application, including by checking the applicant's credit record. The Finance Provider handles that information under its own privacy policy. The Company keeps a secure record of these details, including the full identification number, and may use them to identify and locate the Customer if an amount owed to the Company has to be recovered.<br>
+          (e) Card details are entered directly with the Company's payment provider and are not seen or kept by the Company.</p>
+
+          <p><b>15. Joint and Several Liability</b><br>Where two or more persons sign the order form as Customer, each is jointly and severally liable for the full amount owed to the Company and all other obligations under this Agreement.<br>
+          (a) The Company may pursue any one or more of the signatories individually for the full outstanding amount owed to the Company, without first pursuing any other signatory.<br>
+          (b) The liability of each signatory is not reduced or discharged by any arrangement made between the Company and any other signatory, by any time or indulgence granted to any other signatory, or by any other matter that might otherwise release or reduce a co-signatory's obligations.<br>
+          (c) Where the Customer applies for Finance, each signatory is included in the application and gives their own consent under clause 14(d).<br>
+          (d) Each signatory acknowledges that they have read and understood these Terms and Conditions and agree to be personally bound by them.</p>
+
+          <p><b>16. Complaints</b><br>If the Customer is unhappy with the Product or with how the Company has dealt with them, they should contact the Company on <b>09 886 9897</b> or <b>info@simtectp.com</b>. The Company will acknowledge a complaint within 2 working days and aims to resolve it within 20 working days.<br>
+          (a) A complaint about the Finance itself goes to the Finance Provider, which must belong to an approved dispute resolution scheme. The Company will help the Customer contact the Finance Provider if asked.</p>
+
+          <p>These Terms and Conditions are given to the Customer before the order form is signed. By signing the order form the Customer acknowledges that they have received, read and agree to be bound by them.</p>
+          <p style="color:var(--ok);font-weight:600;">— End of terms —</p>
+          </template>
         <div class="ackrow">
           <label class="ack" style="flex:1;border-bottom:none;"><input type="checkbox" id="tncAgree" disabled>
             <span class="txt"><b>I have read and agree to the Terms &amp; Conditions.</b>Scroll to the end of the terms above to enable this.</span></label>
@@ -548,6 +653,8 @@
           <div class="choice" data-val="full"><div class="ct">Paid in full</div><div class="cd">Direct deposit now — or one Ezidebit payment.</div></div>
           <div class="choice" data-val="deposit50"><div class="ct">50% deposit</div><div class="cd">Half now, balance by Ezidebit direct debit.</div></div>
           <div class="choice" data-val="ezidebit"><div class="ct">Ezidebit</div><div class="cd">Direct debit set up after signing.</div></div>
+          <!-- 20 Oct 2026: shown only when finance_available() says yes for this login -->
+          <div class="choice hidden" id="payFinanceChoice" data-val="finance"><div class="ct">Finance — <span class="finProv">MTF Finance</span></div><div class="cd">Application emailed to the finance company. Paper Ezidebit form as back-up.</div></div>
         </div>
 
         <!-- Deposit-method sub-panel: only for 50% deposit. The consultant chooses
@@ -574,6 +681,44 @@
             <div class="choice sel" data-val="bank"><div class="ct">Bank transfer</div><div class="cd">Paid in full by direct deposit now; proof shown to consultant.</div></div>
             <div class="choice" data-val="ezidebit"><div class="ct">Ezidebit one-off</div><div class="cd">Full amount as a single Ezidebit payment.</div></div>
           </div>
+        </div>
+
+
+        <!-- ⚠ FINANCE (20 Oct 2026). Hidden on every iPad unless finance_available()
+             says yes for THIS login (master switch on, application address set, the
+             consultant switched on by a manager). Nothing below runs otherwise. -->
+        <div id="financeBox" class="hidden" style="margin-top:16px;padding-top:16px;border-top:1px solid var(--line);">
+          <div class="lab" style="margin-bottom:6px;">Details for <span class="finProv">MTF Finance</span>'s credit check</div>
+          <p class="sub" style="margin:0 0 12px">Every applicant on this order goes into the credit check. No ID photo is sent — just the ID type and number. Check the ID against the card in front of you.</p>
+          <div id="finApp1" class="card" style="margin:0 0 12px;box-shadow:none;border:1px solid var(--line)">
+            <h3 style="margin:0 0 8px">Applicant 1 — <span id="finName1"></span></h3>
+            <div class="grid2">
+              <label class="f"><span class="lab">Date of birth</span><input type="text" id="finDob1" inputmode="numeric" placeholder="DD/MM/YYYY" maxlength="10" autocomplete="off"></label>
+              <label class="f"><span class="lab">ID type</span><select id="finIdType1" onchange="finIdTypeChanged(1)"><option value="nz_licence">NZ driver licence</option><option value="passport">Passport</option></select></label>
+            </div>
+            <div class="grid2">
+              <label class="f"><span class="lab" id="finIdLab1">Licence number</span><input type="text" id="finIdNo1" autocomplete="off" autocapitalize="characters"></label>
+              <label class="f" id="finVerWrap1"><span class="lab">Licence version number</span><input type="text" id="finVer1" inputmode="numeric" maxlength="3" placeholder="3 digits" autocomplete="off"></label>
+            </div>
+            <label class="ack" style="border-bottom:none;padding-bottom:0"><input type="checkbox" id="finConsent1">
+              <span class="txt"><b><span class="finName1"></span> agrees</b> to Simtec sending their name, address, contact details, date of birth and ID details to <span class="finProv">MTF Finance</span> so it can assess the finance application, including by checking their credit record.</span></label>
+          </div>
+          <div id="finApp2" class="card hidden" style="margin:0 0 12px;box-shadow:none;border:1px solid var(--line)">
+            <h3 style="margin:0 0 8px">Applicant 2 — <span id="finName2"></span></h3>
+            <div class="grid2">
+              <label class="f"><span class="lab">Date of birth</span><input type="text" id="finDob2" inputmode="numeric" placeholder="DD/MM/YYYY" maxlength="10" autocomplete="off"></label>
+              <label class="f"><span class="lab">ID type</span><select id="finIdType2" onchange="finIdTypeChanged(2)"><option value="nz_licence">NZ driver licence</option><option value="passport">Passport</option></select></label>
+            </div>
+            <div class="grid2">
+              <label class="f"><span class="lab" id="finIdLab2">Licence number</span><input type="text" id="finIdNo2" autocomplete="off" autocapitalize="characters"></label>
+              <label class="f" id="finVerWrap2"><span class="lab">Licence version number</span><input type="text" id="finVer2" inputmode="numeric" maxlength="3" placeholder="3 digits" autocomplete="off"></label>
+            </div>
+            <label class="ack" style="border-bottom:none;padding-bottom:0"><input type="checkbox" id="finConsent2">
+              <span class="txt"><b><span class="finName2"></span> agrees</b> to Simtec sending their name, address, contact details, date of birth and ID details to <span class="finProv">MTF Finance</span> so it can assess the finance application, including by checking their credit record.</span></label>
+          </div>
+          <label class="ack" style="border-bottom:none"><input type="checkbox" id="finToldRights">
+            <span class="txt"><b>I have told the customer</b> that the finance agreement is with <span class="finProv">MTF Finance</span>, not Simtec, and that it has its own cancellation rights, which <span class="finProv">MTF Finance</span>'s agreement explains.</span></label>
+          <p class="sub" style="margin:8px 0 0">If the finance is not approved, the customer can pay by direct debit at <b><span class="finWeekly">$50</span> a week</b> (on a paper Ezidebit form signed while you wait), pay in full, or cancel at no cost.</p>
         </div>
 
         <p class="sub" style="margin:14px 0 0;">Bank account for direct deposits: Simtec Therapeutic Limited · BNZ 02-0200-0352393-000</p>
@@ -696,6 +841,84 @@
                 style="background:#c0392b;color:#fff;margin-top:12px;">
           The form won't accept it — finish without the direct debit
         </button>
+      </div>
+    </section>
+
+
+    <!-- 10 FINANCE (20 Oct 2026) — only ever reached when the payment step chose
+         Finance, which only appears when finance_available() says yes. -->
+    <section class="step" data-step="10">
+      <h2 class="title">Finance — <span class="finProv">MTF Finance</span></h2>
+
+      <!-- a) send the application -->
+      <div id="finSendCard">
+        <p class="sub">Check the details, then send. The application is emailed to <span class="finProv">MTF Finance</span> straight away, and they text <b>your phone</b> with the answer.</p>
+        <div class="card" id="finSummary"></div>
+        <button class="btn submit" type="button" id="finSendBtn" style="width:100%" onclick="finSend()">Send the application to <span class="finProv">MTF Finance</span></button>
+        <div id="finSendMsg" class="sub" style="margin-top:10px;color:var(--danger)"></div>
+      </div>
+
+      <!-- b) waiting for the answer -->
+      <div id="finWaitCard" class="hidden">
+        <div class="note" id="finSentNote" style="background:var(--ok-soft);border-color:#bfe3d3;color:#2f6b53"></div>
+        <div class="card">
+          <h3>1 · While you wait — paper Ezidebit form</h3>
+          <p class="sub" style="margin-top:-4px">The customer fills in and signs a <b>paper</b> Ezidebit form. Bank details go on the paper only — never into the iPad. It is only used if the finance does not go ahead.</p>
+          <div class="grid2">
+            <div class="f"><span class="lab">Weekly amount (standard)</span><div style="padding-top:8px;font-weight:800;font-size:17px"><span class="finWeekly">$50</span> a week</div></div>
+            <label class="f"><span class="lab">First payment date (at least 10 days away)</span><input type="date" id="finStart"></label>
+          </div>
+          <label class="ack" style="border-bottom:none"><input type="checkbox" id="finPaperDone" onchange="finPaperTicked()">
+            <span class="txt"><b>The customer has filled in and signed the paper Ezidebit form</b>for <span class="finWeekly">$50</span> a week from <span id="finStartShow">the date above</span>.</span></label>
+        </div>
+        <div class="card">
+          <h3>2 · <span class="finProv">MTF Finance</span>'s answer — from the text on your phone</h3>
+          <div class="choices three" id="finAnswers">
+            <div class="choice" id="finAnsCons" onclick="finAnswer('considering')"><div class="ct">Considering</div><div class="cd">They will deal with the customer. The paper form is held.</div></div>
+            <div class="choice" id="finAnsEzi" onclick="finAnswer('ezidebit')"><div class="ct">Ezidebit</div><div class="cd">They won't take it. The customer pays <span class="finWeekly">$50</span> a week by direct debit.</div></div>
+            <div class="choice" id="finAnsNo" onclick="finAnswer('no')"><div class="ct">No</div><div class="cd">They said no. Pay in full by card or direct debit, or cancel.</div></div>
+          </div>
+          <p class="sub" id="finLockHint" style="margin:10px 0 0">Considering and Ezidebit need the paper form ticked above.</p>
+          <button type="button" class="btn-sm" style="margin-top:14px;background:#fff;color:var(--navy);border:1px solid var(--line)" onclick="finAnswer('no_answer')">No text yet? Leave it with the office</button>
+          <button type="button" class="btn-sm" style="margin:14px 0 0 8px;background:#fff;color:var(--muted);border:1px solid var(--line)" onclick="finResend()">Send the application again</button>
+          <div id="finAnsMsg" class="sub" style="margin-top:10px;color:var(--danger)"></div>
+        </div>
+      </div>
+
+      <!-- c) the answer was No -->
+      <div id="finNoCard" class="hidden">
+        <div class="card">
+          <h3>The finance was not approved</h3>
+          <p class="sub" style="margin-top:-4px">The customer chooses one of these. Total to pay: <b id="finNoTotal"></b>.</p>
+          <div class="choices three">
+            <div class="choice" onclick="finNoChoose('card')"><div class="ct">Pay in full by card</div><div class="cd">Secure card page, same as today.</div></div>
+            <div class="choice" onclick="finNoChoose('dd_full')"><div class="ct">Pay in full by direct debit</div><div class="cd">One Ezidebit payment, on a paper form.</div></div>
+            <div class="choice" onclick="finNoChoose('cancel')" style="border-color:#e3b7b2"><div class="ct" style="color:var(--danger)">Cancel the order</div><div class="cd">At no cost to the customer.</div></div>
+          </div>
+          <button type="button" class="btn-sm" style="margin-top:14px;background:#fff;color:var(--navy);border:1px solid var(--line)" onclick="finShow('wait')">Go back — they didn't say no</button>
+        </div>
+        <div class="card hidden" id="finCardBox" style="text-align:center">
+          <h3>Pay in full by card</h3>
+          <div style="font-size:30px;font-weight:800;margin:4px 0 12px" id="finCardAmt"></div>
+          <button type="button" class="btn next" style="max-width:320px;margin:0 auto;display:block" onclick="finOpenCard()">Open the secure card payment page</button>
+          <div id="finCardMsg" class="sub" style="margin-top:8px"></div>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;justify-content:center;margin-top:14px">
+            <button type="button" class="btn submit" style="flex:1 1 200px;max-width:280px" onclick="finCardResult(true)">The card payment went through</button>
+            <button type="button" class="btn back" style="flex:1 1 200px;max-width:280px" onclick="finCardResult(false)">It didn't go through</button>
+          </div>
+        </div>
+        <div class="card hidden" id="finDdBox">
+          <h3>Pay in full by a single direct debit</h3>
+          <p class="sub" style="margin-top:-4px">The customer fills in and signs a <b>new paper Ezidebit form</b> for one payment of the full amount. It replaces the weekly form.</p>
+          <div class="grid2">
+            <div class="f"><span class="lab">Amount</span><div style="padding-top:8px;font-weight:800;font-size:17px" id="finDdAmt"></div></div>
+            <label class="f"><span class="lab">Payment date (at least 10 days away)</span><input type="date" id="finDdDate"></label>
+          </div>
+          <label class="ack" style="border-bottom:none"><input type="checkbox" id="finDdPaper">
+            <span class="txt"><b>The customer has filled in and signed the paper form</b>for a single payment of the full amount on the date above.</span></label>
+          <button type="button" class="btn submit" style="width:100%;margin-top:10px" onclick="finAnswer('dd_full')">Finish the order</button>
+        </div>
+        <div id="finNoMsg" class="sub" style="margin-top:10px;color:var(--danger)"></div>
       </div>
     </section>
 
@@ -1221,13 +1444,14 @@ const S = { step:0, saleType:'', pay:'', depositMethod:'ezidebit', fullMethod:'b
             cashTaken:0, eziRefBad:null,
             /* ⚠ ONE PAIR OF IDS PER ORDER, MINTED ONCE — see orderIds(). */
             orderIds:null };
-const STEP_LABELS = ['Start','Products','Details','Referees','Terms','ID','Payment','Sign','Ezidebit','Done'];
+const STEP_LABELS = ['Start','Products','Details','Referees','Terms','ID','Payment','Sign','Ezidebit','Done','Finance'];   /* 10 = Finance (20 Oct) */
 
 function visibleSteps(){
   let arr=[0,1,2,3,4,5,6,7];
   // Ezidebit step is needed both for a full direct-debit AND for a 50% deposit
   // (the remaining 50% is collected by direct debit).
   if(S.pay==='ezidebit' || S.pay==='deposit50' || (S.pay==='full' && S.fullMethod==='ezidebit')) arr.push(8);
+  if(S.pay==='finance') arr.push(10);   /* 20 Oct: finance — only reachable when finance_available() said yes */
   arr.push(9);
   return arr;
 }
@@ -1248,7 +1472,7 @@ function showStep(ds){
   const back=document.getElementById('backBtn'), next=document.getElementById('nextBtn');
   back.style.visibility=(ds===visibleSteps()[0])?'hidden':'visible';
   next.classList.remove('hidden'); back.classList.remove('hidden');
-  if(ds===7){ next.textContent=(S.pay==='ezidebit'||S.pay==='deposit50')?'Submit & set up Ezidebit':'Submit order'; next.className='btn submit'; }
+  if(ds===7){ next.textContent=(S.pay==='ezidebit'||S.pay==='deposit50')?'Submit & set up Ezidebit':(S.pay==='finance'?'Submit & go to finance':'Submit order'); next.className='btn submit'; }
   else if(ds===8){ next.textContent='Finish'; next.className='btn submit'; }
   else if(ds===9){ next.classList.add('hidden'); back.classList.add('hidden'); }
   else { next.textContent='Next'; next.className='btn next'; }
@@ -1258,6 +1482,8 @@ function showStep(ds){
   if(ds===7) buildReview();
   if(ds===8){ setEziDefaults(); computeEziBalance(); }
   if(ds===9) finalizeOrder();   // saved order reached Done → regen PDF w/ schedule, push GHL + welcome email
+  if(ds===9 && S.pay==='finance') finDoneUi();   /* 20 Oct: finance wording on the Done screen */
+  if(ds===10) finEnterStep();                     /* 20 Oct: the finance step */
   renderSteps(); window.scrollTo(0,0);
   document.querySelectorAll('section.step.on canvas.sig').forEach(sizeCanvas);
 }
@@ -1361,7 +1587,8 @@ async function validateStep(ds){
       return false;
     }
   }
-  if(ds===6){ if(!S.pay){alert('Select a payment method.');return false;} }
+  if(ds===6){ if(!S.pay){alert('Select a payment method.');return false;}
+    if(S.pay==='finance' && !finValidate()) return false; }   /* 20 Oct: DOB, ID, consent for every applicant */
   if(ds===7){ if(isBlank('sigA1')){alert('Applicant 1 must sign.');return false;} if(S.a2&&isBlank('sigA2')){alert('Applicant 2 must sign.');return false;} }
   return true;
 }
@@ -1712,7 +1939,7 @@ function buildReview(){
   const sub=S.products.reduce((s,p)=>s+(p.price*p.qty||0),0);
   const total=sub+(wantDel?DELIVERY_FEE:0);
   const name=(val('a1first')+' '+val('a1last')).trim()+(S.a2?(' & '+val('a2first')+' '+val('a2last')):'');
-  const payLabel={full:'Paid in full',deposit50:'50% deposit',ezidebit:'Ezidebit direct debit'}[S.pay]||'—';
+  const payLabel={full:'Paid in full',deposit50:'50% deposit',ezidebit:'Ezidebit direct debit',finance:'Finance — '+FIN.provider}[S.pay]||'—';
   const hasGuar=S.products.some(p=>GUARANTEE_PRODUCTS.includes(p.name));
   let prods=S.products.filter(p=>p.name).map(p=>'<div class="rev-line"><span>'+esc(p.name)+' × '+p.qty+'</span><span>'+money(p.price*p.qty)+'</span></div>').join('');
   document.getElementById('reviewCard').innerHTML=
@@ -1878,6 +2105,7 @@ function clearIds(){
 async function collectOrder(){
   const fields=snapshotFields();
   const flags={ saleType:S.saleType, pay:S.pay, depositMethod:S.depositMethod, fullMethod:(S.pay==='full'?S.fullMethod:null), a2:S.a2, emailVerified:S.emailVerified,
+    termsVersion:(S.termsShown||'1.1'),   /* 20 Oct: the terms version the customer was shown */
     acksAll:[...document.querySelectorAll('.ackbox')].every(a=>a.checked) };
   const products=S.products.filter(p=>p.name).map(p=>({name:p.name,price:p.price,qty:p.qty}));
   const wantDel=document.getElementById('wantDelivery').checked;
@@ -1997,7 +2225,10 @@ async function savePayload(P){
        on the office call list immediately, so the confirmation call was being
        made while the sale was still being finished. finalizeOrder() promotes
        it to 'pending' when the consultant reaches Done. */
-    confirmation_status:'draft'
+    confirmation_status:'draft',
+    /* 20 Oct: the terms version the customer was SHOWN. A parked order from an
+       older build has no flag — it can only have been shown v1.1. */
+    terms_version:(fl.termsVersion==='1.2'?'1.2':'1.1')
   };
   /* ⚠ NO .select() HERE ANY MORE. The id is ours already, and a consultant
      cannot reliably read the row back. On a retry this writes nothing. */
@@ -2064,8 +2295,11 @@ async function generateAndUploadOrderPdf(orderId,P){
   if(P.wantDel){ total+=DELIVERY_FEE; doc.text('Delivery fee',M,y); doc.text('$'+DELIVERY_FEE.toFixed(2),R,y,{align:'right'}); y+=15; }
   y+=6; doc.setDrawColor(200); doc.line(M,y,R,y); y+=18;
   doc.setFont('helvetica','bold'); doc.text('Total',M,y); doc.text('$'+total.toFixed(2),R,y,{align:'right'}); y+=26;
-  const payLabel={full:'Paid in full',deposit50:'50% deposit',ezidebit:'Ezidebit direct debit'}[fl.pay]||'—';
+  const payLabel=(fl.pay==='finance') ? finPayLabel()
+                 : ({full:'Paid in full',deposit50:'50% deposit',ezidebit:'Ezidebit direct debit'}[fl.pay]||'—');
   doc.setFont('helvetica','normal'); doc.setTextColor(20); doc.text('Payment method: '+payLabel,M,y); y+=20;
+  /* 20 Oct: a finance sale prints how it is being paid, from the answer recorded */
+  if(fl.pay==='finance'){ finPdfLines(orderId).forEach(t=>{ doc.splitTextToSize(t,R-M).forEach(l=>{ doc.text(l,M,y); y+=15; }); }); y+=6; }
   // Exact Ezidebit schedule (read from the step-8 fields; populated by the time the
   // summary is regenerated at the Done step).
   if(fl.pay==='ezidebit' || fl.pay==='deposit50'){
@@ -2514,7 +2748,7 @@ async function finalizeOrder(){
   S.finalized=true;
 
 
-  if((S.pay==='ezidebit' || S.pay==='deposit50') && S.lastP){
+  if((S.pay==='ezidebit' || S.pay==='deposit50' || S.pay==='finance') && S.lastP){
     try{ await generateAndUploadOrderPdf(S.orderId, S.lastP); }
     catch(e){ console.warn('summary regen pending:',e&&e.message||e);
               reportClientError('regenerate the order-summary PDF with the Ezidebit schedule', e, S.orderId); }
@@ -2563,7 +2797,8 @@ async function finalizeOrder(){
      function, so the two paths can never both send.
      DO NOT change this back to a full push without removing the cash panel. */
   pushOrderToGhl(S.orderId, {contactOnly:true});
-  try{ sendCustomerLoginLink(S.customerId); }catch(_e){}   // show the rewards-app QR now the whole order (incl. Ezidebit) is done
+  /* 20 Oct: a customer whose sale is with the finance company never goes on the rewards app (Nigel, 19 Oct). */
+  if(!finIsProviderSale()){ try{ sendCustomerLoginLink(S.customerId); }catch(_e){} }   // show the rewards-app QR now the whole order (incl. Ezidebit) is done
 }
 
 /* ---------------- free pillow for 10+ referrals ----------------
@@ -2698,6 +2933,7 @@ function newOrder(){
      tab — that is the point of it — so the next order would otherwise inherit
      these ids and silently save nothing. */
   clearIds();
+  try{ finClearResume(); }catch(_e){}   /* 20 Oct: never resume a finished finance sale */
   if(navigator.onLine){ location.reload(); return; }
   resetForm();
 }
@@ -2708,6 +2944,7 @@ function resetForm(){
   ['sigA1','sigA2'].forEach(clearSig);
   Object.assign(S,{step:0,saleType:'',pay:'',depositMethod:'ezidebit',fullMethod:'bank',a2:false,products:[],emailVerified:false,sentCode:null,tncRead:false,orderId:null,finalized:false,lastP:null,idPhotos:{A1:[],A2:[]},idMissing:{A1:null,A2:null}});
   clearIds();   /* ⚠ a NEW order must never inherit the last one's ids */
+  S.fin=null; try{ finClearResume(); finPayChanged(); }catch(_e){}   /* 20 Oct */
   clearNoId('A1'); clearNoId('A2');
   renderIdGallery('A1'); renderIdGallery('A2');
   const dmb=document.getElementById('depositMethodBox'); if(dmb) dmb.classList.add('hidden');
@@ -3147,6 +3384,413 @@ async function applyEzidebitCallback(cb){
   }
 }
 
+
+/* ============================================================================
+   FINANCE — MTF (20 Oct 2026)
+   ⚠ DORMANT BY DESIGN. Nothing in this block shows or does anything unless the
+     database says finance_available() = true for THIS login: the master switch
+     is on, the finance company's application address is set, and a manager has
+     switched this consultant on. Every other iPad behaves exactly as before.
+   ⚠ The ONE thing that reaches every iPad is the terms version: when the office
+     switches the terms to v1.2 (finance.html), every iPad shows v1.2 and records
+     it on the order. Until then v1.1 is shown and recorded.
+   THE FLOW (agreed with Nigel, 14–20 Oct):
+     Payment step → "Finance". DOB, ID and consent for every applicant.
+     Review & sign as normal → the order saves as a draft, as today.
+     Finance step: send the application (finance-apply emails MTF). MTF texts the
+     consultant. While waiting, the customer signs a PAPER Ezidebit form at the
+     standard $50 a week. The consultant taps MTF's answer:
+       Considering → finished as a finance sale; office holds the paper form.
+       Ezidebit    → a normal $50/week direct-debit sale from the paper form.
+       No          → pay in full by card, pay in full by one direct debit, or cancel.
+       No text yet → left with the office; the welcome email waits for the answer.
+     Every answer is recorded by finance_set_outcome() in the database — the iPad
+     never writes a finance column itself (the database refuses if it tries).
+============================================================================ */
+const FIN = { on:false, provider:'MTF Finance', terms:'1.1', termsDate:null, weekly:50, alertMin:10, loaded:false };
+S.fin = null;            /* {status, ref, sentAt, outcome, plan} once the application is sent */
+S.termsShown = '1.1';    /* the version the customer was actually shown — recorded on the order */
+const FIN_RESUME = 'simtec_fin_resume' + WT_SUFFIX;
+const FIN_RESUME_MAX_MIN = 12 * 60;   /* a finance wait never runs past a working day */
+
+function finMoney(n){ return '$' + Number(n || 0).toLocaleString('en-NZ', {minimumFractionDigits:2, maximumFractionDigits:2}); }
+function finRef(id){ return id ? 'SIM-' + String(id).replace(/-/g, '').slice(0, 6).toUpperCase() : ''; }
+function finSet(sel, txt){ document.querySelectorAll(sel).forEach(el => { el.textContent = txt; }); }
+function finEl(id){ return document.getElementById(id); }
+
+/* ---- start-up: ask the database once ---- */
+async function finBoot(){
+  if (WALKTHROUGH) return;                       /* walkthrough orders are not real */
+  for (let i = 0; i < 100 && !window.SIMTEC_USER; i++) await new Promise(r => setTimeout(r, 50));
+  if (!sb) return;
+  try{
+    const { data, error } = await sb.rpc('finance_available');
+    if (error) throw error;
+    const d = data || {};
+    FIN.provider = d.provider || FIN.provider;
+    FIN.weekly = Number(d.dd_weekly) > 0 ? Number(d.dd_weekly) : 50;
+    FIN.terms = (d.terms_version === '1.2') ? '1.2' : '1.1';
+    FIN.termsDate = d.terms_effective || null;
+    FIN.alertMin = Number(d.alert_minutes) > 0 ? Number(d.alert_minutes) : 10;
+    FIN.on = d.available === true;
+    FIN.loaded = true;
+  }catch(e){
+    /* Offline or not signed in: finance stays off and the v1.1 terms stay up —
+       exactly today's app. Nothing to report: this is the normal offline case. */
+    return;
+  }
+  finSet('.finProv', FIN.provider);
+  finSet('.finWeekly', finMoney(FIN.weekly).replace('.00', ''));
+  finApplyTerms();
+  if (FIN.on){
+    const c = finEl('payFinanceChoice'), wrap = finEl('payOption');
+    if (c) c.classList.remove('hidden');
+    if (wrap){ wrap.classList.remove('three'); wrap.classList.add('two'); }
+  }
+}
+
+/* ---- the terms the customer reads ---- */
+function finApplyTerms(){
+  if (FIN.terms !== '1.2') return;
+  /* Never swap the text under a customer who has already started reading. */
+  if (S.tncRead || S.step >= 4) return;
+  const box = finEl('tncBox'), tpl = finEl('tncV12');
+  if (!box || !tpl) return;
+  box.innerHTML = tpl.innerHTML;
+  box.querySelectorAll('.tncV12Date').forEach(el => { el.textContent = FIN.termsDate ? ' · Effective ' + FIN.termsDate : ''; });
+  box.scrollTop = 0;
+  S.termsShown = '1.2';
+}
+
+/* ---- payment step ---- */
+function finPayChanged(){
+  const box = finEl('financeBox'); if (!box) return;
+  const on = (S.pay === 'finance');
+  box.classList.toggle('hidden', !on);
+  if (on) finPrefill();
+}
+function finPrefill(){
+  const n1 = (val('a1first') + ' ' + val('a1last')).trim();
+  const n2 = (val('a2first') + ' ' + val('a2last')).trim();
+  finSet('#finName1, .finName1', n1 || 'Applicant 1');
+  finSet('#finName2, .finName2', n2 || 'Applicant 2');
+  finEl('finApp2').classList.toggle('hidden', !S.a2);
+  /* The ID type and number were already taken on the Details step — carry them
+     over so nobody types them twice. Only fill an empty box. */
+  const map = { "Driver's Licence":'nz_licence', 'Passport':'passport' };
+  [[1, 'a1idtype', 'a1dl'], [2, 'a2idtype', 'a2dl']].forEach(([n, tId, nId]) => {
+    const t = finEl(tId), no = finEl(nId);
+    if (t && map[t.value] && !val('finIdNo' + n)) finEl('finIdType' + n).value = map[t.value];
+    if (no && no.value.trim() && !val('finIdNo' + n)) finEl('finIdNo' + n).value = no.value.trim();
+    finIdTypeChanged(n);
+  });
+}
+window.finIdTypeChanged = function(n){
+  const lic = finEl('finIdType' + n).value === 'nz_licence';
+  finEl('finIdLab' + n).textContent = lic ? 'Licence number' : 'Passport number';
+  finEl('finVerWrap' + n).classList.toggle('hidden', !lic);
+};
+function finDobIso(raw){
+  const m = /^(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{4})$/.exec(String(raw || '').trim());
+  if (!m) return null;
+  const d = +m[1], mo = +m[2], y = +m[3];
+  const dt = new Date(Date.UTC(y, mo - 1, d));
+  if (dt.getUTCFullYear() !== y || dt.getUTCMonth() !== mo - 1 || dt.getUTCDate() !== d) return null;
+  const age = (Date.now() - dt.getTime()) / (365.25 * 864e5);
+  if (age < 18 || age > 110) return null;
+  return y + '-' + String(mo).padStart(2, '0') + '-' + String(d).padStart(2, '0');
+}
+function finApplicants(){
+  const list = [];
+  const people = S.a2 ? [1, 2] : [1];
+  people.forEach(n => {
+    const type = finEl('finIdType' + n).value;
+    list.push({
+      name: n === 1 ? (val('a1first') + ' ' + val('a1last')).trim() : (val('a2first') + ' ' + val('a2last')).trim(),
+      dob: val('finDob' + n),
+      id_type: type,
+      id_number: val('finIdNo' + n).replace(/\s+/g, '').toUpperCase(),
+      licence_version: type === 'nz_licence' ? val('finVer' + n) : '',
+      consent: !!finEl('finConsent' + n).checked,
+    });
+  });
+  return list;
+}
+function finValidate(){
+  const list = finApplicants();
+  for (let i = 0; i < list.length; i++){
+    const a = list[i], who = 'Applicant ' + (i + 1) + (a.name ? ' (' + a.name + ')' : '');
+    if (a.name.length < 2){ alert(who + ': the name is missing on the Details step.'); return false; }
+    if (!finDobIso(a.dob)){ alert(who + ': enter the date of birth as DD/MM/YYYY. They must be 18 or over.'); return false; }
+    if (!/^[A-Z0-9]{5,12}$/.test(a.id_number)){ alert(who + ': the ID number does not look right. Check it against the card.'); return false; }
+    if (a.id_type === 'nz_licence' && !/^\d{3}$/.test(a.licence_version)){ alert(who + ': enter the 3-digit licence version number (it is on the front of the licence, under the licence number).'); return false; }
+    if (!a.consent){ alert(who + ' has to agree to the credit check before the application can be sent.'); return false; }
+  }
+  if (!finEl('finToldRights').checked){ alert('Tick that you have told the customer the finance agreement is with ' + FIN.provider + ' and has its own cancellation rights.\n\nThe law requires this to be said before the order is signed.'); return false; }
+  return true;
+}
+
+/* ---- the finance step ---- */
+function finTotal(){
+  const P = S.lastP || {};
+  const sub = (P.products || []).reduce((s, p) => s + ((p.price || 0) * (p.qty || 0)), 0);
+  return Math.round((sub + (P.wantDel ? DELIVERY_FEE : 0)) * 100) / 100;
+}
+function finEnterStep(){
+  const back = finEl('backBtn'), next = finEl('nextBtn'), park = finEl('parkBtn');
+  if (next) next.classList.add('hidden');
+  if (park) park.style.display = 'none';
+  if (back) back.style.visibility = (S.fin && S.fin.status) ? 'hidden' : 'visible';
+  finSet('.finProv', FIN.provider);
+  if (!finEl('finStart').value) finEl('finStart').value = isoAddDays(null, 14);
+  finEl('finStart').min = isoAddDays(null, 10);
+  finEl('finDdDate').min = isoAddDays(null, 10);
+  if (!finEl('finDdDate').value) finEl('finDdDate').value = isoAddDays(null, 10);
+  finEl('finStart').onchange = () => { finEl('finStartShow').textContent = isoToDMY(val('finStart')) || 'the date above'; finSaveResume(); };
+  finEl('finStartShow').textContent = isoToDMY(val('finStart')) || 'the date above';
+  finRenderSummary();
+  finShow(S.fin && S.fin.status ? 'wait' : 'send');
+  finPaperTicked();
+}
+function finRenderSummary(){
+  const P = S.lastP || {}, f = P.fields || {};
+  const addr = [f.street, f.suburb, f.city, f.postcode].filter(Boolean).join(', ');
+  const rows = [['Amount to finance', finMoney(finTotal())], ['Address', addr || '—']];
+  let apps = [];
+  try{ apps = (S.fin && S.fin.applicants) || finApplicants(); }catch(_e){ apps = []; }
+  apps.forEach((a, i) => {
+    rows.push(['Applicant ' + (i + 1), a.name || '—']);
+    rows.push(['· Date of birth', a.dob || '—']);
+    rows.push(['· ID', (a.id_type === 'passport' ? 'Passport ' : 'NZ driver licence ') + (a.id_number || '') + (a.licence_version ? ' (version ' + a.licence_version + ')' : '')]);
+  });
+  rows.push(['Consultant', (f.consultant || '—') + ' — their text comes to the mobile on the Consultants page']);
+  rows.push(['Our reference', finRef(S.orderId)]);
+  finEl('finSummary').innerHTML = '<h3>What ' + esc(FIN.provider) + ' will receive</h3>' +
+    rows.map(([k, v]) => '<div class="rev-line"><span>' + esc(k) + '</span><span style="text-align:right">' + esc(v) + '</span></div>').join('') +
+    '<p class="sub" style="margin:10px 0 0">Their text should quote <b>' + esc(finRef(S.orderId)) + '</b>, so you know which customer the answer is for.</p>';
+}
+window.finShow = function(which){
+  finEl('finSendCard').classList.toggle('hidden', which !== 'send');
+  finEl('finWaitCard').classList.toggle('hidden', which !== 'wait');
+  finEl('finNoCard').classList.toggle('hidden', which !== 'no');
+  if (which === 'wait' && S.fin){
+    const when = S.fin.sentAt ? new Date(S.fin.sentAt).toLocaleTimeString('en-NZ', {hour:'numeric', minute:'2-digit'}) : '';
+    finEl('finSentNote').innerHTML = '<b>Sent to ' + esc(FIN.provider) + (when ? ' at ' + esc(when) : '') + '.</b> Reference <b>' + esc(S.fin.ref || finRef(S.orderId)) +
+      '</b>. They text your phone with the answer — usually within a few minutes. The office is texted if there is no answer within ' + FIN.alertMin + ' minutes.';
+  }
+  if (which === 'no'){
+    finEl('finNoTotal').textContent = finMoney(finTotal());
+    finEl('finCardBox').classList.add('hidden'); finEl('finDdBox').classList.add('hidden');
+  }
+  window.scrollTo(0, 0);
+};
+window.finPaperTicked = function(){
+  const ok = finEl('finPaperDone').checked;
+  ['finAnsCons', 'finAnsEzi'].forEach(id => { const c = finEl(id); if (c) c.style.opacity = ok ? '' : '.45'; });
+  finEl('finLockHint').classList.toggle('hidden', ok);
+  finSaveResume();
+};
+
+async function finCall(body){
+  const { data:{ session } } = await sb.auth.getSession();
+  if (!session) throw new Error('You are signed out. Sign in again, then send.');
+  const res = await fetch(SUPABASE_URL + '/functions/v1/finance-apply', {
+    method:'POST',
+    headers:{ 'Content-Type':'application/json', 'apikey':SUPABASE_KEY, 'Authorization':'Bearer ' + session.access_token },
+    body: JSON.stringify(body),
+  });
+  const out = await res.json().catch(() => ({}));
+  if (!res.ok || !out.ok) throw new Error(out.why || ('The application could not be sent (' + res.status + ').'));
+  return out;
+}
+window.finSend = async function(resend){
+  const msg = finEl('finSendMsg'), btn = finEl('finSendBtn');
+  msg.textContent = '';
+  if (!S.orderId){ msg.textContent = 'The order is not saved yet. Go back and submit it first.'; return; }
+  if (!navigator.onLine){ msg.textContent = 'No signal. Move to where you have signal and send again. If you cannot, ring the office — the order is saved.'; return; }
+  const applicants = (S.fin && S.fin.applicants) || finApplicants();
+  btn.disabled = true; btn.style.opacity = '.6';
+  try{
+    const out = await finCall({ order_id:S.orderId, applicants, resend:!!resend });
+    S.fin = Object.assign({}, S.fin || {}, { status:'sent', ref:out.ref || finRef(S.orderId),
+                                              sentAt: S.fin && S.fin.sentAt && out.already ? S.fin.sentAt : Date.now(), applicants });
+    finSaveResume();
+    finEl('backBtn').style.visibility = 'hidden';
+    finShow('wait');
+    if (resend) alert('Sent again to ' + FIN.provider + '.');
+  }catch(e){
+    reportClientError('send the finance application', e, S.orderId);
+    msg.textContent = (e && e.message) || String(e);
+    if (resend) finEl('finAnsMsg').textContent = msg.textContent;
+  }finally{ btn.disabled = false; btn.style.opacity = ''; }
+};
+window.finResend = function(){
+  if (!confirm('Send the application to ' + FIN.provider + ' again?\n\nOnly do this if they say they did not get it.')) return;
+  finSend(true);
+};
+
+window.finNoChoose = function(kind){
+  finEl('finCardBox').classList.toggle('hidden', kind !== 'card');
+  finEl('finDdBox').classList.toggle('hidden', kind !== 'dd_full');
+  finEl('finNoMsg').textContent = '';
+  if (kind === 'card') finEl('finCardAmt').textContent = finMoney(finTotal());
+  if (kind === 'dd_full') finEl('finDdAmt').textContent = finMoney(finTotal());
+  if (kind === 'cancel') finAnswer('cancel');
+};
+window.finOpenCard = async function(){
+  const msg = finEl('finCardMsg');
+  msg.textContent = 'Opening the secure payment page…';
+  try{
+    const { data, error } = await sb.functions.invoke('Stripe-staff-session', { body:{ order_id:S.orderId, amount:finTotal() } });
+    if (data && data.url){ window.open(data.url, '_blank'); msg.textContent = 'Payment page opened in a new tab. When the customer has paid, come back and tap "went through".'; return; }
+    reportClientError('open the card-payment page (finance declined)', (data && data.error) || error || 'no payment URL came back', S.orderId);
+    msg.textContent = (data && data.error) || (error && error.message) || 'Card payments aren\'t available right now.';
+  }catch(e){ reportClientError('open the card-payment page (finance declined)', e, S.orderId);
+             msg.textContent = 'Couldn\'t reach the payment service — check the signal and try again.'; }
+};
+window.finCardResult = function(ok){
+  if (!ok){ finShow('no'); finEl('finNoMsg').textContent = 'The card did not go through. Choose another way to pay, or cancel.'; return; }
+  finAnswer('card');
+};
+
+/* ---- recording the answer ---- */
+const FIN_CONFIRM = {
+  considering: () => FIN.provider + '\'s text says CONSIDERING?\n\nThe order is finished as a finance sale. The office holds the paper Ezidebit form and follows up with ' + FIN.provider + '.',
+  ezidebit:    () => FIN.provider + '\'s text says EZIDEBIT?\n\nThe order is finished as a normal direct-debit sale at ' + finMoney(FIN.weekly) + ' a week from ' + isoToDMY(val('finStart')) + '. Hand the paper form to the office.',
+  no_answer:   () => 'Leave this with the office?\n\nThe order is saved. The office is texted, records ' + FIN.provider + '\'s answer when it comes, and the customer\'s welcome email waits until then.' + (finEl('finPaperDone').checked ? ' Hand in the paper Ezidebit form.' : ''),
+  card:        () => 'Has the card payment of ' + finMoney(finTotal()) + ' gone through on the payment page?\n\nThe order is finished as paid in full by card.',
+  dd_full:     () => 'Finish as paid in full by ONE direct debit of ' + finMoney(finTotal()) + ' on ' + isoToDMY(val('finDdDate')) + '?\n\nHand the new paper form to the office. The weekly form is not used.',
+  cancel:      () => 'CANCEL this order?\n\nThe finance was not approved and the customer does not want to pay another way. The order is cancelled at no cost to them, and the paper Ezidebit form is destroyed by the office.',
+};
+window.finAnswer = async function(kind){
+  const msgEl = (kind === 'card' || kind === 'dd_full' || kind === 'cancel') ? finEl('finNoMsg') : finEl('finAnsMsg');
+  msgEl.textContent = '';
+  if (kind === 'no'){ finShow('no'); return; }
+  const startOk = val('finStart') && val('finStart') >= isoAddDays(null, 10);
+  const paper = finEl('finPaperDone').checked;
+  if ((kind === 'considering' || kind === 'ezidebit')){
+    if (!paper){ msgEl.textContent = 'Tick the paper Ezidebit form first — it is the back-up if the finance does not go ahead.'; return; }
+    if (!startOk){ msgEl.textContent = 'The first payment on the paper form must be at least 10 days away.'; return; }
+  }
+  if (kind === 'dd_full'){
+    if (!(val('finDdDate') && val('finDdDate') >= isoAddDays(null, 10))){ msgEl.textContent = 'The payment date must be at least 10 days away.'; return; }
+    if (!finEl('finDdPaper').checked){ msgEl.textContent = 'Tick that the customer has signed the new paper form.'; return; }
+  }
+  if (!confirm(FIN_CONFIRM[kind]())) return;
+
+  let plan = null;
+  if ((kind === 'considering' || kind === 'ezidebit' || kind === 'no_answer') && paper && startOk) plan = { start: val('finStart') };
+  if (kind === 'dd_full') plan = { oneoff_amount: finTotal(), oneoff_date: val('finDdDate') };
+  await finRecord(kind, plan, msgEl);
+};
+async function finRecord(kind, plan, msgEl){
+  if (!navigator.onLine){ msgEl.textContent = 'No signal. Move to where you have signal and tap the answer again. Nothing has been lost.'; return; }
+  S.fin = Object.assign({}, S.fin || {}, { outcome: kind, plan: plan || (S.fin && S.fin.plan) || null });
+  /* The summary PDF FIRST: the server hands the order to the office the moment the
+     answer is recorded, and the welcome email attaches this PDF. */
+  if (kind !== 'cancel' && S.lastP){
+    try{ await generateAndUploadOrderPdf(S.orderId, S.lastP); }
+    catch(e){ reportClientError('build the order-summary PDF with the finance answer', e, S.orderId); }
+  }
+  const { data, error } = await sb.rpc('finance_set_outcome', { p_order:S.orderId, p_outcome:kind, p_plan:plan });
+  if (error){
+    reportClientError('record the finance answer (' + kind + ')', error, S.orderId);
+    msgEl.textContent = (error.message || String(error)) +
+      (/not waiting for a finance answer/i.test(error.message || '') ? ' The office may already have recorded it — ring them before doing anything else.' : '');
+    return;
+  }
+  S.fin.status = (data && data.status) || S.fin.status;
+  finClearResume();
+  if (kind === 'cancel'){ finCancelledDone(); return; }
+  showStep(9);
+}
+function finCancelledDone(){
+  S.finalized = true;                 /* nothing for finalizeOrder() to do — no office hand-over, no email */
+  markIdsSpent();
+  showStep(9);
+  const i = finEl('doneIcon'), t = finEl('doneTitle'), m = finEl('doneMsg');
+  if (i) i.textContent = '❌';
+  if (t) t.textContent = 'Order cancelled';
+  if (m) m.textContent = 'The finance was not approved and the customer chose not to pay another way, so the order is cancelled at no cost to them. Give the paper Ezidebit form to the office to destroy.';
+  ['cardPayBox', 'cashPayBox', 'pillowBox'].forEach(id => { const b = finEl(id); if (b) b.classList.add('hidden'); });
+}
+
+/* ---- the Done screen for a finance sale ---- */
+function finIsProviderSale(){ return S.pay === 'finance' && S.fin && ['sent', 'no_answer', 'considering', 'approved'].includes(S.fin.status); }
+function finDoneUi(){
+  if (S.pay !== 'finance' || !S.fin || S.fin.status === 'declined_cancelled') return;
+  /* No card or cash panel: the money is settled by the answer above. */
+  ['cardPayBox', 'cashPayBox'].forEach(id => { const b = finEl(id); if (b) b.classList.add('hidden'); });
+  const m = finEl('doneMsg'); if (!m) return;
+  const txt = {
+    considering:      FIN.provider + ' is considering the finance. The office follows up with them and holds the paper Ezidebit form — hand it in.',
+    no_answer:        'Left with the office. They record ' + FIN.provider + '\'s answer when it comes.' + ((S.fin.plan && S.fin.plan.start) ? ' Hand in the paper Ezidebit form.' : '') + ' The customer\'s welcome email waits for the answer.',
+    declined_dd:      'A normal direct-debit sale at ' + finMoney(FIN.weekly) + ' a week. Hand the paper Ezidebit form to the office to key in.',
+    declined_card:    'Paid in full by card.',
+    declined_dd_full: 'Paid in full by one direct debit. Hand the new paper form to the office to key in; the weekly form is not used.',
+  }[S.fin.status];
+  if (txt) m.textContent = txt;
+}
+
+/* ---- surviving a reload while waiting for the text ----
+   iOS discards the page of a Home-Screen app that sits in the background, which
+   is exactly what happens while the consultant reads MTF's text on their phone.
+   The marker holds just enough to put them back on this step. It is cleared the
+   moment the answer is recorded. */
+function finSaveResume(){
+  if (!S.orderId || S.pay !== 'finance') return;
+  const P = S.lastP;
+  const slimP = P ? { v:P.v, savedAt:P.savedAt, customerName:P.customerName, fields:P.fields, flags:P.flags,
+                      products:P.products, wantDel:P.wantDel, referralId:P.referralId } : null;
+  const mark = { at:Date.now(), orderId:S.orderId, customerId:S.customerId || null, saleType:S.saleType, a2:S.a2,
+                 lastP:slimP, fin:S.fin, start:val('finStart'), paper:!!(finEl('finPaperDone') || {}).checked };
+  try{ localStorage.setItem(FIN_RESUME, JSON.stringify(mark)); }
+  catch(e){ try{ mark.lastP = null; localStorage.setItem(FIN_RESUME, JSON.stringify(mark)); }
+            catch(e2){ reportClientError('save the finance resume marker (a reload would lose the finance step)', e2, S.orderId); } }
+}
+function finClearResume(){ try{ localStorage.removeItem(FIN_RESUME); }catch(_e){} }
+async function resumeFinance(){
+  let mark = null;
+  try{ mark = JSON.parse(localStorage.getItem(FIN_RESUME) || 'null'); }catch(_e){ mark = null; }
+  if (!mark || !mark.orderId) return false;
+  if ((Date.now() - (mark.at || 0)) / 60000 > FIN_RESUME_MAX_MIN){ finClearResume(); return false; }
+  S.orderId = mark.orderId; S.customerId = mark.customerId || null; S.saleType = mark.saleType || S.saleType;
+  S.a2 = !!mark.a2; S.pay = 'finance'; S.fin = mark.fin || null;
+  if (mark.lastP) S.lastP = mark.lastP;
+  if (mark.start) finEl('finStart').value = mark.start;
+  finEl('finPaperDone').checked = !!mark.paper;
+  showStep(10);
+  return true;
+}
+
+/* ---- wiring (runs once, after the page's own wiring) ---- */
+document.querySelectorAll('#payOption .choice').forEach(c => c.addEventListener('click', finPayChanged));
+if (document.readyState !== 'loading') finBoot(); else document.addEventListener('DOMContentLoaded', finBoot);
+
+function finPayLabel(){
+  const st=(S.fin&&(S.fin.outcome||S.fin.status))||'sent';
+  if(['ezidebit','declined_dd'].includes(st)) return 'Ezidebit direct debit';
+  if(['card','declined_card','dd_full','declined_dd_full'].includes(st)) return 'Paid in full';
+  return 'Finance — '+FIN.provider;
+}
+function finPdfLines(orderId){
+  const st=(S.fin&&(S.fin.outcome||S.fin.status))||'sent', pl=(S.fin&&S.fin.plan)||{};
+  const wk=finMoney(FIN.weekly), from=pl.start?' from '+isoToDMY(pl.start):'';
+  const backup='If the finance is not approved: Ezidebit direct debit '+wk+' weekly'+from+' (paper form signed).';
+  const L={
+    sent:        ['Applied for finance with '+FIN.provider+' (reference '+finRef(orderId)+').', backup],
+    considering: ['Applied for finance with '+FIN.provider+' (reference '+finRef(orderId)+').', backup],
+    no_answer:   ['Applied for finance with '+FIN.provider+' (reference '+finRef(orderId)+').', backup],
+    ezidebit:    ['Ezidebit direct debit '+wk+' weekly'+from+' (paper form signed).'],
+    declined_dd: ['Ezidebit direct debit '+wk+' weekly'+from+' (paper form signed).'],
+    card:        ['Finance not approved. Paid in full by card.'],
+    declined_card:['Finance not approved. Paid in full by card.'],
+    dd_full:     ['Finance not approved. Paid in full by one Ezidebit direct debit of '+finMoney(pl.oneoff_amount)+(pl.oneoff_date?' on '+isoToDMY(pl.oneoff_date):'')+'.'],
+    declined_dd_full:['Finance not approved. Paid in full by one Ezidebit direct debit of '+finMoney(pl.oneoff_amount)+(pl.oneoff_date?' on '+isoToDMY(pl.oneoff_date):'')+'.'],
+  };
+  return L[st]||[];
+}
+
 // ----- init -----
 document.querySelectorAll('canvas.sig').forEach(c=>{sizeCanvas(c);initSig(c);});
 window.addEventListener('resize',()=>document.querySelectorAll('section.step.on canvas.sig').forEach(sizeCanvas));
@@ -3156,7 +3800,8 @@ addProduct();
 /* Coming back from Ezidebit takes priority over a fresh start — resumeFromEzidebit
    puts the consultant back on step 8 with the direct debit attached. If there is
    nothing to resume, or anything goes wrong, the app starts normally. */
-resumeFromEzidebit().then(function(resumed){ if(!resumed) showStep(0); })
+resumeFromEzidebit().then(function(resumed){ return resumed ? true : resumeFinance(); })   /* 20 Oct: then a finance wait */
+                    .then(function(resumed){ if(!resumed) showStep(0); })
                     .catch(function(e){ console.warn('resume failed:',e&&e.message||e);
                       reportClientError('resume the order after the Ezidebit form', e);
                       showStep(0); });

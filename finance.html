@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="en-NZ">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Simtec — Finance</title>
+<link rel="icon" href="icon-192.png">
+<script>window.SIMTEC_BUILD="2026-10-20-01";</script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.112.2"></script>
+<script src="auth.js?v=3" data-roles="admin,manager,office"></script>
+<!-- ===========================================================================
+     FINANCE (MTF)  ·  built 20 Oct 2026
+
+     The one page for finance sales:
+       1. the master switch and settings  (admin / manager only)
+       2. which consultants have finance on their iPad  (admin / manager only)
+       3. the follow-up list — every finance sale that needs the office, with the
+          buttons that record what happened (office, manager, admin)
+       4. the last applications emailed, so a failed send is seen
+
+     ⚠ EVERY BUTTON CALLS A DATABASE FUNCTION. Nothing here writes a table
+       directly; the database refuses a direct change to a finance column, and
+       each function checks who is asking. This page only shows and asks.
+     ⚠ NOTHING IS LIVE UNTIL THE SWITCH IS ON. With it off, no iPad shows
+       finance and nothing is ever emailed to the finance company.
+=========================================================================== -->
+<style>
+  :root{ --navy:#0e2038; --ink:#0e1726; --paper:#f4f6f9; --line:#dfe5ec; --muted:#5b6880;
+         --warn:#b02a2a; --ok:#0f7b3f; --amber:#8a5a00; --blue:#1d4ed8; }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--paper);color:var(--ink);font:400 15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif}
+  nav{background:var(--navy);color:#fff;padding:12px 18px;display:flex;align-items:center;gap:14px}
+  nav a{color:#cbd5e1;text-decoration:none;font-size:14px}
+  nav b{letter-spacing:2px}
+  .wrap{max-width:1100px;margin:0 auto;padding:18px 16px 70px}
+  h1{font-size:22px;margin:0 0 4px} h2{font-size:17px;margin:0 0 10px}
+  .sub{color:var(--muted);margin:0 0 16px;font-size:14px}
+  .card{background:#fff;border:1px solid var(--line);border-radius:14px;padding:18px;margin:0 0 16px}
+  .banner{border-radius:14px;padding:14px 18px;margin:0 0 16px;font-weight:700}
+  .banner.off{background:#eef1f6;color:var(--navy);border:1px solid var(--line)}
+  .banner.on{background:#e6f4ec;color:var(--ok);border:1px solid #b9dfc9}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px}
+  label{display:block;font-size:12px;font-weight:700;letter-spacing:.03em;text-transform:uppercase;color:var(--muted);margin:0 0 4px}
+  input,select{width:100%;padding:9px 10px;border:1px solid var(--line);border-radius:9px;font:inherit;background:#fff}
+  input:disabled,select:disabled{background:#f2f4f7;color:#6b7280}
+  button{border:none;border-radius:9px;padding:9px 14px;font:inherit;font-weight:700;background:var(--navy);color:#fff;cursor:pointer}
+  button.ghost{background:#eef1f6;color:var(--navy)}
+  button.red{background:#fdeaea;color:var(--warn);border:1px solid #f2c4c4}
+  button.green{background:#e6f4ec;color:var(--ok);border:1px solid #b9dfc9}
+  button:disabled{opacity:.45;cursor:default}
+  table{width:100%;border-collapse:collapse}
+  th,td{padding:9px 8px;text-align:left;vertical-align:top;border-bottom:1px solid var(--line);font-size:14px}
+  th{font-size:11.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--muted)}
+  .acts{display:flex;flex-wrap:wrap;gap:6px}
+  .acts button{padding:6px 10px;font-size:13px}
+  .pill{display:inline-block;padding:2px 8px;border-radius:20px;font-size:12px;font-weight:700;background:#eef1f6;color:var(--navy)}
+  .pill.ok{background:#e6f4ec;color:var(--ok)} .pill.bad{background:#fdeaea;color:var(--warn)} .pill.amb{background:#fff4dd;color:var(--amber)}
+  .msg{border-radius:10px;padding:10px 12px;margin:0 0 12px;font-weight:600;display:none}
+  .msg.err{background:#fdeaea;color:var(--warn);border:1px solid #f2c4c4}
+  .msg.okm{background:#e6f4ec;color:var(--ok);border:1px solid #b9dfc9}
+  .muted{color:var(--muted);font-size:13px}
+  .warnbox{background:#fff7e6;border:1px solid #f0dcae;color:#6b5320;border-radius:10px;padding:10px 12px;font-size:13.5px;margin:10px 0 0}
+  @media(max-width:700px){ th:nth-child(4),td:nth-child(4){display:none} }
+</style>
+</head>
+<body>
+<nav><a href="home.html">‹ Home</a><b>SIMTEC</b><span style="color:#cbd5e1;font-size:14px">Finance</span>
+  <button class="ghost" style="margin-left:auto" onclick="loadAll()">↻ Refresh</button></nav>
+<div class="wrap">
+  <h1>Finance — <span class="prov">MTF Finance</span></h1>
+  <p class="sub">The switch, the consultants who have finance on their iPad, and every finance sale that needs the office.</p>
+  <div class="msg err" id="err"></div>
+  <div class="msg okm" id="ok"></div>
+  <div class="banner off" id="banner">Loading…</div>
+
+  <!-- 1. follow-ups (first: this is what the office uses every day) -->
+  <div class="card">
+    <h2>Finance sales that need the office</h2>
+    <p class="muted" style="margin-top:-6px">Each button records what happened. The customer, the commission and delivery all follow from it automatically.</p>
+    <div id="fuState" class="muted">Loading…</div>
+    <div style="overflow-x:auto"><table id="fuTbl" style="display:none">
+      <thead><tr><th>Customer</th><th>Where it is</th><th>Paper form</th><th>Sent</th><th>Record</th></tr></thead>
+      <tbody id="fuRows"></tbody></table></div>
+  </div>
+
+  <!-- 2. settings -->
+  <div class="card">
+    <h2>Settings</h2>
+    <p class="muted" id="setWho" style="margin-top:-6px"></p>
+    <div class="grid">
+      <div><label for="sProv">Finance company</label><input id="sProv"></div>
+      <div><label for="sEmail">Application email address</label><input id="sEmail" type="email" placeholder="from the finance company"></div>
+      <div><label for="sCopy">Copy every application to</label><input id="sCopy" type="email" placeholder="optional, e.g. info@simtectp.com"></div>
+      <div><label for="sWeekly">Standard weekly direct debit ($)</label><input id="sWeekly" type="number" min="5" step="1"></div>
+      <div><label for="sAlert">Text the office after (minutes) with no answer</label><input id="sAlert" type="number" min="1" max="240"></div>
+      <div><label for="sPaper">Paper form overdue after (days)</label><input id="sPaper" type="number" min="1" max="30"></div>
+      <div><label for="sTerms">Terms shown on every iPad</label>
+        <select id="sTerms"><option value="1.1">Version 1.1 (current)</option><option value="1.2">Version 1.2 (finance)</option></select></div>
+    </div>
+    <p class="muted" style="margin:10px 0 0">Order to switch on: enter the application email and Save → switch on the consultants → switch the terms to version 1.2 and Save → Switch finance ON. Finance cannot be switched on while the terms are at version 1.1.</p>
+    <div class="warnbox" id="termsWarn" style="display:none">Switching to version 1.2 changes the terms on <b>every</b> iPad, finance or not, from the next sale. The v1.2 PDF must be in place first (<a href="terms-of-sale-v1.2.pdf" target="_blank">check it opens</a>).</div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:14px">
+      <button id="btnSave" onclick="saveSettings()">Save settings</button>
+      <button id="btnOn" class="green" onclick="setEnabled(true)">Switch finance ON</button>
+      <button id="btnOff" class="red" onclick="setEnabled(false)">Switch finance OFF</button>
+    </div>
+  </div>
+
+  <!-- 3. consultants -->
+  <div class="card">
+    <h2>Who has finance on their iPad</h2>
+    <p class="muted" style="margin-top:-6px">Only a manager or an administrator can change these. A consultant needs their mobile on the Consultants page, because the finance company texts the answer to it.</p>
+    <div id="peState" class="muted">Loading…</div>
+    <div style="overflow-x:auto"><table id="peTbl" style="display:none">
+      <thead><tr><th>Name</th><th>Role</th><th>Mobile</th><th>Changed</th><th>Finance</th></tr></thead>
+      <tbody id="peRows"></tbody></table></div>
+  </div>
+
+  <!-- 4. recent applications -->
+  <div class="card">
+    <h2>Applications emailed</h2>
+    <p class="muted" style="margin-top:-6px">The last 25. A failed send shows in red with the reason.</p>
+    <div id="apState" class="muted">Loading…</div>
+    <div style="overflow-x:auto"><table id="apTbl" style="display:none">
+      <thead><tr><th>When</th><th>Reference</th><th>Applicants</th><th>Sent by</th><th>Result</th></tr></thead>
+      <tbody id="apRows"></tbody></table></div>
+  </div>
+</div>
+
+<script>
+const sb = supabase.createClient("https://jvqjoenaungubpoegyvf.supabase.co","sb_publishable_J4MYTdJJyEaWe-GadpwdYA_upPT2rKw");
+let VIEW = null;
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (m) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+const money = (n) => '$' + Number(n || 0).toLocaleString('en-NZ', {minimumFractionDigits:2, maximumFractionDigits:2});
+const when = (t) => t ? new Date(t).toLocaleString('en-NZ', {day:'numeric', month:'short', hour:'numeric', minute:'2-digit'}) : '—';
+const nzToday = () => new Date().toLocaleDateString('en-CA', {timeZone:'Pacific/Auckland'});
+const addDays = (iso, n) => { const d = new Date(iso + 'T00:00:00'); d.setDate(d.getDate() + n); return d.toLocaleDateString('en-CA'); };
+function show(kind, text){ const e = $(kind); e.textContent = text; e.style.display = text ? 'block' : 'none'; if (text) window.scrollTo(0, 0); }
+function errText(e){ return (e && (e.message || e.details || e.hint)) || String(e); }
+
+async function loadAll(){
+  show('err', ''); show('ok', '');
+  await Promise.all([loadView(), loadFollowups(), loadApps()]);
+}
+
+/* ---------- settings + people ---------- */
+async function loadView(){
+  const { data, error } = await sb.rpc('finance_admin_view');
+  if (error){ show('err', 'Could not load the finance settings: ' + errText(error)); return; }
+  VIEW = data;
+  const s = data.settings || {}, can = !!data.can_change;
+  document.querySelectorAll('.prov').forEach((el) => { el.textContent = s.provider_name || 'the finance company'; });
+  const b = $('banner');
+  b.className = 'banner ' + (s.enabled ? 'on' : 'off');
+  const nOn = (data.people || []).filter((p) => p.enabled).length;
+  b.textContent = s.enabled
+    ? 'Finance is ON. ' + nOn + ' consultant' + (nOn === 1 ? '' : 's') + ' can offer it. Applications go to ' + (s.application_email || '—') + '. Terms on every iPad: version ' + s.terms_version + '.'
+    : 'Finance is OFF. No iPad shows it and nothing is sent. Terms on every iPad: version ' + s.terms_version + '.';
+  $('sProv').value = s.provider_name || ''; $('sEmail').value = s.application_email || ''; $('sCopy').value = s.copy_email || '';
+  $('sWeekly').value = s.dd_weekly != null ? Number(s.dd_weekly) : 50; $('sAlert').value = s.alert_minutes; $('sPaper').value = s.paper_days;
+  $('sTerms').value = s.terms_version || '1.1';
+  ['sProv','sEmail','sCopy','sWeekly','sAlert','sPaper','sTerms','btnSave','btnOn','btnOff'].forEach((id) => { $(id).disabled = !can; });
+  $('btnOn').style.display = s.enabled ? 'none' : ''; $('btnOff').style.display = s.enabled ? '' : 'none';
+  $('setWho').textContent = can ? (s.updated_by ? 'Last changed by ' + s.updated_by + ', ' + when(s.updated_at) + '.' : '')
+                                : 'Only a manager or an administrator can change these.';
+  $('termsWarn').style.display = ($('sTerms').value === '1.2' && s.terms_version !== '1.2') ? 'block' : 'none';
+  $('sTerms').onchange = () => { $('termsWarn').style.display = ($('sTerms').value === '1.2' && s.terms_version !== '1.2') ? 'block' : 'none'; };
+
+  const people = data.people || [];
+  $('peState').style.display = people.length ? 'none' : 'block'; $('peState').textContent = 'No logins found.';
+  $('peTbl').style.display = people.length ? '' : 'none';
+  $('peRows').innerHTML = people.map((p) => '<tr><td><b>' + esc(p.name) + '</b>' + (p.consultant_name && p.consultant_name !== p.name ? '<div class="muted">' + esc(p.consultant_name) + '</div>' : '') + '</td>' +
+    '<td>' + esc(p.role) + '</td><td>' + (p.phone ? esc(p.phone) : '<span class="pill bad">no mobile</span>') + '</td>' +
+    '<td class="muted">' + (p.changed_at ? esc(when(p.changed_at)) + (p.changed_by ? '<br>' + esc(p.changed_by) : '') : '—') + '</td>' +
+    '<td><button class="' + (p.enabled ? 'green' : 'ghost') + '" ' + (can ? '' : 'disabled') + ' onclick="toggleAccess(\'' + p.user_id + '\',' + !p.enabled + ',this)">' + (p.enabled ? 'On' : 'Off') + '</button></td></tr>').join('');
+}
+async function saveSettings(){
+  const p = { provider_name:$('sProv').value.trim(), application_email:$('sEmail').value.trim(), copy_email:$('sCopy').value.trim(),
+              dd_weekly:Number($('sWeekly').value), alert_minutes:Number($('sAlert').value), paper_days:Number($('sPaper').value),
+              terms_version:$('sTerms').value };
+  const cur = (VIEW && VIEW.settings) || {};
+  if (p.terms_version === '1.2' && cur.terms_version !== '1.2'){
+    const ok = await fetch('terms-of-sale-v1.2.pdf', { method:'HEAD', cache:'no-store' }).then((r) => r.ok && /pdf/.test(r.headers.get('content-type') || '')).catch(() => false);
+    if (!ok){ show('err', 'The version 1.2 terms PDF (terms-of-sale-v1.2.pdf) is not on the website yet. Upload it first, then switch the terms.'); return; }
+    if (!confirm('Switch EVERY iPad to the version 1.2 terms from the next sale?\n\nThe effective date printed on them will be today.')) return;
+  }
+  if (p.terms_version === '1.1' && cur.terms_version === '1.2'){
+    if (cur.enabled){ show('err', 'Finance is on, so the terms must stay at version 1.2. Switch finance off first.'); return; }
+    if (!confirm('Go back to the version 1.1 terms on every iPad?')) return;
+  }
+  const { error } = await sb.rpc('set_finance_settings', { p });
+  if (error){ show('err', errText(error)); return; }
+  show('ok', 'Settings saved.'); loadView();
+}
+async function setEnabled(on){
+  if (on && !confirm('Switch finance ON?\n\nConsultants who are switched on below will see "Finance" on their iPad from their next sale, and applications will be emailed to ' + ($('sEmail').value || 'the finance company') + '.')) return;
+  if (!on && !confirm('Switch finance OFF?\n\nNo iPad will offer it from the next sale. Sales already with the finance company carry on as they are.')) return;
+  const { error } = await sb.rpc('set_finance_settings', { p:{ enabled:on } });
+  if (error){ show('err', errText(error)); return; }
+  show('ok', on ? 'Finance is ON.' : 'Finance is OFF.'); loadView();
+}
+async function toggleAccess(uid, on, btn){
+  btn.disabled = true;
+  const { error } = await sb.rpc('set_finance_access', { p_user:uid, p_on:on });
+  if (error){ show('err', errText(error)); btn.disabled = false; return; }
+  loadView();
+}
+
+/* ---------- follow-ups ---------- */
+let FU = [];
+async function loadFollowups(){
+  const { data, error } = await sb.rpc('finance_followups');
+  if (error){ $('fuState').textContent = 'Could not load: ' + errText(error); return; }
+  FU = data || [];
+  $('fuState').style.display = FU.length ? 'none' : 'block'; $('fuState').textContent = 'Nothing waiting. ✓';
+  $('fuTbl').style.display = FU.length ? '' : 'none';
+  $('fuRows').innerHTML = FU.map((r, i) => {
+    const st = r.status, pa = r.paper;
+    const A = [];
+    if (st === 'sent' || st === 'no_answer'){
+      A.push(btn(i, 'considering', 'Considering'), btn(i, 'ezidebit', 'Ezidebit'), btn(i, 'card', 'Paid by card'), btn(i, 'dd_full', 'One direct debit'), btn(i, 'cancel', 'Cancel', 'red'));
+    }
+    if (st === 'considering') A.push(btn(i, 'approved', 'Approved', 'green'));
+    if (st === 'considering' || st === 'approved') A.push(btn(i, 'mtf_paid', 'Finance company paid', 'green'), btn(i, 'declined', 'Declined → Ezidebit', 'red'));
+    if (pa === 'due') A.push(btn(i, 'paper_received', 'Paper form received', 'ghost'));
+    if (pa === 'received' && (st === 'declined_dd' || st === 'declined_dd_full')) A.push(btn(i, 'paper_keyed', 'Keyed into Ezidebit', 'ghost'));
+    if (pa === 'not_needed' || (pa === 'received' && !['declined_dd','declined_dd_full'].includes(st))) A.push(btn(i, 'paper_destroyed', 'Paper form destroyed', 'ghost'));
+    const stPill = { sent:'amb', no_answer:'bad', considering:'amb', approved:'ok' }[st] || '';
+    return '<tr><td><a href="customer-detail.html?id=' + encodeURIComponent(r.order_id) + '"><b>' + esc(r.customer) + '</b></a>' +
+      '<div class="muted">' + esc(r.consultant || '') + ' · ' + esc(r.ref || '') + ' · ' + money(r.contract) + (Number(r.paid) > 0 ? ' (paid ' + money(r.paid) + ')' : '') + '</div></td>' +
+      '<td><span class="pill ' + stPill + '">' + esc(st) + '</span><div class="muted">' + esc(r.note) + '</div></td>' +
+      '<td>' + (pa ? esc(pa.replace('_', ' ')) : '—') + '</td><td class="muted">' + esc(when(r.sent_at)) + '</td>' +
+      '<td><div class="acts">' + A.join('') + '</div></td></tr>';
+  }).join('');
+}
+const btn = (i, act, label, cls = '') => '<button class="' + cls + '" onclick="act(' + i + ',\'' + act + '\')">' + label + '</button>';
+
+const OUTCOMES = ['considering', 'ezidebit', 'card', 'dd_full', 'cancel'];
+async function act(i, a){
+  const r = FU[i]; if (!r) return;
+  show('err', ''); show('ok', '');
+  let res;
+  if (OUTCOMES.includes(a)){
+    /* the finance company's answer, recorded by the office (the consultant left it with us) */
+    let plan = null;
+    const minDate = addDays(nzToday(), 10);
+    if (a === 'considering' || a === 'ezidebit'){
+      const d = prompt('First payment date on the paper Ezidebit form (YYYY-MM-DD, at least 10 days away).\n\nLeave it blank if the form already recorded on the iPad is right.', minDate);
+      if (d === null) return;
+      if (d.trim()){ if (!/^\d{4}-\d{2}-\d{2}$/.test(d.trim()) || d.trim() < minDate){ show('err', 'The date must be YYYY-MM-DD and at least 10 days away (' + minDate + ' or later).'); return; } plan = { start:d.trim() }; }
+    }
+    if (a === 'dd_full'){
+      const d = prompt('Date of the single direct debit for ' + money(Number(r.contract) - Number(r.paid || 0)) + ' (YYYY-MM-DD, at least 10 days away):', minDate);
+      if (d === null) return;
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(d.trim()) || d.trim() < minDate){ show('err', 'The date must be YYYY-MM-DD and at least 10 days away.'); return; }
+      plan = { oneoff_amount: Math.round((Number(r.contract) - Number(r.paid || 0)) * 100) / 100, oneoff_date:d.trim() };
+    }
+    const words = { considering:'the finance company is CONSIDERING it', ezidebit:'it goes to EZIDEBIT at the standard weekly amount', card:'the customer PAID IN FULL BY CARD', dd_full:'the customer pays in full by ONE DIRECT DEBIT', cancel:'the customer CANCELS (finance declined, no other payment)' }[a];
+    if (!confirm('Record for ' + r.customer + ' that ' + words + '?' + (r.status === 'no_answer' && a !== 'cancel' ? '\n\nTheir welcome email goes out within the next few minutes.' : ''))) return;
+    res = await sb.rpc('finance_set_outcome', { p_order:r.order_id, p_outcome:a, p_plan:plan });
+  } else {
+    let amount = null, note = null;
+    if (a === 'mtf_paid'){
+      const owing = Math.round((Number(r.contract) - Number(r.paid || 0)) * 100) / 100;
+      const v = prompt('Amount the finance company paid for ' + r.customer + ':', owing.toFixed(2));
+      if (v === null) return;
+      amount = Number(String(v).replace(/[^0-9.]/g, ''));
+      if (!(amount > 0)){ show('err', 'Enter the amount paid.'); return; }
+      note = prompt('Their payment reference or a note (optional):', '') || null;
+      if (!confirm('Record ' + money(amount) + ' paid by the finance company for ' + r.customer + '?\n\nIf that pays the order in full, it is marked paid in full and becomes ready for delivery once the cooling-off period has passed.')) return;
+    } else {
+      const words = { approved:'APPROVED by the finance company', declined:'DECLINED by the finance company — it becomes a normal direct-debit sale from the paper form', paper_received:'the paper Ezidebit form is at the office', paper_keyed:'the paper form has been KEYED INTO EZIDEBIT', paper_destroyed:'the paper form has been DESTROYED' }[a];
+      if (!confirm('Record for ' + r.customer + ': ' + words + '?')) return;
+    }
+    res = await sb.rpc('finance_office_action', { p_order:r.order_id, p_action:a, p_amount:amount, p_note:note });
+  }
+  if (res.error){ show('err', errText(res.error)); return; }
+  show('ok', 'Recorded for ' + r.customer + '.');
+  loadFollowups();
+}
+
+/* ---------- recent applications ---------- */
+async function loadApps(){
+  const { data, error } = await sb.from('finance_applications')
+    .select('created_at, finance_ref, applicants, sent_by_name, ok, error, to_email').order('created_at', { ascending:false }).limit(25);
+  if (error){ $('apState').textContent = 'Could not load: ' + errText(error); return; }
+  const rows = data || [];
+  $('apState').style.display = rows.length ? 'none' : 'block'; $('apState').textContent = 'None sent yet.';
+  $('apTbl').style.display = rows.length ? '' : 'none';
+  $('apRows').innerHTML = rows.map((r) => '<tr><td class="muted">' + esc(when(r.created_at)) + '</td><td>' + esc(r.finance_ref) + '</td>' +
+    '<td>' + esc((r.applicants || []).map((a) => a.name).join(' & ')) + '</td><td>' + esc(r.sent_by_name || '') + '</td>' +
+    '<td>' + (r.ok ? '<span class="pill ok">sent to ' + esc(r.to_email || '') + '</span>' : '<span class="pill bad">failed</span><div class="muted">' + esc(r.error || '') + '</div>') + '</td></tr>').join('');
+}
+
+(function boot(){ let n = 0; const t = setInterval(() => { n++; if (window.SIMTEC_USER || n > 80){ clearInterval(t); loadAll(); } }, 50); })();
+</script>
+</body>
+</html>
