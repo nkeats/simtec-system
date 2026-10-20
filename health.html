@@ -225,6 +225,20 @@ const CHECKS=[
     }
   },
   {
+    id:"plan",
+    title:"Order's instalment differs from what Ezidebit is debiting",
+    why:"Arrears and the customer's app follow what Ezidebit is ACTUALLY debiting (20 Oct 2026). When the office changes a debit in EziOnline and not on the order, the two disagree — the order then shows the wrong instalment, and the wrong figure goes into anything quoted to the customer. Each one needs a person to confirm which is right.",
+    fix:"Open the customer and check EziOnline. If Ezidebit is right, correct the order's instalment and frequency (Save schedule) and it clears. If the order is right, fix the schedule in EziOnline — the debit is wrong and the customer is being charged the wrong amount. A weekly order debited fortnightly at double the amount is the same money; update the order so they match.",
+    cols:["Customer","Position","On the order","Ezidebit is debiting"],
+    run:async()=>{
+      const rows=await all("v_ezidebit_plan_mismatch","order_id,customer,state,instalment_on_order,frequency_on_order,ezidebit_amount,ezidebit_every_days",q=>q.order("customer"));
+      const every=n=>n>=28?"monthly":(n>=13?"fortnightly":"weekly");
+      return rows.map(r=>[{href:"customer-detail.html?id="+r.order_id,text:r.customer||"Open order"}, r.state||"—",
+        "$"+Number(r.instalment_on_order||0).toFixed(2)+" "+(r.frequency_on_order||"weekly"),
+        "$"+Number(r.ezidebit_amount||0).toFixed(2)+" "+every(+r.ezidebit_every_days||7)]);
+    }
+  },
+  {
     id:"nodate",
     title:"Orders with no order date",
     why:"Reports skips any order without a date, so the sale is invisible in weekly figures.",

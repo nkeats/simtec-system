@@ -43,13 +43,13 @@ body{font-family:system-ui,sans-serif}
 
   <div class="flex flex-wrap items-center gap-2 mb-4 noprint">
     <span class="text-xs text-slate-500 mr-1">Sort</span>
-    <button class="btn" data-sort="weeks">Weeks behind</button>
+    <button class="btn" data-sort="weeks">Most missed</button>
     <button class="btn" data-sort="arrears">Amount behind</button>
     <button class="btn" data-sort="name">Name</button>
     <span class="w-px h-5 bg-slate-700 mx-1"></span>
     <span class="text-xs text-slate-500 mr-1">Show</span>
     <button class="btn" data-filter="all">All in arrears</button>
-    <button class="btn" data-filter="red">3+ weeks only</button>
+    <button class="btn" data-filter="red">3+ missed only</button>
     <button class="btn" data-filter="watching">👁 Watching <span id="watchcount"></span></button>
     <button class="btn ml-auto" onclick="window.print()">🖨 Print</button>
   </div>
@@ -58,10 +58,9 @@ body{font-family:system-ui,sans-serif}
   <div id="state" class="text-center text-slate-500 py-20">Loading arrears…</div>
 
   <div class="mt-5 flex flex-wrap gap-4 text-xs text-slate-500 noprint">
-    <span><span class="sq" style="background:#1faa5a"></span> Paid</span>
-    <span><span class="sq" style="background:#e0a010"></span> Late — recovered</span>
-    <span><span class="sq" style="background:#dc2626"></span> Missed / overdue</span>
-    <span><span class="sq" style="background:#475569"></span> Upcoming</span>
+    <span><span class="sq" style="background:#1faa5a"></span> Payment received</span>
+    <span><span class="sq" style="background:#dc2626"></span> Debit failed</span>
+    <span>On this list: a debit failed in the last 10 weeks and has not been made up, nothing has arrived for two debits, or nothing has ever been collected. Older shortfalls show on the customer's page.</span>
   </div>
 </div>
 
@@ -104,71 +103,17 @@ const fmtD=d=>d?new Date(d+'T12:00:00').toLocaleDateString('en-NZ',{day:'2-digit
 const esc=s=>(s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const titleCase=s=>(s||'').replace(/_/g,' ').replace(/\b\w/g,m=>m.toUpperCase());
 
-// ── Payment maths (same rules as the client page) ──────────────────────────
-const PERIODS={weekly:{per:7,total:156,word:"wk"},fortnightly:{per:14,total:78,word:"fn"},monthly:{per:30.44,total:36,word:"mo"}};
-
-// When did this loan actually start collecting?
-//  1. A recorded start date always wins.
-//  2. Otherwise work backwards from the next scheduled debit: if they've paid
-//     N instalments, the first one was N periods before the next one.
-//  3. If nothing has been paid and the next debit is still ahead, the loan
-//     HAS NOT STARTED. Nothing is owed. (The old code accrued from the order
-//     date and reported brand-new customers as weeks behind.)
-// The schedule is recorded, not inferred. schedule_start_date is the date of the
-// first debit under the plan in force RIGHT NOW. A customer whose mandate was
-// recreated after a bank error is judged from that date, not from the day they bought.
-function loanStart(order, perAmt, perDays){
-  const s = order.schedule_start_date || order.loan_start_date || order.first_payment_date;
-  if(s) return {start:new Date(String(s).slice(0,10)+'T12:00:00'), estimated:false};
-  if(order.next_payment_date){
-    const next=new Date(order.next_payment_date+'T12:00:00');
-    const paid=+order.amount_paid_to_date||0;
-    const made=perAmt>0?Math.floor((paid+0.01)/perAmt):0;
-    return {start:new Date(next.getTime()-made*perDays*DAY), estimated:true};
-  }
-  if(order.order_date) return {start:new Date(String(order.order_date).slice(0,10)+'T12:00:00'), estimated:true};
-  return {start:null, estimated:true};
-}
-
-function analyse(order){
-  const contract=+order.contract_value||0;
-  const paid=+order.amount_paid_to_date||0;
-  const f=PERIODS[order.payment_frequency]||PERIODS.weekly;
-
-  const haveTerms = order.instalment_amount!=null && +order.instalment_amount>0;
-  const perAmt = haveTerms ? +order.instalment_amount : (f.total?contract/f.total:0);
-  const total  = (order.term_periods && +order.term_periods>0) ? +order.term_periods : f.total;
-
-  const {start, estimated} = loanStart(order, perAmt, f.per);
-
-  if(!start || start>today){
-    return {paid,contract,balance:contract-paid,pct:contract?paid/contract*100:0,
-            cells:[],redCount:0,amberCount:0,total,perAmt,behindBy:0,
-            notStarted:true, startsOn:start, estimated:!haveTerms};
-  }
-
-  // Debits that have fallen due since the schedule began (the first one counts).
-  const elapsed  = Math.floor((today-start)/DAY/f.per)+1;
-  const elapsedW = Math.max(0, Math.min(total, elapsed));
-  const weeksCovered = perAmt>0?Math.min(total,Math.floor((paid+0.01)/perAmt)):0;
-  const expected = Math.min(contract, perAmt*elapsedW);
-  const behindBy = Math.max(0, expected-paid);
-  const behind   = behindBy > perAmt;                  // one period's grace for settlement lag
-  const redCount = behind?Math.max(0,elapsedW-weeksCovered):0;
-
-  const cells=[];
-  for(let w=1;w<=total;w++){
-    let cls,label;
-    const due=new Date(start.getTime()+(w-1)*f.per*DAY);
-    if(w<=weeksCovered){cls='#1faa5a';label='Paid';}
-    else if(behind&&w<=elapsedW){cls='#dc2626';label='Behind';}
-    else{cls='#475569';label='Upcoming';}
-    cells.push({w,cls,label,due});
-  }
-  return {paid,contract,balance:contract-paid,pct:contract?paid/contract*100:0,
-          cells,redCount,amberCount:0,total,perAmt,behindBy,
-          notStarted:false, estimated:!haveTerms};
-}
+/* ⚠⚠ 20 Oct 2026 — WHO IS ON THIS LIST IS DECIDED IN ONE PLACE: order_chase_status(),
+   read through v_customer_position.chase. This page used to work it out itself —
+   instalment on the order × weeks since the schedule began — and listed people who
+   had paid every cent Ezidebit asked for (the office had changed their debit in
+   EziOnline) and people whose only miss was months ago and long since paid.
+   [stated] Nigel 20 Oct: RECENT MISSES ONLY — on the list if a debit failed in the
+   last 10 weeks and has not been made up, or nothing has arrived for two debits, or
+   nothing has ever been collected. An older shortfall shows on the customer's page.
+   NEVER put a calculation of who is behind back on this page. */
+const REASON={missed:'Missed recently', stopped:'Payments stopped', 'nothing collected':'Nothing collected yet'};
+const PER_WORD=d=>d>=28?'mo':(d>=13?'fn':'wk');
 
 // ── State ──────────────────────────────────────────────────────────────────
 let rows=[], sortBy='weeks', filter='all';
@@ -208,78 +153,98 @@ async function saveContact(){
 }
 
 async function load(quiet){
-  const {data:orders,error}=await sb.from('sim_orders')
-    .select('*, sim_customers(*), sim_order_items(product_name,quantity)')
-    .eq('order_status','active');
-  if(error){$('state').innerHTML=`<span class="text-red-400">${esc(error.message)}</span>`;return;}
-  const behind=[];
-  for(const o of (orders||[])){
-    if(o.paid_via_order_id) continue;               // paid on someone else's account
-    const a=analyse(o);
-    if(a.redCount<1)continue;                       // only customers actually behind
-    const inst=a.perAmt;
-    const cust=o.sim_customers||{};
-    const product=(o.sim_order_items||[]).map(i=>i.product_name).filter(Boolean).join(', ')||'—';
-    behind.push({
-      orderId:o.id, doubtful:o.doubtful,
-      custId:cust.id||o.customer_id,
-      name:`${cust.first_name||''} ${cust.last_name||''}`.trim()||'(no name)',
-      mobile:cust.mobile||'', product,
-      consultant:o.consultant_name||'',
-      weeks:a.redCount, arrears:a.behindBy, amber:a.amberCount, estimated:a.estimated,
-      paid:a.paid, contract:a.contract, balance:a.balance, pct:a.pct,
-      payer:o.ezidebit_payer_ref||o.ezidebit_customer_id||null, lastPaid:null,
-      delivered:o.delivery_status==='delivered', deliveryStatus:o.delivery_status||'pending',
-      cells:a.cells, perAmt:a.perAmt,
-      // watch fields
-      contactedAt:o.arrears_contacted_at||null,
-      contactedBy:o.arrears_contacted_by||'',
-      contactNote:o.arrears_contact_note||'',
-      watchPaidBase:o.arrears_watch_paid_base,
-      watchPayments:o.arrears_watch_payments
-    });
-  }
-  // last successful payment date for the behind customers (one batched query)
-  /* 13 Oct 2026 — money is matched to orders ONLY by order_id (the database stamps
-     it on every payment and failure from either Ezidebit number). Never by reference. */
-  const refs=[...new Set(behind.map(r=>r.orderId).filter(Boolean))];
-  if(refs.length){
-    // batched + paged: 50 orders a request, 1000 rows a page, so nothing is silently cut off
+  try{
+    // 1. who is on the list — the database decides (see the note above)
+    const pos=[];
+    for(let from=0;;from+=1000){
+      const {data,error}=await sb.from('v_customer_position')
+        .select('order_id,state,behind_by,instalment,period_days,chase_reason,chase_short,fails_recent,last_failed,last_paid,paid,contract,owed,pct_paid')
+        .eq('chase',true).order('order_id').range(from,from+999);
+      if(error) throw new Error('Reading who is behind: '+error.message);
+      pos.push(...(data||[])); if(!data||data.length<1000) break;
+    }
+    const ids=pos.map(p=>p.order_id);
+    // 2. the orders, customers and products for those people
+    const ord={};
+    for(let i=0;i<ids.length;i+=100){
+      const {data,error}=await sb.from('sim_orders')
+        .select('id,customer_id,consultant_name,delivery_status,doubtful,paid_via_order_id,arrears_contacted_at,arrears_contacted_by,arrears_contact_note,arrears_watch_paid_base,arrears_watch_payments, sim_customers(id,first_name,last_name,mobile), sim_order_items(product_name,quantity)')
+        .in('id',ids.slice(i,i+100));
+      if(error) throw new Error('Reading orders: '+error.message);
+      (data||[]).forEach(o=>ord[o.id]=o);
+    }
+    // 3. what actually happened to each debit, for the strip (paid / failed, real dates)
+    /* 13 Oct 2026 — money is matched to orders ONLY by order_id. Never by reference. */
     const fetchByOrder=async(table,cols)=>{ const out=[];
-      for(let i=0;i<refs.length;i+=50){ const ids=refs.slice(i,i+50);
+      for(let i=0;i<ids.length;i+=50){ const chunk=ids.slice(i,i+50);
         for(let from=0;;from+=1000){
-          const {data,error}=await sb.from(table).select(cols).in('order_id',ids).order('id').range(from,from+999);
-          if(error){ console.error(table,error); break; } out.push(...(data||[])); if(!data||data.length<1000) break; } }
+          const {data,error}=await sb.from(table).select(cols).in('order_id',chunk).order('id').range(from,from+999);
+          if(error) throw new Error('Reading '+table+': '+error.message);
+          out.push(...(data||[])); if(!data||data.length<1000) break; } }
       return out; };
-    const pmts=await fetchByOrder('sim_payments','id,order_id,payment_date,result');
-    const lastByRef={};
-    (pmts||[]).forEach(p=>{ if(p.result&&p.result.toLowerCase()==='refund')return; if(!lastByRef[p.order_id]||p.payment_date>lastByRef[p.order_id]) lastByRef[p.order_id]=p.payment_date; });
-    behind.forEach(r=>{ r.lastPaid=lastByRef[r.orderId]||null; });
-    // dishonours SINCE contact — a watch is broken if they bounce again after being spoken to
-    const dis=await fetchByOrder('sim_dishonours','id,order_id,payment_date');
+    const pmts=ids.length?await fetchByOrder('sim_payments','id,order_id,payment_date,amount,result,source'):[];
+    const dis =ids.length?await fetchByOrder('sim_dishonours','id,order_id,dishonour_date,amount'):[];
+    const ev={};
+    pmts.forEach(p=>{ if((p.result||'paid').toLowerCase()!=='paid') return;
+      (ev[p.order_id]=ev[p.order_id]||[]).push({d:String(p.payment_date).slice(0,10),ok:true,amt:+p.amount||0,
+        how:/ezidebit/.test(p.source||'')?'Ezidebit':'Paid by '+(p.source||'office')}); });
+    dis.forEach(x=>{ (ev[x.order_id]=ev[x.order_id]||[]).push({d:String(x.dishonour_date).slice(0,10),ok:false,amt:+x.amount||0,how:'Failed'}); });
+
+    const behind=[];
+    for(const p of pos){
+      const o=ord[p.order_id]; if(!o) continue;
+      if(o.paid_via_order_id) continue;               // paid on someone else's account
+      const cust=o.sim_customers||{};
+      const inst=+p.instalment||0, per=+p.period_days||7;
+      const short = p.chase_reason==='missed' ? +p.chase_short||0 : +p.behind_by||0;
+      const sinceDays = p.last_paid ? Math.floor((today-new Date(p.last_paid+'T12:00:00'))/DAY) : null;
+      const weeks = p.chase_reason==='missed' ? (inst>0?Math.max(1,Math.round(short/inst)):(+p.fails_recent||1))
+                  : (p.chase_reason==='stopped' && sinceDays!=null ? Math.floor(sinceDays/per) : 0);
+      const evs=(ev[p.order_id]||[]).sort((a,b)=>a.d<b.d?-1:a.d>b.d?1:0).slice(-24);
+      behind.push({
+        orderId:o.id, doubtful:o.doubtful,
+        custId:cust.id||o.customer_id,
+        name:`${cust.first_name||''} ${cust.last_name||''}`.trim()||'(no name)',
+        mobile:cust.mobile||'',
+        product:(o.sim_order_items||[]).map(i=>i.product_name).filter(Boolean).join(', ')||'—',
+        consultant:o.consultant_name||'',
+        reason:p.chase_reason, weeks, word:PER_WORD(per), arrears:short,
+        overallBehind:+p.behind_by||0, state:p.state,
+        paid:+p.paid||0, contract:+p.contract||0, balance:+p.owed||0, pct:+p.pct_paid||0,
+        lastPaid:p.last_paid||null, lastFailed:p.last_failed||null,
+        delivered:o.delivery_status==='delivered', deliveryStatus:o.delivery_status||'pending',
+        events:evs, perAmt:inst, periodDays:per,
+        contactedAt:o.arrears_contacted_at||null,
+        contactedBy:o.arrears_contacted_by||'',
+        contactNote:o.arrears_contact_note||'',
+        watchPaidBase:o.arrears_watch_paid_base,
+        watchPayments:o.arrears_watch_payments
+      });
+    }
+    // watch: after contact they drop off while they pay, and come back if they bounce
+    // again or a due payment does not arrive
     behind.forEach(r=>{
       r.watchBroken=false; r.onWatch=false;
       if(!r.contactedAt) return;
       const contactDay=String(r.contactedAt).slice(0,10);
-      // clean payments seen since contact = (paid now − paid at contact) / instalment
       const cleared = r.perAmt>0 ? Math.floor(((r.paid-(+r.watchPaidBase||0))+0.01)/r.perAmt) : 0;
       const need = (r.watchPayments!=null? +r.watchPayments : 2);
-      // dishonour dated after contact = broken promise, resurfaces
-      const bouncedAfter=(dis||[]).some(d=>d.order_id===r.orderId && d.payment_date>contactDay);
-      // silent quitter: enough time has passed since contact for a payment to be
-      // due, but nothing new has cleared (paid figure hasn't moved at all).
+      const bouncedAfter=dis.some(d=>d.order_id===r.orderId && String(d.dishonour_date).slice(0,10)>contactDay);
       const daysSince=Math.floor((today-new Date(contactDay+'T12:00:00'))/DAY);
-      const periodDays=(r.perAmt>0 && r.contract>0)? 7 : 7; // arrears list is weekly-cadence
-      const paymentDue = daysSince > (periodDays+3);         // one period + settlement grace
-      const nothingCleared = cleared<1;
-      if(bouncedAfter){ r.watchBroken=true; r.onWatch=false; }            // bounced again
-      else if(paymentDue && nothingCleared){ r.watchBroken=true; r.onWatch=false; } // silent quitter
-      else if(cleared>=need){ r.onWatch=false; }                          // honoured — resurfaces for fresh review if still behind
-      else { r.onWatch=true; }                                            // watching, hide
+      const paymentDue = daysSince > (r.periodDays+3);       // one period + settlement grace
+      if(bouncedAfter){ r.watchBroken=true; }                              // bounced again
+      else if(paymentDue && cleared<1){ r.watchBroken=true; }              // nothing since contact
+      else if(cleared>=need){ r.onWatch=true; r.kept=true; }               // spoke to them, they have kept to it (same as Home)
+      else { r.onWatch=true; }                                             // watching, hide
     });
+    rows=behind;
+    render();
+  }catch(e){
+    // ⚠ a list that failed to load must never look like an empty list
+    $('state').classList.remove('hidden');
+    $('state').innerHTML=`<span class="text-red-400">Couldn't load the arrears list: ${esc(e.message||String(e))}</span>`;
+    $('list').innerHTML='';
   }
-  rows=behind;
-  render();
 }
 
 function render(){
@@ -318,19 +283,19 @@ function render(){
   if(!view.length){
     const msg = filter==='watching'
       ? 'No customers on watch. Use “✓ Contacted” on a customer to start watching them.'
-      : `🎉 No customers in arrears${filter==='red'?' by 3+ weeks':''}.`;
+      : `🎉 No customers to chase${filter==='red'?' with 3+ missed':''}.`;
     $('list').innerHTML=`<div class="text-center text-slate-500 py-16">${msg}</div>`;return;
   }
 
   $('list').innerHTML=view.map(r=>{
     const sev=r.weeks>=3?'#dc2626':'#e0a010';
-    const strip=r.cells.filter(c=>c.due&&c.due<=today).slice(-24)
-      .map(c=>`<span class="sq" style="background:${c.cls}" title="Week ${c.w} — ${c.label} (${fmtD(localISO(c.due))})"></span>`).join('');
+    const strip=r.events
+      .map(c=>`<span class="sq" style="background:${c.ok?'#1faa5a':'#dc2626'}" title="${fmtD(c.d)} — ${c.how} ${fmt(c.amt)}"></span>`).join('');
     const nm=esc(r.name).replace(/'/g,"\\'");
     // watch state badges + button
     let watchBadge='';
     if(r.watchBroken) watchBadge='<span class="text-[10px] px-1.5 py-0.5 rounded bg-red-900/60 text-red-200 font-semibold" title="Contacted but bounced again — the arrangement failed">CONTACTED — STILL BEHIND</span>';
-    else if(filter==='watching') watchBadge='<span class="text-[10px] px-1.5 py-0.5 rounded bg-sky-900/50 text-sky-300 font-semibold">ON WATCH</span>';
+    else if(filter==='watching') watchBadge=r.kept?'<span class="text-[10px] px-1.5 py-0.5 rounded bg-emerald-900/50 text-emerald-300 font-semibold">KEPT TO THE ARRANGEMENT</span>':'<span class="text-[10px] px-1.5 py-0.5 rounded bg-sky-900/50 text-sky-300 font-semibold">ON WATCH</span>';
     const contactLine = r.contactedAt
       ? `<div class="text-xs text-slate-400 mt-1">📞 Contacted ${fmtD(String(r.contactedAt).slice(0,10))}${r.contactedBy?' by '+esc(r.contactedBy):''}${r.contactNote?' — <span class="text-slate-300">'+esc(r.contactNote)+'</span>':''}</div>`
       : '';
@@ -342,7 +307,7 @@ function render(){
           <div class="flex items-center gap-2 flex-wrap">
             <span class="font-semibold text-white">${esc(r.name)}</span><span class="dbtf-name">${r.doubtful?DOUBTFUL.badge(true):''}</span>
             ${r.delivered?'<span class="text-[10px] px-1.5 py-0.5 rounded bg-red-900/50 text-red-300 font-semibold">DELIVERED</span>':'<span class="text-[10px] px-1.5 py-0.5 rounded bg-slate-700 text-slate-300">'+esc(titleCase(r.deliveryStatus))+'</span>'}
-            ${r.estimated?'<span class="text-[10px] px-1.5 py-0.5 rounded bg-amber-900/40 text-amber-300" title="This order has no instalment recorded — the figures assume the standard term">ESTIMATED</span>':''}
+            <span class="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-200 font-semibold">${esc(REASON[r.reason]||r.reason)}</span>
             ${watchBadge}
             <span onclick="event.stopPropagation()"><label style="display:inline-flex;align-items:center;gap:4px;font-size:11px;color:#94a3b8;cursor:pointer;background:#0d1526;border:1px solid #334155;border-radius:5px;padding:2px 7px" title="Flag as unlikely to collect — feeds the admin Real Debt Book"><input type="checkbox" ${r.doubtful?'checked':''} onchange="DOUBTFUL.save('${r.orderId}',this.checked);this.closest('.arr').querySelector('.dbtf-name').innerHTML=DOUBTFUL.badge(this.checked)">Unlikely to collect</label></span>
           </div>
@@ -352,12 +317,13 @@ function render(){
           ${contactLine}
         </div>
         <div class="text-center px-2">
-          <div class="k">Weeks behind</div>
-          <div class="text-2xl font-bold" style="color:${sev}">${r.weeks}</div>
+          <div class="k">${r.reason==='stopped'?'Nothing for':(r.reason==='missed'?'Missed':'Collected')}</div>
+          <div class="text-2xl font-bold" style="color:${sev}">${r.reason==='nothing collected'?'none':r.weeks+' '+r.word}</div>
         </div>
         <div class="text-center px-2">
-          <div class="k">Amount behind</div>
+          <div class="k">${r.reason==='missed'?'Not made up':'Amount behind'}</div>
           <div class="text-lg font-bold text-red-400">${fmt(r.arrears)}</div>
+          ${r.reason==='missed'&&r.lastFailed?`<div class="k mt-1">last failed ${fmtD(r.lastFailed)}</div>`:''}
         </div>
         <div class="text-right px-2 min-w-[130px]">
           <div class="k">Paid / Contract</div>

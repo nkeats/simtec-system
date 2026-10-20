@@ -378,7 +378,7 @@ function isBehindDelivered(o){
      it named three people. Two halves of one screen disagreeing.
      ⚠ `silent` means NOTHING HAS ARRIVED AT ALL. Being chased does not undo
        that, and it is the entire reason the flag exists. */
-  const _silentNow = !!(POS[o.id] && POS[o.id].silent);
+  const _silentNow = !!(POS[o.id] && POS[o.id].chase_reason==="stopped");
 
   if(o.arrears_contacted_at && !_silentNow){
     const contactDay=new Date(String(o.arrears_contacted_at).slice(0,10)+"T00:00:00");
@@ -386,10 +386,16 @@ function isBehindDelivered(o){
     const base=Number(o.arrears_watch_paid_base||0);
     const want=Number(o.arrears_watch_payments||2);
     const f0=PERIODS[o.payment_frequency]||PERIODS.weekly;
-    const inst0=(o.instalment_amount!=null&&Number(o.instalment_amount)>0)?Number(o.instalment_amount):(contract/f0.total);
+    // what Ezidebit is actually debiting (v_customer_position), not the order's figure
+    const inst0=(POS[o.id]&&Number(POS[o.id].instalment)>0)?Number(POS[o.id].instalment)
+               :(o.instalment_amount!=null&&Number(o.instalment_amount)>0)?Number(o.instalment_amount):(contract/f0.total);
     const cleanSeen=inst0>0?Math.floor((paid-base)/inst0 + 0.01):0;
-    if(cleanSeen >= want){ return null; }
+    /* ⚠ 20 Oct 2026: a debit that failed AFTER we spoke to them comes first. It used
+       to be checked after "enough paid since contact", so anyone who had paid two
+       instalments since a contact months ago was hidden for good, however many debits
+       bounced afterwards (Maselina Liuaana, Elizabeth Tuipulotu, Julian Saotupe). */
     if(o._dishonourAfter===true){ bucket="broke"; }
+    else if(cleanSeen >= want){ return null; }     // spoke to them, they have kept to it
     else {
       const periodsSince=Math.floor((nowD-contactDay)/86400000/f0.per);
       const dueSinceContact=Math.min(want, periodsSince);
@@ -398,38 +404,27 @@ function isBehindDelivered(o){
     }
   }
 
-  const f=PERIODS[o.payment_frequency]||PERIODS.weekly;
-  const perAmt = (o.instalment_amount!=null && Number(o.instalment_amount)>0)
-                 ? Number(o.instalment_amount) : contract/f.total;
-
-  // The behind/on-track maths comes from v_order_position (see customer-detail.html for
-  // the full reasoning). This page used to do its own version with a 1.5-instalment
-  // tolerance while the customer page used 1.0, so the two screens could disagree about
-  // the same person. Both now read the same row and the same one-instalment tolerance.
+  /* ⚠⚠ 20 Oct 2026 — WHO IS CHASED IS DECIDED IN ONE PLACE: order_chase_status(),
+     read through v_customer_position.chase. This page used to read v_order_position,
+     which charged the instalment on the order for every week since the schedule began,
+     and listed people paying every cent Ezidebit asked (Saint Wharewera, Roimata
+     Ironui) and people whose only miss was months ago (Faalua Luaiva).
+     [stated] Nigel 20 Oct: RECENT MISSES ONLY — a debit failed in the last 10 weeks and
+     not made up, or nothing for two debits, or nothing ever collected.
+     ⚠ There is NO local fallback. The old one was the wrong rule; a list that cannot
+     be read must say so, never quietly show a different list. */
   const v=POS[o.id];
-  if(v){
-    const behindBy=Number(v.behind_by||0);
-    const silent=!!v.silent;
-    // Two independent reasons to chase: the money is short, or the money has stopped.
-    // A late anchor can flatter the first; the second is immune to it.
-    if(v.cls!=="red" && v.cls!=="amber" && !silent) return null;
-    return {behindBy, periods:perAmt>0?behindBy/perAmt:0, word:f.word, bucket,
-            silent, periodsSilent:v.periods_since_payment,
-            note:o.arrears_contact_note||"", contactedBy:o.arrears_contacted_by||""};
-  }
-
-  // Fallback: the old local calculation, for when the view can't be read.
-  const startStr = o.schedule_start_date || o.loan_start_date || o.first_payment_date || null;
-  if(!startStr) return null;
-  const start=new Date(String(startStr).slice(0,10)+"T00:00:00");
-  const now=new Date(); now.setHours(0,0,0,0);
-  if(start>now) return null;
-  const due=Math.floor((now-start)/86400000/f.per)+1;
-  const expected=Math.min(contract, perAmt*Math.max(0,due));
-  const behindBy=expected-paid;
-  if(behindBy <= perAmt*1.5) return null;
-  return {behindBy, periods:perAmt>0?behindBy/perAmt:0, word:f.word,
-          bucket, note:o.arrears_contact_note||"", contactedBy:o.arrears_contacted_by||""};
+  if(!v || !v.chase) return null;
+  const per=Number(v.period_days)||7;
+  const word=per>=28?"mo":(per>=13?"fn":"wk");
+  const inst=Number(v.instalment)||0;
+  const behindBy = v.chase_reason==="missed" ? Number(v.chase_short||0) : Number(v.behind_by||0);
+  const silent = v.chase_reason==="stopped";
+  const periodsSilent = (silent && v.last_paid)
+    ? Math.floor((new Date(todayStr+"T00:00:00")-new Date(v.last_paid+"T00:00:00"))/86400000/per) : null;
+  return {behindBy, periods:inst>0?behindBy/inst:0, word, bucket,
+          reason:v.chase_reason, silent, periodsSilent,
+          note:o.arrears_contact_note||"", contactedBy:o.arrears_contacted_by||""};
 }
 
 async function loadUrgent(){
@@ -466,9 +461,10 @@ async function loadUrgent(){
     POS={};
     { const oids=(orders||[]).map(o=>o.id);
       for(let i=0;i<oids.length;i+=200){
-        const {data:pos}=await sb.from("v_order_position").select(
-          "order_id,cls,behind_by,periods_behind,silent,periods_since_payment,as_at")
+        const {data:pos,error:posErr}=await sb.from("v_customer_position").select(
+          "order_id,chase,chase_reason,chase_short,behind_by,instalment,period_days,last_paid")
           .in("order_id",oids.slice(i,i+200));
+        if(posErr) throw new Error("reading who is behind: "+posErr.message);
         (pos||[]).forEach(r=>{ POS[r.order_id]=r; });
       } }
     for(const o of (orders||[])){ const b=isBehindDelivered(o); if(b) rows.push({o,b}); }
@@ -509,7 +505,7 @@ async function loadUrgent(){
       const btn=`<button onclick="event.stopPropagation();markContacted('${r.o.id}','${(c.name||"").replace(/'/g,"\\'")}',${Number(r.o.amount_paid_to_date||0)})" style="${style};border-radius:7px;padding:4px 10px;font-size:12px;cursor:pointer;white-space:nowrap">${label}</button>`;
       return `<tr class="row" onclick="location.href='customer-detail.html?id=${r.o.id}'" style="cursor:pointer">
         <td>${esc(c.name||"")}${c.mobile?`<div style="color:#8593a5;font-size:11.5px">${esc(c.mobile)}</div>`:""}</td>
-        <td class="num" style="white-space:nowrap">${fmt(r.b.behindBy)}<div style="color:#8593a5;font-size:11.5px">${r.b.silent&&r.b.periodsSilent!=null?`nothing for ${Number(r.b.periodsSilent).toFixed(0)} ${r.b.word}`:`${r.b.periods.toFixed(0)} ${r.b.word} behind`}</div></td>
+        <td class="num" style="white-space:nowrap">${fmt(r.b.behindBy)}<div style="color:#8593a5;font-size:11.5px">${r.b.reason==="nothing collected"?"nothing collected yet":r.b.silent&&r.b.periodsSilent!=null?`nothing for ${r.b.periodsSilent} ${r.b.word}`:`${Math.max(1,Math.round(r.b.periods))} missed, not made up`}</div></td>
         <td class="num">${btn}</td></tr>`;
     };
     const tableHtml=(list,withContact,emptyMsg)=> list.length

@@ -87,17 +87,25 @@ let custByRef={};          // payer_ref -> customer/order info
 let orderById={};          // order_id  -> customer/order info
 let LISTS={1:[],2:[],3:[],4:[],5:[]};
 let POS={};
+let POS_ERROR=null;
 let DROPPED_PAID=0;
 let DROPPED_OK=0;          // no longer behind on the shared measure
 
-/* Only a MEASURED "behind" gets chased. If we cannot measure it — no schedule,
+/* ⚠⚠ 20 Oct 2026 — the rule is order_chase_status(), read as v_customer_position.chase:
+   the SAME rule as the Home page chase list and the Arrears page. [stated] Nigel 20 Oct:
+   RECENT MISSES ONLY — a debit failed in the last 10 weeks and has not been made up, or
+   nothing has arrived for two debits. Someone ahead overall is never chased, and an old
+   shortfall (months ago, paid every week since) is never texted.
+   Before 20 Oct this read state='behind', which charged the order's instalment rather
+   than what Ezidebit was actually debiting, so people paying every cent qualified.
+   (Earlier note, still true:) Only a MEASURED "behind" gets chased. If we cannot measure it — no schedule,
    no history, on hold, not started — we say nothing rather than accuse someone
    of being in arrears. A bounce alone is NOT arrears: a customer who is ahead
    overall already gets the separate "your payment didn't go through" notice. */
 function behindNow(order_id){
   const v=POS[order_id];
   if(!v) return false;
-  return v.state==='behind' && v.certainty==='measured' && Number(v.behind_by||0)>0;
+  return v.chase===true && v.chase_reason!=='nothing collected';
 }
 
 // ── Load active customers + their current paid figure ──
@@ -117,14 +125,15 @@ async function loadCustomers(){
      office screens and the customer's own app show. This page used to decide
      for itself, which is how 25 customers who were up to date received arrears
      texts on 7 August and needed apology calls. */
-  POS={};
+  POS={}; POS_ERROR=null;
   const oids=(orders||[]).map(o=>o.id);
   for(let i=0;i<oids.length;i+=200){
-    try{
-      const {data:pos}=await sb.from('v_customer_position')
-        .select('order_id,state,certainty,behind_by,owed').in('order_id',oids.slice(i,i+200));
-      (pos||[]).forEach(r=>{ POS[r.order_id]=r; });
-    }catch(_e){ /* leave POS empty — behindNow() then refuses to chase anyone */ }
+    // a failed read leaves POS without those orders, so behindNow() refuses to chase
+    // them — but it SAYS so rather than quietly showing shorter lists
+    const {data:pos,error:posErr}=await sb.from('v_customer_position')
+      .select('order_id,state,certainty,behind_by,owed,chase,chase_reason').in('order_id',oids.slice(i,i+200));
+    if(posErr){ console.error(posErr); POS_ERROR='Could not read who is behind ('+posErr.message+') — the lists below may be incomplete. Reload the page.'; }
+    (pos||[]).forEach(r=>{ POS[r.order_id]=r; });
   }
 
   custByRef={}; orderById={};
@@ -233,6 +242,7 @@ async function loadAll(){
     if(next>=2 && next<=5) LISTS[next].push(Object.assign({},o,{seq_id:s.id, last_sent_at:s.last_sent_at}));
   });
 
+  if(POS_ERROR) $('parsestate').textContent=POS_ERROR;
   render();
 }
 
