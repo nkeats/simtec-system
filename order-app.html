@@ -18,7 +18,7 @@
 <!-- data-one-consultant: this iPad belongs to the first consultant who signs in on it.
      Orders are written from here, so this is the only page that asks for the binding. -->
 <script src="auth.js?v=5" data-roles="admin,manager,office,consultant" data-one-consultant></script>
-<script>window.SIMTEC_BUILD="2026-10-20-01";</script>
+<script>window.SIMTEC_BUILD="2026-10-20-02";</script>
 <script src="update.js?v=2"></script>
 
 
@@ -273,8 +273,9 @@
         <h3>Contact &amp; delivery</h3>
         <div id="referralHit" class="note hidden" style="background:#eaf7ee;border-color:#b6e2c4;color:#1c6b3f;"></div>
         <div id="standingHit" class="note hidden" style="background:#eef3fb;border-color:#c3d3ee;color:#12386e;"></div>
+        <div id="existingHit" class="note hidden" style="background:#fff6e5;border-color:#f0c36d;color:#6b4300;"></div>
         <div class="grid2">
-          <label class="f"><span class="lab">Mobile Phone <span class="req">*</span></span><input type="tel" id="mobile" onblur="checkReferral()"></label>
+          <label class="f"><span class="lab">Mobile Phone <span class="req">*</span></span><input type="tel" id="mobile" onblur="onMobileBlur()"></label>
           <div>
             <label class="f" style="margin-bottom:6px;"><span class="lab">Email Address <span class="req">*</span></span>
               <div class="verify-row">
@@ -1522,6 +1523,13 @@ async function validateStep(ds){
        on the doorstep. Not a hard block — an overseas number can be genuine — but
        the consultant has to look at it, and a number that fails this check is
        never sent to Ezidebit (see buildEddrUrl). */
+    // the existing-customer check: make sure it has run for THIS number, then insist on an answer
+    try{ await checkExisting(val('mobile')); }catch(_e){}
+    if(S.existingNeed && !S.existingChoice){
+      alert('This mobile already belongs to an existing customer. Ask the customer and choose one of the options in the orange box before carrying on.');
+      const b=document.getElementById('existingHit'); if(b) b.scrollIntoView({behavior:'smooth',block:'center'});
+      return false;
+    }
     if(normNZ(val('mobile')).flag!=='ok' && !confirm('That mobile number does not look like a New Zealand mobile (they start 02 and have 9 to 11 digits). Please check it with the customer.\n\nOK = it is correct, carry on.   Cancel = fix it.')) return false;
     if(!S.emailVerified && !confirm('Email not verified. Continue anyway?')) return false; }
   if(ds===4){ if(!document.getElementById('tncAgree').checked){alert('Customer must read and agree to the Terms & Conditions.');return false;}
@@ -1628,7 +1636,69 @@ async function checkReferral(){
     box.innerHTML='🎁 <b>Referred customer.</b> '+(hit.referrer_name?('Referred by '+esc(hit.referrer_name)+'. '):'')+'This sale will be credited to their referral once the order is saved.';
     box.classList.remove('hidden');
   }catch(e){ S.referralId=null; box.classList.add('hidden'); }
-  checkStanding(m);
+}
+/* ⚠ 20 Oct 2026: the three mobile checks run INDEPENDENTLY. checkStanding() used to be
+   called at the end of checkReferral(), after an early return for "no referral" — so the
+   AAA/AA badge only ever showed for REFERRED customers, never for an ordinary returning one. */
+function onMobileBlur(){
+  const m=val('mobile');
+  checkReferral(); checkStanding(m); checkExisting(m);
+}
+
+/* ⚠⚠ 20 Oct 2026 — THIS MOBILE ALREADY BELONGS TO A CUSTOMER.
+   Siniva Sakaria bought a Mk I on 14 Oct and upgraded to a Mk III on 19 Oct. The app
+   made a second customer record and BOTH orders stayed live, with the first
+   consultant's commission in the pay run. The duplicate-order guard only catches the
+   same amount within 6 hours, so an upgrade at a new price days later sailed through.
+   Now the consultant sees who already holds the number and MUST say which this is.
+   The answer is saved on the order (existing_customer_match) and the office finishes
+   the job from the Health check. A consultant never cancels another consultant's sale.
+   Fails OPEN: offline, or the check cannot run, the sale carries on — a warning that
+   blocks a sale on the doorstep is worse than the duplicate it prevents. */
+const EXIST_CHOICES={replaces:'It REPLACES their earlier order (an upgrade or change)',
+                     additional:'It is an EXTRA purchase — they keep the earlier order too',
+                     different_person:'It is a DIFFERENT person who uses the same phone'};
+let existingSeq=0;
+async function checkExisting(m){
+  const box=document.getElementById('existingHit'); if(!box) return;
+  const digits=(m||'').replace(/[^0-9]/g,'');
+  if(S.existingFor===digits) return;            // already checked this number — keep the answer
+  S.existingFor=null; S.existingNeed=false; S.existingChoice=null; box.classList.add('hidden'); box.innerHTML='';
+  if(!sb || digits.length<8) return;
+  const seq=++existingSeq;
+  try{
+    const { data, error } = await sb.rpc('staff_existing_customer',
+      { p_mobile:m, p_exclude:(S.orderIds&&S.orderIds.cust)||null });
+    if(seq!==existingSeq) return;               // a newer number was typed meanwhile
+    if(error) throw error;
+    S.existingFor=digits;
+    const d=data||{};
+    if(!d.found || !(Number(d.live_orders)>0)) return;   // nobody, or only cancelled orders: nothing to decide
+    S.existingNeed=true;
+    const fmtD=x=>x?String(x).slice(0,10).split('-').reverse().join('/'):'';
+    const lines=(d.customers||[]).map(c=>'<div style="margin-top:6px"><b>'+esc(c.name||'A customer')+'</b>'+
+      (c.orders||[]).map(o=>'<div style="font-size:13px;margin-left:10px">'+esc(fmtD(o.date))+' · '+esc(o.product||'order')+
+        (o.consultant?' · sold by '+esc(o.consultant):'')+' · '+(o.status==='cancelled'?'cancelled':'<b>live</b>')+'</div>').join('')+'</div>').join('');
+    box.innerHTML='⚠️ <b>This mobile already belongs to an existing customer.</b>'+lines+
+      '<div style="margin:10px 0 6px">Ask the customer, then choose one:</div>'+
+      Object.keys(EXIST_CHOICES).map(k=>'<button type="button" class="btn-sm" data-ex="'+k+'" style="display:block;width:100%;text-align:left;margin:6px 0;background:#fff;color:#6b4300;border:1px solid #f0c36d" onclick="chooseExisting(\''+k+'\')">'+esc(EXIST_CHOICES[k])+'</button>').join('')+
+      '<div id="existingMsg" style="font-size:13px;margin-top:6px"></div>';
+    box.classList.remove('hidden');
+  }catch(e){
+    if(seq!==existingSeq) return;
+    S.existingFor=null; S.existingNeed=false;   // fail open — never block a sale on this
+    reportClientError('check whether the mobile belongs to an existing customer (the warning was not shown)', e);
+  }
+}
+function chooseExisting(k){
+  if(!EXIST_CHOICES[k]) return;
+  S.existingChoice=k;
+  document.querySelectorAll('#existingHit [data-ex]').forEach(b=>{ const on=b.dataset.ex===k;
+    b.style.background=on?'#6b4300':'#fff'; b.style.color=on?'#fff':'#6b4300'; b.textContent=(on?'✓ ':'')+EXIST_CHOICES[b.dataset.ex]; });
+  const msg=document.getElementById('existingMsg');
+  if(msg) msg.innerHTML = k==='replaces'
+    ? '✓ Noted. <b>Do not cancel anything yourself</b> — the office cancels the earlier order and sorts out its commission.'
+    : (k==='additional' ? '✓ Noted — this is saved as a second purchase.' : '✓ Noted — saved as a different person on a shared phone.');
 }
 
 // Existing-customer standing: shows the consultant an AAA/AA badge so the perks
@@ -2106,6 +2176,7 @@ async function collectOrder(){
   const fields=snapshotFields();
   const flags={ saleType:S.saleType, pay:S.pay, depositMethod:S.depositMethod, fullMethod:(S.pay==='full'?S.fullMethod:null), a2:S.a2, emailVerified:S.emailVerified,
     termsVersion:(S.termsShown||'1.1'),   /* 20 Oct: the terms version the customer was shown */
+    existingMatch:(S.existingNeed?(S.existingChoice||null):null),   /* 20 Oct: see checkExisting() */
     acksAll:[...document.querySelectorAll('.ackbox')].every(a=>a.checked) };
   const products=S.products.filter(p=>p.name).map(p=>({name:p.name,price:p.price,qty:p.qty}));
   const wantDel=document.getElementById('wantDelivery').checked;
@@ -2228,7 +2299,8 @@ async function savePayload(P){
     confirmation_status:'draft',
     /* 20 Oct: the terms version the customer was SHOWN. A parked order from an
        older build has no flag — it can only have been shown v1.1. */
-    terms_version:(fl.termsVersion==='1.2'?'1.2':'1.1')
+    terms_version:(fl.termsVersion==='1.2'?'1.2':'1.1'),
+    existing_customer_match:(['replaces','additional','different_person'].includes(fl.existingMatch)?fl.existingMatch:null)
   };
   /* ⚠ NO .select() HERE ANY MORE. The id is ours already, and a consultant
      cannot reliably read the row back. On a retry this writes nothing. */
@@ -2942,6 +3014,8 @@ function resetForm(){
   document.querySelectorAll('main select').forEach(s=>s.selectedIndex=0);
   document.querySelectorAll('.choice.sel').forEach(c=>c.classList.remove('sel'));
   ['sigA1','sigA2'].forEach(clearSig);
+  Object.assign(S,{existingFor:null,existingNeed:false,existingChoice:null});
+  { const eh=document.getElementById('existingHit'); if(eh){ eh.classList.add('hidden'); eh.innerHTML=''; } }
   Object.assign(S,{step:0,saleType:'',pay:'',depositMethod:'ezidebit',fullMethod:'bank',a2:false,products:[],emailVerified:false,sentCode:null,tncRead:false,orderId:null,finalized:false,lastP:null,idPhotos:{A1:[],A2:[]},idMissing:{A1:null,A2:null}});
   clearIds();   /* ⚠ a NEW order must never inherit the last one's ids */
   S.fin=null; try{ finClearResume(); finPayChanged(); }catch(_e){}   /* 20 Oct */

@@ -239,6 +239,18 @@ const CHECKS=[
     }
   },
   {
+    id:"dupcust",
+    title:"Same customer twice — an earlier order to cancel, or two records to merge",
+    why:"Since 20 Oct the Sales App asks the consultant when a mobile already belongs to a customer with a live order. When the answer is \"it replaces their earlier order\", the earlier order stays live — with its commission in the pay run — until the office cancels it. Two customer records for one person split their history and payments across two screens. (Siniva Sakaria, 20 Oct: an upgrade left both orders live and Daisy's commission in the pay run.)",
+    fix:"Cancel the earlier order on the customer page (Status → Cancel) once you have checked with the customer and in EziOnline that its direct debit has stopped — the commission reverses itself. For two records, ask Claude to merge them.",
+    cols:["What","Customer","Detail"],
+    run:async()=>{
+      const rows=await all("v_customer_duplicates","kind,order_id,other_order_id,customer,detail");
+      return rows.map(r=>[r.kind==="cancel_earlier"?"Earlier order to cancel":"Two records",
+        {href:"customer-detail.html?id="+(r.kind==="cancel_earlier"?r.other_order_id:r.order_id),text:r.customer||"Open"}, r.detail||""]);
+    }
+  },
+  {
     id:"nodate",
     title:"Orders with no order date",
     why:"Reports skips any order without a date, so the sale is invisible in weekly figures.",
