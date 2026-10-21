@@ -7,7 +7,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.112.2"></script>
 <script>/* 5 Oct 2026: today's date as the person using this page sees it. NEVER use toISOString() for a date - it gives the UTC date, which is YESTERDAY in NZ every morning. */
 function localISO(d){d=d||new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}</script>
-<script>window.SIMTEC_BUILD="2026-10-19-01";</script>
+<script>window.SIMTEC_BUILD="2026-10-22-01";</script>
 <script src="client-errors.js?v=1"></script>
 <script src="auth.js?v=4" data-roles="admin,manager,office"></script>
 <script src="live.js?v=3" defer></script>
@@ -114,12 +114,64 @@ const CHECKS=[
 function needsDD(o){ return o.collection_method==='ezidebit' || !!o.ezidebit_customer_id || !!o.ezidebit_payer_ref; }
 const FREQ_WORD={weekly:'every week',fortnightly:'every fortnight',monthly:'every month',four_weekly:'every four weeks'};
 function ddReadBack(o){
+  const fmt=d=>d?new Date(d+'T12:00:00').toLocaleDateString('en-NZ',{weekday:'long',day:'numeric',month:'long'}):null;
   const amt=o.instalment_amount!=null?money(o.instalment_amount):null;
   const fq=FREQ_WORD[o.payment_frequency]||null;
-  const d=o.first_payment_date||o.schedule_start_date;
-  const when=d?new Date(d+'T12:00:00').toLocaleDateString('en-NZ',{weekday:'long',day:'numeric',month:'long'}):null;
-  if(!amt||!fq||!when) return '<span style="color:#b4342e;font-weight:700">\u26A0 The plan is not on this order — read it from EziOnline before ticking.</span>';
-  return 'Read back: <b>'+amt+' '+fq+', first debit '+esc(when)+'</b>';
+  const when=fmt(o.first_payment_date||o.schedule_start_date);
+  if(amt&&fq&&when) return 'Read back: <b>'+amt+' '+fq+', first debit '+esc(when)+'</b>';
+  /* 22 Oct 2026 — the order now reaches this page the moment it is submitted,
+     before Ezidebit has confirmed anything. The plan the consultant set on the
+     iPad is saved on the order, so the call is never blocked by Ezidebit. */
+  const p=plannedPlan(o);
+  if(p.line) return 'Read back <span style="color:#8a6d1a">(as set on the iPad — Ezidebit has not confirmed it yet)</span>: <b>'+p.line+'</b>';
+  return '<span style="color:#b4342e;font-weight:700">⚠ The plan is not on this order — read it from EziOnline before ticking.</span>';
+}
+/* The plan the consultant set on the iPad's Ezidebit screen (planned_* columns).
+   Never confused with Ezidebit's confirmed plan above. */
+function plannedPlan(o){
+  const fmt=d=>d?new Date(d+'T12:00:00').toLocaleDateString('en-NZ',{weekday:'long',day:'numeric',month:'long'}):null;
+  const parts=[];
+  if(o.planned_oneoff_amount!=null && Number(o.planned_oneoff_amount)>0)
+    parts.push(money(o.planned_oneoff_amount)+' one-off'+(o.planned_oneoff_date?' on '+esc(fmt(o.planned_oneoff_date)):''));
+  if(o.planned_instalment_amount!=null && Number(o.planned_instalment_amount)>0 && FREQ_WORD[o.planned_frequency])
+    parts.push(money(o.planned_instalment_amount)+' '+FREQ_WORD[o.planned_frequency]
+      +(o.planned_first_payment_date?', first debit '+esc(fmt(o.planned_first_payment_date)):'')
+      +(o.planned_payment_count?' ('+Number(o.planned_payment_count)+' payments)':''));
+  return { line: parts.join(', then '), total: o.planned_ezidebit_total };
+}
+function hasDD(o){ return !!(o.ezidebit_customer_id||o.ezidebit_payer_ref); }
+/* "Direct debit" block on every card: what Ezidebit has, or what the iPad planned. */
+function ddBlockHTML(o){
+  if(!needsDD(o) && !plannedPlan(o).line) return '';
+  const p=plannedPlan(o);
+  let status;
+  if(hasDD(o)) status='<span style="color:#1a7f37;font-weight:700">✓ Set up at Ezidebit</span>'
+      +' — customer no. '+esc(o.ezidebit_customer_id||o.ezidebit_payer_ref);
+  else if(o.ipad_submitted_at && !o.sale_finished_at) status='<span style="color:#8a6d1a;font-weight:700">Not with Ezidebit yet</span> — the consultant is still on the Ezidebit step';
+  else status='<span style="color:#b4342e;font-weight:700">Not set up at Ezidebit</span> — set it up in EziOnline with the plan below';
+  const confirmed = (o.instalment_amount!=null && FREQ_WORD[o.payment_frequency])
+    ? money(o.instalment_amount)+' '+FREQ_WORD[o.payment_frequency]+(o.first_payment_date?', first debit '+esc(fmtDate(o.first_payment_date)):'')
+    : null;
+  return '<div class="clh">Direct debit</div><div class="kv">'
+    +'<div class="row"><span class="l">Ezidebit</span><span class="v">'+status+'</span></div>'
+    +(confirmed?'<div class="row"><span class="l">Ezidebit\'s plan</span><span class="v">'+confirmed+'</span></div>':'')
+    +(p.line?'<div class="row"><span class="l">Plan set on the iPad</span><span class="v">'+p.line+'</span></div>':'')
+    +(p.total!=null?'<div class="row"><span class="l">Total by direct debit</span><span class="v">'+money(p.total)+'</span></div>':'')
+    +'</div>';
+}
+/* Shown while the consultant is still with the customer (22 Oct 2026). */
+function finishingFlag(o){
+  if(!(o.ipad_submitted_at && !o.sale_finished_at && !hasDD(o))) return '';
+  const t=new Date(o.ipad_submitted_at);
+  const mins=Math.max(0,Math.round((Date.now()-t.getTime())/60000));
+  const at=t.toLocaleTimeString('en-NZ',{hour:'numeric',minute:'2-digit'});
+  const old=mins>=60;
+  return '<div class="flag"><span class="ic">'+(old?'⚠':'⏳')+'</span><span><b>'
+    +(old?'The consultant never finished this sale on the iPad':'The consultant may still be with the customer')+'</b>'
+    +'Submitted '+esc(at)+' ('+mins+' min ago) and the Ezidebit step is not finished. '
+    +(old?'You can make the call. If there is no direct debit, set it up in EziOnline with the plan below.'
+         :'You can make the call — just allow for them still finishing. If Ezidebit never comes through, set it up in EziOnline with the plan below.')
+    +'</span></div>';
 }
 const PAYLBL={weekly_dd:'Weekly direct debit',fortnightly_dd:'Fortnightly direct debit',deposit_50:'50% deposit',pay_in_full:'Paid in full',cash:'Cash'};
 let TAB='pending';
@@ -375,6 +427,7 @@ function summaryHTML(o){
     +(Number(o.discount_amount||0)>0?('<div class="p"><span>Discount'+(o.discount_reason?' — '+esc(o.discount_reason):'')+'</span><span>−'+money(o.discount_amount)+'</span></div>'):''))
     ||'<div class="p"><span>No line items</span><span></span></div>';
   return ''
+    +finishingFlag(o)
     +(o.consultant_account_note?('<div class="flag"><span class="ic">⚑</span><span><b>Account set-up note (from the consultant)</b>'+esc(o.consultant_account_note)+'</span></div>'):'')
     +'<div class="kv">'
     +'<div class="row"><span class="l">Mobile</span><span class="v">'+esc(c.mobile||'—')+'</span></div>'
@@ -389,6 +442,7 @@ function summaryHTML(o){
     +'<div class="row"><span class="l">Cooling-off ends</span><span class="v">'+coolingTxt(o)+'</span></div>'
     +'</div>'
     +'<div class="row" style="display:flex;justify-content:space-between;border-bottom:1px dashed var(--line);padding:5px 0;font-size:13.5px"><span class="l" style="color:var(--sub)">Delivery address</span><span class="v" style="font-weight:600;text-align:right;max-width:60%">'+esc(addr)+'</span></div>'
+    +ddBlockHTML(o)
     +incomeHTML(o)
     +'<div class="clh">Products</div><div class="prods">'+prods
     +'<div class="p" style="font-weight:800;border-top:1px solid var(--line)"><span>Total</span><span>'+money(o.contract_value)+'</span></div></div>';

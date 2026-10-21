@@ -18,7 +18,7 @@
 <!-- data-one-consultant: this iPad belongs to the first consultant who signs in on it.
      Orders are written from here, so this is the only page that asks for the binding. -->
 <script src="auth.js?v=5" data-roles="admin,manager,office,consultant" data-one-consultant></script>
-<script>window.SIMTEC_BUILD="2026-10-22-01";</script>
+<script>window.SIMTEC_BUILD="2026-10-22-02";</script>
 <script>
 /* 21 Oct 2026 — TRAINING MODE (?training=1) IS THE WALKTHROUGH PLUS A TRAINER PANEL.
    It is the REAL app, so every page, field and button is exactly what the
@@ -2429,7 +2429,20 @@ async function savePayload(P){
        on the office call list immediately, so the confirmation call was being
        made while the sale was still being finished. finalizeOrder() promotes
        it to 'pending' when the consultant reaches Done. */
-    confirmation_status:'draft',
+    /* ⚠⚠ 22 Oct 2026 — CHANGED BACK, ON PURPOSE (Nigel): "Order set up on Simtec
+       System AND GHL at this point. That way if ED hangs up, the girls can still
+       make confirmation calls." Every Ezidebit failure since go-live sat between
+       this save and Done, and a sale that never reached Done never reached the
+       office. So the order goes on the call list NOW ('pending'), and
+       ipad_submitted_at tells the call page the consultant is still finishing —
+       that is what stops the mid-sale surprise the 'draft' fix was for. The
+       customer's welcome email still waits for Done (sweep_welcome_emails).
+       ⚠ A FINANCE sale stays 'draft': finance_record_sent / finance_set_outcome
+       work on drafts, and the office hears about it from the finance answer. */
+    confirmation_status:(fl.pay==='finance'?'draft':'pending'),
+    /* a PARKED order uploaded later is already finished — the consultant has
+       gone — so it is not marked as still being finished on the iPad */
+    ipad_submitted_at:((fl.pay==='finance' || String(P.id||'').startsWith('pk_')) ? null : new Date().toISOString()),
     /* 20 Oct: the terms version the customer was SHOWN. A parked order from an
        older build has no flag — it can only have been shown v1.1. */
     terms_version:(fl.termsVersion==='1.2'?'1.2':'1.1'),
@@ -2722,7 +2735,16 @@ async function submitOrder(){
     const id=await savePayload(P);
     S.orderId=id; S.lastP=P;   // keep the payload; the summary PDF is regenerated with the Ezidebit schedule at the Done step
     if(S.referralId){ try{ await sb.rpc('convert_referral_for_order',{p_ref:S.referralId,p_order:id}); }catch(_e){} }
-    /* ⚠ NOTHING GOES TO GHL HERE ANY MORE (12 Aug).
+    /* ⚠⚠ 22 Oct 2026 — GHL AGAIN GETS THE ORDER HERE (Nigel). contactOnly: the
+       contact and its tag (which fires "Confirmation call required" to the
+       office) are created now; NOTHING is sent to the customer — the welcome
+       email still waits for Done (sweep_welcome_emails). finalizeOrder()
+       pushes once more to refresh the contact; the tag is already on it, so
+       that second push does not text the office again.
+       A finance sale is not pushed here — it stays a draft until the finance
+       company answers. The 12 Aug note below is kept for the history. */
+    if(S.pay!=='finance') pushOrderToGhl(id, {contactOnly:true});
+    /* (history) NOTHING WENT TO GHL HERE FROM 12 Aug TO 22 Oct.
        This used to push the contact the instant the order row saved — but the
        push applies the GHL_APP_TAG, and the office's "Confirmation call
        required" text is fired by a GHL workflow keyed to that tag. So the girls
@@ -3109,7 +3131,13 @@ async function finalizeOrder(){
   /* The order is genuinely finished now — Ezidebit done, signature captured,
      PDF regenerated. THIS is the moment the office should hear about it. */
   try{
-    const upd = {confirmation_status:'pending'};
+    /* ⚠ 22 Oct 2026 — the order is already on the call list (it went there at
+       submit), and the office may ALREADY have accepted it or sent it to review
+       while the consultant was finishing. So Done must never set the status
+       back to 'pending' — it only records that the sale is finished (which
+       releases the welcome email), and promotes a DRAFT (a finance sale, or an
+       order saved by an older build) exactly as before. */
+    const upd = {sale_finished_at:new Date().toISOString()};
     /* TEMPORARY 13 Aug 2026 — an order finished without a direct debit goes to
        the office with the reason on it. consultant_account_note is the field the
        confirmation-call screen already shows, so this needs no new plumbing; any
@@ -3120,7 +3148,12 @@ async function finalizeOrder(){
         return (chk&&chk.checked&&el&&el.value.trim())?el.value.trim():''; })();
       upd.consultant_account_note = [noIdNote(S.lastP), eziSkipNote(), (existing ? 'Consultant\'s own note: '+existing : '')].filter(Boolean).join('\n\n');
     }
-    await sb.from('sim_orders').update(upd).eq('id', S.orderId);
+    /* errors are REPORTED, not thrown — the ids below must still be retired */
+    { const { error:uErr } = await sb.from('sim_orders').update(upd).eq('id', S.orderId);
+      if(uErr) reportClientError('record that the sale is finished (the welcome email waits up to an hour)', uErr, S.orderId); }
+    { const { error:pErr } = await sb.from('sim_orders').update({confirmation_status:'pending'})
+        .eq('id', S.orderId).eq('confirmation_status','draft');
+      if(pErr) reportClientError('mark the order ready for the confirmation call', pErr, S.orderId); }
     /* ⚠⚠ THE SALE IS OVER — ONLY NOW ARE THE IDS FINISHED. 30 Sep 2026.
        This deliberately does NOT happen at the draft save in submitOrder().
        Between that save and here the consultant goes out to Ezidebit and comes
@@ -3423,7 +3456,49 @@ function setEziDefaults(){
     } else { note.classList.add('hidden'); note.innerHTML=''; }
   }
   computeEziBalance();
+  eziSavePlan(false);   /* 22 Oct: the defaults count as the plan until changed */
 }
+
+/* ⚠⚠ 22 Oct 2026 — THE PLAN IS SAVED ON OUR ORDER, NOT ONLY SENT TO EZIDEBIT (Nigel:
+   "these need to be recorded on Simtec System and automatically transferred to ED
+   form. That way there is nothing stopping girls from making the confirmation
+   calls even if ED fails.") Saved a moment after the consultant stops typing, and
+   again the instant the form is opened. It goes in the planned_* columns ONLY —
+   never instalment_amount / first_payment_date, which are Ezidebit's confirmed
+   plan and drive arrears and delivery clearance. Best-effort: a failed save is
+   reported, and never blocks the sale or the form. */
+let eziPlanTimer=null, eziPlanLast='';
+function eziPlanRow(){
+  const n=v=>{ const x=numOrNull(v); return x==null?null:Math.round(x*100)/100; };
+  const d=v=>(/^\d{4}-\d{2}-\d{2}$/.test(v||'')?v:null);
+  const fq=val('eziPlanFreq'); const cnt=parseInt(val('eziPlanCount'),10);
+  let tot=null; try{ tot=n(eziTotal()); }catch(_e){}
+  return { planned_oneoff_amount:n(val('eziOneoffAmount')), planned_oneoff_date:d(val('eziOneoffDate')),
+           planned_instalment_amount:n(val('eziPlanAmount')),
+           planned_frequency:(['weekly','fortnightly','monthly'].includes(fq)?fq:null),
+           planned_first_payment_date:d(val('eziPlanStart')),
+           planned_payment_count:(Number.isFinite(cnt)&&cnt>0?cnt:null),
+           planned_ezidebit_total:tot };
+}
+function eziSavePlan(now){
+  if(eziPlanTimer){ clearTimeout(eziPlanTimer); eziPlanTimer=null; }
+  if(!now){ eziPlanTimer=setTimeout(()=>eziSavePlan(true), 1200); return; }
+  if(WALKTHROUGH || !sb || !S.orderId) return;
+  const row=eziPlanRow(); const key=S.orderId+'|'+JSON.stringify(row);   /* per order: a reset-in-place sale must still save */
+  if(key===eziPlanLast) return;                       // nothing changed since the last save
+  row.planned_at=new Date().toISOString();
+  const oid=S.orderId;
+  try{
+    return sb.from('sim_orders').update(row).eq('id', oid).then(({error})=>{
+      if(error) reportClientError('save the Ezidebit plan on the order (the call page will not show it)', error, oid);
+      else eziPlanLast=key;
+    }, (e)=>reportClientError('save the Ezidebit plan on the order (the call page will not show it)', e, oid));
+  }catch(e){ reportClientError('save the Ezidebit plan on the order (the call page will not show it)', e, oid); }
+}
+['eziOneoffAmount','eziOneoffDate','eziPlanAmount','eziPlanFreq','eziPlanStart','eziPlanCount'].forEach(id=>{
+  const el=document.getElementById(id);
+  if(el){ el.addEventListener('input',()=>eziSavePlan(false)); el.addEventListener('change',()=>eziSavePlan(false)); }
+});
 
 // Build the sandbox eDDR URL with the schedule + customer pre-fill.
 function buildEddrUrl(watchCb){
@@ -3574,6 +3649,7 @@ async function launchEzidebit(){
     try { w = window.open(wUrl, '_blank'); } catch (_e) { w = null; }
     if (w) {
       try { marker.watch = true; marker.eziUrl = wUrl; localStorage.setItem(EZI_RESUME, JSON.stringify(marker)); } catch (_e) {}
+      try { eziSavePlan(true); } catch (_e) {}   /* 22 Oct: the plan, on our order, the moment the form opens */
       try { sb.rpc('note_ezidebit_launch', { p_order:S.orderId, p_build:(window.SIMTEC_BUILD||'')+'-watch',
                                             p_keep_deposit:depositOutsideEzidebit() }).then(()=>{}, ()=>{}); } catch (_e) {}
       eziWatchStart(wUrl, w);
@@ -3604,10 +3680,13 @@ async function launchEzidebit(){
      and a failure changes nothing — the customer still goes to Ezidebit. */
   try{
     await Promise.race([
-      /* 16 Oct: also records whether a bank-transfer deposit must be kept, so the
-         SERVER can store the hand-back exactly as this iPad would. */
-      sb.rpc('note_ezidebit_launch', { p_order:S.orderId, p_build:window.SIMTEC_BUILD||null,
-                                       p_keep_deposit:depositOutsideEzidebit() }),
+      Promise.all([
+        /* 16 Oct: also records whether a bank-transfer deposit must be kept, so the
+           SERVER can store the hand-back exactly as this iPad would. */
+        sb.rpc('note_ezidebit_launch', { p_order:S.orderId, p_build:window.SIMTEC_BUILD||null,
+                                         p_keep_deposit:depositOutsideEzidebit() }),
+        Promise.resolve(eziSavePlan(true))   /* 22 Oct: the plan, saved before the page leaves */
+      ]),
       new Promise(r=>setTimeout(r,1500))
     ]);
   }catch(e){ /* deliberately ignored — logging must never block a sale */ }
