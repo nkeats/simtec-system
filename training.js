@@ -43,7 +43,8 @@
     5: ['Photograph the <b>front and back</b> of each applicant’s ID — add as many photos as needed. ✕ removes a bad one.',
         'No ID? Press <b>No ID available</b> and choose why. It goes on the order and the office follows it up.'],
     6: ['<b>Ezidebit</b> is the normal way: direct debit set up on the next page.',
-        '50% deposit: half now, the balance by direct debit. Paid in full: by bank transfer (proof shown to you) or one Ezidebit payment.',
+        '50% deposit: half now — by bank transfer, <b>card</b> or Ezidebit — and the balance by direct debit. Paid in full: by bank transfer (proof shown to you), <b>card</b>, or one Ezidebit payment.',
+        '<b>Card</b> is taken on its own page straight after the customer signs.',
         'Finance only appears when the office has switched it on for you.'],
     7: ['Go through the summary <b>with the customer</b>.',
         'Each applicant signs in the box and prints their name.',
@@ -55,9 +56,13 @@
         'The office rings for the confirmation call <b>as soon as the form is submitted</b>, while you are still in the house.',
         'If the form <b>refuses</b> the customer after trying again, use the red box <b>"Ezidebit won’t accept it?"</b> so the order reaches the office (21 Oct: an order sat unfinished because this wasn’t used). No signal → <b>Park</b> instead.'],
     9: ['The customer scans the <b>rewards app QR code</b> with their phone camera.',
-        'Card or cash payments only on a <b>solicited</b> sale — an unsolicited sale is in its cooling-off period.',
+        'Cash received today is recorded here. On an Ezidebit plan, an upfront card deposit can also be taken here.',
         'The referral sheet is on paper. <b>10 or more referrals</b> → press "Add the free pillow".',
         '"Start new order" clears everything for the next customer.'],
+    11:['The amount is fixed by the choice on the Payment page — the full price, or exactly half.',
+        'Tap <b>Open secure card payment</b> and hand the iPad over. The customer types their card on <b>Stripe’s</b> page, never into our app.',
+        'When Stripe says it is paid, close its page. This page turns green by itself once the money is recorded — you cannot carry on until it does.',
+        'Card declined? Choose <b>Bank transfer</b> or <b>Ezidebit one-off</b> under “Card didn’t go through?”. The order is already saved.'],
     10:['Check the details with the customer, then send the application to the finance company.',
         'While you wait, the customer fills in a <b>paper</b> Ezidebit form — bank details on paper only, never into the iPad.',
         'The finance company texts your phone with the answer; press the matching button.']
@@ -127,6 +132,7 @@
     if(st === 6){ if(!S.pay) clickChoice('payOption', 'ezidebit'); }
     if(st === 7){ scribble('sigA1'); setv('sigA1name', SAMPLE.sigA1name); if(S.a2) scribble('sigA2'); }
     if(st === 8) showDebitDone();
+    if(st === 11){ try{ cardStepOpen(); }catch(_e){} }
     note('Filled with the made-up customer Mere Sample. Press the app’s own Next button.');
   }
 

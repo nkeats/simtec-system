@@ -18,7 +18,7 @@
 <!-- data-one-consultant: this iPad belongs to the first consultant who signs in on it.
      Orders are written from here, so this is the only page that asks for the binding. -->
 <script src="auth.js?v=5" data-roles="admin,manager,office,consultant" data-one-consultant></script>
-<script>window.SIMTEC_BUILD="2026-10-21-01";</script>
+<script>window.SIMTEC_BUILD="2026-10-21-02";</script>
 <script>
 /* 21 Oct 2026 — TRAINING MODE (?training=1) IS THE WALKTHROUGH PLUS A TRAINER PANEL.
    It is the REAL app, so every page, field and button is exactly what the
@@ -661,8 +661,8 @@
       <p class="sub">How is the customer paying?</p>
       <div class="card">
         <div class="choices three" id="payOption">
-          <div class="choice" data-val="full"><div class="ct">Paid in full</div><div class="cd">Direct deposit now — or one Ezidebit payment.</div></div>
-          <div class="choice" data-val="deposit50"><div class="ct">50% deposit</div><div class="cd">Half now, balance by Ezidebit direct debit.</div></div>
+          <div class="choice" data-val="full"><div class="ct">Paid in full</div><div class="cd">Bank transfer, card, or one Ezidebit payment.</div></div>
+          <div class="choice" data-val="deposit50"><div class="ct">50% deposit</div><div class="cd">Half by bank transfer, card or Ezidebit — balance by Ezidebit direct debit.</div></div>
           <div class="choice" data-val="ezidebit"><div class="ct">Ezidebit</div><div class="cd">Direct debit set up after signing.</div></div>
           <!-- 20 Oct 2026: shown only when finance_available() says yes for this login -->
           <div class="choice hidden" id="payFinanceChoice" data-val="finance"><div class="ct">Finance — <span class="finProv">MTF Finance</span></div><div class="cd">Application emailed to the finance company. Paper Ezidebit form as back-up.</div></div>
@@ -678,6 +678,8 @@
           <div id="depMethodSol" class="choices hidden">
             <div class="choice sel" data-val="ezidebit"><div class="ct">Ezidebit one-off</div><div class="cd">50% taken as a single Ezidebit payment.</div></div>
             <div class="choice" data-val="bank"><div class="ct">Bank transfer</div><div class="cd">50% paid by direct deposit now; proof shown to consultant.</div></div>
+            <!-- 21 Oct 2026: card at the payment step (Nigel: "The stripe payment should be offered at this point, not at the very end") -->
+            <div class="choice" data-val="card"><div class="ct">Card</div><div class="cd">50% paid by card now, on Stripe's secure page, straight after signing.</div></div>
           </div>
         </div>
 
@@ -691,6 +693,7 @@
           <div id="fullMethodSol" class="choices hidden">
             <div class="choice sel" data-val="bank"><div class="ct">Bank transfer</div><div class="cd">Paid in full by direct deposit now; proof shown to consultant.</div></div>
             <div class="choice" data-val="ezidebit"><div class="ct">Ezidebit one-off</div><div class="cd">Full amount as a single Ezidebit payment.</div></div>
+            <div class="choice" data-val="card"><div class="ct">Card</div><div class="cd">Full amount by card now, on Stripe's secure page, straight after signing.</div></div>
           </div>
         </div>
 
@@ -756,6 +759,43 @@
           <canvas class="sig" id="sigA2"></canvas>
         </div>
         <label class="f" style="margin-top:12px;"><span class="lab">Print Name</span><input type="text" id="sigA2name"></label>
+      </div>
+    </section>
+
+    <!-- 11 CARD PAYMENT (21 Oct 2026)
+         Chosen on the Payment step (Paid in full → Card, or 50% deposit → Card) and
+         taken here, straight after signing — the order has to be saved first because
+         Stripe records the money AGAINST the order. The amount is fixed by what was
+         chosen (the full price, or exactly half) and is checked again on the server.
+         The money is only counted as paid when Stripe's webhook has recorded it —
+         this page asks the database, it never takes the consultant's word for it. -->
+    <section class="step" data-step="11">
+      <h2 class="title">Card payment</h2>
+      <p class="sub" id="cardStepSub">Take the payment by card now.</p>
+      <div class="card" style="text-align:center">
+        <div class="lab" id="cardStepWhat">Amount to pay by card</div>
+        <div id="cardStepAmt" style="font-size:34px;font-weight:800;margin:6px 0 4px;color:var(--navy)">$0.00</div>
+        <div class="sub" id="cardStepWhy" style="margin:0 auto 14px;max-width:460px"></div>
+        <div id="cardStepTake">
+          <button type="button" class="btn next" id="cardStepBtn" style="max-width:320px;margin:0 auto;display:block" onclick="cardStepOpen()">Open secure card payment</button>
+          <div class="sub" style="margin:10px auto 0;max-width:460px">Stripe's payment page opens on top of the app. Hand the iPad to the customer to enter their card. When it says the payment is complete, close it — this page shows the payment by itself.</div>
+          <a id="cardStepLink" class="hidden" target="_blank" rel="noopener" style="display:block;margin:12px auto 0;font-weight:700">The payment page did not open — tap here to open it</a>
+          <div id="cardStepMsg" class="sub" style="margin-top:10px;min-height:18px"></div>
+          <button type="button" class="btn-sm" style="margin-top:6px;background:#fff;color:var(--navy);border:1px solid var(--line)" onclick="cardStepCheck(true)">Check for the payment</button>
+        </div>
+        <div id="cardStepDone" class="hidden" style="margin-top:6px;padding:14px;border-radius:12px;background:#f4fbf6;border:1px solid #bcdcc4">
+          <b style="color:#1c6b34;font-size:16px">✅ Card payment received</b>
+          <div class="sub" id="cardStepDoneMsg" style="margin-top:4px;color:#2f6b53"></div>
+        </div>
+      </div>
+      <div class="card" id="cardStepAlt">
+        <h3 style="margin-top:0">Card didn't go through?</h3>
+        <p class="sub" style="margin-top:-4px">Choose another way to take this payment. The order is already saved — nothing is lost.</p>
+        <div class="choices" id="cardAltChoices">
+          <div class="choice" data-val="bank"><div class="ct">Bank transfer</div><div class="cd">Customer pays by direct deposit now; proof shown to you.</div></div>
+          <div class="choice" data-val="ezidebit"><div class="ct">Ezidebit one-off</div><div class="cd">Taken as a single Ezidebit payment on the next page.</div></div>
+        </div>
+        <p class="sub" style="margin:10px 0 0;">Bank account for direct deposits: Simtec Therapeutic Limited · BNZ 02-0200-0352393-000</p>
       </div>
     </section>
 
@@ -1281,7 +1321,7 @@ if(WALKTHROUGH && sb){
     /* training mode: the trainer's panel (training.js) on top of the walkthrough */
     if(new URLSearchParams(location.search).has('training')){
       txt.textContent = 'TRAINING — nothing is saved, nothing is sent, no direct debit is created';
-      const t = document.createElement('script'); t.src = 'training.js?v=1'; document.body.appendChild(t);
+      const t = document.createElement('script'); t.src = 'training.js?v=2'; document.body.appendChild(t);
     }
     document.body.style.paddingTop = '38px';
 
@@ -1492,12 +1532,14 @@ const S = { step:0, saleType:'', pay:'', depositMethod:'ezidebit', fullMethod:'b
             /* TEMPORARY 13 Aug 2026 — set only by the red "Ezidebit won't accept it" button on step 8. */
             eziSkipped:false, eziSkipWhy:'', eziSkipPlan:null,
             cashTaken:0, eziRefBad:null,
+            cardPaidOk:false, cardOpened:false, cardUrl:null, cardPaid:0, cardSwitched:false,   /* 21 Oct: the card step */
             /* ⚠ ONE PAIR OF IDS PER ORDER, MINTED ONCE — see orderIds(). */
             orderIds:null };
-const STEP_LABELS = ['Start','Products','Details','Referees','Terms','ID','Payment','Sign','Ezidebit','Done','Finance'];   /* 10 = Finance (20 Oct) */
+const STEP_LABELS = ['Start','Products','Details','Referees','Terms','ID','Payment','Sign','Ezidebit','Done','Finance','Card'];   /* 10 = Finance (20 Oct) · 11 = Card (21 Oct) */
 
 function visibleSteps(){
   let arr=[0,1,2,3,4,5,6,7];
+  if(cardStepNeeded()) arr.push(11);    /* 21 Oct: card is taken straight after signing, BEFORE Ezidebit */
   // Ezidebit step is needed both for a full direct-debit AND for a 50% deposit
   // (the remaining 50% is collected by direct debit).
   if(S.pay==='ezidebit' || S.pay==='deposit50' || (S.pay==='full' && S.fullMethod==='ezidebit')) arr.push(8);
@@ -1522,7 +1564,8 @@ function showStep(ds){
   const back=document.getElementById('backBtn'), next=document.getElementById('nextBtn');
   back.style.visibility=(ds===visibleSteps()[0])?'hidden':'visible';
   next.classList.remove('hidden'); back.classList.remove('hidden');
-  if(ds===7){ next.textContent=(S.pay==='ezidebit'||S.pay==='deposit50')?'Submit & set up Ezidebit':(S.pay==='finance'?'Submit & go to finance':'Submit order'); next.className='btn submit'; }
+  if(ds===7){ next.textContent=cardStepNeeded()?'Submit & take card payment':((S.pay==='ezidebit'||S.pay==='deposit50')?'Submit & set up Ezidebit':(S.pay==='finance'?'Submit & go to finance':'Submit order')); next.className='btn submit'; }
+  else if(ds===11){ next.textContent=(visibleSteps().indexOf(8)>-1)?'Next — set up Ezidebit':'Finish'; next.className='btn submit'; }
   else if(ds===8){ next.textContent='Finish'; next.className='btn submit'; }
   else if(ds===9){ next.classList.add('hidden'); back.classList.add('hidden'); }
   else { next.textContent='Next'; next.className='btn next'; }
@@ -1534,6 +1577,7 @@ function showStep(ds){
   if(ds===9) finalizeOrder();   // saved order reached Done → regen PDF w/ schedule, push GHL + welcome email
   if(ds===9 && S.pay==='finance') finDoneUi();   /* 20 Oct: finance wording on the Done screen */
   if(ds===10) finEnterStep();                     /* 20 Oct: the finance step */
+  if(ds===11) cardStepEnter(); else cardStepStopPolling();   /* 21 Oct: the card step */
   renderSteps(); window.scrollTo(0,0);
   document.querySelectorAll('section.step.on canvas.sig').forEach(sizeCanvas);
 }
@@ -1627,7 +1671,7 @@ async function validateStep(ds){
        because a sale paid in full has no ongoing plan to collect. "Solicited" only
        appeared because an unsolicited sale could not take money on the day, which
        is no longer how we operate. So the exemption is now the full payment itself. */
-    const exempt = (S.pay === 'full' && S.fullMethod === 'bank');
+    const exempt = (S.pay === 'full' && (S.fullMethod === 'bank' || S.fullMethod === 'card'));   /* 21 Oct: card added */
     /* TEMPORARY 13 Aug 2026 — see the red panel at the end of step 8. A
        consultant who has genuinely been refused by the Ezidebit form can
        finish the order without a direct debit; it goes to the office with a
@@ -1641,6 +1685,19 @@ async function validateStep(ds){
         + 'Set it up on this page. If you have no signal, use Park instead and the office will finish it.\n\n'
         + 'If the Ezidebit form is REFUSING the customer, use the red box at the bottom of this page '
         + 'to finish the order and hand it to the office.');
+      return false;
+    }
+  }
+  if(ds===11){
+    /* 21 Oct: the money must actually be recorded — Stripe's webhook, read back from
+       the database — before the sale moves on. One last look first, in case it has
+       only just landed. */
+    if(!S.cardPaidOk) await cardStepCheck(false);
+    if(!S.cardPaidOk){
+      alert('The card payment has not come through yet.\n\n'
+        + 'If the customer has just paid, wait a few seconds and tap "Check for the payment".\n\n'
+        + 'If the card did not go through, choose Bank transfer or Ezidebit one-off under "Card didn\'t go through?".\n\n'
+        + 'No signal? Use Park and tell the office.');
       return false;
     }
   }
@@ -2058,7 +2115,7 @@ function buildReview(){
   const sub=S.products.reduce((s,p)=>s+(p.price*p.qty||0),0);
   const total=sub+(wantDel?DELIVERY_FEE:0);
   const name=(val('a1first')+' '+val('a1last')).trim()+(S.a2?(' & '+val('a2first')+' '+val('a2last')):'');
-  const payLabel={full:'Paid in full',deposit50:'50% deposit',ezidebit:'Ezidebit direct debit',finance:'Finance — '+FIN.provider}[S.pay]||'—';
+  const payLabel=(S.pay==='finance') ? ('Finance — '+FIN.provider) : payMethodLabel(S.pay, S.fullMethod, S.depositMethod);
   const hasGuar=S.products.some(p=>GUARANTEE_PRODUCTS.includes(p.name));
   let prods=S.products.filter(p=>p.name).map(p=>'<div class="rev-line"><span>'+esc(p.name)+' × '+p.qty+'</span><span>'+money(p.price*p.qty)+'</span></div>').join('');
   document.getElementById('reviewCard').innerHTML=
@@ -2417,7 +2474,7 @@ async function generateAndUploadOrderPdf(orderId,P){
   y+=6; doc.setDrawColor(200); doc.line(M,y,R,y); y+=18;
   doc.setFont('helvetica','bold'); doc.text('Total',M,y); doc.text('$'+total.toFixed(2),R,y,{align:'right'}); y+=26;
   const payLabel=(fl.pay==='finance') ? finPayLabel()
-                 : ({full:'Paid in full',deposit50:'50% deposit',ezidebit:'Ezidebit direct debit'}[fl.pay]||'—');
+                 : payMethodLabel(fl.pay, fl.fullMethod, fl.depositMethod);
   doc.setFont('helvetica','normal'); doc.setTextColor(20); doc.text('Payment method: '+payLabel,M,y); y+=20;
   /* 20 Oct: a finance sale prints how it is being paid, from the answer recorded */
   if(fl.pay==='finance'){ finPdfLines(orderId).forEach(t=>{ doc.splitTextToSize(t,R-M).forEach(l=>{ doc.text(l,M,y); y+=15; }); }); y+=6; }
@@ -2721,6 +2778,10 @@ function pushOrderToGhl(orderId, opts){
 // ---- card payment at point of sale (available on every sale) ----
 function renderCardPay(){
   const box=document.getElementById('cardPayBox'); if(!box) return;
+  /* 21 Oct: Paid in full and 50% deposit choose card on the Payment step and pay
+     straight after signing, so the card box is no longer offered here for them.
+     It stays for an Ezidebit plan, where consultants use it for an upfront card deposit. */
+  if(S.pay==='full' || S.pay==='deposit50' || S.pay==='finance'){ box.classList.add('hidden'); return; }
   box.classList.remove('hidden');
   // Card is available on every sale — payment during the cooling-off period is allowed.
   document.getElementById('cardPayInner').classList.remove('hidden');
@@ -2752,6 +2813,150 @@ async function takeCardPayment(){
   }catch(e){ reportClientError('open the card-payment page', e, S.orderId);
              msg.textContent='Couldn\'t reach the payment service — check the connection and try again.'; }
 }
+/* ══ CARD PAYMENT AT THE PAYMENT STEP (21 Oct 2026) ═════════════════════════
+   [stated] Nigel, 21 Oct: "as we are selecting payment options, for the 50% deposit
+   and paid in full, there are only two options… We also need one for a card
+   payment. The stripe payment should be offered at this point, not at the very end."
+
+   So Card is a third method beside Bank transfer and Ezidebit one-off, chosen on
+   the Payment step. It is TAKEN on its own page (step 11) straight after signing,
+   because Stripe records the money against the order and the order is only saved
+   when the customer signs. Order of pages:
+     Paid in full by card  : … Sign → Card → Done
+     50% deposit by card   : … Sign → Card → Ezidebit (balance only) → Done
+
+   ⚠ The sale only moves on when the money is RECORDED — Stripe's webhook writes
+     it, and order_card_paid() reads it back. The consultant's word is not enough,
+     because a payment the customer abandoned looks exactly like one they finished.
+   ⚠ One Stripe page per order: a second tap reopens the SAME page rather than
+     starting another, so the customer can never be charged twice by two pages.
+   ⚠ If the card fails, the consultant switches to Bank transfer or Ezidebit
+     one-off on the same page. The order is already saved; nothing is lost.
+   Uses the same Stripe-staff-session function as the Done-screen card box, which
+   has been taking real payments since September. */
+function payMethodLabel(pay, fullM, depM){
+  const how={bank:'bank transfer', card:'card', ezidebit:'one Ezidebit payment'};
+  if(pay==='full')      return 'Paid in full — '+(how[fullM]||how.bank);
+  if(pay==='deposit50') return '50% deposit by '+(how[depM]||how.ezidebit)+', balance by Ezidebit direct debit';
+  if(pay==='ezidebit')  return 'Ezidebit direct debit';
+  return '—';
+}
+function cardStepNeeded(){
+  return (S.pay==='full' && S.fullMethod==='card') || (S.pay==='deposit50' && S.depositMethod==='card');
+}
+function cardStepAmount(){
+  const gross=eziGross();
+  return S.pay==='deposit50' ? Math.round(gross*50)/100 : Math.round(gross*100)/100;   // same 50% figure as deposit_amount
+}
+let cardPollTimer=null, cardPollUntil=0;
+function cardStepStopPolling(){ if(cardPollTimer){ clearInterval(cardPollTimer); cardPollTimer=null; } }
+function cardStepStartPolling(){
+  cardStepStopPolling();
+  cardPollUntil=Date.now()+20*60*1000;              // 20 minutes, then the button does it
+  cardPollTimer=setInterval(()=>{
+    if(S.step!==11 || S.cardPaidOk || Date.now()>cardPollUntil){ cardStepStopPolling(); return; }
+    cardStepCheck(false);
+  }, 4000);
+}
+function cardStepPaint(){
+  const amt=cardStepAmount();
+  const set=(id,t)=>{ const e=document.getElementById(id); if(e) e.textContent=t; };
+  set('cardStepAmt', money(amt));
+  set('cardStepWhat', S.pay==='deposit50' ? '50% deposit to pay by card' : 'Full amount to pay by card');
+  set('cardStepWhy', S.pay==='deposit50'
+    ? 'Half of the '+money(eziGross())+' order. The other '+money(eziGross()-amt)+' is set up by Ezidebit direct debit on the next page.'
+    : 'The whole '+money(eziGross())+' order, paid today. There is no direct debit to set up.');
+  const paid=!!S.cardPaidOk;
+  document.getElementById('cardStepTake').classList.toggle('hidden', paid);
+  document.getElementById('cardStepAlt').classList.toggle('hidden', paid);
+  document.getElementById('cardStepDone').classList.toggle('hidden', !paid);
+  if(paid) set('cardStepDoneMsg', money(S.cardPaid||amt)+' paid by card and recorded against this order.'
+                                  + (WALKTHROUGH?' (Walkthrough — no card was charged.)':''));
+  document.querySelectorAll('#cardAltChoices .choice').forEach(c=>c.classList.remove('sel'));
+}
+function cardStepEnter(){
+  cardStepPaint();
+  if(S.cardPaidOk) return;
+  if(S.cardOpened) cardStepStartPolling();
+  if(S.orderId && !WALKTHROUGH) cardStepCheck(false);   // came back to this page: it may already be paid
+}
+async function cardStepOpen(){
+  const msg=document.getElementById('cardStepMsg'), btn=document.getElementById('cardStepBtn');
+  const link=document.getElementById('cardStepLink');
+  if(S.cardPaidOk) return;
+  if(!S.orderId){ msg.textContent='The order is not saved yet — go back and submit it.'; return; }
+  if(WALKTHROUGH){
+    /* nothing is charged in a walkthrough: show what the consultant will see */
+    msg.textContent='Walkthrough: Stripe\'s card page would open now. No card is charged.';
+    S.cardOpened=true;
+    setTimeout(()=>{ S.cardPaidOk=true; S.cardPaid=cardStepAmount(); cardStepPaint(); msg.textContent=''; }, 1200);
+    return;
+  }
+  /* ⚠ one Stripe page per order — reopen it rather than start a second one */
+  if(S.cardUrl){
+    const w=window.open(S.cardUrl,'_blank');
+    if(!w){ link.href=S.cardUrl; link.classList.remove('hidden'); }
+    msg.textContent='Payment page reopened. This page shows the payment once Stripe confirms it.';
+    cardStepStartPolling(); return;
+  }
+  const amt=cardStepAmount();
+  if(!(amt>=10)){ msg.textContent='The card amount is under $10 — Stripe will not take it. Choose another way below.'; return; }
+  btn.disabled=true; btn.style.opacity='.6'; btn.textContent='Opening…';
+  msg.textContent='Opening the secure payment page…';
+  try{
+    const { data, error } = await sb.functions.invoke('Stripe-staff-session',{ body:{ order_id:S.orderId, amount:amt } });
+    if(data && data.url){
+      S.cardUrl=data.url; S.cardOpened=true;
+      const w=window.open(data.url,'_blank');
+      if(!w){ link.href=data.url; link.classList.remove('hidden'); }
+      const charged=Number(data.amount)||amt;
+      msg.textContent = (charged < amt-0.005)
+        ? 'Payment page opened for '+money(charged)+' — that is all that is still owing on this order.'
+        : 'Payment page opened. This page shows the payment as soon as Stripe confirms it.';
+      cardStepStartPolling();
+    } else {
+      const why=(data&&data.error)||(error&&error.message)||'no payment page came back';
+      reportClientError('open the card-payment page (card step)', why, S.orderId);
+      msg.textContent='Card payments are not available right now ('+why+'). Choose another way below.';
+    }
+  }catch(e){
+    reportClientError('open the card-payment page (card step)', e, S.orderId);
+    msg.textContent='Could not reach the payment service — check the connection and try again, or choose another way below.';
+  }finally{ btn.disabled=false; btn.style.opacity=''; btn.textContent='Open secure card payment'; }
+}
+async function cardStepCheck(manual){
+  const msg=document.getElementById('cardStepMsg');
+  if(WALKTHROUGH || !S.orderId || S.cardPaidOk) return;
+  try{
+    const { data, error } = await sb.rpc('order_card_paid', { p_order:S.orderId });
+    if(error) throw error;
+    const paid=Number(data && data.card_paid)||0, need=cardStepAmount();
+    S.cardPaid=paid;
+    if(paid >= need-0.01){ S.cardPaidOk=true; cardStepStopPolling(); cardStepPaint(); if(msg) msg.textContent=''; return; }
+    if(manual && msg) msg.textContent = paid>0
+      ? 'So far '+money(paid)+' of '+money(need)+' has come through by card.'
+      : 'Not received yet. If the customer has just paid, give it a few seconds.';
+  }catch(e){
+    if(manual && msg) msg.textContent='Could not check just now — '+((e&&e.message)||e)+'. Try again in a moment.';
+  }
+}
+bindChoices('cardAltChoices', v=>{
+  if(S.cardPaidOk) return;
+  const label={bank:'bank transfer', ezidebit:'an Ezidebit one-off payment'}[v];
+  if(!confirm('Take this payment by '+label+' instead of card?\n\n'
+      + 'Only do this if the card has NOT been paid. If the customer finished Stripe\'s page, '
+      + 'tap Cancel and "Check for the payment" instead.')){
+    document.querySelectorAll('#cardAltChoices .choice').forEach(c=>c.classList.remove('sel')); return;
+  }
+  if(S.pay==='full') S.fullMethod=v; else S.depositMethod=v;
+  /* the summary PDF was printed at signing saying "card" — correct what it will say,
+     and have finalizeOrder print it again (see S.cardSwitched there) */
+  if(S.lastP && S.lastP.flags){ S.lastP.flags.fullMethod=(S.pay==='full'?v:null); S.lastP.flags.depositMethod=S.depositMethod; }
+  S.cardSwitched=true;
+  cardStepStopPolling();
+  const vis=visibleSteps(); showStep(vis[vis.indexOf(7)+1]);   // Ezidebit, or Done for a bank transfer
+});
+
 /* TEMPORARY 13 Aug 2026 — Ezidebit refusing customers at the door.
    Records WHY, captures the schedule the consultant had set so the office can
    rebuild it on the phone, and lets the order finish. Nothing here weakens the
@@ -2869,7 +3074,7 @@ async function finalizeOrder(){
   S.finalized=true;
 
 
-  if((S.pay==='ezidebit' || S.pay==='deposit50' || S.pay==='finance') && S.lastP){
+  if((S.pay==='ezidebit' || S.pay==='deposit50' || S.pay==='finance' || S.cardSwitched) && S.lastP){   /* 21 Oct: also after a card → other switch */
     try{ await generateAndUploadOrderPdf(S.orderId, S.lastP); }
     catch(e){ console.warn('summary regen pending:',e&&e.message||e);
               reportClientError('regenerate the order-summary PDF with the Ezidebit schedule', e, S.orderId); }
@@ -3065,7 +3270,9 @@ function resetForm(){
   ['sigA1','sigA2'].forEach(clearSig);
   Object.assign(S,{existingFor:null,existingNeed:false,existingChoice:null});
   { const eh=document.getElementById('existingHit'); if(eh){ eh.classList.add('hidden'); eh.innerHTML=''; } }
-  Object.assign(S,{step:0,saleType:'',pay:'',depositMethod:'ezidebit',fullMethod:'bank',a2:false,products:[],emailVerified:false,sentCode:null,tncRead:false,orderId:null,finalized:false,lastP:null,idPhotos:{A1:[],A2:[]},idMissing:{A1:null,A2:null}});
+  Object.assign(S,{step:0,saleType:'',pay:'',depositMethod:'ezidebit',fullMethod:'bank',a2:false,products:[],emailVerified:false,sentCode:null,tncRead:false,orderId:null,finalized:false,lastP:null,idPhotos:{A1:[],A2:[]},idMissing:{A1:null,A2:null},
+                 cardPaidOk:false,cardOpened:false,cardUrl:null,cardPaid:0,cardSwitched:false});
+  cardStepStopPolling();
   clearIds();   /* ⚠ a NEW order must never inherit the last one's ids */
   S.fin=null; try{ finClearResume(); finPayChanged(); }catch(_e){}   /* 20 Oct */
   clearNoId('A1'); clearNoId('A2');
@@ -3104,8 +3311,9 @@ function eziDateToIso(s){ if(!s) return null; s=String(s).trim();
   return null;
 }
 function eziGross(){ return S.products.reduce((s,p)=>s+(p.price*p.qty||0),0)+(document.getElementById('wantDelivery').checked?DELIVERY_FEE:0); }
-// Amount paid OUTSIDE Ezidebit — only when a 50% deposit is taken by bank transfer.
-function eziBankDeposit(){ return (S.pay==='deposit50' && S.depositMethod==='bank') ? Math.round(eziGross()*50)/100 : 0; }
+// Amount paid OUTSIDE Ezidebit — a 50% deposit taken by bank transfer or (21 Oct) by card.
+function depositOutsideEzidebit(){ return S.pay==='deposit50' && (S.depositMethod==='bank' || S.depositMethod==='card'); }
+function eziBankDeposit(){ return depositOutsideEzidebit() ? Math.round(eziGross()*50)/100 : 0; }
 // Amount Ezidebit must collect: full for a straight DD or an Ezidebit-paid deposit;
 // just the balance when the deposit was a bank transfer.
 function eziTotal(){ return eziGross()-eziBankDeposit(); }
@@ -3143,7 +3351,10 @@ function setEziDefaults(){
   if(oneoffAmt && !oneoffAmt.value && eziOneoffDefault()>0) oneoffAmt.value=eziOneoffDefault().toFixed(2);
   const note=document.getElementById('eziDepositNote');
   if(note){
-    if(S.pay==='deposit50' && S.depositMethod==='bank'){
+    if(S.pay==='deposit50' && S.depositMethod==='card'){
+      note.classList.remove('hidden');
+      note.innerHTML='<b>50% deposit paid by card.</b> The '+money(eziBankDeposit())+' deposit has been paid by card — set up Ezidebit below for the remaining <b>'+money(eziTotal())+'</b> only. Leave the one-off payment empty.';
+    } else if(S.pay==='deposit50' && S.depositMethod==='bank'){
       note.classList.remove('hidden');
       note.innerHTML='<b>50% deposit by bank transfer.</b> The '+money(eziBankDeposit())+' deposit is paid by direct deposit — set up Ezidebit below for the remaining <b>'+money(eziTotal())+'</b> only.';
     } else if(S.pay==='deposit50'){
@@ -3273,7 +3484,7 @@ async function launchEzidebit(){
                             fields:S.lastP.fields, flags:S.lastP.flags, products:S.lastP.products,
                             wantDel:S.lastP.wantDel, referralId:S.lastP.referralId } : null;
   const marker = {
-    at:Date.now(), orderId:S.orderId, customerId:S.customerId||null, cashTaken:S.cashTaken||0,
+    at:Date.now(), orderId:S.orderId, customerId:S.customerId||null, cashTaken:S.cashTaken||0, cardSwitched:!!S.cardSwitched,
     saleType:S.saleType, pay:S.pay, depositMethod:S.depositMethod, fullMethod:S.fullMethod,
     lastP:slimP,
     plan:{ oneoffAmount:val('eziOneoffAmount'), oneoffDate:val('eziOneoffDate'),
@@ -3320,7 +3531,7 @@ async function launchEzidebit(){
       /* 16 Oct: also records whether a bank-transfer deposit must be kept, so the
          SERVER can store the hand-back exactly as this iPad would. */
       sb.rpc('note_ezidebit_launch', { p_order:S.orderId, p_build:window.SIMTEC_BUILD||null,
-                                       p_keep_deposit:(S.pay==='deposit50' && S.depositMethod==='bank') }),
+                                       p_keep_deposit:depositOutsideEzidebit() }),
       new Promise(r=>setTimeout(r,1500))
     ]);
   }catch(e){ /* deliberately ignored — logging must never block a sale */ }
@@ -3350,6 +3561,7 @@ async function resumeFromEzidebit(){
   S.customerId=mark.customerId||S.customerId||null;   // without this there is no rewards-app QR
   if(mark.lastP) S.lastP=mark.lastP;                  // so the summary PDF can be regenerated
   S.cashTaken=Number(mark.cashTaken)||0;
+  S.cardSwitched=!!mark.cardSwitched;   /* 21 Oct: the summary must be reprinted at Done */
   const setv=(id,v)=>{ const el=document.getElementById(id); if(el&&v!=null&&v!=='') el.value=v; };
   const p=mark.plan||{};
   setv('eziOneoffAmount',p.oneoffAmount); setv('eziOneoffDate',p.oneoffDate);
@@ -3497,7 +3709,7 @@ async function applyEzidebitCallback(cb){
      "Ezidebit sent back their internal number… the office has been asked" box on
      every sale. Only a number that is neither 8 nor 9 digits is flagged. */
   S.eziRefBad = (eziRefLooksRight(returned) || /^\d{8}$/.test(returned)) ? null : (returned||null);
-  const keep = (S.pay==='deposit50' && S.depositMethod==='bank');
+  const keep = depositOutsideEzidebit();   /* 21 Oct: a card deposit is kept too */
   const {data, error}=await sb.rpc('store_ezidebit_handback',
     { p_order:S.orderId, p_params:cb, p_keep_deposit:keep, p_source:'app' });
   if(error) throw new Error(error.message||'could not store the Ezidebit schedule');
