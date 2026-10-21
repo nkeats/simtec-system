@@ -18,7 +18,7 @@
 <!-- data-one-consultant: this iPad belongs to the first consultant who signs in on it.
      Orders are written from here, so this is the only page that asks for the binding. -->
 <script src="auth.js?v=5" data-roles="admin,manager,office,consultant" data-one-consultant></script>
-<script>window.SIMTEC_BUILD="2026-10-21-02";</script>
+<script>window.SIMTEC_BUILD="2026-10-21-03";</script>
 <script>
 /* 21 Oct 2026 — TRAINING MODE (?training=1) IS THE WALKTHROUGH PLUS A TRAINER PANEL.
    It is the REAL app, so every page, field and button is exactly what the
@@ -822,7 +822,7 @@
           <label class="f"><span class="lab">Plan start date</span><input type="date" id="eziPlanStart"></label>
         </div>
         <div class="grid2">
-          <label class="f"><span class="lab">Number of payments <span style="font-weight:400;color:var(--muted)">(optional)</span></span><input type="number" id="eziPlanCount" inputmode="numeric" placeholder="Blank = until balance paid"></label>
+          <label class="f"><span class="lab">Number of payments <span style="font-weight:400;color:var(--muted)">(optional)</span></span><input type="number" id="eziPlanCount" inputmode="numeric" placeholder="Blank = until balance paid" oninput="computeEziBalance()"></label>
           <div class="f"><span class="lab">Balance after one-off</span><div id="eziBalanceHint" class="sub" style="padding-top:8px">—</div></div>
         </div>
       </div>
@@ -842,6 +842,9 @@
           <p style="font-weight:700;margin:8px 0 4px;">Ezidebit secure direct-debit form</p>
           <p class="sub" style="margin:0 auto 14px;max-width:460px;">Bank/card details and the direct-debit authority are captured directly by Ezidebit — nothing sensitive touches Simtec.</p>
           <p class="sub" style="margin:0 auto 14px;max-width:460px;">The Ezidebit form opens on its own, full screen. Work through it to the very end — when Ezidebit finishes, this order comes back on screen by itself with the direct debit attached.</p>
+          <!-- 21 Oct 2026: Ezidebit's form leaves any amount over $10,000 BLANK (proved on the live
+               and practice forms: $10,000.00 fills, $10,000.01 does not). Shown only when it applies. -->
+          <div id="eziBigNote" class="note hidden" style="margin:0 auto 14px;max-width:460px;text-align:left;background:#fff8e8;border-color:#f0dca8;color:#7a5b12;"></div>
           <button class="btn-sm" type="button" onclick="launchEzidebit()">Open secure Ezidebit form</button>
           <div id="eziMsg" class="sub" style="margin-top:10px;color:var(--danger)"></div>
         </div>
@@ -3322,7 +3325,36 @@ function eziOneoffDefault(){
   if(S.pay==='full' && S.fullMethod==='ezidebit') return Math.round(eziGross()*100)/100;   // whole amount, one payment
   return (S.pay==='deposit50' && S.depositMethod==='ezidebit') ? Math.round(eziGross()*50)/100 : 0;
 }
+/* ⚠ 21 Oct 2026 — EZIDEBIT WILL NOT PRE-FILL AN AMOUNT OVER $10,000.
+   Found on Brett Saunders' $10,660 order: "the total did not transfer". Tested on
+   Ezidebit's live AND practice forms by loading them with our own parameters:
+   tAmount / oAmount up to 10000.00 fill in; 10000.01 and above arrive BLANK.
+   A total typed by hand on their form is accepted. So we still send it (if Ezidebit
+   ever lifts the limit it simply fills), and tell the consultant exactly what to
+   type before they hand the iPad over. Mirrors the amounts buildEddrUrl() sends. */
+const EZI_PREFILL_MAX = 10000;
+function eziOverPrefillLimit(){
+  const oAmt=numOrNull(val('eziOneoffAmount')), rAmt=numOrNull(val('eziPlanAmount'));
+  const out=[];
+  if(oAmt!=null && oAmt>EZI_PREFILL_MAX) out.push({box:'Debit Amount (Once Off Debit)', amt:oAmt});
+  if(rAmt!=null && !numOrNull(val('eziPlanCount'))){
+    const cap=Math.round((eziTotal()-(oAmt||0))*100)/100;
+    if(cap>EZI_PREFILL_MAX) out.push({box:'Total Amount (Regular Debits)', amt:cap});
+  }
+  return out;
+}
+function paintEziBigNote(){
+  const n=document.getElementById('eziBigNote'); if(!n) return;
+  const over=eziOverPrefillLimit();
+  n.classList.toggle('hidden', !over.length);
+  n.innerHTML = over.length
+    ? '<b>Type this in on Ezidebit\'s form.</b> Ezidebit cannot fill in amounts over $10,000, so '
+      + over.map(o=>'the <b>'+o.box+'</b> box will be <b>empty</b> — type <b>'+money(o.amt)+'</b>').join('; and ')
+      + ' before the customer submits.'
+    : '';
+}
 function computeEziBalance(){
+  try{ paintEziBigNote(); }catch(_e){}
   const hint=document.getElementById('eziBalanceHint');
   const total=eziTotal();
   const bal=Math.max(0, total-(numOrNull(val('eziOneoffAmount'))||0));
@@ -3554,7 +3586,17 @@ async function resumeFromEzidebit(){
     try{ localStorage.removeItem(EZI_RESUME); localStorage.removeItem('simtec_ezidebit_return'); }catch(e){}
     return false;
   }
-  try{ localStorage.removeItem(EZI_RESUME); }catch(e){}
+  /* ⚠ 21 Oct 2026 — THE MARKER IS NO LONGER DELETED HERE. It used to be removed
+     before anything was saved, so when the page was interrupted part-way — the
+     update check reloading an iPad on an older build, or the signal dropping as
+     the app reopened — the "come back to this sale" note was gone and the next
+     launch started a blank sale. Vaine Makakea (Caleb, 21 Oct): Ezidebit created
+     her direct debit, the iPad came back on an old build, reloaded, and the sale
+     was lost. It is now removed only once the result is safely recorded (see
+     eziResumeDone below), so an interrupted resume simply runs again next launch.
+     Everything it calls is safe to repeat: store_ezidebit_handback() accepts the
+     same number twice, and the server search only stores an exact match. */
+  const eziResumeDone=()=>{ try{ localStorage.removeItem(EZI_RESUME); localStorage.removeItem('simtec_ezidebit_return'); }catch(e){} };
 
   S.orderId=mark.orderId; S.saleType=mark.saleType||S.saleType; S.pay=mark.pay||S.pay;
   S.depositMethod=mark.depositMethod||S.depositMethod; S.fullMethod=mark.fullMethod||S.fullMethod;
@@ -3569,7 +3611,6 @@ async function resumeFromEzidebit(){
   setv('eziPlanStart',p.planStart);       setv('eziPlanCount',p.planCount);
 
   const params=(ret&&ret.params)||null;
-  try{ localStorage.removeItem('simtec_ezidebit_return'); }catch(e){}
 
   if(params && (params.cref||params.uref)){
     // (the 'returned' log line is now written by store_ezidebit_handback itself)
@@ -3578,6 +3619,7 @@ async function resumeFromEzidebit(){
     S.eziRef=params.cref||params.uref||null;
     clearEziSkipIfRealDebit();
     showEziDone(params);
+    eziResumeDone();
   }else{
     /* 16 Oct 2026 — came back with nothing on THIS iPad. Before saying so, ask
        the server: the return page may already have saved it there, or the
@@ -3587,16 +3629,25 @@ async function resumeFromEzidebit(){
     const m=document.getElementById('eziMsg');
     if(m) m.textContent='Checking with Ezidebit…';
     const found = await findEzidebitOnServer();
+    if(found && found.error){
+      /* could not reach the server (no signal, or the page is being reloaded):
+         keep the marker, so the next launch asks again instead of forgetting */
+      if(m) m.textContent='Could not reach Ezidebit just now — no signal? Close and reopen the app when you have signal and it will check again. Do not start the form again.';
+      showStep(8);
+      return true;
+    }
     if(found){
       S.eziRef=found.ref; S.eziRefBad=null;
       clearEziSkipIfRealDebit();
       showEziDone({cref:found.ref});
+      eziResumeDone();
       const dm=document.getElementById('eziDoneMsg');
       if(dm) dm.textContent='Direct debit confirmed with Ezidebit — customer no. '+found.ref
         + (found.amount ? ', $'+Number(found.amount).toFixed(2)+' '+(eziFreqWord(found.freq)||'') : '')
         + (found.first ? ' from '+found.first : '') + '. Saved on the order.';
     }else{
       await logEziCallback(params||{},'came_back_empty');
+      eziResumeDone();
       if(m) m.textContent='Ezidebit did not send the direct debit details back, and Ezidebit has no record of this customer yet. '
         + 'The office has been told. If the customer did finish the form, ring the office before you leave — do not start it again.';
     }
@@ -3645,13 +3696,13 @@ async function findEzidebitOnServer(){
   try{
     const call = sb.functions.invoke('ezidebit-handback', { body:{ mode:'find', orderId:S.orderId } });
     const res = await Promise.race([call, new Promise(r=>setTimeout(()=>r({timeout:true}),20000))]);
-    if(res && res.timeout){ reportClientError('ask the server for the Ezidebit hand-back (timed out)', new Error('timeout'), S.orderId); return null; }
+    if(res && res.timeout){ reportClientError('ask the server for the Ezidebit hand-back (timed out)', new Error('timeout'), S.orderId); return { error:true }; }
     const d = res && res.data;
-    if(res && res.error){ reportClientError('ask the server for the Ezidebit hand-back', res.error, S.orderId); return null; }
+    if(res && res.error){ reportClientError('ask the server for the Ezidebit hand-back', res.error, S.orderId); return { error:true }; }
     if(d && d.found && d.ref){
       return { ref:String(d.ref), amount:d.amount||null, first:d.first||null, freq:d.freq||null };
     }
-  }catch(e){ reportClientError('ask the server for the Ezidebit hand-back', e, S.orderId); }
+  }catch(e){ reportClientError('ask the server for the Ezidebit hand-back', e, S.orderId); return { error:true }; }
   return null;
 }
 function eziFreqWord(f){
