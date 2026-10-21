@@ -18,7 +18,7 @@
 <!-- data-one-consultant: this iPad belongs to the first consultant who signs in on it.
      Orders are written from here, so this is the only page that asks for the binding. -->
 <script src="auth.js?v=5" data-roles="admin,manager,office,consultant" data-one-consultant></script>
-<script>window.SIMTEC_BUILD="2026-10-22-04";</script>
+<script>window.SIMTEC_BUILD="2026-10-22-05";</script>
 <script>
 /* 21 Oct 2026 — TRAINING MODE (?training=1) IS THE WALKTHROUGH PLUS A TRAINER PANEL.
    It is the REAL app, so every page, field and button is exactly what the
@@ -3554,6 +3554,24 @@ function eziSavePlan(now){
   if(el){ el.addEventListener('input',()=>eziSavePlan(false)); el.addEventListener('change',()=>eziSavePlan(false)); }
 });
 
+/* ⚠⚠ 22 Oct 2026 — EZIDEBIT IS SENT PLAIN LETTERS ONLY. Every app sale whose name
+   or address held a character outside plain English letters failed on Ezidebit's
+   form: a macron (ū, Anamaria, 22 Oct) and an iPad "smart" apostrophe (’ in an
+   O'Brien-style name, 16 Oct — keyed by hand in EziOnline afterwards). 0 of 2,
+   against 51 of 55 plain-lettered sales that went through. So what we SEND
+   Ezidebit is folded to plain letters (ū→u, ’→', “”→", –→-, anything else
+   non-plain dropped). Our own order and customer records keep the real spelling.
+   The bank does not need the macron to collect the debit. */
+function ezPlain(v){
+  let t=String(v==null?'':v);
+  try{ t=t.normalize('NFD').replace(/[\u0300-\u036f]/g,''); }catch(_e){}
+  t=t.replace(/[\u2018\u2019\u02BB\u02BC\u0060\u00B4]/g,"'")
+     .replace(/[\u201C\u201D]/g,'"')
+     .replace(/[\u2013\u2014]/g,'-')
+     .replace(/[^\x20-\x7E]/g,'')
+     .replace(/\s+/g,' ').trim();
+  return t;
+}
 // Build the sandbox eDDR URL with the schedule + customer pre-fill.
 function buildEddrUrl(watchCb){
   const {e164, flag:mobFlag}=normNZ(val('mobile'));
@@ -3570,8 +3588,8 @@ function buildEddrUrl(watchCb){
   q.set('uRef', S.orderId);                 // unique per order → reconciliation key
   q.set('uRefLabel','Simtec Order');
   q.set('businessOrPerson','1');
-  q.set('fName', val('a1first')); q.set('lName', val('a1last'));
-  if(val('email'))  q.set('email', val('email'));
+  q.set('fName', ezPlain(val('a1first'))); q.set('lName', ezPlain(val('a1last')));   /* 22 Oct: plain letters only — see ezPlain */
+  if(val('email'))  q.set('email', ezPlain(val('email')));
   /* ⚠ NZ LOCAL FORMAT, NOT +64. Ezidebit's spec: a New Zealand mobile is up to
      12 digits BEGINNING WITH 02. We were sending "64211234567" (the + stripped
      off e164), which begins with 64 and is not what they validate against.
@@ -3583,13 +3601,13 @@ function buildEddrUrl(watchCb){
     const nsn = e164.replace(/^\+64/,'');        // national number, no leading 0
     if(nsn) q.set('mobile', '0'+nsn);            // 0272741942
   }
-  if(val('street')) q.set('addr', val('street'));
-  if(val('suburb')) q.set('suburb', val('suburb'));
+  if(val('street')) q.set('addr', ezPlain(val('street')));
+  if(val('suburb')) q.set('suburb', ezPlain(val('suburb')));
   /* ⚠ DO NOT PUT THE CITY IN 'state'. Ezidebit's spec caps that field at THREE
      characters; "Auckland" is eight. It was being pre-filled AND disabled, so it
      could not be corrected either. The city is not needed by Ezidebit — the full
      address is already on our own order — so we simply stop sending it. */
-  if(val('postcode')) q.set('pCode', val('postcode'));
+  if(val('postcode')) q.set('pCode', ezPlain(val('postcode')));
   // once-off
   const oAmt=numOrNull(val('eziOneoffAmount')), oDate=val('eziOneoffDate');
   if(oAmt!=null){ q.set('oAmount', oAmt.toFixed(2)); if(oDate) q.set('oDate', isoToDMY(oDate)); }
