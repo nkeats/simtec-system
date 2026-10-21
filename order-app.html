@@ -18,7 +18,17 @@
 <!-- data-one-consultant: this iPad belongs to the first consultant who signs in on it.
      Orders are written from here, so this is the only page that asks for the binding. -->
 <script src="auth.js?v=5" data-roles="admin,manager,office,consultant" data-one-consultant></script>
-<script>window.SIMTEC_BUILD="2026-10-20-02";</script>
+<script>window.SIMTEC_BUILD="2026-10-21-01";</script>
+<script>
+/* 21 Oct 2026 — TRAINING MODE (?training=1) IS THE WALKTHROUGH PLUS A TRAINER PANEL.
+   It is the REAL app, so every page, field and button is exactly what the
+   consultant will see. ?training=1 switches the walkthrough on too (added to the
+   address here, before anything else reads it), so nothing is saved, no text or
+   email is sent and Ezidebit is the sandbox. The panel itself is training.js. */
+(function(){ try{ var q=new URLSearchParams(location.search);
+  if(q.has('training') && !q.has('walkthrough')){ q.set('walkthrough','1'); history.replaceState(null,'',location.pathname+'?'+q.toString()+location.hash); }
+}catch(e){} })();
+</script>
 <script src="update.js?v=2"></script>
 
 
@@ -1194,8 +1204,42 @@ if(WALKTHROUGH && sb){
     return q;
   };
   const realRpc = sb.rpc.bind(sb);
-  sb.rpc = (fn, args) => { console.info('[walkthrough] blocked rpc '+fn, args);
+  /* 21 Oct 2026: two READ-ONLY lookups are let through, so the rehearsal shows the
+     real product list and prices and the real consultants (they were blocked with
+     everything else, so the walkthrough quietly showed the fallback price list).
+     Everything else — every write, and every lookup of a real customer — stays blocked. */
+  const READ_OK = new Set(['sales_catalogue','list_active_consultants']);
+  sb.rpc = (fn, args) => { if(READ_OK.has(fn)) return realRpc(fn, args);
+                           console.info('[walkthrough] blocked rpc '+fn, args);
                            return ok(null); };
+  /* 21 Oct 2026 — ⚠ THE WALKTHROUGH WAS NOT BLOCKING EDGE FUNCTIONS. Writes and
+     rpcs were wrapped, but sb.functions.invoke and fetch() to /functions/v1/ went
+     straight through: "Send code" emailed whatever address was typed, Done pushed
+     to GHL, and the rewards-app link was requested. Now every function call is
+     answered with a believable fake. The rewards QR gets a harmless demo link so
+     the Done screen still shows it. */
+  const fakeFn = (name, body) => {
+    console.info('[walkthrough] blocked function '+name, body);
+    if(name==='customer-magiclink') return { ok:true, link:'https://app.simtectp.com/customer-login.html?training=1', hasEmail:false, emailed:false };
+    if(name==='send-verify-code'){
+      try{ window.dispatchEvent(new CustomEvent('simtec-training-code', { detail:(body&&body.code)||'' })); }catch(_e){}
+      return { ok:true, status:'sent' };
+    }
+    return { ok:true, walkthrough:true };
+  };
+  if(sb.functions){
+    sb.functions.invoke = (name, opts) => Promise.resolve({ data: fakeFn(name, opts && opts.body), error: null });
+  }
+  const realFetch = window.fetch.bind(window);
+  window.fetch = (input, init) => {
+    const url = String((input && input.url) || input || '');
+    if(url.indexOf('/functions/v1/') !== -1){
+      const name = url.split('/functions/v1/')[1].split(/[?#]/)[0];
+      let body = null; try{ body = JSON.parse((init && init.body) || 'null'); }catch(_e){}
+      return Promise.resolve(new Response(JSON.stringify(fakeFn(name, body)), { status:200, headers:{ 'Content-Type':'application/json' } }));
+    }
+    return realFetch(input, init);
+  };
   if(sb.storage && sb.storage.from){
     const realStorage = sb.storage.from.bind(sb.storage);
     sb.storage.from = (bucket) => {
@@ -1230,10 +1274,15 @@ if(WALKTHROUGH && sb){
         });
         localStorage.removeItem('simtec_ezidebit_return');
       }catch(e){}
-      location.replace(location.pathname + '?walkthrough=1');
+      location.replace(location.pathname + '?walkthrough=1' + (new URLSearchParams(location.search).has('training') ? '&training=1' : ''));
     };
     bar.appendChild(txt); bar.appendChild(btn);
     document.body.appendChild(bar);
+    /* training mode: the trainer's panel (training.js) on top of the walkthrough */
+    if(new URLSearchParams(location.search).has('training')){
+      txt.textContent = 'TRAINING — nothing is saved, nothing is sent, no direct debit is created';
+      const t = document.createElement('script'); t.src = 'training.js?v=1'; document.body.appendChild(t);
+    }
     document.body.style.paddingTop = '38px';
 
     /* A cheat-sheet on the Ezidebit step, so the walkthrough can DEMONSTRATE
