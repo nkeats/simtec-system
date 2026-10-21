@@ -18,7 +18,7 @@
 <!-- data-one-consultant: this iPad belongs to the first consultant who signs in on it.
      Orders are written from here, so this is the only page that asks for the binding. -->
 <script src="auth.js?v=5" data-roles="admin,manager,office,consultant" data-one-consultant></script>
-<script>window.SIMTEC_BUILD="2026-10-22-02";</script>
+<script>window.SIMTEC_BUILD="2026-10-22-04";</script>
 <script>
 /* 21 Oct 2026 — TRAINING MODE (?training=1) IS THE WALKTHROUGH PLUS A TRAINER PANEL.
    It is the REAL app, so every page, field and button is exactly what the
@@ -29,7 +29,7 @@
   if(q.has('training') && !q.has('walkthrough')){ q.set('walkthrough','1'); history.replaceState(null,'',location.pathname+'?'+q.toString()+location.hash); }
 }catch(e){} })();
 </script>
-<script src="update.js?v=2"></script>
+<script src="update.js?v=3"></script>
 
 
 <style>
@@ -894,8 +894,8 @@
         <h3 style="color:#c0392b;margin-bottom:2px;">Ezidebit won't accept it?</h3>
         <p class="sub" style="margin-top:2px">
           Only use this if the form above has genuinely refused the customer and you have tried again.
-          If you simply have no signal, tap <b>Park</b> instead — that keeps the order on this iPad
-          and the office finishes it later.
+          If you simply have no signal, leave this screen open — the order is already saved and the
+          office can see it; this page catches up by itself when the signal is back.
         </p>
         <p class="sub" style="margin-top:6px">
           The order will be completed and sent to the office straight away. <b>No direct debit will be
@@ -1726,8 +1726,20 @@ async function validateStep(ds){
 }
 const val=id=>document.getElementById(id).value.trim();
 
+/* ⚠ 22 Oct 2026 — HOW THEY PAY IS FIXED ONCE THE ORDER IS SAVED. Going Back
+   from the Ezidebit step and picking another payment method used to change the
+   screens but NOT the saved order: the sale skipped the direct debit and
+   finished with the order still saying "weekly direct debit" and no note. After
+   the save these choices are locked; the way out of a refused form is the red
+   box, which tells the office. */
+const LOCKED_AFTER_SAVE = ['payOption','depMethodSol','fullMethodSol','saleType'];
 function bindChoices(wrapId, cb){
   document.querySelectorAll('#'+wrapId+' .choice').forEach(c=>c.onclick=()=>{
+    if(S.orderId && LOCKED_AFTER_SAVE.includes(wrapId) && !c.classList.contains('sel')){
+      alert('This order is already saved, so how the customer pays cannot be changed here.\n\n'
+          + 'If the Ezidebit form will not work, use the red box on the Ezidebit step and the office will sort the payment.');
+      return;
+    }
     document.querySelectorAll('#'+wrapId+' .choice').forEach(x=>x.classList.remove('sel'));
     c.classList.add('sel'); cb(c.dataset.val);
   });
@@ -3138,6 +3150,19 @@ async function finalizeOrder(){
        releases the welcome email), and promotes a DRAFT (a finance sale, or an
        order saved by an older build) exactly as before. */
     const upd = {sale_finished_at:new Date().toISOString()};
+    /* ⚠⚠ 22 Oct 2026 — BEFORE FILING "NO DIRECT DEBIT", LOOK. The customer may
+       have finished the form seconds ago and the server already saved the debit
+       while this screen had not caught up. Writing the red-box note over a real
+       debit would have the office set up a SECOND one. */
+    if(S.eziSkipped && !S.eziRef){
+      try{
+        const { data:chk } = await Promise.race([
+          sb.from('sim_orders').select('ezidebit_customer_id, ezidebit_payer_ref').eq('id', S.orderId).maybeSingle(),
+          new Promise(r=>setTimeout(()=>r({data:null}),8000)) ]);
+        const real = chk && (chk.ezidebit_customer_id || chk.ezidebit_payer_ref);
+        if(real){ S.eziRef=String(real); clearEziSkipIfRealDebit(); }
+      }catch(_e){ /* cannot tell — the note goes on, which is the safe side */ }
+    }
     /* TEMPORARY 13 Aug 2026 — an order finished without a direct debit goes to
        the office with the reason on it. consultant_account_note is the field the
        confirmation-call screen already shows, so this needs no new plumbing; any
@@ -3154,6 +3179,15 @@ async function finalizeOrder(){
     { const { error:pErr } = await sb.from('sim_orders').update({confirmation_status:'pending'})
         .eq('id', S.orderId).eq('confirmation_status','draft');
       if(pErr) reportClientError('mark the order ready for the confirmation call', pErr, S.orderId); }
+    /* ⚠ 22 Oct 2026 — the office may have accepted the order while the consultant
+       was still on the Ezidebit step. If it is now finished WITHOUT a direct
+       debit, it goes back on the call list, so the office sees the red-box note
+       and sets the debit up. Only an accepted order, only when there is no debit. */
+    if(S.eziSkipped && !S.eziRef){
+      const { error:rErr } = await sb.from('sim_orders').update({confirmation_status:'pending'})
+        .eq('id', S.orderId).eq('confirmation_status','accepted');
+      if(rErr) reportClientError('put the order back on the call list (finished with no direct debit)', rErr, S.orderId);
+    }
     /* ⚠⚠ THE SALE IS OVER — ONLY NOW ARE THE IDS FINISHED. 30 Sep 2026.
        This deliberately does NOT happen at the draft save in submitOrder().
        Between that save and here the consultant goes out to Ezidebit and comes
@@ -3253,6 +3287,15 @@ async function parkCurrent(){
   return ok;
 }
 async function parkNow(){
+  /* ⚠ 22 Oct 2026 — once submitted, the order is already saved on the system and
+     the office can see it. Parking it then used to FINISH the sale (no direct
+     debit, welcome email released) and later upload a second copy over it. */
+  if(S.orderId){
+    alert('This order is already saved on the system — there is nothing to park, and the office can already see it.\n\n'
+        + 'No signal on the Ezidebit step? Leave this screen open: it keeps checking and catches up when the signal is back. '
+        + 'If the form itself will not work, use the red box.');
+    return;
+  }
   if(!S.products.some(p=>p.name) && !val('a1first')){ alert('Start the order first, then tap Park to save it for later.'); return; }
   if(!await parkCurrent()) return;   // storage full — the order was NOT saved; don't claim it was
   setDoneParked(); showStep(9);
@@ -3333,6 +3376,15 @@ function resetForm(){
   { const eh=document.getElementById('existingHit'); if(eh){ eh.classList.add('hidden'); eh.innerHTML=''; } }
   Object.assign(S,{step:0,saleType:'',pay:'',depositMethod:'ezidebit',fullMethod:'bank',a2:false,products:[],emailVerified:false,sentCode:null,tncRead:false,orderId:null,finalized:false,lastP:null,idPhotos:{A1:[],A2:[]},idMissing:{A1:null,A2:null},
                  cardPaidOk:false,cardOpened:false,cardUrl:null,cardPaid:0,cardSwitched:false});
+  /* ⚠ 22 Oct 2026 — the last sale's direct debit, red-box reason, cash, customer
+     and referral must never carry into the next sale (an offline "New order"
+     resets in place instead of reloading). */
+  Object.assign(S,{eziRef:null,eziRefBad:null,eziSkipped:false,eziSkipWhy:'',eziSkipPlan:null,eziNoAmounts:false,
+                   cashTaken:0,customerId:null,referralId:null});
+  try{ eziWatchStop(); }catch(_e){}
+  ['eziDone','eziWatch','eziSkipDone'].forEach(id=>{ const e=document.getElementById(id); if(e) e.classList.add('hidden'); });
+  { const e=document.getElementById('eziLaunch'); if(e) e.classList.remove('hidden'); }
+  { const b=document.getElementById('eziSkipBtn'); if(b){ b.disabled=false; b.style.opacity=''; b.textContent="The form won't accept it — finish without the direct debit"; } }
   cardStepStopPolling();
   clearIds();   /* ⚠ a NEW order must never inherit the last one's ids */
   S.fin=null; try{ finClearResume(); finPayChanged(); }catch(_e){}   /* 20 Oct */
@@ -3483,13 +3535,15 @@ function eziPlanRow(){
 function eziSavePlan(now){
   if(eziPlanTimer){ clearTimeout(eziPlanTimer); eziPlanTimer=null; }
   if(!now){ eziPlanTimer=setTimeout(()=>eziSavePlan(true), 1200); return; }
-  if(WALKTHROUGH || !sb || !S.orderId) return;
+  if(WALKTHROUGH || !sb || !S.orderId || S.eziNoAmounts) return;
   const row=eziPlanRow(); const key=S.orderId+'|'+JSON.stringify(row);   /* per order: a reset-in-place sale must still save */
   if(key===eziPlanLast) return;                       // nothing changed since the last save
   row.planned_at=new Date().toISOString();
   const oid=S.orderId;
   try{
-    return sb.from('sim_orders').update(row).eq('id', oid).then(({error})=>{
+    /* only if nothing newer has been saved (two saves can overlap on a weak signal) */
+    return sb.from('sim_orders').update(row).eq('id', oid)
+      .or('planned_at.is.null,planned_at.lte.'+row.planned_at).then(({error})=>{
       if(error) reportClientError('save the Ezidebit plan on the order (the call page will not show it)', error, oid);
       else eziPlanLast=key;
     }, (e)=>reportClientError('save the Ezidebit plan on the order (the call page will not show it)', e, oid));
@@ -3604,6 +3658,26 @@ async function launchEzidebit(){
   if(rAmt==null && oAmt==null){ msg.textContent='Enter at least a one-off amount or a plan amount.'; return; }
   if(rAmt!=null && !val('eziPlanStart')){ msg.textContent='Enter a plan start date.'; return; }
   if(oAmt!=null && !val('eziOneoffDate')){ msg.textContent='Enter the one-off payment date.'; return; }
+  /* ⚠ 22 Oct 2026 — CHECK THE PLAN BEFORE IT GOES TO EZIDEBIT. Nothing checked it:
+     "-50" went as 50, "1.2.3" went as NaN, a past start date or a payment count
+     that does not add up went straight through. (All synchronous: nothing here
+     may wait, or the iPad blocks the form from opening.) */
+  {
+    const bad = id => { const t=String(val(id)||'').replace(/[$,\s]/g,''); return t!=='' && !/^\d+(\.\d{1,2})?$/.test(t); };
+    if(S.eziNoAmounts){ msg.textContent='The app lost this order\'s products when it reloaded, so it cannot work out the amounts safely. Use the red box below and ring the office — they will set the direct debit up.'; return; }
+    if(bad('eziPlanAmount') || bad('eziOneoffAmount')){ msg.textContent='An amount is not a proper dollar figure (for example 35 or 35.50). Fix it, then try again.'; return; }
+    if((rAmt!=null && rAmt<=0) || (oAmt!=null && oAmt<=0)){ msg.textContent='Amounts must be more than $0.'; return; }
+    const today=new Date().toLocaleDateString('en-CA',{timeZone:'Pacific/Auckland'});   // YYYY-MM-DD, NZ
+    if(rAmt!=null && val('eziPlanStart') < today){ msg.textContent='The plan start date is in the past. Pick a date from today on.'; return; }
+    if(oAmt!=null && val('eziOneoffDate') < today){ msg.textContent='The one-off payment date is in the past. Pick a date from today on.'; return; }
+    const total=eziTotal();
+    if(oAmt!=null && oAmt > total+0.01){ msg.textContent='The one-off ('+money(oAmt)+') is more than Ezidebit needs to collect ('+money(total)+').'; return; }
+    const cnt=parseInt(val('eziPlanCount'),10);
+    if(rAmt!=null && Number.isFinite(cnt) && cnt>0){
+      const sum=(oAmt||0)+rAmt*cnt;
+      if(Math.abs(sum-total) > Math.max(1, rAmt)){ msg.textContent='The payments add up to '+money(sum)+' but Ezidebit needs to collect '+money(total)+'. Fix the amount or the number of payments, or leave the number of payments blank.'; return; }
+    }
+  }
 
   /* ⚠ EVERYTHING finalizeOrder() STILL NEEDS AFTER THE TRIP HAS TO TRAVEL IN HERE.
      The page reloads while the customer is on Ezidebit's site, so anything left
@@ -3618,7 +3692,8 @@ async function launchEzidebit(){
                             fields:S.lastP.fields, flags:S.lastP.flags, products:S.lastP.products,
                             wantDel:S.lastP.wantDel, referralId:S.lastP.referralId } : null;
   const marker = {
-    at:Date.now(), orderId:S.orderId, customerId:S.customerId||null, cashTaken:S.cashTaken||0, cardSwitched:!!S.cardSwitched,
+    at:Date.now(), orderId:S.orderId,
+    uid:(window.SIMTEC_USER && window.SIMTEC_USER.id) || null,   /* 22 Oct: whose sale — a shared iPad must not reopen it for someone else */ customerId:S.customerId||null, cashTaken:S.cashTaken||0, cardSwitched:!!S.cardSwitched,
     saleType:S.saleType, pay:S.pay, depositMethod:S.depositMethod, fullMethod:S.fullMethod,
     lastP:slimP,
     plan:{ oneoffAmount:val('eziOneoffAmount'), oneoffDate:val('eziOneoffDate'),
@@ -3709,6 +3784,26 @@ async function resumeFromEzidebit(){
     try{ localStorage.removeItem(EZI_RESUME); localStorage.removeItem('simtec_ezidebit_return'); }catch(e){}
     return false;
   }
+  /* ⚠ 22 Oct 2026 — ONLY THE PERSON WHO STARTED THE SALE IS TAKEN BACK INTO IT.
+     On a shared iPad another login would otherwise land in someone else's
+     Ezidebit step, be refused by every check, and have no way out but to
+     finish that sale. The note is left for its owner (it expires by itself). */
+  for(let i=0;i<100 && !window.SIMTEC_USER;i++) await new Promise(r=>setTimeout(r,50));
+  if(mark.uid && window.SIMTEC_USER && window.SIMTEC_USER.id && window.SIMTEC_USER.id!==mark.uid) return false;
+  /* ⚠ 22 Oct 2026 — A RETURNED RESULT IS ONLY USED FOR THE ORDER IT BELONGS TO.
+     The result sits in this iPad's storage until something reads it. A practice
+     (walkthrough) result, or one from an earlier sale, must never be stored on
+     this order: it is used only if Ezidebit's uRef IS this order and it arrived
+     after this sale went to the form. Anything else is thrown away. */
+  if(ret){
+    const rp=(ret&&ret.params)||{};
+    const sameOrder=String(rp.uref||'').trim().toLowerCase()===String(mark.orderId).toLowerCase();
+    const fresh=!ret.at || (ret.at >= (mark.at||0) - 60000);
+    if(!sameOrder || !fresh){
+      try{ localStorage.removeItem('simtec_ezidebit_return'); }catch(_e){}
+      ret=null;
+    }
+  }
   /* ⚠ 21 Oct 2026 — THE MARKER IS NO LONGER DELETED HERE. It used to be removed
      before anything was saved, so when the page was interrupted part-way — the
      update check reloading an iPad on an older build, or the signal dropping as
@@ -3725,6 +3820,32 @@ async function resumeFromEzidebit(){
   S.depositMethod=mark.depositMethod||S.depositMethod; S.fullMethod=mark.fullMethod||S.fullMethod;
   S.customerId=mark.customerId||S.customerId||null;   // without this there is no rewards-app QR
   if(mark.lastP) S.lastP=mark.lastP;                  // so the summary PDF can be regenerated
+  /* ⚠⚠ 22 Oct 2026 — PUT THE SALE ITSELF BACK, not only its ids. After a reload
+     the products list and every form field were empty, so the Ezidebit total
+     worked out as the delivery fee alone ($170), that figure was saved as the
+     plan, and opening the form again sent Ezidebit a $170 cap with no name,
+     email or address. The saved copy of the order (lastP) has all of it. */
+  try{
+    const lp=mark.lastP||{};
+    if(Array.isArray(lp.products) && lp.products.length && !S.products.some(p=>p&&p.name))
+      S.products=lp.products.map(p=>({name:p.name, price:Number(p.price)||0, qty:Number(p.qty)||1}));
+    const fld=lp.fields||{};
+    Object.keys(fld).forEach(id=>{
+      if(/^ezi/.test(id)) return;                     // the schedule comes from the marker's own plan below
+      const el=document.getElementById(id); if(!el || el.type==='file') return;
+      if(el.type==='checkbox'||el.type==='radio') el.checked=!!fld[id];
+      else if(el.value==='' && fld[id]!=null) el.value=fld[id];
+    });
+    const wd=document.getElementById('wantDelivery');
+    if(wd && typeof lp.wantDel==='boolean') wd.checked=lp.wantDel;
+    if(lp.flags && typeof lp.flags.a2==='boolean') S.a2=lp.flags.a2;
+    if(lp.flags && lp.flags.fullMethod) S.fullMethod=lp.flags.fullMethod;
+  }catch(e){ reportClientError('restore the sale after the app reloaded (amounts may be wrong — check the plan)', e, mark.orderId); }
+  if(!S.products.some(p=>p&&p.name)){
+    /* nothing to work the amounts out from: never let a $170 total reach Ezidebit */
+    reportClientError('restore the sale after the app reloaded — no products in the saved copy', new Error('no products'), mark.orderId);
+    S.eziNoAmounts=true;
+  }
   S.cashTaken=Number(mark.cashTaken)||0;
   S.cardSwitched=!!mark.cardSwitched;   /* 21 Oct: the summary must be reprinted at Done */
   const setv=(id,v)=>{ const el=document.getElementById(id); if(el&&v!=null&&v!=='') el.value=v; };
@@ -3735,14 +3856,38 @@ async function resumeFromEzidebit(){
 
   const params=(ret&&ret.params)||null;
 
+  let stored=false, storeErr=null;
   if(params && (params.cref||params.uref)){
     // (the 'returned' log line is now written by store_ezidebit_handback itself)
-    try{ await applyEzidebitCallback(params); }
-    catch(e){ await logEziCallback(params,'store_failed:'+(e.message||e)); }
+    try{ await applyEzidebitCallback(params); stored=true; }
+    catch(e){ storeErr=e; await logEziCallback(params,'store_failed:'+(e.message||e)); }
+  }
+  if(stored){
     S.eziRef=params.cref||params.uref||null;
     clearEziSkipIfRealDebit();
     showEziDone(params);
     eziResumeDone();
+  }else if(params && (params.cref||params.uref)){
+    /* ⚠⚠ 22 Oct 2026 — EZIDEBIT SENT A RESULT BUT IT DID NOT SAVE (no signal, or
+       a clash with a number already on the order). This used to show green and
+       delete the result anyway. Now: ask the server whether the order has it
+       (the return page also posts it straight to the server). Only an order
+       that really carries the direct debit goes green. Otherwise the result
+       and the marker are KEPT, so reopening the app tries again, and the
+       consultant is told plainly. */
+    const found = await findEzidebitOnServer();
+    if(found && !found.error && found.ref){
+      S.eziRef=found.ref; S.eziRefBad=null;
+      clearEziSkipIfRealDebit();
+      showEziDone({cref:found.ref});
+      eziResumeDone();
+    }else{
+      const m=document.getElementById('eziMsg');
+      const why=(storeErr&&storeErr.message)||'';
+      if(m) m.textContent = /already has Ezidebit customer/i.test(why)
+        ? 'Ezidebit sent back customer '+(params.cref||params.uref)+', but this order already has a different Ezidebit number. Ring the office before you leave — do not start the form again.'
+        : 'Ezidebit has the direct debit (customer '+(params.cref||params.uref)+') but it could not be saved on the order just now — no signal? Close and reopen the app when you have signal and it will save it. Do not start the form again.';
+    }
   }else if(mark.watch && mark.eziUrl){
     /* 21 Oct — watch trial: the app reloaded while the customer may still be on the
        form. Do not declare "came back empty": carry on watching. The marker stays
@@ -3862,21 +4007,27 @@ function eziWatchReopen(){
   else eziWatchStatus('The iPad would not open the form. If the customer has not finished it, use the red box below and the office will set the direct debit up.');
   if(!eziWatchTimer){ eziWatchUntil=Date.now()+30*60*1000; eziWatchTimer=setInterval(()=>eziWatchTick(false), 4000); }
 }
+/* ⚠ 22 Oct 2026 — every request the watcher makes gives up after 15 s, so one
+   hung request on a weak signal can never leave it stuck "busy" for good. */
+function eziWithin(p, ms){ return Promise.race([p, new Promise((_,rej)=>setTimeout(()=>rej(new Error('timed out')), ms||15000))]); }
 async function eziWatchTick(manual){
   if(!S.orderId || S.eziRef || eziWatchBusy) return;
+  const tickOrder=S.orderId;   /* a tick that finishes after New Order must not touch the next sale */
   if(!manual && Date.now()>eziWatchUntil){ eziWatchStop(); eziWatchStatus('Stopped checking after 30 minutes. Tap "Check now", or use the red box below.'); return; }
   eziWatchBusy=true; eziWatchN++;
   try{
     // 1. our own order — the return page or the server sweep may already have saved it
-    const { data:o, error:oe } = await sb.from('sim_orders')
+    const { data:o, error:oe } = await eziWithin(sb.from('sim_orders')
       .select('ezidebit_customer_id, ezidebit_payer_ref, instalment_amount, payment_frequency, first_payment_date')
-      .eq('id', S.orderId).maybeSingle();
+      .eq('id', tickOrder).maybeSingle());
+    if(S.orderId!==tickOrder) return;
     if(!oe && o && (o.ezidebit_customer_id || o.ezidebit_payer_ref)){
       return eziWatchDone(o.ezidebit_customer_id || o.ezidebit_payer_ref, o.instalment_amount, o.payment_frequency, o.first_payment_date);
     }
     // 2. Ezidebit itself, by our exact order number — every 3rd tick, or on demand
     if(manual || eziWatchN % 3 === 0){
-      const { data:d, error:fe } = await sb.functions.invoke('ezidebit-handback', { body:{ mode:'check', orderId:S.orderId } });
+      const { data:d, error:fe } = await eziWithin(sb.functions.invoke('ezidebit-handback', { body:{ mode:'check', orderId:tickOrder } }), 20000);
+      if(S.orderId!==tickOrder) return;
       if(!fe && d && d.found && d.ref) return eziWatchDone(String(d.ref), d.amount, d.freq, d.first);
       const t=new Date().toLocaleTimeString('en-NZ',{hour:'numeric',minute:'2-digit'});
       eziWatchStatus((fe || (d && d.ok===false)) ? 'Could not reach Ezidebit just now ('+t+') — still trying. No signal? It catches up when the signal is back.'
@@ -4391,6 +4542,19 @@ window.addEventListener('resize',()=>document.querySelectorAll('section.step.on 
 function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));}
 (function(){const d=new Date();const p=n=>String(n).padStart(2,'0');document.getElementById('visitDate').value=d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate());})();
 addProduct();
+/* ⚠ 22 Oct 2026 — update.js asks this before ever reloading the app to a new
+   version. True while a sale is under way (past the first step) or waiting on
+   Ezidebit / finance, so an update NEVER reloads the page under a sale — the
+   consultant gets an "Update now" button instead. Between sales (first step,
+   nothing waiting) the iPad updates by itself when the app comes back to the
+   front. If anything here fails, it says busy. */
+window.SIMTEC_BUSY = function(){
+  if (S.step > 0 || S.orderId) return true;
+  try { if (localStorage.getItem(EZI_RESUME) || localStorage.getItem(FIN_RESUME)) return true; }
+  catch (_e) { return true; }
+  return false;
+};
+
 /* Coming back from Ezidebit takes priority over a fresh start — resumeFromEzidebit
    puts the consultant back on step 8 with the direct debit attached. If there is
    nothing to resume, or anything goes wrong, the app starts normally. */

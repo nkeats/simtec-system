@@ -10,8 +10,8 @@
 <meta name="apple-mobile-web-app-title" content="Simtec Sales">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.112.2"></script>
 <script src="auth.js?v=3" data-roles="admin,manager,consultant"></script>
-<script>window.SIMTEC_BUILD="2026-10-22-01";</script>
-<script src="update.js?v=2"></script>
+<script>window.SIMTEC_BUILD="2026-10-22-03";</script>
+<script src="update.js?v=3"></script>
 
 <style>
   :root{--navy:#122347;--navy2:#1c3363;--gold:#c6a15b;--ink:#1a2334;--line:#d9e0ea;--bg:#eef1f5;--grey:#7a8798;}
@@ -104,7 +104,15 @@
     document.getElementById('resumeWho').textContent= who ? who+'. ' : '';
     b.style.display='block';
   }
-  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',show); else show();
+  /* 22 Oct 2026 — only for the person who started that sale (a shared iPad must
+     not send another login into someone else's sale). Old notes carry no owner. */
+  function whenSignedIn(n){
+    var u=window.SIMTEC_USER;
+    if(!u && n>0) return setTimeout(function(){ whenSignedIn(n-1); }, 100);
+    if(pick.m.uid && u && u.id && u.id!==pick.m.uid) return;
+    show();
+  }
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',function(){ whenSignedIn(50); }); else whenSignedIn(50);
 })();
 </script>
 <script>

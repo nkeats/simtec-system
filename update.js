@@ -55,6 +55,17 @@
   var typed = false;
 
   function onTyped() { typed = true; }
+
+  /* ⚠ v3, 22 Oct 2026 — A PAGE CAN SAY "I AM BUSY". The Sales App defines
+     window.SIMTEC_BUSY() → true while a sale is in progress (past the first
+     step, or waiting on Ezidebit / finance). A busy page is NEVER reloaded
+     underneath the consultant: it gets the "Update now" button instead, exactly
+     like a page with typing on it. If the hook throws, assume busy. Pages that
+     do not define it behave exactly as v2. */
+  function busy() {
+    if (typeof window.SIMTEC_BUSY !== "function") return false;
+    try { return !!window.SIMTEC_BUSY(); } catch (e) { return true; }
+  }
   document.addEventListener("input", onTyped, true);
   document.addEventListener("change", onTyped, true);
 
@@ -171,7 +182,7 @@
         remember(tag);
         fpSave(fpNow);
 
-        if (typed) {
+        if (typed || busy()) {
           bar("An update is ready. Finish what you are doing first.", "Update now",
               function () { reloadTo(tag); });
         } else {
@@ -184,4 +195,25 @@
   if (typeof fetch !== "function") return;    // very old browser — do nothing
   if (document.readyState === "complete") check();
   else window.addEventListener("load", check);
+
+  /* ⚠ v3, 22 Oct 2026 — CHECK AGAIN WHEN THE APP COMES BACK TO THE FRONT.
+     iOS does not reload a Home Screen app when you return to it, so the check
+     above ran only when the app was first opened. Consultants leave the Sales
+     App open for days: on 21 Oct Caleb sold at 6:49pm on the 20 Oct build,
+     with the 21 Oct Ezidebit fixes live since 4pm. Now the check also runs when
+     the app comes back to the front — at most once every 10 minutes, and ONLY
+     on a page that defines SIMTEC_BUSY, so it can never reload mid-sale (a
+     busy page gets the button). Other pages are unchanged. */
+  /* The page's own script runs AFTER this file, so whether it opted in is
+     decided when the app comes back, not now. */
+  var lastCheck = Date.now();
+  function recheck() {
+    if (typeof window.SIMTEC_BUSY !== "function") return;   // opt-in pages only
+    if (document.visibilityState !== "visible") return;
+    if (Date.now() - lastCheck < 10 * 60 * 1000) return;
+    lastCheck = Date.now();
+    check();                     // typing or a busy page still gets the button, never a reload
+  }
+  document.addEventListener("visibilitychange", recheck);
+  window.addEventListener("pageshow", recheck);
 })();
