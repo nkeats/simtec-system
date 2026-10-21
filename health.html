@@ -251,6 +251,40 @@ const CHECKS=[
     }
   },
   {
+    id:"papersync",
+    title:"Paper-order uploads are not reaching the System",
+    why:"Since 21 Oct a paper sale takes its sale time from the moment the consultant uploaded it through the QR code — that is what decides time-based promotions. The uploads are copied from GoHighLevel every 10 minutes. If the copy stops, paper sales get no time and miss their promotion bonus.",
+    fix:"Tell Claude — the last error is shown here. A 'not authorized for this scope' error means the GoHighLevel private integration needs the View Forms permission.",
+    cols:["Last good copy","Last error"],
+    run:async()=>{
+      const rows=await all("v_paper_upload_sync_health","last_ok,last_error,stale");
+      const r=rows[0]; if(!r||!r.stale) return [];
+      return [[r.last_ok?new Date(r.last_ok).toLocaleString("en-NZ"):"never", r.last_error||"—"]];
+    }
+  },
+  {
+    id:"papernotkeyed",
+    title:"Paper orders uploaded through the QR code but never keyed in",
+    why:"A consultant uploaded a signed paper order more than 18 hours ago and no customer with that email or mobile exists in the System. That is a sale — and a commission — nobody has entered.",
+    fix:"Find the order in GoHighLevel (Sites → Forms → Submissions → NZ Customer Registration Form), key it in, and use the email and mobile exactly as on the form so it matches.",
+    cols:["Uploaded","Name","Email","Mobile"],
+    run:async()=>{
+      const rows=await all("v_paper_uploads_not_keyed_in","submitted_at,name,email,phone",q=>q.order("submitted_at"));
+      return rows.map(r=>[new Date(r.submitted_at).toLocaleString("en-NZ"), r.name||"—", r.email||"—", r.phone||"—"]);
+    }
+  },
+  {
+    id:"promonotime",
+    title:"Sales on a promotion day with no sale time",
+    why:"A time-based promotion (before 1pm, after 2:40…) can only be judged when the sale has a time. iPad orders have one; a paper order gets one from its QR upload. These have neither, so the consultant cannot earn that promotion.",
+    fix:"Open the sale on the pay run and enter the time it was signed (check the QR upload or ask the consultant). A typed time always overrides.",
+    cols:["Consultant","Sale date","Customer","Promotion"],
+    run:async()=>{
+      const rows=await all("v_promo_sales_without_time","order_id,sale_date,customer_name,consultant,incentive",q=>q.order("sale_date"));
+      return rows.map(r=>[r.consultant||"—", d(r.sale_date), r.order_id?{href:"customer-detail.html?id="+r.order_id,text:r.customer_name||"Open"}:(r.customer_name||"—"), r.incentive||"—"]);
+    }
+  },
+  {
     id:"nodate",
     title:"Orders with no order date",
     why:"Reports skips any order without a date, so the sale is invisible in weekly figures.",
