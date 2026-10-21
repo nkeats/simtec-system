@@ -18,7 +18,7 @@
 <!-- data-one-consultant: this iPad belongs to the first consultant who signs in on it.
      Orders are written from here, so this is the only page that asks for the binding. -->
 <script src="auth.js?v=5" data-roles="admin,manager,office,consultant" data-one-consultant></script>
-<script>window.SIMTEC_BUILD="2026-10-21-04";</script>
+<script>window.SIMTEC_BUILD="2026-10-22-01";</script>
 <script>
 /* 21 Oct 2026 — TRAINING MODE (?training=1) IS THE WALKTHROUGH PLUS A TRAINER PANEL.
    It is the REAL app, so every page, field and button is exactly what the
@@ -2253,6 +2253,15 @@ function dropFinishedIds(){
    this session so an immediate resubmit is still idempotent, but they can never
    be picked up by a NEW sale after the app restarts. */
 function markIdsSpent(){
+  /* 22 Oct 2026 — the watch trial keeps the "come back to this sale" note until
+     the debit is found. A sale finished WITHOUT one (the red box) would otherwise
+     leave it behind, and the next New Order within two hours would reopen this
+     finished sale. The sale is over: stop watching and drop the note — but only
+     if it is THIS sale's note. */
+  try{ eziWatchStop(); }catch(_e){}
+  try{ var em=JSON.parse(localStorage.getItem(EZI_RESUME)||'null');
+       if(em && em.orderId && em.orderId===S.orderId){ localStorage.removeItem(EZI_RESUME); localStorage.removeItem('simtec_ezidebit_return'); }
+  }catch(_e){}
   try{ var v=readStoredIds(); if(!v) return; v.spent=true;
        sessionStorage.setItem(ID_KEY, JSON.stringify(v));
        if(S.orderIds) S.orderIds.spent=true;

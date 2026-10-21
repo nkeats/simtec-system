@@ -10,7 +10,7 @@
 <meta name="apple-mobile-web-app-title" content="Simtec Sales">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.112.2"></script>
 <script src="auth.js?v=3" data-roles="admin,manager,consultant"></script>
-<script>window.SIMTEC_BUILD="2026-08-25-01";</script>
+<script>window.SIMTEC_BUILD="2026-10-22-01";</script>
 <script src="update.js?v=2"></script>
 
 <style>
@@ -72,10 +72,41 @@
 </header>
 
 <div class="wrap">
+  <!-- 22 Oct 2026: a sale left part-way (waiting on Ezidebit or a finance answer)
+       must be one tap away. When the iPad restarts the app it opens HERE, not on
+       the Sales App, so without this the consultant sees no sign of the sale. -->
+  <a id="resumeBar" href="order-app.html" style="display:none;margin:0 0 16px;padding:18px 20px;border-radius:14px;
+     background:#fff4d6;border:2px solid #c6a15b;color:#122347;text-decoration:none;font-size:16px;line-height:1.45">
+    <b style="font-size:18px">⏳ <span id="resumeWhat">A sale is waiting</span></b><br>
+    <span id="resumeWho"></span>Tap here to go back to it.
+  </a>
   <div id="topbar"></div>
   <div id="body"><div id="state">Loading…</div></div>
 </div>
 
+<script>
+/* 22 Oct 2026 — "go back to the sale" link. Reads the same notes the Sales App
+   keeps while a sale is waiting (order-app.html: simtec_ezi_resume, removed once
+   the direct debit is saved or the sale is finished; simtec_fin_resume, removed
+   once the finance answer is in). Same age limits as the Sales App uses, so this
+   never offers a sale the Sales App would not reopen. Read-only: it changes nothing. */
+(function(){
+  function read(k){ try{ return JSON.parse(localStorage.getItem(k)||'null'); }catch(e){ return null; } }
+  var now=Date.now(), pick=null;
+  var e=read('simtec_ezi_resume'), f=read('simtec_fin_resume');
+  if(e && e.orderId && (now-(e.at||0))/60000 <= 120) pick={m:e, what:'A sale is waiting for Ezidebit'};
+  else if(f && f.orderId && (now-(f.at||0))/60000 <= 720) pick={m:f, what:'A sale is waiting for the finance answer'};
+  if(!pick) return;
+  var who=(pick.m.lastP && pick.m.lastP.customerName) ? String(pick.m.lastP.customerName) : '';
+  function show(){
+    var b=document.getElementById('resumeBar'); if(!b) return;
+    document.getElementById('resumeWhat').textContent=pick.what;
+    document.getElementById('resumeWho').textContent= who ? who+'. ' : '';
+    b.style.display='block';
+  }
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',show); else show();
+})();
+</script>
 <script>
 const sb = supabase.createClient("https://jvqjoenaungubpoegyvf.supabase.co","sb_publishable_J4MYTdJJyEaWe-GadpwdYA_upPT2rKw");
 const $=id=>document.getElementById(id);
