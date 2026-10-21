@@ -18,7 +18,7 @@
 <!-- data-one-consultant: this iPad belongs to the first consultant who signs in on it.
      Orders are written from here, so this is the only page that asks for the binding. -->
 <script src="auth.js?v=5" data-roles="admin,manager,office,consultant" data-one-consultant></script>
-<script>window.SIMTEC_BUILD="2026-10-21-03";</script>
+<script>window.SIMTEC_BUILD="2026-10-21-04";</script>
 <script>
 /* 21 Oct 2026 — TRAINING MODE (?training=1) IS THE WALKTHROUGH PLUS A TRAINER PANEL.
    It is the REAL app, so every page, field and button is exactly what the
@@ -847,6 +847,21 @@
           <div id="eziBigNote" class="note hidden" style="margin:0 auto 14px;max-width:460px;text-align:left;background:#fff8e8;border-color:#f0dca8;color:#7a5b12;"></div>
           <button class="btn-sm" type="button" onclick="launchEzidebit()">Open secure Ezidebit form</button>
           <div id="eziMsg" class="sub" style="margin-top:10px;color:var(--danger)"></div>
+        </div>
+        <!-- 21 Oct 2026 — "WATCH" TRIAL (one consultant login, profiles.ezi_watch).
+             Ezidebit's form opens ON TOP of the app; the app never leaves this page
+             and asks our server every few seconds whether Ezidebit has the customer.
+             Nothing depends on Ezidebit sending the iPad back. -->
+        <div id="eziWatch" class="hidden" style="text-align:center;padding:20px;border:2px solid #9db7dc;border-radius:12px;background:#f4f8fd;">
+          <div style="font-size:30px;">⏳</div>
+          <p style="font-weight:700;margin:8px 0 4px;">Customer is completing Ezidebit's form</p>
+          <p class="sub" style="margin:0 auto 6px;max-width:470px;">The form is open on top of this page. When the customer has pressed <b>Submit</b> on it, tap <b>Done</b> (or close it) to come back here. This page turns green by itself as soon as Ezidebit has the direct debit.</p>
+          <p class="sub" id="eziWatchStatus" style="margin:8px auto 12px;max-width:470px;color:#3b5a85">Waiting for Ezidebit…</p>
+          <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap">
+            <button class="btn-sm" type="button" onclick="eziWatchReopen()">Show the Ezidebit form again</button>
+            <button class="btn-sm" type="button" style="background:#fff;color:var(--navy);border:1px solid var(--line)" onclick="eziWatchTick(true)">Check now</button>
+          </div>
+          <p class="sub" style="margin:12px auto 0;max-width:470px">If Ezidebit refuses the customer, use the red box below — the order goes to the office and the direct debit is set up by hand.</p>
         </div>
         <div id="eziDone" class="hidden" style="text-align:center;padding:20px;border:2px solid var(--ok);border-radius:12px;background:var(--ok-soft);">
           <div style="font-size:34px;">✅</div>
@@ -3258,6 +3273,7 @@ window.addEventListener('online',trySync);
 
 // Start a fresh order (reload when online for a clean slate; reset in place when offline).
 function newOrder(){
+  try{ eziWatchStop(); const ew=document.getElementById('eziWatch'); if(ew) ew.classList.add('hidden'); }catch(_e){}   /* 21 Oct: watch trial */
   /* ⚠ CLEAR BEFORE THE RELOAD. sessionStorage survives a reload in the same
      tab — that is the point of it — so the next order would otherwise inherit
      these ids and silently save nothing. */
@@ -3401,7 +3417,7 @@ function setEziDefaults(){
 }
 
 // Build the sandbox eDDR URL with the schedule + customer pre-fill.
-function buildEddrUrl(){
+function buildEddrUrl(watchCb){
   const {e164, flag:mobFlag}=normNZ(val('mobile'));
   const q=new URLSearchParams();
   q.set('a', EZI_PUBLIC_KEY);
@@ -3479,7 +3495,9 @@ function buildEddrUrl(){
   if(oAmt!=null && rAmt!=null)      { /* both wanted — leave 'debits' unset */ }
   else if(rAmt!=null)                 q.set('debits','2');   // weekly plan only
   else if(oAmt!=null)                 q.set('debits','1');   // single payment only
-  q.set('callback', new URL('ezidebit-return.html', location.href).href);
+  /* watch trial: Ezidebit finishes on a page that only saves and says "close me" —
+     it never opens a second copy of the app inside the form's window */
+  q.set('callback', new URL(watchCb ? 'ezidebit-done.html' : 'ezidebit-return.html', location.href).href);
   q.set('cMethod','GET');
   return EZI_EDDR_BASE + '?' + q.toString();
 }
@@ -3536,6 +3554,23 @@ async function launchEzidebit(){
       msg.textContent='This iPad will not let the app save its place. Ask the office before carrying on.';
       return;                                     // no marker = no way back; do not strand them
     }
+  }
+  /* ⚠ 21 Oct 2026 — WATCH TRIAL. Only when the database switched it on for this
+     login (S.eziWatch). The form opens ON TOP, the app stays, the server is asked
+     for the result. window.open MUST run before any await, or the iPad treats it
+     as a pop-up and blocks it. Blocked anyway → today's full-page hand-off below. */
+  if (!WALKTHROUGH && S.eziWatch) {
+    const wUrl = buildEddrUrl(true);
+    let w = null;
+    try { w = window.open(wUrl, '_blank'); } catch (_e) { w = null; }
+    if (w) {
+      try { marker.watch = true; marker.eziUrl = wUrl; localStorage.setItem(EZI_RESUME, JSON.stringify(marker)); } catch (_e) {}
+      try { sb.rpc('note_ezidebit_launch', { p_order:S.orderId, p_build:(window.SIMTEC_BUILD||'')+'-watch',
+                                            p_keep_deposit:depositOutsideEzidebit() }).then(()=>{}, ()=>{}); } catch (_e) {}
+      eziWatchStart(wUrl, w);
+      return;
+    }
+    reportClientError('open Ezidebit on top of the app (watch trial) — fell back to the full-page hand-off', 'window.open returned nothing', S.orderId);
   }
   const eziUrl = buildEddrUrl();
   /* ⚠ WALKTHROUGH ONLY — see the note on the cheat-sheet card above.
@@ -3620,6 +3655,13 @@ async function resumeFromEzidebit(){
     clearEziSkipIfRealDebit();
     showEziDone(params);
     eziResumeDone();
+  }else if(mark.watch && mark.eziUrl){
+    /* 21 Oct — watch trial: the app reloaded while the customer may still be on the
+       form. Do not declare "came back empty": carry on watching. The marker stays
+       until the debit is found (eziWatchDone clears it). */
+    showStep(8);
+    eziWatchStart(mark.eziUrl, null);
+    return true;
   }else{
     /* 16 Oct 2026 — came back with nothing on THIS iPad. Before saying so, ask
        the server: the return page may already have saved it there, or the
@@ -3705,6 +3747,74 @@ async function findEzidebitOnServer(){
   }catch(e){ reportClientError('ask the server for the Ezidebit hand-back', e, S.orderId); return { error:true }; }
   return null;
 }
+/* ══ WATCH TRIAL (21 Oct 2026) ══════════════════════════════════════════════
+   [stated] Nigel: build it "for one ipad only… Make sure if something fails, the
+   consultants always have an easy way back to the iPad order. The ED form can
+   always be created manually if necessary."
+   So: the app NEVER leaves this page. It reads its own order every 4 s (the return
+   page or the 5-minute server sweep may already have saved the debit) and asks
+   Ezidebit by our exact order number every 12 s (ezidebit-handback "check").
+   The red "won't accept it" box and Park stay exactly as they are — the way out
+   is always on this screen. */
+let eziWatchTimer=null, eziWatchN=0, eziWatchUntil=0, eziWatchUrl=null, eziWatchWin=null, eziWatchBusy=false;
+function eziWatchStart(url, win){
+  eziWatchUrl=url; eziWatchWin=win||null; eziWatchN=0; eziWatchUntil=Date.now()+30*60*1000;
+  const l=document.getElementById('eziLaunch'); if(l) l.classList.add('hidden');
+  const w=document.getElementById('eziWatch'); if(w) w.classList.remove('hidden');
+  eziWatchStatus('Waiting for Ezidebit…');
+  if(eziWatchTimer) clearInterval(eziWatchTimer);
+  eziWatchTimer=setInterval(()=>eziWatchTick(false), 4000);
+}
+function eziWatchStatus(t){ const e=document.getElementById('eziWatchStatus'); if(e) e.textContent=t; }
+function eziWatchStop(){ if(eziWatchTimer){ clearInterval(eziWatchTimer); eziWatchTimer=null; } }
+function eziWatchReopen(){
+  if(!eziWatchUrl) return;
+  let w=null; try{ w=window.open(eziWatchUrl,'_blank'); }catch(_e){}
+  if(w){ eziWatchWin=w; eziWatchStatus('Form opened again. Waiting for Ezidebit…'); }
+  else eziWatchStatus('The iPad would not open the form. If the customer has not finished it, use the red box below and the office will set the direct debit up.');
+  if(!eziWatchTimer){ eziWatchUntil=Date.now()+30*60*1000; eziWatchTimer=setInterval(()=>eziWatchTick(false), 4000); }
+}
+async function eziWatchTick(manual){
+  if(!S.orderId || S.eziRef || eziWatchBusy) return;
+  if(!manual && Date.now()>eziWatchUntil){ eziWatchStop(); eziWatchStatus('Stopped checking after 30 minutes. Tap "Check now", or use the red box below.'); return; }
+  eziWatchBusy=true; eziWatchN++;
+  try{
+    // 1. our own order — the return page or the server sweep may already have saved it
+    const { data:o, error:oe } = await sb.from('sim_orders')
+      .select('ezidebit_customer_id, ezidebit_payer_ref, instalment_amount, payment_frequency, first_payment_date')
+      .eq('id', S.orderId).maybeSingle();
+    if(!oe && o && (o.ezidebit_customer_id || o.ezidebit_payer_ref)){
+      return eziWatchDone(o.ezidebit_customer_id || o.ezidebit_payer_ref, o.instalment_amount, o.payment_frequency, o.first_payment_date);
+    }
+    // 2. Ezidebit itself, by our exact order number — every 3rd tick, or on demand
+    if(manual || eziWatchN % 3 === 0){
+      const { data:d, error:fe } = await sb.functions.invoke('ezidebit-handback', { body:{ mode:'check', orderId:S.orderId } });
+      if(!fe && d && d.found && d.ref) return eziWatchDone(String(d.ref), d.amount, d.freq, d.first);
+      const t=new Date().toLocaleTimeString('en-NZ',{hour:'numeric',minute:'2-digit'});
+      eziWatchStatus((fe || (d && d.ok===false)) ? 'Could not reach Ezidebit just now ('+t+') — still trying. No signal? It catches up when the signal is back.'
+                                                  : 'Not with Ezidebit yet (checked '+t+'). Still waiting…');
+    }
+  }catch(e){
+    eziWatchStatus('No connection just now — still trying.');
+  }finally{ eziWatchBusy=false; }
+}
+function eziWatchDone(ref, amount, freq, first){
+  eziWatchStop();
+  S.eziRef=ref; S.eziRefBad=null;
+  clearEziSkipIfRealDebit();
+  try{ localStorage.removeItem(EZI_RESUME); localStorage.removeItem('simtec_ezidebit_return'); }catch(_e){}
+  try{ if(eziWatchWin && !eziWatchWin.closed) eziWatchWin.close(); }catch(_e){}
+  const w=document.getElementById('eziWatch'); if(w) w.classList.add('hidden');
+  showEziDone({cref:ref});
+  const dm=document.getElementById('eziDoneMsg');
+  if(dm) dm.textContent='Direct debit confirmed with Ezidebit — customer no. '+ref
+    + (amount ? ', $'+Number(amount).toFixed(2)+' '+(eziFreqWord(freq)||'') : '')
+    + (first ? ' from '+first : '') + '. Saved on the order. Tap Finish.';
+}
+// coming back from the form (Done / switching back) → check straight away
+document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState==='visible' && eziWatchTimer) eziWatchTick(false); });
+window.addEventListener('focus', ()=>{ if(eziWatchTimer) eziWatchTick(false); });
+
 function eziFreqWord(f){
   const m={'1':'weekly','2':'fortnightly','4':'monthly',weekly:'weekly',fortnightly:'fortnightly',monthly:'monthly'};
   return m[String(f||'')]||'';
@@ -3803,6 +3913,16 @@ function finMoney(n){ return '$' + Number(n || 0).toLocaleString('en-NZ', {minim
 function finRef(id){ return id ? 'SIM-' + String(id).replace(/-/g, '').slice(0, 6).toUpperCase() : ''; }
 function finSet(sel, txt){ document.querySelectorAll(sel).forEach(el => { el.textContent = txt; }); }
 function finEl(id){ return document.getElementById(id); }
+
+/* 21 Oct 2026 — the watch trial switch for THIS login (profiles.ezi_watch). */
+async function eziWatchBoot(){
+  if (WALKTHROUGH) return;
+  for (let i = 0; i < 100 && !window.SIMTEC_USER; i++) await new Promise(r => setTimeout(r, 50));
+  if (!sb) return;
+  try{ const { data, error } = await sb.rpc('ezidebit_watch_enabled'); S.eziWatch = (!error && data === true); }
+  catch(_e){ S.eziWatch = false; }                 /* any doubt → today's method */
+}
+eziWatchBoot();
 
 /* ---- start-up: ask the database once ---- */
 async function finBoot(){

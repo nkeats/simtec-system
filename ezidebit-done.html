@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ezidebit — done</title>
+<style>
+  html,body{margin:0;height:100%;background:#fafbfd;color:#1f2733;
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;}
+  .wrap{height:100%;display:grid;place-items:center;text-align:center;padding:24px;}
+  .ok{font-size:44px}
+  h1{font-size:20px;color:#1c2a5e;margin:12px 0 6px}
+  p{font-size:15px;color:#4c5869;margin:0 auto;max-width:400px;line-height:1.55}
+  button{margin-top:20px;padding:14px 24px;border-radius:12px;border:0;
+    background:#0e2038;color:#fff;font-weight:700;font-size:16px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div>
+    <div class="ok">✅</div>
+    <h1>Direct debit submitted</h1>
+    <p id="msg">Saving…</p>
+    <p style="margin-top:14px"><b>Close this page to go back to the order.</b><br>Tap <b>Done</b> at the top of the screen, or the button below. The order updates by itself.</p>
+    <button type="button" onclick="try{window.close()}catch(e){}">Close this page</button>
+  </div>
+</div>
+<script>
+/* 21 Oct 2026 — the "watch" trial's finishing page (order-app.html, S.eziWatch).
+   In the trial, Ezidebit's form is opened ON TOP of the Sales App, which never
+   leaves the order and asks the server for the result every few seconds. So this
+   page must NOT send anyone to order-app.html (that would open a second copy of
+   the app inside the form's window), and it does not touch this window's storage
+   (that could leak into a later sale). Its only jobs:
+     1. hand the result to the server — the same ezidebit-handback "return" call
+        ezidebit-return.html makes (text/plain: no preflight; keepalive: it
+        finishes even if the page is closing);
+     2. tell the consultant to close it.
+   ⚠ It can never strand anyone: the order is still open underneath, and the app
+   finds the debit at Ezidebit by itself even if this save fails. */
+(function(){
+  var params={};
+  try{ new URLSearchParams(location.search).forEach(function(v,k){ params[k]=v; }); }catch(e){}
+  var msg=document.getElementById('msg');
+  if(!params.uref){ msg.textContent='Ezidebit has the details.'; return; }
+  var t=setTimeout(function(){ msg.textContent='Ezidebit has the details.'; }, 6000);
+  try{
+    fetch('https://jvqjoenaungubpoegyvf.supabase.co/functions/v1/ezidebit-handback', {
+      method:'POST', keepalive:true, headers:{ 'Content-Type':'text/plain' },
+      body: JSON.stringify({ mode:'return', params:params })
+    }).then(function(r){ return r.json().catch(function(){ return {}; }); })
+      .then(function(j){ clearTimeout(t); msg.textContent = (j && j.ok) ? 'Saved on the order.' : 'Ezidebit has the details.'; })
+      .catch(function(){ clearTimeout(t); msg.textContent='Ezidebit has the details.'; });
+  }catch(e){ clearTimeout(t); msg.textContent='Ezidebit has the details.'; }
+  try{ setTimeout(function(){ window.close(); }, 2500); }catch(e){}
+})();
+</script>
+</body>
+</html>
