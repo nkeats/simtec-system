@@ -138,9 +138,14 @@ let LIST=[];
 // ⚠ The $250 equipment hold-back is released by the DATABASE when every issued
 // item is back in reasonable condition. This page records facts, never money.
 // ⚠ The iPad often goes out separately, so every item carries its OWN issue date.
-let KIT={};
+let KIT={}, KIT_ITEMS=[];
 async function loadKit(ids){
   KIT={};
+  /* 23 Oct 2026 — the standard kit list, so a consultant with NOTHING recorded yet still gets one
+     row per item and can be issued just some of it. Before this, a new consultant only had
+     "Issue the whole kit today" — there was no way to record a part issue. */
+  { const { data:ks } = await sb.from("commission_settings").select("kit_items").limit(1);
+    KIT_ITEMS = (ks && ks[0] && Array.isArray(ks[0].kit_items)) ? ks[0].kit_items : []; }
   if(!ids.length) return;
   const { data, error } = await sb.from("consultant_kit")
     .select("id,consultant_id,item,qty,issued_on,returned_on,returned_qty,condition,note")
@@ -169,10 +174,13 @@ function kitChips(rows){
 window.openKit=async(id)=>{
   const tr=$("kitrow-"+id), cell=$("kitcell-"+id);
   if(tr.style.display!=="none"){ tr.style.display="none"; return; }
-  const rows=(KIT[id]||[]).slice().sort((a,b)=>a.item.localeCompare(b.item));
+  let rows=(KIT[id]||[]).slice();
+  // nothing recorded yet: show the standard kit, every item not issued, each with its own Issue button
+  if(!rows.length) rows=KIT_ITEMS.map(k=>({id:null,item:k.item,qty:Number(k.qty)||1,issued_on:null}));
+  rows.sort((a,b)=>a.item.localeCompare(b.item));
   const today=localISO(new Date());
   cell.innerHTML=`<div class="kitbox">
-    ${rows.length?"":`<div class="muted" style="font-size:12.5px;margin-bottom:10px">No kit recorded for this consultant yet.</div>`}
+    ${(KIT[id]||[]).length?"":`<div class="muted" style="font-size:12.5px;margin-bottom:10px">No kit recorded for this consultant yet. Issue the whole kit, or press Issue next to just the items they've been given.</div>`}
     <div style="margin-bottom:10px">
       <button class="mini" onclick="issueKit('${id}',null)">Issue the whole kit today</button>
       <span class="muted" style="font-size:11.5px;margin-left:8px">Items already issued keep their own date.</span>
