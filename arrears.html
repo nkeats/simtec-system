@@ -49,6 +49,7 @@ body{font-family:system-ui,sans-serif}
     <span class="w-px h-5 bg-slate-700 mx-1"></span>
     <span class="text-xs text-slate-500 mr-1">Show</span>
     <button class="btn" data-filter="all">All in arrears</button>
+    <button class="btn" data-filter="delivered">🚚 Delivered — missed in last 4 weeks</button>
     <button class="btn" data-filter="red">3+ missed only</button>
     <button class="btn" data-filter="watching">👁 Watching <span id="watchcount"></span></button>
     <button class="btn ml-auto" onclick="window.print()">🖨 Print</button>
@@ -158,7 +159,7 @@ async function load(quiet){
     const pos=[];
     for(let from=0;;from+=1000){
       const {data,error}=await sb.from('v_customer_position')
-        .select('order_id,state,behind_by,instalment,period_days,chase_reason,chase_short,fails_recent,last_failed,last_paid,paid,contract,owed,pct_paid')
+        .select('order_id,state,behind_by,instalment,period_days,chase_reason,chase_short,fails_recent,last_failed,last_paid,paid,contract,owed,pct_paid,chase_delivered')
         .eq('chase',true).order('order_id').range(from,from+999);
       if(error) throw new Error('Reading who is behind: '+error.message);
       pos.push(...(data||[])); if(!data||data.length<1000) break;
@@ -194,6 +195,10 @@ async function load(quiet){
     for(const p of pos){
       const o=ord[p.order_id]; if(!o) continue;
       if(o.paid_via_order_id) continue;               // paid on someone else's account
+      /* 22 Oct 2026 — [stated] Nigel: a DELIVERED customer is only in arrears if they missed a payment in the
+         last 4 weeks (or the money has stopped). Older misses not caught up stay on their own page.
+         The database decides (chase_delivered). */
+      if(o.delivery_status==='delivered' && p.chase_delivered!==true) continue;
       const cust=o.sim_customers||{};
       const inst=+p.instalment||0, per=+p.period_days||7;
       const short = p.chase_reason==='missed' ? +p.chase_short||0 : +p.behind_by||0;
@@ -261,6 +266,7 @@ function render(){
     // main lists: hide customers on an active watch; broken watches resurface (flagged)
     view=view.filter(r=>!r.onWatch);
     if(filter==='red')view=view.filter(r=>r.weeks>=3);
+    if(filter==='delivered')view=view.filter(r=>r.delivered);
   }
   view.sort((a,b)=> sortBy==='name'?a.name.localeCompare(b.name)
                   : sortBy==='arrears'?b.arrears-a.arrears
@@ -283,7 +289,7 @@ function render(){
   if(!view.length){
     const msg = filter==='watching'
       ? 'No customers on watch. Use “✓ Contacted” on a customer to start watching them.'
-      : `🎉 No customers to chase${filter==='red'?' with 3+ missed':''}.`;
+      : `🎉 No customers to chase${filter==='red'?' with 3+ missed':filter==='delivered'?' — no delivered customer has missed a payment in the last 4 weeks':''}.`;
     $('list').innerHTML=`<div class="text-center text-slate-500 py-16">${msg}</div>`;return;
   }
 

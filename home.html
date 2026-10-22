@@ -238,6 +238,11 @@
            font-size:13.5px;font-weight:700;text-decoration:none">Open the list</a>
       </div>
 
+      <!-- OFFICE REMINDERS (22 Oct 2026): what the office has to do for a customer, by date.
+           Added on the customer page; due and overdue ones show here until someone ticks Done. -->
+      <div id="remindBox" style="display:none;background:#fff;border:1px solid #d9e1ec;border-radius:11px;
+           padding:12px 15px;margin-bottom:12px;font-size:14px"></div>
+
       <div id="soundBar" style="display:none;align-items:center;gap:12px;background:#fffbe9;border:1px solid #e8d9a0;
            border-radius:11px;padding:11px 15px;margin-bottom:14px;font-size:14px;color:#4a3c12">
         <span id="soundMsg" style="flex:1"></span>
@@ -413,8 +418,11 @@ function isBehindDelivered(o){
      not made up, or nothing for two debits, or nothing ever collected.
      ⚠ There is NO local fallback. The old one was the wrong rule; a list that cannot
      be read must say so, never quietly show a different list. */
+  /* 22 Oct 2026 — [stated] Nigel: delivered customers only count if they have MISSED A PAYMENT IN THE
+     LAST 4 WEEKS (or the money has stopped). Older misses not caught up stay on the customer's page.
+     Decided in order_chase_status() → v_customer_position.chase_delivered. Never work it out here. */
   const v=POS[o.id];
-  if(!v || !v.chase) return null;
+  if(!v || !v.chase_delivered) return null;
   const per=Number(v.period_days)||7;
   const word=per>=28?"mo":(per>=13?"fn":"wk");
   const inst=Number(v.instalment)||0;
@@ -462,7 +470,7 @@ async function loadUrgent(){
     { const oids=(orders||[]).map(o=>o.id);
       for(let i=0;i<oids.length;i+=200){
         const {data:pos,error:posErr}=await sb.from("v_customer_position").select(
-          "order_id,chase,chase_reason,chase_short,behind_by,instalment,period_days,last_paid")
+          "order_id,chase,chase_delivered,chase_reason,chase_short,behind_by,instalment,period_days,last_paid")
           .in("order_id",oids.slice(i,i+200));
         if(posErr) throw new Error("reading who is behind: "+posErr.message);
         (pos||[]).forEach(r=>{ POS[r.order_id]=r; });
@@ -745,6 +753,39 @@ async function loadAlerts(){
 
 loadUrgent();
 loadStrip();
+/* Office reminders due — overdue and today first, then the next 7 days. */
+async function loadReminders(){
+  const box=document.getElementById("remindBox"); if(!box) return;
+  // the page is office-only (auth.js data-roles); the view's row security does the rest
+  const {data,error}=await sb.from("v_reminders_due").select("*").lte("days_until",7).order("due_date").order("created_at");
+  if(error){ if(!/does not exist|schema cache/i.test(error.message||"")) console.error("load the reminders due", error); box.style.display="none"; return; }
+  const rows=data||[];
+  if(!rows.length){ box.style.display="none"; return; }
+  const esc=s=>String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+  const d2=v=>{ const m=String(v||"").match(/^(\d{4})-(\d{2})-(\d{2})/); return m?m[3]+"/"+m[2]:""; };
+  const due=rows.filter(r=>r.status!=="upcoming"), soon=rows.filter(r=>r.status==="upcoming");
+  const pill=r=>r.status==="overdue"?`<span style="background:#fdecec;color:#b4342e;border-radius:6px;padding:2px 8px;font-size:12px;font-weight:700">Overdue ${d2(r.due_date)}</span>`
+            : r.status==="today"?`<span style="background:#fff4dc;color:#8a5b00;border-radius:6px;padding:2px 8px;font-size:12px;font-weight:700">Today</span>`
+            : `<span style="background:#eef2f7;color:#43536b;border-radius:6px;padding:2px 8px;font-size:12px;font-weight:700">${d2(r.due_date)}</span>`;
+  const row=r=>`<div style="display:flex;gap:10px;align-items:center;padding:7px 0;border-top:1px solid #eef1f5">
+      <div style="min-width:96px">${pill(r)}</div>
+      <div style="flex:1"><a href="customer-detail.html?cust=${r.customer_id}" style="font-weight:700;color:#122347;text-decoration:none">${esc(r.customer_name)}</a>
+        — ${esc(r.title)}${r.detail?`<div style="font-size:12px;color:#6b7a90">${esc(r.detail)}</div>`:""}</div>
+      <button onclick="homeRemDone('${r.id}')" style="background:#1c6b34;color:#fff;border:none;border-radius:7px;padding:6px 12px;font-size:12.5px;font-weight:600;cursor:pointer">Done</button></div>`;
+  box.innerHTML=`<div style="font-weight:800;color:#122347;margin-bottom:4px">\u23F0 Reminders — ${due.length?`<span style="color:#b4342e">${due.length} to do now</span>`:"nothing due today"}${soon.length?` · ${soon.length} in the next week`:""}</div>
+    ${due.map(row).join("")}
+    ${soon.length?`<details${due.length?"":" open"}><summary style="cursor:pointer;font-size:13px;color:#6b7a90;margin-top:6px">Coming up this week (${soon.length})</summary>${soon.map(row).join("")}</details>`:""}`;
+  box.style.display="block";
+}
+window.homeRemDone=async function(id){
+  const note=prompt("Mark this reminder done.\n\nAnything to note? (optional)");
+  if(note===null) return;
+  const {error}=await sb.rpc("complete_reminder",{p_id:id,p_note:note.trim()||null});
+  if(error){ console.error("complete a reminder", error); alert("Couldn't save: "+(error.message||error)); return; }
+  loadReminders();
+};
+loadReminders();
+
 loadAlerts();
 loadFulfil();
 

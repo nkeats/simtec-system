@@ -10,7 +10,7 @@
 <script src="https://unpkg.com/@supabase/supabase-js@2.38.4/dist/umd/supabase.js"></script>
 <script>/* 5 Oct 2026: today's date as the person using this page sees it. NEVER use toISOString() for a date - it gives the UTC date, which is YESTERDAY in NZ every morning. */
 function localISO(d){d=d||new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}</script>
-<script>window.SIMTEC_BUILD="2026-10-13-01";</script>
+<script>window.SIMTEC_BUILD="2026-10-22-01";</script>
 <script src="client-errors.js?v=1"></script>
 <script src="live.js?v=3" defer></script>
 <script src="auth.js?v=3" data-roles="admin,manager,office"></script>
@@ -284,8 +284,12 @@ async function fetchAllByRef(table, cols, ids, orderCol){
 async function load(quiet){
   const {data:rules}=await sb.from('delivery_rules').select('*').order('min_deposit_pct');
   // single source of truth for clearance — same view the home tile counts
-  const {data:clr}=await sb.from('v_delivery_clearance')
-    .select('order_id,cleared,near_ready,clean_run,run_needed,need_pct,clears_soon,clears_on,payments_to_go');
+  let {data:clr,error:clrErr}=await sb.from('v_delivery_clearance')
+    .select('order_id,cleared,near_ready,clean_run,run_needed,need_pct,clears_soon,clears_on,payments_to_go,clear_basis,authorisation_lapsed');
+  if(clrErr){   // database not yet carrying the 22 Oct columns — read the ones that have always existed
+    ({data:clr}=await sb.from('v_delivery_clearance')
+      .select('order_id,cleared,near_ready,clean_run,run_needed,need_pct,clears_soon,clears_on,payments_to_go'));
+  }
   // delivery zones, so the ready list can be grouped into runnable areas
   const {data:zn}=await sb.from('v_ready_by_zone').select('order_id,zone,suburb');
   const ZONE={}; (zn||[]).forEach(z=>{ ZONE[z.order_id]={zone:z.zone, suburb:z.suburb}; });
@@ -389,6 +393,10 @@ async function load(quiet){
       contract, paid, pct, instal, misses, payCount, rating, needPct, nearReady, cleanStreak, runNeeded,
       gate: gateProgress(o, pays, dishonours),
       gateNote: o.delivery_gate_note||'', gateBy: o.delivery_gate_set_by||'',
+      // early-delivery approval and its deal (22 Oct 2026) — the view decides clearance, this just shows it
+      deal: o.delivery_authorised===true ? {type:o.delivery_deal_type||'now', date:o.delivery_deal_date, pay:o.delivery_deal_payments,
+              amt:o.delivery_deal_amount, by:o.delivery_approved_by||o.delivery_authorised_by||'', note:o.delivery_authorised_reason||'',
+              lapsed: !!(V && V.authorisation_lapsed), met: !!(V && V.clear_basis==='authorised')} : null,
       freq:(payAcct.payment_frequency||o.payment_frequency||'weekly'),
       nextDate:(o.next_payment_date||payAcct.next_payment_date||null),
       pays:(ref?paysByRef[ref]:[])||[], dishonours:(ref?disByRef[ref]:[])||[]
@@ -628,7 +636,7 @@ function scorecard(r){
   else if(!streakMet && !thresholdMet) rec=`Not yet: needs 10% paid and ${need} clean payments in a row (has ${r.cleanStreak}).`;
   else if(!streakMet) rec=`10% is met, but only ${r.cleanStreak} of ${need} recent payments are clean — not yet safe.`;
   else rec=`Payment run is clean (${r.cleanStreak}), but under 10% paid — not yet.`;
-  const recColour = ((thresholdMet&&streakMet)||fiftyMet)?'#4ade80':'#fbbf24';
+  let recColour = ((thresholdMet&&streakMet)||fiftyMet)?'#4ade80':'#fbbf24';
   // an agreed early-delivery deal overrides the recommendation text
   let gateLine='';
   if(r.gate){
@@ -641,6 +649,20 @@ function scorecard(r){
       gateLine=`<div class="text-xs mt-1" style="color:#7dd3fc">\u2691 Agreed: deliver after ${g.need} clean payments \u2014 ${g.clean} of ${g.need} so far${r.gateBy?' \u00b7 set by '+esc(r.gateBy):''}</div>`;
     }
     if(r.gateNote && !g.broken) gateLine+=`<div class="text-xs mt-1 text-slate-500">\u201c${esc(r.gateNote)}\u201d</div>`;
+  }
+  // an early-delivery approval and its deal
+  if(r.deal){
+    const d=r.deal;
+    const what = d.type==='date' ? 'deliver from '+shortD(d.date)
+               : d.type==='payments' ? 'deliver after '+d.pay+' more payment'+(d.pay==1?'':'s')+' clear'
+               : d.type==='amount' ? 'deliver once '+fmt(d.amt)+' has been paid' : 'deliver now';
+    if(d.lapsed){
+      gateLine+=`<div class="text-xs mt-1" style="color:#f87171">\u26a0 Early delivery approval lapsed \u2014 a payment was missed after it was given. Back to the normal rule.</div>`;
+    } else {
+      if(d.met){ rec=`Early delivery approved (${what}) \u2014 cleared to deliver.`; recColour='#4ade80'; }
+      gateLine+=`<div class="text-xs mt-1" style="color:#4ade80">\u2713 Approved: ${esc(what)}${d.by?' \u00b7 approved by '+esc(d.by):''}</div>`;
+      if(d.note) gateLine+=`<div class="text-xs mt-1 text-slate-500">\u201c${esc(d.note)}\u201d</div>`;
+    }
   }
   // combine payments (result) + dishonours into one date-sorted history
   const hist=[

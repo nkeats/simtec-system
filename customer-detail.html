@@ -7,7 +7,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.112.2"></script>
 <script>/* 5 Oct 2026: today's date as the person using this page sees it. NEVER use toISOString() for a date - it gives the UTC date, which is YESTERDAY in NZ every morning. */
 function localISO(d){d=d||new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}</script>
-<script>window.SIMTEC_BUILD="2026-10-21-01";</script>
+<script>window.SIMTEC_BUILD="2026-10-22-01";</script>
 <script src="client-errors.js?v=1"></script>
 <script src="live.js?v=3" defer></script>
 <script src="auth.js?v=3" data-roles="admin,manager,office"></script>
@@ -527,7 +527,8 @@ async function run(quiet){
     window.__ORDER_ID__=(orders&&orders[0])?orders[0].id:null;
 
     renderAll(c, orders||[], paysByRef, comms);
-    fillGateProgress();          // fills progress against any agreed delivery deal
+    fillDealStatus(ids);         // where each early-delivery approval stands (from v_delivery_clearance)
+    loadReminders();             // this customer's office reminders
     loadTruckVisits((orders||[]).map(o=>o.id));   // every driver stop against these orders
   }catch(e){
     /* ⚠ a quiet reload that fails leaves the OLD page on screen with no sign
@@ -635,6 +636,7 @@ function renderAll(c, orders, paysByRef, comms){
     <div class="head"><h1>${esc(name)}</h1>${headBadge}${anyDoubtful?'<span style="display:inline-flex;align-items:center;gap:5px;margin-left:8px;background:#fdecec;color:#c02626;border:1px solid #f3c0c0;border-radius:6px;padding:2px 9px;font-size:12px;font-weight:700">&#10007; Unlikely to collect</span>':''}
       <span class="muted" style="margin-left:auto;font-size:13px">${orders.length} order${orders.length!==1?"s":""}</span>
     </div>
+    ${isOffice()?`<div class="cards"><div class="card full" id="remindersCard"><h2>Reminders</h2><p class="muted">Loading…</p></div></div>`:""}
     <div class="cards">${contact}${commsCard}</div>
     ${orderBlocks}
     ${orders.length?`<div class="cards"><div class="card full" id="truckVisits"><h2>Truck visits</h2><p class="muted">Loading…</p></div></div>`:""}`;
@@ -814,12 +816,7 @@ function orderSection(o, items, pays, open){
     ${kv("Delivery date",auDate(o.delivery_date))}
     ${kv("Order status",cap(o.order_status))}
     ${faLine}
-    ${o.delivery_authorised
-      ? kv("Delivery clearance",`<span style="color:var(--green);font-weight:700">✓ Authorised${o.delivery_authorised_by?" by "+esc(o.delivery_authorised_by):""}</span>`
-          +(o.delivery_authorised_reason?`<div style="font-size:11.5px;color:var(--sub);margin-top:3px">${esc(o.delivery_authorised_reason)}</div>`:"")
-          +(isMgr()?`<div style="margin-top:6px"><button onclick="authoriseDelivery('${o.id}',false)" style="font-size:11px;background:none;border:1px solid var(--line);border-radius:5px;padding:1px 6px;cursor:pointer;color:var(--sub)">remove</button></div>`:""))
-      : (isMgr()?`<div style="margin-top:10px"><button onclick="authoriseDelivery('${o.id}')" style="background:#1c6b34;color:#fff;border:none;border-radius:8px;padding:9px 15px;font-size:13.5px;font-weight:600;cursor:pointer">✓ Authorise delivery (override)</button></div>`:"")}
-    ${gateBlock(o)}
+    ${dealBlock(o)}
     ${isOffice()?`<div style="margin-top:12px"><button onclick="openTruckJob('${o.id}')" style="background:#fff;color:var(--navy);border:1px solid #cbd4df;border-radius:8px;padding:8px 14px;font-size:13px;font-weight:600;cursor:pointer">🚚 Book a truck job</button>
       <span class="muted" style="font-size:11.5px;margin-left:8px">a pickup, swap or extra item — not the delivery itself</span></div>`:""}
     <details style="margin-top:12px" ontoggle="if(this.open)loadProof('${o.id}','proof_${o.id}')">
@@ -1492,6 +1489,222 @@ window.removeGate=async function(oid){
   }catch(e){ reportClientError("remove the agreed delivery deal", e); alert("Couldn't remove: "+(e.message||e)); }
 };
 
+/* ===== Early-delivery approval — ONE button, with the deal recorded (22 Oct 2026) =====
+   Nigel: "attach it to the approve early delivery button. Once we approve early delivery it
+   brings up a screen to enter in what the deal is and who approved it."
+   The deal decides WHEN the order shows on Ready to book (v_delivery_clearance does the maths,
+   so this page, the delivery page and the home count all agree):
+     now       — cleared straight away
+     date      — cleared from that date (flagged "clears soon" a week before)
+     payments  — cleared once N more payments have cleared after the approval
+     amount    — cleared once the total paid reaches $X
+   An approval LAPSES if a payment is missed after it was given, and it never overrides
+   cooling-off or a failed affordability check. Only approve_early_delivery() can write it. */
+function dealText(o){
+  const t=o.delivery_deal_type||"now";
+  if(t==="date") return `Deliver from <b>${auDate(o.delivery_deal_date)}</b>`;
+  if(t==="payments"){ const n=Number(o.delivery_deal_payments||0);
+    return `Deliver once <b>${n}</b> more payment${n===1?"":"s"} ha${n===1?"s":"ve"} cleared, counted from ${auDate(o.delivery_authorised_at)}`; }
+  if(t==="amount") return `Deliver once <b>${fmt(o.delivery_deal_amount)}</b> has been paid in total`;
+  return `Deliver now`;
+}
+function dealBlock(o){
+  if(!o.delivery_authorised){
+    return isMgr()
+      ? `<div style="margin-top:10px"><button onclick="openApprove('${o.id}')" style="background:#1c6b34;color:#fff;border:none;border-radius:8px;padding:9px 15px;font-size:13.5px;font-weight:600;cursor:pointer">✓ Approve early delivery…</button></div>`
+      : "";
+  }
+  const approver=o.delivery_approved_by||o.delivery_authorised_by;
+  const entered=o.delivery_authorised_by&&o.delivery_authorised_by!==approver?` · entered by ${esc(o.delivery_authorised_by)}`:"";
+  return `<div style="margin-top:10px;background:#eef7f0;border:1px solid #c5e3cd;border-radius:9px;padding:11px 13px">
+    <div style="font-weight:700;color:#1c6b34;font-size:13px">✓ Early delivery approved</div>
+    <div style="font-size:13px;margin-top:3px">${dealText(o)}.</div>
+    <div style="font-size:11.5px;color:var(--sub);margin-top:3px">Approved by ${esc(approver||"—")}${entered}${o.delivery_authorised_at?" on "+auDate(o.delivery_authorised_at):""}</div>
+    ${o.delivery_authorised_reason?`<div style="font-size:12.5px;color:var(--sub);margin-top:4px">“${esc(o.delivery_authorised_reason)}”</div>`:""}
+    <div data-deal-order="${o.id}" style="font-size:12.5px;margin-top:6px;color:var(--sub)">Checking where it stands…</div>
+    ${isMgr()?`<div style="margin-top:8px;display:flex;gap:6px">
+      <button onclick="openApprove('${o.id}')" style="background:#fff;color:var(--navy);border:1px solid #cbd4df;border-radius:7px;padding:5px 11px;font-size:12px;font-weight:600;cursor:pointer">Change</button>
+      <button onclick="authoriseDelivery('${o.id}',false)" style="background:#fff;color:var(--red);border:1px solid #e0b4b0;border-radius:7px;padding:5px 11px;font-size:12px;font-weight:600;cursor:pointer">Remove</button>
+    </div>`:""}
+  </div>`;
+}
+async function fillDealStatus(ids){
+  const els=document.querySelectorAll("[data-deal-order]");
+  if(!els.length || !ids || !ids.length) return;
+  let rows=null;
+  let r=await sb.from("v_delivery_clearance")
+    .select("order_id,cleared,booked,delivered,clears_on,base_ok,authorisation_lapsed,deal_payments_cleared").in("order_id",ids);
+  if(r.error){   // database not yet updated — fall back to the columns that have always existed
+    r=await sb.from("v_delivery_clearance").select("order_id,cleared,booked,delivered,clears_on,base_ok").in("order_id",ids);
+  }
+  if(r.error){ reportClientError("check where an early-delivery approval stands", r.error);
+    els.forEach(el=>{ el.textContent="Couldn't check where this stands."; }); return; }
+  rows={}; (r.data||[]).forEach(v=>{ rows[v.order_id]=v; });
+  const todayStr=new Date().toLocaleDateString("en-CA",{timeZone:"Pacific/Auckland"});
+  els.forEach(el=>{
+    const oid=el.dataset.dealOrder, o=ORDERS[oid]||{}, v=rows[oid];
+    if(!v){ el.textContent="—"; return; }
+    const ok=s=>`<span style="color:var(--green);font-weight:700">${s}</span>`,
+          warn=s=>`<span style="color:var(--amber);font-weight:700">${s}</span>`,
+          bad=s=>`<span style="color:var(--red);font-weight:700">${s}</span>`;
+    if(v.authorisation_lapsed){
+      el.innerHTML=bad("Lapsed — a payment was missed after this was approved. Back to the normal rule (10% paid and a clean run of payments).");
+    }else if(o.cooling_off_expires && o.cooling_off_expires>todayStr){
+      el.innerHTML=warn("Waiting for cooling-off to end on "+auDate(o.cooling_off_expires)+" — an approval can't bring it before that.");
+    }else if(o.affordability_passed===false){
+      el.innerHTML=bad("This order failed the affordability check — an approval can't override that.");
+    }else if(v.delivered){
+      el.innerHTML=ok("Delivered.");
+    }else if(v.cleared){
+      el.innerHTML=ok(v.booked?"✓ Cleared — delivery booked.":"✓ Cleared — it's on the Ready to book list.");
+    }else{
+      const t=o.delivery_deal_type, bits=[];
+      if(t==="payments" && v.deal_payments_cleared!=null) bits.push(`<b>${v.deal_payments_cleared} of ${o.delivery_deal_payments}</b> payments cleared since it was approved`);
+      if(t==="amount") bits.push(`<b>${fmt(o.amount_paid_to_date)}</b> of ${fmt(o.delivery_deal_amount)} paid so far`);
+      if(v.clears_on) bits.push(`expected to clear about <b>${auDate(v.clears_on)}</b> — it appears on Ready to book a week before`);
+      el.innerHTML=bits.length?bits.join(" · ")+".":"Not cleared yet.";
+    }
+  });
+}
+window.openApprove=function(oid){
+  const o=ORDERS[oid]; if(!o) return;
+  document.getElementById("apOid").value=oid;
+  const t=o.delivery_authorised?(o.delivery_deal_type||"now"):"payments";
+  document.querySelectorAll('input[name="apType"]').forEach(r=>{ r.checked=(r.value===t); });
+  document.getElementById("apDate").value=o.delivery_deal_date||"";
+  document.getElementById("apPay").value=o.delivery_deal_payments||"";
+  document.getElementById("apAmt").value=o.delivery_deal_amount||"";
+  document.getElementById("apBy").value=o.delivery_authorised?(o.delivery_approved_by||o.delivery_authorised_by||""):"";
+  document.getElementById("apNote").value=o.delivery_authorised?(o.delivery_authorised_reason||""):"";
+  const todayStr=new Date().toLocaleDateString("en-CA",{timeZone:"Pacific/Auckland"}), w=[];
+  if(o.cooling_off_expires && o.cooling_off_expires>todayStr) w.push("Cooling-off runs until "+auDate(o.cooling_off_expires)+". It won't show as ready to book before then, whatever is agreed.");
+  if(o.affordability_passed===false) w.push("This order failed the affordability check, so an approval won't clear it.");
+  if(o.delivery_authorised) w.push("Saving replaces the current approval. Payments are counted again from today.");
+  const info=document.getElementById("apInfo"); info.innerHTML=w.map(esc).join("<br>"); info.style.display=w.length?"":"none";
+  document.getElementById("apErr").style.display="none";
+  apTypeChanged();
+  document.getElementById("approveModal").style.display="flex";
+};
+window.closeApprove=function(){ document.getElementById("approveModal").style.display="none"; };
+window.apTypeChanged=function(){
+  const t=(document.querySelector('input[name="apType"]:checked')||{}).value;
+  document.getElementById("apDateRow").style.display=t==="date"?"":"none";
+  document.getElementById("apPayRow").style.display=t==="payments"?"":"none";
+  document.getElementById("apAmtRow").style.display=t==="amount"?"":"none";
+};
+window.saveApprove=async function(){
+  const oid=document.getElementById("apOid").value, err=document.getElementById("apErr");
+  const show=m=>{ err.textContent=m; err.style.display=""; };
+  const t=(document.querySelector('input[name="apType"]:checked')||{}).value;
+  const by=document.getElementById("apBy").value.trim(), note=document.getElementById("apNote").value.trim();
+  const d=document.getElementById("apDate").value||null;
+  const n=parseInt(document.getElementById("apPay").value,10);
+  const a=parseFloat(document.getElementById("apAmt").value);
+  if(!t) return show("Choose what the deal is.");
+  if(t==="date" && !d) return show("Choose the date delivery can go ahead from.");
+  if(t==="payments" && (isNaN(n)||n<1||n>52)) return show("Enter how many payments must clear from today (1 to 52).");
+  if(t==="amount" && (isNaN(a)||a<=0)) return show("Enter the total that must be paid.");
+  if(!by) return show("Say who approved it.");
+  if(!note) return show("Say what was agreed — it is kept against the order.");
+  const btn=document.getElementById("apSave"); btn.disabled=true;
+  const {data,error}=await sb.rpc("approve_early_delivery",{p_order:oid,p_type:t,p_approved_by:by,p_note:note,
+      p_date:t==="date"?d:null,p_payments:t==="payments"?n:null,p_amount:t==="amount"?a:null});
+  btn.disabled=false;
+  if(error){ reportClientError("approve early delivery", error, oid); return show("Couldn't save: "+(error.message||error)); }
+  if(!data||data.ok!==true) return show("Couldn't save — nothing was changed.");
+  closeApprove(); run(true);
+};
+
+/* ===== Office reminders (22 Oct 2026) =====
+   "We also need a way to remind the office staff that they have something to do for a
+   customer" — e.g. drop the Ezidebit amount after the first five weeks. Saved through
+   add_reminder / complete_reminder / snooze_reminder so who and when are always recorded;
+   due ones show on the home screen; Done also writes a line in the contact history. */
+let REMS=[];
+async function loadReminders(){
+  const box=document.getElementById("remindersCard"); if(!box) return;
+  const {data,error}=await sb.from("sim_reminders").select("*").eq("customer_id",window.__CUST_ID__)
+    .order("done_at",{ascending:false,nullsFirst:true}).order("due_date");
+  if(error){
+    reportClientError("load this customer's reminders", error);
+    box.innerHTML='<h2>Reminders</h2><div style="color:var(--red);font-size:13.5px">Couldn’t load reminders: '+esc(error.message)+'</div>';
+    return;
+  }
+  REMS=data||[];
+  const todayStr=new Date().toLocaleDateString("en-CA",{timeZone:"Pacific/Auckland"});
+  const open=REMS.filter(r=>!r.done_at).sort((a,b)=>String(a.due_date).localeCompare(String(b.due_date)));
+  const done=REMS.filter(r=>r.done_at);
+  const pill=r=>{ const d=String(r.due_date);
+    const [bg,fg,txt]= d<todayStr?["#fdecec","#b4342e","Overdue · "+auDate(d)]: d===todayStr?["#fff4dc","#8a5b00","Today"]:["#eef2f7","#43536b",auDate(d)];
+    return `<span style="background:${bg};color:${fg};border-radius:6px;padding:2px 8px;font-size:12px;font-weight:700;white-space:nowrap">${txt}</span>`; };
+  const row=r=>`<div style="display:flex;gap:12px;align-items:flex-start;padding:9px 0;border-top:1px solid var(--line)">
+      <div style="min-width:118px">${pill(r)}</div>
+      <div style="flex:1"><div style="font-weight:700">${esc(r.title)}</div>
+        ${r.detail?`<div style="font-size:12.5px;color:var(--sub);margin-top:2px;white-space:pre-wrap">${esc(r.detail)}</div>`:""}
+        <div style="font-size:11.5px;color:var(--sub);margin-top:2px">Added by ${esc(r.created_by_name||"—")} on ${auDate(r.created_at)}${r.snoozes?` · moved ${r.snoozes}×`:""}</div></div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">
+        <button onclick="remDone('${r.id}')" style="background:#1c6b34;color:#fff;border:none;border-radius:7px;padding:6px 12px;font-size:12.5px;font-weight:600;cursor:pointer">Done</button>
+        <button onclick="openRem('${r.id}')" style="background:#fff;color:var(--navy);border:1px solid #cbd4df;border-radius:7px;padding:6px 12px;font-size:12.5px;font-weight:600;cursor:pointer">Move date</button>
+      </div></div>`;
+  box.innerHTML=`<h2 style="display:flex;align-items:center;gap:10px"><span>Reminders</span>
+      ${open.length?`<span style="background:#122347;color:#fff;border-radius:10px;padding:1px 9px;font-size:12px">${open.length}</span>`:""}
+      <button onclick="openRem()" style="margin-left:auto;background:#122347;color:#fff;border:none;border-radius:8px;padding:7px 13px;font-size:13px;font-weight:600;cursor:pointer">＋ Add reminder</button></h2>
+    ${open.length?open.map(row).join(""):'<p class="muted" style="margin:4px 0 0">Nothing to do for this customer.</p>'}
+    ${done.length?`<details style="margin-top:10px"><summary style="cursor:pointer;font-size:13px;color:var(--sub)">Done (${done.length})</summary>
+      ${done.map(r=>`<div style="padding:7px 0;border-top:1px solid var(--line);font-size:12.5px"><b>${esc(r.title)}</b>
+        <span style="color:var(--sub)"> — done by ${esc(r.done_by_name||"—")} on ${auDate(r.done_at)}${r.done_note?": "+esc(r.done_note):""}</span></div>`).join("")}</details>`:""}`;
+}
+window.openRem=function(rid){
+  const r=rid?REMS.find(x=>x.id===rid):null;
+  document.getElementById("remId").value=r?r.id:"";
+  document.getElementById("remHead").textContent=r?"Move reminder":"Add a reminder";
+  document.getElementById("remDate").value=r?r.due_date:"";
+  document.getElementById("remTitle").value=r?r.title:"";
+  document.getElementById("remDetail").value=r?(r.detail||""):"";
+  document.getElementById("remWhatRows").style.display=r?"none":"";
+  const sel=document.getElementById("remOrder"), ords=Object.values(ORDERS||{});
+  sel.innerHTML='<option value="">— not about one order —</option>'+ords.map(o=>
+    `<option value="${o.id}">${auDate(o.order_date)} · ${fmt(o.contract_value)}${o.order_status==="cancelled"?" (cancelled)":""}</option>`).join("");
+  const live=ords.find(o=>o.order_status!=="cancelled"); sel.value=live?live.id:"";
+  document.getElementById("remOrderRow").style.display=(!r&&ords.length)?"":"none";
+  document.getElementById("remErr").style.display="none";
+  document.getElementById("remModal").style.display="flex";
+};
+window.closeRem=function(){ document.getElementById("remModal").style.display="none"; };
+window.remQuick=function(days){
+  const d=new Date(new Date().toLocaleDateString("en-CA",{timeZone:"Pacific/Auckland"})+"T12:00:00");
+  d.setDate(d.getDate()+days);
+  document.getElementById("remDate").value=d.toISOString().slice(0,10);
+};
+window.saveRem=async function(){
+  const id=document.getElementById("remId").value, err=document.getElementById("remErr");
+  const show=m=>{ err.textContent=m; err.style.display=""; };
+  const due=document.getElementById("remDate").value;
+  if(!due) return show("Choose the date to be reminded.");
+  const btn=document.getElementById("remSave"); btn.disabled=true;
+  let res;
+  if(id){
+    res=await sb.rpc("snooze_reminder",{p_id:id,p_due:due});
+  }else{
+    const title=document.getElementById("remTitle").value.trim();
+    if(!title){ btn.disabled=false; return show("Say what needs doing."); }
+    res=await sb.rpc("add_reminder",{p_customer:window.__CUST_ID__,p_due:due,p_title:title,
+      p_detail:document.getElementById("remDetail").value.trim()||null,
+      p_order:document.getElementById("remOrder").value||null});
+  }
+  btn.disabled=false;
+  if(res.error){ reportClientError(id?"move a reminder":"add a reminder", res.error); return show("Couldn't save: "+(res.error.message||res.error)); }
+  closeRem(); loadReminders();
+};
+window.remDone=async function(rid){
+  const r=REMS.find(x=>x.id===rid); if(!r) return;
+  const note=prompt("Mark done: "+r.title+"\n\nAnything to note? (optional)");
+  if(note===null) return;
+  const {error}=await sb.rpc("complete_reminder",{p_id:rid,p_note:note.trim()||null});
+  if(error){ reportClientError("complete a reminder", error); alert("Couldn't save: "+(error.message||error)); return; }
+  run(true);   // the contact history gains the line too
+};
+
 // Managers and admins only. The database enforces this too: the columns can
 // only be written by authorise_delivery(), which demands a reason and keeps
 // every change in delivery_authorisation_log.
@@ -1512,7 +1725,7 @@ async function authoriseDelivery(oid, on){
       + (warn.length?" and ahead of:\n"+warn.join("\n"):".")
       + "\n\nWhy? This is recorded against your name and kept.");
   }else{
-    why = prompt("Remove the delivery authorisation?\n\nThe order goes back to the normal rule.\n\nWhy?");
+    why = prompt("Remove the early-delivery approval?\n\nThe order goes back to the normal rule (10% paid and a clean run of payments).\n\nWhy?");
   }
   if(why===null) return;
   if(!why.trim()){ alert("A reason is needed — it is recorded against the order."); return; }
@@ -3075,6 +3288,66 @@ async function rebuildPaid(o){
     <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:18px">
       <button onclick="closeGate()" style="background:none;border:1px solid #cbd4df;border-radius:8px;padding:9px 15px;cursor:pointer">Cancel</button>
       <button onclick="saveGate()" style="background:#1f5aa8;color:#fff;border:none;border-radius:8px;padding:9px 18px;font-weight:700;cursor:pointer">Save agreement</button>
+    </div>
+  </div>
+</div>
+
+<div id="approveModal" class="modalbg">
+  <div class="modal" style="max-width:470px">
+    <h3 style="margin:0 0 4px">Approve early delivery</h3>
+    <p class="muted" style="font-size:12.5px;margin:0 0 12px">
+      Record the deal so the order appears on Ready to book at the right time.
+      If a payment is missed after today, the approval lapses and the normal rule applies again.
+    </p>
+    <div id="apInfo" style="display:none;background:#fff5e0;border:1px solid #e8d9a0;color:#8a5b00;border-radius:9px;padding:10px 12px;font-size:12.5px;margin-bottom:12px"></div>
+    <div id="apErr" style="display:none;background:#fdecec;border:1px solid #e0b4b0;color:#b4342e;border-radius:9px;padding:11px 13px;font-size:13.5px;margin-bottom:12px"></div>
+    <input type="hidden" id="apOid">
+    <div class="muted" style="font-size:12px;margin-bottom:4px">What's the deal?</div>
+    <label style="display:flex;gap:8px;align-items:center;font-size:13.5px;margin:4px 0"><input type="radio" name="apType" value="now" onchange="apTypeChanged()"> Deliver now</label>
+    <label style="display:flex;gap:8px;align-items:center;font-size:13.5px;margin:4px 0"><input type="radio" name="apType" value="payments" onchange="apTypeChanged()"> Deliver after a number of payments clear from today</label>
+    <label style="display:flex;gap:8px;align-items:center;font-size:13.5px;margin:4px 0"><input type="radio" name="apType" value="amount" onchange="apTypeChanged()"> Deliver once a total amount has been paid</label>
+    <label style="display:flex;gap:8px;align-items:center;font-size:13.5px;margin:4px 0"><input type="radio" name="apType" value="date" onchange="apTypeChanged()"> Deliver from a date</label>
+    <div id="apPayRow" style="display:none;margin-top:8px"><label class="muted" style="font-size:12px">Payments that must clear from today</label>
+      <input id="apPay" class="mi" type="number" min="1" max="52" step="1" placeholder="e.g. 3"></div>
+    <div id="apAmtRow" style="display:none;margin-top:8px"><label class="muted" style="font-size:12px">Total paid before delivery ($)</label>
+      <input id="apAmt" class="mi" type="number" min="1" step="0.01" placeholder="e.g. 500"></div>
+    <div id="apDateRow" style="display:none;margin-top:8px"><label class="muted" style="font-size:12px">Can be delivered from</label>
+      <input id="apDate" class="mi" type="date"></div>
+    <label class="muted" style="font-size:12px;margin-top:12px;display:block">Who approved it</label>
+    <input id="apBy" class="mi" placeholder="e.g. Matt">
+    <label class="muted" style="font-size:12px;margin-top:10px;display:block">What was agreed</label>
+    <textarea id="apNote" class="mi" rows="3" placeholder="e.g. Rang 22/10, good payer, happy to deliver after 3 more payments."></textarea>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
+      <button onclick="closeApprove()" style="background:none;border:1px solid #cbd4df;border-radius:8px;padding:9px 15px;cursor:pointer">Cancel</button>
+      <button id="apSave" onclick="saveApprove()" style="background:#1c6b34;color:#fff;border:none;border-radius:8px;padding:9px 18px;font-weight:700;cursor:pointer">Save approval</button>
+    </div>
+  </div>
+</div>
+
+<div id="remModal" class="modalbg">
+  <div class="modal" style="max-width:450px">
+    <h3 id="remHead" style="margin:0 0 12px">Add a reminder</h3>
+    <div id="remErr" style="display:none;background:#fdecec;border:1px solid #e0b4b0;color:#b4342e;border-radius:9px;padding:11px 13px;font-size:13.5px;margin-bottom:12px"></div>
+    <input type="hidden" id="remId">
+    <label class="muted" style="font-size:12px">Remind us on</label>
+    <input id="remDate" class="mi" type="date">
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin:6px 0 2px">
+      <button type="button" onclick="remQuick(7)"  style="background:#fff;border:1px solid #cbd4df;border-radius:7px;padding:4px 10px;font-size:12px;cursor:pointer">+1 week</button>
+      <button type="button" onclick="remQuick(14)" style="background:#fff;border:1px solid #cbd4df;border-radius:7px;padding:4px 10px;font-size:12px;cursor:pointer">+2 weeks</button>
+      <button type="button" onclick="remQuick(28)" style="background:#fff;border:1px solid #cbd4df;border-radius:7px;padding:4px 10px;font-size:12px;cursor:pointer">+4 weeks</button>
+      <button type="button" onclick="remQuick(35)" style="background:#fff;border:1px solid #cbd4df;border-radius:7px;padding:4px 10px;font-size:12px;cursor:pointer">+5 weeks</button>
+    </div>
+    <div id="remWhatRows">
+      <label class="muted" style="font-size:12px;margin-top:10px;display:block">What needs doing</label>
+      <input id="remTitle" class="mi" placeholder="e.g. Change Ezidebit from $112 to $69 a fortnight">
+      <label class="muted" style="font-size:12px;margin-top:10px;display:block">Details (optional)</label>
+      <textarea id="remDetail" class="mi" rows="3" placeholder="Anything the person doing it needs to know"></textarea>
+      <div id="remOrderRow"><label class="muted" style="font-size:12px;margin-top:10px;display:block">Order</label>
+        <select id="remOrder" class="mi"></select></div>
+    </div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
+      <button onclick="closeRem()" style="background:none;border:1px solid #cbd4df;border-radius:8px;padding:9px 15px;cursor:pointer">Cancel</button>
+      <button id="remSave" onclick="saveRem()" style="background:#122347;color:#fff;border:none;border-radius:8px;padding:9px 18px;font-weight:700;cursor:pointer">Save</button>
     </div>
   </div>
 </div>
