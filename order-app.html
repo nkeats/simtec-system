@@ -18,7 +18,7 @@
 <!-- data-one-consultant: this iPad belongs to the first consultant who signs in on it.
      Orders are written from here, so this is the only page that asks for the binding. -->
 <script src="auth.js?v=5" data-roles="admin,manager,office,consultant" data-one-consultant></script>
-<script>window.SIMTEC_BUILD="2026-10-23-01";</script>
+<script>window.SIMTEC_BUILD="2026-10-24-02";</script>
 <script>
 /* 21 Oct 2026 — TRAINING MODE (?training=1) IS THE WALKTHROUGH PLUS A TRAINER PANEL.
    It is the REAL app, so every page, field and button is exactly what the
@@ -553,7 +553,7 @@
           (a) The information is held by Simtec Therapeutic Limited, 297 Neilson Street, Onehunga, Auckland, in accordance with the Privacy Act 2020.<br>
           (b) The Customer may ask to see the information the Company holds about them and may ask for it to be corrected, by contacting <b>09 886 9897</b> or <b>info@simtectp.com</b>.<br>
           (c) The Company may give the Customer's information to a credit reporter or debt collection agency as set out in clause 13, and to its delivery contractors for the purpose of delivering the Product.<br>
-          (d) <b>Finance applications.</b> Where the Customer applies for Finance, each applicant authorises the Company to give the Finance Provider their name, address, contact details, date of birth, identification type and number, and the order details, so the Finance Provider can assess the application, including by checking the applicant's credit record. The Finance Provider handles that information under its own privacy policy. The Company keeps a secure record of these details, including the full identification number, and may use them to identify and locate the Customer if an amount owed to the Company has to be recovered.<br>
+          (d) <b>Finance applications.</b> Where the Customer applies for Finance, each applicant authorises the Company to give the Finance Provider their name, address, contact details, date of birth, identification type and number, a copy of their identification document, and the order details, so the Finance Provider can assess the application, including by checking the applicant's credit record. The Finance Provider handles that information under its own privacy policy. The Company keeps a secure record of these details, including the full identification number, and may use them to identify and locate the Customer if an amount owed to the Company has to be recovered.<br>
           (e) Card details are entered directly with the Company's payment provider and are not seen or kept by the Company.</p>
 
           <p><b>15. Joint and Several Liability</b><br>Where two or more persons sign the order form as Customer, each is jointly and severally liable for the full amount owed to the Company and all other obligations under this Agreement.<br>
@@ -579,17 +579,17 @@
         <p class="sub" style="margin-top:-6px">Tick each box <b>and</b> have the customer initial it.</p>
         <div class="ackrow">
           <label class="ack" style="flex:1;border-bottom:none;"><input type="checkbox" class="ackbox">
-            <span class="txt"><b>Minimum 10% deposit before delivery</b>Delivery is scheduled only after a minimum 10% deposit of the total purchase price is paid.</span></label>
+            <span class="txt" id="ackTxt1"><b>Minimum 10% deposit before delivery</b>Delivery is scheduled only after a minimum 10% deposit of the total purchase price is paid.</span></label>
           <div class="initbox"><div class="ihead"><span class="ini1head">Initials</span><button type="button" class="clr" onclick="clearSig('iAck1')">Clear</button></div><canvas class="sig ini" id="iAck1"></canvas></div><div class="initbox a2ini hidden"><div class="ihead"><span>Applicant 2</span><button type="button" class="clr" onclick="clearSig('iAck1_2')">Clear</button></div><canvas class="sig ini" id="iAck1_2"></canvas></div>
         </div>
         <div class="ackrow">
           <label class="ack" style="flex:1;border-bottom:none;"><input type="checkbox" class="ackbox">
-            <span class="txt"><b>Acceptable payment history before delivery</b>Delivery occurs once an acceptable repayment history is established. Simtec may cancel prior to delivery if the payment history is unacceptable.</span></label>
+            <span class="txt" id="ackTxt2"><b>Acceptable payment history before delivery</b>Delivery occurs once an acceptable repayment history is established. Simtec may cancel prior to delivery if the payment history is unacceptable.</span></label>
           <div class="initbox"><div class="ihead"><span class="ini1head">Initials</span><button type="button" class="clr" onclick="clearSig('iAck2')">Clear</button></div><canvas class="sig ini" id="iAck2"></canvas></div><div class="initbox a2ini hidden"><div class="ihead"><span>Applicant 2</span><button type="button" class="clr" onclick="clearSig('iAck2_2')">Clear</button></div><canvas class="sig ini" id="iAck2_2"></canvas></div>
         </div>
         <div class="ackrow">
           <label class="ack" style="flex:1;border-bottom:none;"><input type="checkbox" class="ackbox">
-            <span class="txt"><b>Collection &amp; use of personal information (Privacy Act 2020)</b>Details are collected only to assess affordability and manage the account, stored securely, and not sold or disclosed except as needed to manage payments.</span></label>
+            <span class="txt" id="ackTxt3"><b>Collection &amp; use of personal information (Privacy Act 2020)</b>Details are collected only to assess affordability and manage the account, stored securely, and not sold or disclosed except as needed to manage payments.</span></label>
           <div class="initbox"><div class="ihead"><span class="ini1head">Initials</span><button type="button" class="clr" onclick="clearSig('iAck3')">Clear</button></div><canvas class="sig ini" id="iAck3"></canvas></div><div class="initbox a2ini hidden"><div class="ihead"><span>Applicant 2</span><button type="button" class="clr" onclick="clearSig('iAck3_2')">Clear</button></div><canvas class="sig ini" id="iAck3_2"></canvas></div>
         </div>
         <div class="ackrow" id="ackCoolingRow">
@@ -702,8 +702,9 @@
              says yes for THIS login (master switch on, application address set, the
              consultant switched on by a manager). Nothing below runs otherwise. -->
         <div id="financeBox" class="hidden" style="margin-top:16px;padding-top:16px;border-top:1px solid var(--line);">
+          <div class="note hidden finTestNote" style="background:#fdecea;border-color:#f1b5ae;color:#9b1c13;margin:0 0 10px"><b>TEST MODE — finance is switched off.</b> The application is emailed to you, not to the finance company. Nothing reaches MTF.</div>
           <div class="lab" style="margin-bottom:6px;">Details for <span class="finProv">MTF Finance</span>'s credit check</div>
-          <p class="sub" style="margin:0 0 12px">Every applicant on this order goes into the credit check. No ID photo is sent — just the ID type and number. Check the ID against the card in front of you.</p>
+          <p class="sub" style="margin:0 0 12px">Every applicant on this order goes into the credit check. The ID photos taken on the ID step are sent with the application. Check the ID against the card in front of you.</p>
           <div id="finApp1" class="card" style="margin:0 0 12px;box-shadow:none;border:1px solid var(--line)">
             <h3 style="margin:0 0 8px">Applicant 1 — <span id="finName1"></span></h3>
             <div class="grid2">
@@ -930,6 +931,7 @@
          Finance, which only appears when finance_available() says yes. -->
     <section class="step" data-step="10">
       <h2 class="title">Finance — <span class="finProv">MTF Finance</span></h2>
+      <div class="note hidden finTestNote" style="background:#fdecea;border-color:#f1b5ae;color:#9b1c13"><b>TEST MODE — finance is switched off.</b> The application is emailed to you, not to the finance company. Nothing reaches MTF.</div>
 
       <!-- a) send the application -->
       <div id="finSendCard">
@@ -1285,7 +1287,7 @@ if(WALKTHROUGH && sb){
      real product list and prices and the real consultants (they were blocked with
      everything else, so the walkthrough quietly showed the fallback price list).
      Everything else — every write, and every lookup of a real customer — stays blocked. */
-  const READ_OK = new Set(['sales_catalogue','list_active_consultants']);
+  const READ_OK = new Set(['sales_catalogue','list_active_consultants','finance_available']);   /* 24 Oct: read-only — so practice shows the same terms as real sales */
   sb.rpc = (fn, args) => { if(READ_OK.has(fn)) return realRpc(fn, args);
                            console.info('[walkthrough] blocked rpc '+fn, args);
                            return ok(null); };
@@ -4223,13 +4225,20 @@ async function finBoot(){
   if (FIN_DEMO){                                 /* 23 Oct: demo only — nothing real is touched */
     FIN.on = true; FIN.demo = true; FIN.terms = '1.2'; FIN.consent = FIN_CONSENT_DEMO; FIN.loaded = true;
     finSet('.finProv', FIN.provider); finSet('.finWeekly', '$50'); finSet('.finConsentTxt', FIN.consent);
-    finApplyTerms();
+    finApplyTerms(); finAckWording();
     const c = finEl('payFinanceChoice'), wrap = finEl('payOption');
     if (c) c.classList.remove('hidden');
     if (wrap){ wrap.classList.remove('three'); wrap.classList.add('two'); }
     return;
   }
-  if (WALKTHROUGH) return;                       /* walkthrough orders are not real */
+  if (WALKTHROUGH){                              /* walkthrough orders are not real — but show the real terms (24 Oct) */
+    try{
+      for (let i = 0; i < 100 && !window.SIMTEC_USER; i++) await new Promise(r => setTimeout(r, 50));
+      const { data } = sb ? await sb.rpc('finance_available') : { data:null };
+      if (data && data.terms_version === '1.2'){ FIN.terms = '1.2'; FIN.termsDate = data.terms_effective || null; finApplyTerms(); }
+    }catch(_e){}
+    return;
+  }
   for (let i = 0; i < 100 && !window.SIMTEC_USER; i++) await new Promise(r => setTimeout(r, 50));
   if (!sb) return;
   try{
@@ -4242,6 +4251,7 @@ async function finBoot(){
     FIN.termsDate = d.terms_effective || null;
     FIN.alertMin = Number(d.alert_minutes) > 0 ? Number(d.alert_minutes) : 10;
     FIN.consent = String(d.consent_wording || '').trim();
+    FIN.test = d.test_mode === true;   /* 24 Oct: an always-on login while finance is switched off */
     /* 23 Oct: no authorisation wording = no finance. Never ask for consent to blank text. */
     FIN.on = d.available === true && FIN.consent.length > 40;
     FIN.loaded = true;
@@ -4255,10 +4265,25 @@ async function finBoot(){
   finSet('.finConsentTxt', FIN.consent);
   finApplyTerms();
   if (FIN.on){
+    finAckWording();
+    document.querySelectorAll('.finTestNote').forEach(el => el.classList.toggle('hidden', !FIN.test));
     const c = finEl('payFinanceChoice'), wrap = finEl('payOption');
     if (c) c.classList.remove('hidden');
     if (wrap){ wrap.classList.remove('three'); wrap.classList.add('two'); }
   }
+}
+
+/* ---- 24 Oct 2026: the acknowledgements on a finance iPad ----
+   Nigel: "if they are approved for finance, the payment history is not our concern and we will deliver
+   straight away". The Terms step comes BEFORE the customer chooses how to pay, so the wording covers both
+   ways, matching clause 8 of the terms. Only on an iPad where finance is available; never swapped under a
+   customer who has already reached the acknowledgements. */
+function finAckWording(){
+  if (S.step >= 4) return;
+  const set = (id, html) => { const el = finEl(id); if (el) el.innerHTML = html; };
+  set('ackTxt1', '<b>Minimum 10% paid before delivery — direct debit payments</b>If paying by direct debit instalments (including if finance is not approved), delivery is scheduled once at least 10% of the total purchase price has been paid. <span style="font-weight:700">If finance is approved</span>, delivery is arranged as soon as the finance company has paid Simtec.');
+  set('ackTxt2', '<b>Acceptable payment history before delivery — direct debit payments</b>If paying by direct debit instalments, delivery occurs once an acceptable repayment history is established, and Simtec may cancel before delivery if the payment history is unacceptable. <span style="font-weight:700">This does not apply if finance is approved.</span>');
+  set('ackTxt3', '<b>Collection &amp; use of personal information (Privacy Act 2020)</b>Details are collected only to assess affordability and manage the account, stored securely, and not sold or disclosed except as needed to manage payments or to arrange any finance the customer applies for.');
 }
 
 /* ---- the terms the customer reads ---- */
@@ -4378,8 +4403,11 @@ function finRenderSummary(){
     rows.push(['Applicant ' + (i + 1), a.name || '—']);
     rows.push(['· Date of birth', a.dob || '—']);
     rows.push(['· ID', (a.id_type === 'passport' ? 'Passport ' : 'NZ driver licence ') + (a.id_number || '') + (a.licence_version ? ' (version ' + a.licence_version + ')' : '')]);
+    { const nPh = ((S.idPhotos && S.idPhotos[i === 0 ? 'A1' : 'A2']) || []).length;   /* 24 Oct: the photos go with the email */
+      rows.push(['· ID photos', nPh ? nPh + ' attached' : 'none taken — the email says so']); }
   });
-  rows.push(['Consultant', (f.consultant || '—') + ' — their text comes to the mobile on the Consultants page']);
+  rows.push(['Consultant', (f.consultant || '—')]);
+  rows.push(['Their text goes to', 'the mobile on your login if it has one, otherwise the consultant\'s mobile on the Consultants page']);   /* 24 Oct */
   rows.push(['Our reference', finRef(S.orderId)]);
   finEl('finSummary').innerHTML = '<h3>What ' + esc(FIN.provider) + ' will receive</h3>' +
     rows.map(([k, v]) => '<div class="rev-line"><span>' + esc(k) + '</span><span style="text-align:right">' + esc(v) + '</span></div>').join('') +
@@ -4454,6 +4482,7 @@ window.finSend = async function(resend){
   btn.disabled = true; btn.style.opacity = '.6';
   try{
     const out = await finCall({ order_id:S.orderId, applicants, resend:!!resend });
+    if (out.test) alert('TEST MODE — the application was emailed to ' + (out.sent_to || 'you') + ', not to ' + FIN.provider + '.');
     S.fin = Object.assign({}, S.fin || {}, { status:'sent', ref:out.ref || finRef(S.orderId),
                                               sentAt: S.fin && S.fin.sentAt && out.already ? S.fin.sentAt : Date.now(), applicants });
     finSaveResume();
