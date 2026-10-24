@@ -18,7 +18,7 @@
 <!-- data-one-consultant: this iPad belongs to the first consultant who signs in on it.
      Orders are written from here, so this is the only page that asks for the binding. -->
 <script src="auth.js?v=5" data-roles="admin,manager,office,consultant" data-one-consultant></script>
-<script>window.SIMTEC_BUILD="2026-10-22-05";</script>
+<script>window.SIMTEC_BUILD="2026-10-23-01";</script>
 <script>
 /* 21 Oct 2026 — TRAINING MODE (?training=1) IS THE WALKTHROUGH PLUS A TRAINER PANEL.
    It is the REAL app, so every page, field and button is exactly what the
@@ -665,7 +665,7 @@
           <div class="choice" data-val="deposit50"><div class="ct">50% deposit</div><div class="cd">Half by bank transfer, card or Ezidebit — balance by Ezidebit direct debit.</div></div>
           <div class="choice" data-val="ezidebit"><div class="ct">Ezidebit</div><div class="cd">Direct debit set up after signing.</div></div>
           <!-- 20 Oct 2026: shown only when finance_available() says yes for this login -->
-          <div class="choice hidden" id="payFinanceChoice" data-val="finance"><div class="ct">Finance — <span class="finProv">MTF Finance</span></div><div class="cd">Application emailed to the finance company. Paper Ezidebit form as back-up.</div></div>
+          <div class="choice hidden" id="payFinanceChoice" data-val="finance"><div class="ct">Finance — <span class="finProv">MTF Finance</span></div><div class="cd">Application emailed to the finance company. If they say Ezidebit, it is set up on the iPad as normal.</div></div>
         </div>
 
         <!-- Deposit-method sub-panel: only for 50% deposit. The consultant chooses
@@ -714,8 +714,14 @@
               <label class="f"><span class="lab" id="finIdLab1">Licence number</span><input type="text" id="finIdNo1" autocomplete="off" autocapitalize="characters"></label>
               <label class="f" id="finVerWrap1"><span class="lab">Licence version number</span><input type="text" id="finVer1" inputmode="numeric" maxlength="3" placeholder="3 digits" autocomplete="off"></label>
             </div>
+            <!-- 23 Oct 2026: the finance company's own authorisation wording (finance_settings.consent_wording),
+                 ticked AND signed by this applicant on the iPad. -->
             <label class="ack" style="border-bottom:none;padding-bottom:0"><input type="checkbox" id="finConsent1">
-              <span class="txt"><b><span class="finName1"></span> agrees</b> to Simtec sending their name, address, contact details, date of birth and ID details to <span class="finProv">MTF Finance</span> so it can assess the finance application, including by checking their credit record.</span></label>
+              <span class="txt"><b><span class="finName1"></span></b> — credit check authorisation:<br><i class="finConsentTxt"></i></span></label>
+            <div class="sigwrap" style="margin-top:8px">
+              <div class="sighead"><span><span class="finName1"></span> signs here to authorise the credit check</span><button class="clr" type="button" onclick="clearSig('finSig1')">Clear</button></div>
+              <canvas class="sig" id="finSig1" style="height:120px"></canvas>
+            </div>
           </div>
           <div id="finApp2" class="card hidden" style="margin:0 0 12px;box-shadow:none;border:1px solid var(--line)">
             <h3 style="margin:0 0 8px">Applicant 2 — <span id="finName2"></span></h3>
@@ -727,12 +733,18 @@
               <label class="f"><span class="lab" id="finIdLab2">Licence number</span><input type="text" id="finIdNo2" autocomplete="off" autocapitalize="characters"></label>
               <label class="f" id="finVerWrap2"><span class="lab">Licence version number</span><input type="text" id="finVer2" inputmode="numeric" maxlength="3" placeholder="3 digits" autocomplete="off"></label>
             </div>
+            <!-- 23 Oct 2026: the finance company's own authorisation wording (finance_settings.consent_wording),
+                 ticked AND signed by this applicant on the iPad. -->
             <label class="ack" style="border-bottom:none;padding-bottom:0"><input type="checkbox" id="finConsent2">
-              <span class="txt"><b><span class="finName2"></span> agrees</b> to Simtec sending their name, address, contact details, date of birth and ID details to <span class="finProv">MTF Finance</span> so it can assess the finance application, including by checking their credit record.</span></label>
+              <span class="txt"><b><span class="finName2"></span></b> — credit check authorisation:<br><i class="finConsentTxt"></i></span></label>
+            <div class="sigwrap" style="margin-top:8px">
+              <div class="sighead"><span><span class="finName2"></span> signs here to authorise the credit check</span><button class="clr" type="button" onclick="clearSig('finSig2')">Clear</button></div>
+              <canvas class="sig" id="finSig2" style="height:120px"></canvas>
+            </div>
           </div>
           <label class="ack" style="border-bottom:none"><input type="checkbox" id="finToldRights">
             <span class="txt"><b>I have told the customer</b> that the finance agreement is with <span class="finProv">MTF Finance</span>, not Simtec, and that it has its own cancellation rights, which <span class="finProv">MTF Finance</span>'s agreement explains.</span></label>
-          <p class="sub" style="margin:8px 0 0">If the finance is not approved, the customer can pay by direct debit at <b><span class="finWeekly">$50</span> a week</b> (on a paper Ezidebit form signed while you wait), pay in full, or cancel at no cost.</p>
+          <p class="sub" style="margin:8px 0 0">If the finance company answers <b>Ezidebit</b>, the direct debit is set up on the iPad as normal at <b><span class="finWeekly">$50</span> a week</b> (you can change the amount before it is sent). If they say no, the customer can pay in full or cancel at no cost.</p>
         </div>
 
         <p class="sub" style="margin:14px 0 0;">Bank account for direct deposits: Simtec Therapeutic Limited · BNZ 02-0200-0352393-000</p>
@@ -927,30 +939,37 @@
         <div id="finSendMsg" class="sub" style="margin-top:10px;color:var(--danger)"></div>
       </div>
 
-      <!-- b) waiting for the answer -->
+      <!-- b) waiting for the answer — 23 Oct 2026: the answer comes FIRST. The paper
+           Ezidebit form is only filled in when the answer is Considering (or the
+           consultant has to leave before any answer). Ezidebit goes to the iPad's
+           own Ezidebit step, exactly like a normal sale. -->
       <div id="finWaitCard" class="hidden">
         <div class="note" id="finSentNote" style="background:var(--ok-soft);border-color:#bfe3d3;color:#2f6b53"></div>
         <div class="card">
-          <h3>1 · While you wait — paper Ezidebit form</h3>
-          <p class="sub" style="margin-top:-4px">The customer fills in and signs a <b>paper</b> Ezidebit form. Bank details go on the paper only — never into the iPad. It is only used if the finance does not go ahead.</p>
+          <h3><span class="finProv">MTF Finance</span>'s answer — from the text on your phone</h3>
+          <div class="choices three" id="finAnswers">
+            <div class="choice" id="finAnsCons" onclick="finAnswer('considering')"><div class="ct">Considering</div><div class="cd">They will deal with the customer. Fill in a paper Ezidebit form as back-up — it is not sent.</div></div>
+            <div class="choice" id="finAnsEzi" onclick="finAnswer('ezidebit')"><div class="ct">Ezidebit</div><div class="cd">They won't take it. Set up Ezidebit on the iPad at <span class="finWeekly">$50</span> a week (you can change it).</div></div>
+            <div class="choice" id="finAnsNo" onclick="finAnswer('no')"><div class="ct">No</div><div class="cd">They said no. Pay in full by card or direct debit, or cancel.</div></div>
+          </div>
+          <button type="button" class="btn-sm" style="margin-top:14px;background:#fff;color:var(--navy);border:1px solid var(--line)" onclick="finAnswer('no_answer')">No text yet and you have to leave? Leave it with the office</button>
+          <button type="button" class="btn-sm" style="margin:14px 0 0 8px;background:#fff;color:var(--muted);border:1px solid var(--line)" onclick="finResend()">Send the application again</button>
+          <div id="finAnsMsg" class="sub" style="margin-top:10px;color:var(--danger)"></div>
+        </div>
+        <div class="card hidden" id="finPaperCard">
+          <h3 id="finPaperHead">Back-up paper Ezidebit form</h3>
+          <p class="sub" style="margin-top:-4px">The customer fills in and signs a <b>paper</b> Ezidebit form. It is <b>not sent</b> — the office holds it, and only uses it if the finance does not go ahead. Bank details go on the paper only — never into the iPad.</p>
           <div class="grid2">
             <div class="f"><span class="lab">Weekly amount (standard)</span><div style="padding-top:8px;font-weight:800;font-size:17px"><span class="finWeekly">$50</span> a week</div></div>
             <label class="f"><span class="lab">First payment date (at least 10 days away)</span><input type="date" id="finStart"></label>
           </div>
           <label class="ack" style="border-bottom:none"><input type="checkbox" id="finPaperDone" onchange="finPaperTicked()">
-            <span class="txt"><b>The customer has filled in and signed the paper Ezidebit form</b>for <span class="finWeekly">$50</span> a week from <span id="finStartShow">the date above</span>.</span></label>
-        </div>
-        <div class="card">
-          <h3>2 · <span class="finProv">MTF Finance</span>'s answer — from the text on your phone</h3>
-          <div class="choices three" id="finAnswers">
-            <div class="choice" id="finAnsCons" onclick="finAnswer('considering')"><div class="ct">Considering</div><div class="cd">They will deal with the customer. The paper form is held.</div></div>
-            <div class="choice" id="finAnsEzi" onclick="finAnswer('ezidebit')"><div class="ct">Ezidebit</div><div class="cd">They won't take it. The customer pays <span class="finWeekly">$50</span> a week by direct debit.</div></div>
-            <div class="choice" id="finAnsNo" onclick="finAnswer('no')"><div class="ct">No</div><div class="cd">They said no. Pay in full by card or direct debit, or cancel.</div></div>
+            <span class="txt"><b>The customer has filled in and signed the paper Ezidebit form</b> for <span class="finWeekly">$50</span> a week from <span id="finStartShow">the date above</span>.</span></label>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:10px">
+            <button type="button" class="btn submit" style="flex:1 1 220px" id="finPaperGo" onclick="finPaperFinish()">Finish the order</button>
+            <button type="button" class="btn back" style="flex:0 1 160px" onclick="finPaperCancel()">Back</button>
           </div>
-          <p class="sub" id="finLockHint" style="margin:10px 0 0">Considering and Ezidebit need the paper form ticked above.</p>
-          <button type="button" class="btn-sm" style="margin-top:14px;background:#fff;color:var(--navy);border:1px solid var(--line)" onclick="finAnswer('no_answer')">No text yet? Leave it with the office</button>
-          <button type="button" class="btn-sm" style="margin:14px 0 0 8px;background:#fff;color:var(--muted);border:1px solid var(--line)" onclick="finResend()">Send the application again</button>
-          <div id="finAnsMsg" class="sub" style="margin-top:10px;color:var(--danger)"></div>
+          <div id="finPaperMsg" class="sub" style="margin-top:10px;color:var(--danger)"></div>
         </div>
       </div>
 
@@ -978,7 +997,7 @@
         </div>
         <div class="card hidden" id="finDdBox">
           <h3>Pay in full by a single direct debit</h3>
-          <p class="sub" style="margin-top:-4px">The customer fills in and signs a <b>new paper Ezidebit form</b> for one payment of the full amount. It replaces the weekly form.</p>
+          <p class="sub" style="margin-top:-4px">The customer fills in and signs a <b>new paper Ezidebit form</b> for one payment of the full amount.</p>
           <div class="grid2">
             <div class="f"><span class="lab">Amount</span><div style="padding-top:8px;font-weight:800;font-size:17px" id="finDdAmt"></div></div>
             <label class="f"><span class="lab">Payment date (at least 10 days away)</span><input type="date" id="finDdDate"></label>
@@ -2330,7 +2349,9 @@ async function collectOrder(){
     iTnc:canvasDataURL('iTnc'), iAck1:canvasDataURL('iAck1'), iAck2:canvasDataURL('iAck2'), iAck3:canvasDataURL('iAck3'),
     iAck4:(S.saleType==='solicited'?null:canvasDataURL('iAck4')),
     iTnc_2:(S.a2?canvasDataURL('iTnc_2'):null), iAck1_2:(S.a2?canvasDataURL('iAck1_2'):null), iAck2_2:(S.a2?canvasDataURL('iAck2_2'):null), iAck3_2:(S.a2?canvasDataURL('iAck3_2'):null),
-    iAck4_2:((S.a2&&S.saleType!=='solicited')?canvasDataURL('iAck4_2'):null) };
+    iAck4_2:((S.a2&&S.saleType!=='solicited')?canvasDataURL('iAck4_2'):null),
+    /* 23 Oct 2026: the finance credit-check authorisation, signed per applicant */
+    finSig1:(S.pay==='finance'?canvasDataURL('finSig1'):null), finSig2:((S.pay==='finance'&&S.a2)?canvasDataURL('finSig2'):null) };
   const customerName=((fields.a1first||'')+' '+(fields.a1last||'')).trim()||'(no name)';
   return { v:1, savedAt:Date.now(), customerName, fields, flags, products, wantDel, files, referralId:S.referralId||null,
            idMissing:noIdSummary(),   /* null, or {reason, at} — the "No ID available" exit */
@@ -2691,6 +2712,8 @@ async function saveExtrasPayload(orderId,P){
   await put('sig_a1', files.sigA1, 'signature1.png', 'Applicant 1 signature');
   if(fl.a2) await put('sig_a2', files.sigA2, 'signature2.png', 'Applicant 2 signature');
   await put('init_tnc', files.iTnc, 'initials-tnc.png', 'T&C initials');
+  await put('fin_consent_a1', files.finSig1, 'finance-consent-applicant1.png', 'Finance credit-check authorisation — Applicant 1');
+  if(fl.a2) await put('fin_consent_a2', files.finSig2, 'finance-consent-applicant2.png', 'Finance credit-check authorisation — Applicant 2');
   for(let i=1;i<=4;i++){ await put('init_ack'+i, files['iAck'+i], 'initials-ack'+i+'.png', 'Acknowledgement '+i+' initials'); }
   if(fl.a2){
     await put('init_tnc_a2', files.iTnc_2, 'initials-tnc-applicant2.png', 'T&C initials — Applicant 2');
@@ -4151,16 +4174,30 @@ async function applyEzidebitCallback(cb){
      Payment step → "Finance". DOB, ID and consent for every applicant.
      Review & sign as normal → the order saves as a draft, as today.
      Finance step: send the application (finance-apply emails MTF). MTF texts the
-     consultant. While waiting, the customer signs a PAPER Ezidebit form at the
-     standard $50 a week. The consultant taps MTF's answer:
-       Considering → finished as a finance sale; office holds the paper form.
-       Ezidebit    → a normal $50/week direct-debit sale from the paper form.
+     consultant, who taps MTF's answer (revised 23 Oct 2026, Nigel):
+       Considering → the customer fills in a PAPER Ezidebit form at $50 a week,
+                     which is held, NOT sent; finished as a finance sale.
+       Ezidebit    → the sale becomes a normal direct-debit sale and goes to the
+                     iPad's own Ezidebit step, weekly amount pre-set to $50 (or the
+                     36-month minimum if higher) and editable before sending.
        No          → pay in full by card, pay in full by one direct debit, or cancel.
-       No text yet → left with the office; the welcome email waits for the answer.
+       No text yet → paper form as for Considering, then left with the office;
+                     the welcome email waits for the answer.
+     Consent (23 Oct): MTF's own authorisation wording, from finance_settings,
+     ticked AND signed by each applicant; the signatures are kept with the order.
      Every answer is recorded by finance_set_outcome() in the database — the iPad
      never writes a finance column itself (the database refuses if it tries).
 ============================================================================ */
-const FIN = { on:false, provider:'MTF Finance', terms:'1.1', termsDate:null, weekly:50, alertMin:10, loaded:false };
+const FIN = { on:false, provider:'MTF Finance', terms:'1.1', termsDate:null, weekly:50, alertMin:10, loaded:false, consent:'', demo:false };
+/* 23 Oct 2026 — DEMO: ?walkthrough=1&finance=1 shows the finance option inside the
+   walkthrough, so the flow can be shown (to MTF, to a consultant) on a real iPad.
+   The walkthrough already blocks every write, rpc, upload and function call, so
+   nothing is emailed, saved or charged. Plain ?walkthrough=1 (training) never
+   shows finance. */
+const FIN_DEMO = WALKTHROUGH && new URLSearchParams(location.search).has('finance');
+/* Fallback ONLY for the demo — the live wording always comes from finance_settings,
+   the same place the email to the finance company quotes it from. */
+const FIN_CONSENT_DEMO = 'I authorise Simtec Therapeutic Limited and its nominated finance partner(s) to collect, use and disclose my personal information for the purpose of verifying my identity, obtaining credit information, assessing my creditworthiness and determining my eligibility for finance products. I understand that this authority does not guarantee approval of any finance application.';
 S.fin = null;            /* {status, ref, sentAt, outcome, plan} once the application is sent */
 S.termsShown = '1.1';    /* the version the customer was actually shown — recorded on the order */
 const FIN_RESUME = 'simtec_fin_resume' + WT_SUFFIX;
@@ -4183,6 +4220,15 @@ eziWatchBoot();
 
 /* ---- start-up: ask the database once ---- */
 async function finBoot(){
+  if (FIN_DEMO){                                 /* 23 Oct: demo only — nothing real is touched */
+    FIN.on = true; FIN.demo = true; FIN.terms = '1.2'; FIN.consent = FIN_CONSENT_DEMO; FIN.loaded = true;
+    finSet('.finProv', FIN.provider); finSet('.finWeekly', '$50'); finSet('.finConsentTxt', FIN.consent);
+    finApplyTerms();
+    const c = finEl('payFinanceChoice'), wrap = finEl('payOption');
+    if (c) c.classList.remove('hidden');
+    if (wrap){ wrap.classList.remove('three'); wrap.classList.add('two'); }
+    return;
+  }
   if (WALKTHROUGH) return;                       /* walkthrough orders are not real */
   for (let i = 0; i < 100 && !window.SIMTEC_USER; i++) await new Promise(r => setTimeout(r, 50));
   if (!sb) return;
@@ -4195,7 +4241,9 @@ async function finBoot(){
     FIN.terms = (d.terms_version === '1.2') ? '1.2' : '1.1';
     FIN.termsDate = d.terms_effective || null;
     FIN.alertMin = Number(d.alert_minutes) > 0 ? Number(d.alert_minutes) : 10;
-    FIN.on = d.available === true;
+    FIN.consent = String(d.consent_wording || '').trim();
+    /* 23 Oct: no authorisation wording = no finance. Never ask for consent to blank text. */
+    FIN.on = d.available === true && FIN.consent.length > 40;
     FIN.loaded = true;
   }catch(e){
     /* Offline or not signed in: finance stays off and the v1.1 terms stay up —
@@ -4204,6 +4252,7 @@ async function finBoot(){
   }
   finSet('.finProv', FIN.provider);
   finSet('.finWeekly', finMoney(FIN.weekly).replace('.00', ''));
+  finSet('.finConsentTxt', FIN.consent);
   finApplyTerms();
   if (FIN.on){
     const c = finEl('payFinanceChoice'), wrap = finEl('payOption');
@@ -4231,6 +4280,8 @@ function finPayChanged(){
   const on = (S.pay === 'finance');
   box.classList.toggle('hidden', !on);
   if (on) finPrefill();
+  /* the signature boxes were hidden until now, so they have no size yet */
+  if (on) ['finSig1', 'finSig2'].forEach(id => { const c = finEl(id); if (c && c.offsetParent) sizeCanvas(c); });
 }
 function finPrefill(){
   const n1 = (val('a1first') + ' ' + val('a1last')).trim();
@@ -4275,6 +4326,7 @@ function finApplicants(){
       id_number: val('finIdNo' + n).replace(/\s+/g, '').toUpperCase(),
       licence_version: type === 'nz_licence' ? val('finVer' + n) : '',
       consent: !!finEl('finConsent' + n).checked,
+      consent_signed: !isBlank('finSig' + n),    /* 23 Oct: ticked AND signed */
     });
   });
   return list;
@@ -4288,6 +4340,7 @@ function finValidate(){
     if (!/^[A-Z0-9]{5,12}$/.test(a.id_number)){ alert(who + ': the ID number does not look right. Check it against the card.'); return false; }
     if (a.id_type === 'nz_licence' && !/^\d{3}$/.test(a.licence_version)){ alert(who + ': enter the 3-digit licence version number (it is on the front of the licence, under the licence number).'); return false; }
     if (!a.consent){ alert(who + ' has to agree to the credit check before the application can be sent.'); return false; }
+    if (!a.consent_signed){ alert(who + ' has to sign the credit check authorisation (the box under the wording).'); return false; }
   }
   if (!finEl('finToldRights').checked){ alert('Tick that you have told the customer the finance agreement is with ' + FIN.provider + ' and has its own cancellation rights.\n\nThe law requires this to be said before the order is signed.'); return false; }
   return true;
@@ -4313,7 +4366,7 @@ function finEnterStep(){
   finEl('finStartShow').textContent = isoToDMY(val('finStart')) || 'the date above';
   finRenderSummary();
   finShow(S.fin && S.fin.status ? 'wait' : 'send');
-  finPaperTicked();
+  finPaperShow(S.finPending || null);
 }
 function finRenderSummary(){
   const P = S.lastP || {}, f = P.fields || {};
@@ -4347,11 +4400,30 @@ window.finShow = function(which){
   }
   window.scrollTo(0, 0);
 };
-window.finPaperTicked = function(){
-  const ok = finEl('finPaperDone').checked;
-  ['finAnsCons', 'finAnsEzi'].forEach(id => { const c = finEl(id); if (c) c.style.opacity = ok ? '' : '.45'; });
-  finEl('finLockHint').classList.toggle('hidden', ok);
-  finSaveResume();
+window.finPaperTicked = function(){ finSaveResume(); };
+/* 23 Oct 2026 — the paper form panel appears only once the consultant has chosen
+   Considering, or has to leave before any answer. */
+function finPaperShow(kind){
+  S.finPending = kind || null;
+  const card = finEl('finPaperCard'); if (!card) return;
+  card.classList.toggle('hidden', !kind);
+  if (!kind) return;
+  finEl('finPaperHead').textContent = kind === 'considering'
+    ? FIN.provider + ' is considering — back-up paper Ezidebit form'
+    : 'Leaving it with the office — back-up paper Ezidebit form';
+  finEl('finPaperGo').textContent = kind === 'considering' ? 'Finish — ' + FIN.provider + ' is considering' : 'Finish — leave it with the office';
+  finEl('finPaperMsg').textContent = '';
+  card.scrollIntoView({ behavior:'smooth', block:'start' });
+}
+window.finPaperCancel = function(){ finPaperShow(null); finSaveResume(); };
+window.finPaperFinish = async function(){
+  const kind = S.finPending, msgEl = finEl('finPaperMsg');
+  msgEl.textContent = '';
+  if (!kind) return;
+  if (!(val('finStart') && val('finStart') >= isoAddDays(null, 10))){ msgEl.textContent = 'The first payment on the paper form must be at least 10 days away.'; return; }
+  if (!finEl('finPaperDone').checked){ msgEl.textContent = 'Tick that the customer has filled in and signed the paper Ezidebit form.'; return; }
+  if (!confirm(FIN_CONFIRM[kind]())) return;
+  await finRecord(kind, { start: val('finStart') }, msgEl);
 };
 
 async function finCall(body){
@@ -4372,6 +4444,13 @@ window.finSend = async function(resend){
   if (!S.orderId){ msg.textContent = 'The order is not saved yet. Go back and submit it first.'; return; }
   if (!navigator.onLine){ msg.textContent = 'No signal. Move to where you have signal and send again. If you cannot, ring the office — the order is saved.'; return; }
   const applicants = (S.fin && S.fin.applicants) || finApplicants();
+  if (FIN.demo){                       /* 23 Oct: demo — nothing is emailed */
+    S.fin = Object.assign({}, S.fin || {}, { status:'sent', ref:finRef(S.orderId) || 'SIM-DEMO01', sentAt:Date.now(), applicants });
+    finEl('backBtn').style.visibility = 'hidden';
+    finShow('wait');
+    finEl('finSentNote').innerHTML += '<br><b>DEMO —</b> nothing was emailed. In a real sale ' + esc(FIN.provider) + ' would now text your phone.';
+    return;
+  }
   btn.disabled = true; btn.style.opacity = '.6';
   try{
     const out = await finCall({ order_id:S.orderId, applicants, resend:!!resend });
@@ -4418,31 +4497,31 @@ window.finCardResult = function(ok){
 
 /* ---- recording the answer ---- */
 const FIN_CONFIRM = {
-  considering: () => FIN.provider + '\'s text says CONSIDERING?\n\nThe order is finished as a finance sale. The office holds the paper Ezidebit form and follows up with ' + FIN.provider + '.',
-  ezidebit:    () => FIN.provider + '\'s text says EZIDEBIT?\n\nThe order is finished as a normal direct-debit sale at ' + finMoney(FIN.weekly) + ' a week from ' + isoToDMY(val('finStart')) + '. Hand the paper form to the office.',
-  no_answer:   () => 'Leave this with the office?\n\nThe order is saved. The office is texted, records ' + FIN.provider + '\'s answer when it comes, and the customer\'s welcome email waits until then.' + (finEl('finPaperDone').checked ? ' Hand in the paper Ezidebit form.' : ''),
+  considering: () => FIN.provider + '\'s text says CONSIDERING?\n\nThe order is finished as a finance sale. Hand the paper Ezidebit form to the office — it is held, not sent, and only used if the finance does not go ahead.',
+  ezidebit:    () => FIN.provider + '\'s text says EZIDEBIT?\n\nThe sale becomes a normal direct-debit sale. Next you set up Ezidebit on the iPad, as on any sale — the weekly amount starts at ' + finMoney(FIN.weekly) + ' and you can change it before sending.',
+  no_answer:   () => 'Leave this with the office?\n\nThe order is saved. The office is texted, records ' + FIN.provider + '\'s answer when it comes, and the customer\'s welcome email waits until then. Hand in the paper Ezidebit form.',
   card:        () => 'Has the card payment of ' + finMoney(finTotal()) + ' gone through on the payment page?\n\nThe order is finished as paid in full by card.',
-  dd_full:     () => 'Finish as paid in full by ONE direct debit of ' + finMoney(finTotal()) + ' on ' + isoToDMY(val('finDdDate')) + '?\n\nHand the new paper form to the office. The weekly form is not used.',
-  cancel:      () => 'CANCEL this order?\n\nThe finance was not approved and the customer does not want to pay another way. The order is cancelled at no cost to them, and the paper Ezidebit form is destroyed by the office.',
+  dd_full:     () => 'Finish as paid in full by ONE direct debit of ' + finMoney(finTotal()) + ' on ' + isoToDMY(val('finDdDate')) + '?\n\nHand the paper form to the office.',
+  cancel:      () => 'CANCEL this order?\n\nThe finance was not approved and the customer does not want to pay another way. The order is cancelled at no cost to them.',
 };
 window.finAnswer = async function(kind){
   const msgEl = (kind === 'card' || kind === 'dd_full' || kind === 'cancel') ? finEl('finNoMsg') : finEl('finAnsMsg');
   msgEl.textContent = '';
-  if (kind === 'no'){ finShow('no'); return; }
-  const startOk = val('finStart') && val('finStart') >= isoAddDays(null, 10);
-  const paper = finEl('finPaperDone').checked;
-  if ((kind === 'considering' || kind === 'ezidebit')){
-    if (!paper){ msgEl.textContent = 'Tick the paper Ezidebit form first — it is the back-up if the finance does not go ahead.'; return; }
-    if (!startOk){ msgEl.textContent = 'The first payment on the paper form must be at least 10 days away.'; return; }
+  if (kind === 'no'){ finPaperShow(null); finShow('no'); return; }
+  /* 23 Oct: Considering / leaving it with the office → the paper form panel first */
+  if (kind === 'considering' || kind === 'no_answer'){ finPaperShow(kind); finSaveResume(); return; }
+  if (kind === 'ezidebit'){
+    finPaperShow(null);
+    if (!confirm(FIN_CONFIRM.ezidebit())) return;
+    await finRecord('ezidebit', null, msgEl);
+    return;
   }
   if (kind === 'dd_full'){
     if (!(val('finDdDate') && val('finDdDate') >= isoAddDays(null, 10))){ msgEl.textContent = 'The payment date must be at least 10 days away.'; return; }
     if (!finEl('finDdPaper').checked){ msgEl.textContent = 'Tick that the customer has signed the new paper form.'; return; }
   }
   if (!confirm(FIN_CONFIRM[kind]())) return;
-
   let plan = null;
-  if ((kind === 'considering' || kind === 'ezidebit' || kind === 'no_answer') && paper && startOk) plan = { start: val('finStart') };
   if (kind === 'dd_full') plan = { oneoff_amount: finTotal(), oneoff_date: val('finDdDate') };
   await finRecord(kind, plan, msgEl);
 };
@@ -4462,10 +4541,39 @@ async function finRecord(kind, plan, msgEl){
       (/not waiting for a finance answer/i.test(error.message || '') ? ' The office may already have recorded it — ring them before doing anything else.' : '');
     return;
   }
-  S.fin.status = (data && data.status) || S.fin.status;
+  S.fin.status = (data && data.status) || (FIN.demo ? ({considering:'considering', no_answer:'no_answer', ezidebit:'declined_dd', card:'declined_card', dd_full:'declined_dd_full', cancel:'declined_cancelled'}[kind]) : S.fin.status);
   finClearResume();
   if (kind === 'cancel'){ finCancelledDone(); return; }
+  if (kind === 'ezidebit'){ finGoEzidebit(); return; }
   showStep(9);
+}
+/* 23 Oct 2026 — EZIDEBIT ANSWER → THE iPAD'S OWN EZIDEBIT STEP (Nigel: "If the answer
+   comes back Ezidebit, we continue with the order on the ipad, except the repayment
+   will be set at $50pw, although this figure needs to be editable by the consultant
+   before submitting.") From here it is an ordinary direct-debit sale: the same step,
+   the same checks, the same resume after Ezidebit's form, the same Done. */
+function finGoEzidebit(){
+  S.pay = 'ezidebit';
+  if (S.lastP && S.lastP.flags) S.lastP.flags.pay = 'ezidebit';   /* the summary PDF prints a normal direct-debit sale */
+  const amt = finEl('eziPlanAmount'), fq = finEl('eziPlanFreq');
+  /* Start at the standard weekly amount — but never below the minimum for the
+     longest term allowed (36 months on a sale over $2,000, the $20/week floor),
+     the same rule the Ezidebit step already shows as "Minimum acceptable". */
+  let weekly = FIN.weekly;
+  try{
+    const total = eziTotal(), months = total < 1000 ? 12 : (total < 2000 ? 18 : 36);
+    const min = Math.max(Math.ceil(total / (months / 12 * 52) * 100) / 100, 20);
+    if (min > weekly) weekly = Math.ceil(min);
+  }catch(_e){}
+  if (amt) amt.value = weekly.toFixed(2);
+  if (fq) fq.value = 'weekly';
+  showStep(8);
+  finEl('backBtn').style.visibility = 'hidden';   /* the order is already submitted — there is nothing to go back to */
+  if (weekly > FIN.weekly){
+    const n = finEl('eziDepositNote');
+    if (n){ n.classList.remove('hidden');
+            n.innerHTML = '<b>Weekly amount set to ' + finMoney(weekly) + ', not ' + finMoney(FIN.weekly) + '.</b> ' + finMoney(FIN.weekly) + ' a week would take longer than the longest term allowed on a sale of this size. You can change it before sending.'; }
+  }
 }
 function finCancelledDone(){
   S.finalized = true;                 /* nothing for finalizeOrder() to do — no office hand-over, no email */
@@ -4474,7 +4582,7 @@ function finCancelledDone(){
   const i = finEl('doneIcon'), t = finEl('doneTitle'), m = finEl('doneMsg');
   if (i) i.textContent = '❌';
   if (t) t.textContent = 'Order cancelled';
-  if (m) m.textContent = 'The finance was not approved and the customer chose not to pay another way, so the order is cancelled at no cost to them. Give the paper Ezidebit form to the office to destroy.';
+  if (m) m.textContent = 'The finance was not approved and the customer chose not to pay another way, so the order is cancelled at no cost to them.';
   ['cardPayBox', 'cashPayBox', 'pillowBox'].forEach(id => { const b = finEl(id); if (b) b.classList.add('hidden'); });
 }
 
@@ -4490,7 +4598,7 @@ function finDoneUi(){
     no_answer:        'Left with the office. They record ' + FIN.provider + '\'s answer when it comes.' + ((S.fin.plan && S.fin.plan.start) ? ' Hand in the paper Ezidebit form.' : '') + ' The customer\'s welcome email waits for the answer.',
     declined_dd:      'A normal direct-debit sale at ' + finMoney(FIN.weekly) + ' a week. Hand the paper Ezidebit form to the office to key in.',
     declined_card:    'Paid in full by card.',
-    declined_dd_full: 'Paid in full by one direct debit. Hand the new paper form to the office to key in; the weekly form is not used.',
+    declined_dd_full: 'Paid in full by one direct debit. Hand the paper form to the office to key in.',
   }[S.fin.status];
   if (txt) m.textContent = txt;
 }
@@ -4506,7 +4614,8 @@ function finSaveResume(){
   const slimP = P ? { v:P.v, savedAt:P.savedAt, customerName:P.customerName, fields:P.fields, flags:P.flags,
                       products:P.products, wantDel:P.wantDel, referralId:P.referralId } : null;
   const mark = { at:Date.now(), orderId:S.orderId, customerId:S.customerId || null, saleType:S.saleType, a2:S.a2,
-                 lastP:slimP, fin:S.fin, start:val('finStart'), paper:!!(finEl('finPaperDone') || {}).checked };
+                 lastP:slimP, fin:S.fin, start:val('finStart'), paper:!!(finEl('finPaperDone') || {}).checked,
+                 pending:S.finPending || null };
   try{ localStorage.setItem(FIN_RESUME, JSON.stringify(mark)); }
   catch(e){ try{ mark.lastP = null; localStorage.setItem(FIN_RESUME, JSON.stringify(mark)); }
             catch(e2){ reportClientError('save the finance resume marker (a reload would lose the finance step)', e2, S.orderId); } }
@@ -4522,6 +4631,7 @@ async function resumeFinance(){
   if (mark.lastP) S.lastP = mark.lastP;
   if (mark.start) finEl('finStart').value = mark.start;
   finEl('finPaperDone').checked = !!mark.paper;
+  S.finPending = mark.pending || null;
   showStep(10);
   return true;
 }
