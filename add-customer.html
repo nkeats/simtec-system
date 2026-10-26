@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Simtec — Add Customer / Sale</title>
+<!-- SIMTEC_BUILD: add-customer 2026-10-27-01 (second applicant on paper sales) -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.112.2"></script>
 <script src="auth.js?v=3" data-roles="admin,manager,office"></script>
 <style>
@@ -85,6 +86,28 @@
       <div class="full"><label for="address">Street address</label><input id="address" autocomplete="off"></div>
       <div><label for="city">Suburb / City</label><input id="city" autocomplete="off"></div>
       <div><label for="postcode">Postcode</label><input id="postcode" autocomplete="off"></div>
+    </div>
+  </div>
+
+  <!-- 27 Oct 2026: SECOND APPLICANT on a paper sale. The iPad already records the
+       second person on a joint purchase; a paper order had nowhere to put them at
+       entry, so the office had to come back and add them from the customer page (or
+       forgot, and the partner who rang could not be found). Saved to the same three
+       order fields the iPad fills — second_customer_name, second_mobile, second_email —
+       so search, the customer page, the confirmation call and finance all see it. -->
+  <div class="card">
+    <h2>Second applicant</h2>
+    <label style="display:flex;align-items:center;gap:8px;font-weight:600;cursor:pointer;margin:0">
+      <input type="checkbox" id="a2Tick" onchange="toggleA2()" style="width:auto"> There is a second person on this order (joint purchase)
+    </label>
+    <div id="a2Box" style="display:none;margin-top:14px">
+      <div class="grid">
+        <div class="req"><label for="a2first">First name</label><input id="a2first" autocomplete="off"></div>
+        <div class="req"><label for="a2last">Last name</label><input id="a2last" autocomplete="off"></div>
+        <div><label for="a2mobile">Mobile</label><input id="a2mobile" type="tel" placeholder="021 234 5678"><div class="hint" id="a2mobileHint"></div></div>
+        <div><label for="a2email">Email</label><input id="a2email" type="email" autocomplete="off"></div>
+      </div>
+      <div class="hint" style="margin-top:8px">Only add someone who signed the paper order form as a second applicant. Same address as the customer above.</div>
     </div>
   </div>
 
@@ -514,6 +537,16 @@ async function save(){
   if(!consultant){ return show("Choose or type the consultant for this sale.","err"); }
   if(!orderDate){ return show("Set the sale date.","err"); }
   if(!contract || contract<=0){ return show("Add at least one product — the total is $0.","err"); }
+  // 27 Oct: second applicant — if the box is ticked, the name is required and a
+  // mobile, if given, must be a real number. Unticked = nobody, whatever was typed.
+  const a2on = $("a2Tick").checked;
+  const a2first=$("a2first").value.trim(), a2last=$("a2last").value.trim();
+  const a2mob=$("a2mobile").value.trim(), a2mail=$("a2email").value.trim().toLowerCase();
+  if(a2on){
+    if(!a2first || !a2last){ return show("Enter the second applicant's first and last name, or untick 'There is a second person on this order'.","err"); }
+    if(a2mob && normNZ(a2mob).flag==="check"){ return show("The second applicant's mobile doesn't look like a valid NZ number. Fix it or leave it blank.","err"); }
+    if(a2mail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(a2mail)){ return show("The second applicant's email doesn't look right. Fix it or leave it blank.","err"); }
+  }
   // 19 Oct: free protectors, discount and the Ezidebit form must all add up.
   const overFree=MP_SIZES.filter(sz=>protFree(sz)>protOrdered(sz));
   if(overFree.length){ return show("More free protectors than were ordered for: "+overFree.join(", ")+". Fix the free numbers.","err"); }
@@ -579,7 +612,12 @@ async function save(){
       paid_in_full: method==="pay_in_full",
       consultant_delivery_note: ($("delNote").value.trim()||null),
       discount_amount: discAmt,
-      discount_reason: discAmt>0 ? discWhy : null
+      discount_reason: discAmt>0 ? discWhy : null,
+      // 27 Oct: the same fields the iPad writes for applicant 2 (joint_purchase + the three second_*)
+      joint_purchase:       a2on,
+      second_customer_name: a2on ? (a2first+" "+a2last).trim() : null,
+      second_mobile:        a2on ? (a2mob||null) : null,
+      second_email:         a2on ? (a2mail||null) : null
     };
     const {data:ord,error:e2} = await sb.from("sim_orders").insert(order).select("id").single();
     if(e2) throw new Error("Saving sale: "+e2.message);
@@ -608,7 +646,7 @@ async function save(){
     }
 
     let note = flag==="landline" ? "  (Heads up: the number looks like a landline — it won't receive texts.)" : "";
-    show(`Saved ${first} ${last}.` + note, "ok");
+    show(`Saved ${first} ${last}` + (a2on ? ` and ${a2first} ${a2last}` : "") + "." + note, "ok");
     clearForm();
     loadRecent();
   }catch(err){
@@ -619,6 +657,16 @@ async function save(){
 }
 
 $("clear").addEventListener("click", clearForm);
+/* 27 Oct: second applicant box */
+function toggleA2(){ $("a2Box").style.display = $("a2Tick").checked ? "block" : "none"; if($("a2Tick").checked) $("a2first").focus(); }
+$("a2mobile").addEventListener("input", ()=>{
+  const v=$("a2mobile").value, el=$("a2mobileHint");
+  if(!v.trim()){ el.textContent=""; return; }
+  const {e164,flag}=normNZ(v);
+  if(flag==="ok"){ el.textContent="Looks right ("+e164+")"; el.style.color="#1c6b34"; }
+  else if(flag==="landline"){ el.textContent="Looks like a landline ("+e164+") — texts won't reach it"; el.style.color="#8a6d00"; }
+  else { el.textContent="Doesn't look like a valid NZ number"; el.style.color="#a02020"; }
+});
 function addNoteLine(t){
   const el=$("delNote"); if(!el) return;
   const cur=el.value.trim();
@@ -630,11 +678,14 @@ function clearForm(){
   // reset — no field is left carrying data from the last customer, which is how a
   // half-filled or duplicate order slips through.
   ["first","last","mobile","email","address","city","postcode","payerRef",
-   "contract","firstPay","payAmount","deposit","pillow","delivery","delNote","discount","discountReason","eziTotal"].forEach(id=>{
+   "contract","firstPay","payAmount","deposit","pillow","delivery","delNote","discount","discountReason","eziTotal",
+   "a2first","a2last","a2mobile","a2email"].forEach(id=>{
      const el=$(id); if(el) el.value="";
   });
   $("deposit").value="0";
   $("freeProtTick").checked=false; toggleFreeProt();
+  $("a2Tick").checked=false; toggleA2();
+  const a2h=$("a2mobileHint"); if(a2h) a2h.textContent="";
   $("saleType").value=""; $("payMethod").value=""; $("payFreq").value=""; $("delStatus").value="pending";
   $("consultant").value="";
   $("orderDate").value = localISO(new Date());   // reset to today
