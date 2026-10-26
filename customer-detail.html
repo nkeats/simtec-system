@@ -7,9 +7,9 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.112.2"></script>
 <script>/* 5 Oct 2026: today's date as the person using this page sees it. NEVER use toISOString() for a date - it gives the UTC date, which is YESTERDAY in NZ every morning. */
 function localISO(d){d=d||new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}</script>
-<script>window.SIMTEC_BUILD="2026-10-22-01";</script>
+<script>window.SIMTEC_BUILD="2026-10-26-01";</script>
 <script src="client-errors.js?v=1"></script>
-<script src="live.js?v=3" defer></script>
+<script src="live.js?v=4" defer></script>
 <script src="auth.js?v=3" data-roles="admin,manager,office"></script>
 <script src="doubtful.js?v=1"></script>
 <style>
@@ -1634,8 +1634,9 @@ async function loadReminders(){
   const todayStr=new Date().toLocaleDateString("en-CA",{timeZone:"Pacific/Auckland"});
   const open=REMS.filter(r=>!r.done_at).sort((a,b)=>String(a.due_date).localeCompare(String(b.due_date)));
   const done=REMS.filter(r=>r.done_at);
+  const tm=t=>{ const m=/^(\d{1,2}):(\d{2})/.exec(String(t||"")); if(!m) return ""; let h=+m[1]; const ap=h>=12?"pm":"am"; h=h%12||12; return " "+h+":"+m[2]+ap; };
   const pill=r=>{ const d=String(r.due_date);
-    const [bg,fg,txt]= d<todayStr?["#fdecec","#b4342e","Overdue · "+auDate(d)]: d===todayStr?["#fff4dc","#8a5b00","Today"]:["#eef2f7","#43536b",auDate(d)];
+    const [bg,fg,txt]= d<todayStr?["#fdecec","#b4342e","Overdue · "+auDate(d)+tm(r.due_time)]: d===todayStr?["#fff4dc","#8a5b00","Today"+tm(r.due_time)]:["#eef2f7","#43536b",auDate(d)+tm(r.due_time)];
     return `<span style="background:${bg};color:${fg};border-radius:6px;padding:2px 8px;font-size:12px;font-weight:700;white-space:nowrap">${txt}</span>`; };
   const row=r=>`<div style="display:flex;gap:12px;align-items:flex-start;padding:9px 0;border-top:1px solid var(--line)">
       <div style="min-width:118px">${pill(r)}</div>
@@ -1644,7 +1645,7 @@ async function loadReminders(){
         <div style="font-size:11.5px;color:var(--sub);margin-top:2px">Added by ${esc(r.created_by_name||"—")} on ${auDate(r.created_at)}${r.snoozes?` · moved ${r.snoozes}×`:""}</div></div>
       <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">
         <button onclick="remDone('${r.id}')" style="background:#1c6b34;color:#fff;border:none;border-radius:7px;padding:6px 12px;font-size:12.5px;font-weight:600;cursor:pointer">Done</button>
-        <button onclick="openRem('${r.id}')" style="background:#fff;color:var(--navy);border:1px solid #cbd4df;border-radius:7px;padding:6px 12px;font-size:12.5px;font-weight:600;cursor:pointer">Move date</button>
+        <button onclick="openRem('${r.id}')" style="background:#fff;color:var(--navy);border:1px solid #cbd4df;border-radius:7px;padding:6px 12px;font-size:12.5px;font-weight:600;cursor:pointer">Move</button>
       </div></div>`;
   box.innerHTML=`<h2 style="display:flex;align-items:center;gap:10px"><span>Reminders</span>
       ${open.length?`<span style="background:#122347;color:#fff;border-radius:10px;padding:1px 9px;font-size:12px">${open.length}</span>`:""}
@@ -1659,6 +1660,7 @@ window.openRem=function(rid){
   document.getElementById("remId").value=r?r.id:"";
   document.getElementById("remHead").textContent=r?"Move reminder":"Add a reminder";
   document.getElementById("remDate").value=r?r.due_date:"";
+  document.getElementById("remTime").value=(r&&r.due_time)?String(r.due_time).slice(0,5):"";
   document.getElementById("remTitle").value=r?r.title:"";
   document.getElementById("remDetail").value=r?(r.detail||""):"";
   document.getElementById("remWhatRows").style.display=r?"none":"";
@@ -1671,6 +1673,13 @@ window.openRem=function(rid){
   document.getElementById("remModal").style.display="flex";
 };
 window.closeRem=function(){ document.getElementById("remModal").style.display="none"; };
+/* 26 Oct: one tap for the usual case — today, and "Call the customer back" if nothing is written yet */
+window.remCallBack=function(){
+  const d=document.getElementById("remDate"), t=document.getElementById("remTime"), ti=document.getElementById("remTitle");
+  if(!d.value) d.value=new Date().toLocaleDateString("en-CA",{timeZone:"Pacific/Auckland"});
+  if(ti && !ti.value.trim() && document.getElementById("remWhatRows").style.display!=="none") ti.value="Call the customer back";
+  t.focus();
+};
 window.remQuick=function(days){
   const d=new Date(new Date().toLocaleDateString("en-CA",{timeZone:"Pacific/Auckland"})+"T12:00:00");
   d.setDate(d.getDate()+days);
@@ -1684,11 +1693,11 @@ window.saveRem=async function(){
   const btn=document.getElementById("remSave"); btn.disabled=true;
   let res;
   if(id){
-    res=await sb.rpc("snooze_reminder",{p_id:id,p_due:due});
+    res=await sb.rpc("snooze_reminder_at",{p_id:id,p_due:due,p_time:document.getElementById("remTime").value||null});
   }else{
     const title=document.getElementById("remTitle").value.trim();
     if(!title){ btn.disabled=false; return show("Say what needs doing."); }
-    res=await sb.rpc("add_reminder",{p_customer:window.__CUST_ID__,p_due:due,p_title:title,
+    res=await sb.rpc("add_reminder_at",{p_customer:window.__CUST_ID__,p_due:due,p_time:document.getElementById("remTime").value||null,p_title:title,
       p_detail:document.getElementById("remDetail").value.trim()||null,
       p_order:document.getElementById("remOrder").value||null});
   }
@@ -3337,6 +3346,14 @@ async function rebuildPaid(o){
       <button type="button" onclick="remQuick(28)" style="background:#fff;border:1px solid #cbd4df;border-radius:7px;padding:4px 10px;font-size:12px;cursor:pointer">+4 weeks</button>
       <button type="button" onclick="remQuick(35)" style="background:#fff;border:1px solid #cbd4df;border-radius:7px;padding:4px 10px;font-size:12px;cursor:pointer">+5 weeks</button>
     </div>
+    <!-- 26 Oct 2026: a time turns it into a call-back that pops up on every office screen -->
+    <label class="muted" style="font-size:12px;margin-top:10px;display:block">At a time <span style="font-weight:400">(optional — for a call the customer asked for at a set time)</span></label>
+    <div style="display:flex;gap:8px;align-items:center">
+      <input id="remTime" class="mi" type="time" step="300" style="max-width:150px">
+      <button type="button" onclick="remCallBack()" style="background:#5b2a86;color:#fff;border:none;border-radius:7px;padding:7px 12px;font-size:12.5px;font-weight:600;cursor:pointer">📞 Call-back</button>
+      <button type="button" onclick="document.getElementById('remTime').value=''" style="background:#fff;border:1px solid #cbd4df;border-radius:7px;padding:6px 10px;font-size:12px;cursor:pointer">No time</button>
+    </div>
+    <div class="muted" style="font-size:11.5px;margin-top:4px">With a time, it pops up on every office screen when it is due, until someone ticks Done.</div>
     <div id="remWhatRows">
       <label class="muted" style="font-size:12px;margin-top:10px;display:block">What needs doing</label>
       <input id="remTitle" class="mi" placeholder="e.g. Change Ezidebit from $112 to $69 a fortnight">

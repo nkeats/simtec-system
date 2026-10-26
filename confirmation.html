@@ -7,10 +7,10 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.112.2"></script>
 <script>/* 5 Oct 2026: today's date as the person using this page sees it. NEVER use toISOString() for a date - it gives the UTC date, which is YESTERDAY in NZ every morning. */
 function localISO(d){d=d||new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}</script>
-<script>window.SIMTEC_BUILD="2026-10-26-01";</script>
+<script>window.SIMTEC_BUILD="2026-10-26-02";</script>
 <script src="client-errors.js?v=1"></script>
 <script src="auth.js?v=4" data-roles="admin,manager,office"></script>
-<script src="live.js?v=3" defer></script>
+<script src="live.js?v=4" defer></script>
 <style>
   :root{
     --navy:#111f3d; --navy2:#1a2c53; --gold:#c6a15b; --gold2:#d9be86;
@@ -480,6 +480,13 @@ function pendingCard(o){
     +'<div class="clh">Call notes</div>'
     +'<textarea class="rvnote callnote" id="note_'+id+'" data-order="'+id+'" placeholder="Type as you talk. Kept as you type, even if the list refreshes, and saved with the order when you accept or send to review.">'+esc(dr.note||'')+'</textarea>'
     +'<div class="notesaved" id="ns_'+id+'">'+(dr.note?'Kept on this computer — saved with the order when you finish.':'')+'</div>'
+    /* 26 Oct 2026: "call me back at 6" — booked here, it pops up on every office screen at that time */
+    +'<details style="margin:0 0 12px"><summary style="cursor:pointer;font-size:13.5px;font-weight:600;color:#5b2a86">\u{1F4DE} Customer asked to be called back at a set time?</summary>'
+      +'<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px">'
+      +'<input type="date" id="cbd_'+id+'" value="'+new Date().toLocaleDateString('en-CA',{timeZone:'Pacific/Auckland'})+'" style="border:1px solid var(--line);border-radius:8px;padding:7px 9px;font:inherit">'
+      +'<input type="time" id="cbt_'+id+'" step="300" style="border:1px solid var(--line);border-radius:8px;padding:7px 9px;font:inherit">'
+      +'<button type="button" class="btn2" style="background:#5b2a86;color:#fff;border-color:#5b2a86" onclick="bookCallBack(\''+id+'\')">Book the call-back</button>'
+      +'<span id="cbm_'+id+'" style="font-size:13px"></span></div></details>'
     +'<div class="clh">Confirmation call — tick each item as you confirm it</div>'
     +'<div class="checks">'+checks+'</div>'
     +'<div class="actions">'
@@ -657,6 +664,17 @@ async function logCallNote(id, note, outcome){
     auto_source:'confirmation_call', auto_ref:id });
   if(error) reportClientError('add the confirmation-call notes to the customer\'s history (they ARE saved on the confirmation)', error, id);
 }
+window.bookCallBack=async function(id){
+  const o=ORDERS.find(x=>x.id===id); const m=document.getElementById('cbm_'+id);
+  const day=(document.getElementById('cbd_'+id)||{}).value, t=(document.getElementById('cbt_'+id)||{}).value;
+  if(!day || !t){ m.style.color='#b4342e'; m.textContent='Choose the day and the time.'; return; }
+  const note=((document.getElementById('note_'+id)||{}).value||'').trim();
+  const { error } = await sb.rpc('add_reminder_at', { p_customer:o?o.customer_id:null, p_due:day, p_time:t,
+    p_title:'Call the customer back (confirmation call)', p_detail:note?('Notes so far: '+note):null, p_order:id });
+  if(error){ reportClientError('book a call-back from the confirmation call', error, id); m.style.color='#b4342e'; m.textContent='Couldn\'t book it: '+(error.message||error); return; }
+  const [hh,mm]=t.split(':'); let h=+hh; const ap=h>=12?'pm':'am'; h=h%12||12;
+  m.style.color='#1c6b34'; m.textContent='Booked for '+h+':'+mm+ap+(day===new Date().toLocaleDateString('en-CA',{timeZone:'Pacific/Auckland'})?' today':' on '+fmtDate(day))+' — it pops up on every office screen then.';
+};
 async function upsertConf(row){
   return sb.from('sim_order_confirmations').upsert(row,{onConflict:'order_id'});
 }

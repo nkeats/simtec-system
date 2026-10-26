@@ -6,7 +6,7 @@
 <title>Simtec — Operating System</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.112.2"></script>
 <script src="auth.js?v=3" data-roles="admin,manager,office"></script>
-<script src="live.js?v=3" defer></script>
+<script src="live.js?v=4" defer></script>
 <style>
   :root{
     --navy:#111f3d; --navy2:#1a2c53; --navy3:#24386a; --gold:#c6a15b; --gold2:#d9be86;
@@ -757,16 +757,19 @@ loadStrip();
 async function loadReminders(){
   const box=document.getElementById("remindBox"); if(!box) return;
   // the page is office-only (auth.js data-roles); the view's row security does the rest
-  const {data,error}=await sb.from("v_reminders_due").select("*").lte("days_until",7).order("due_date").order("created_at");
+  const {data,error}=await sb.from("v_reminders_due").select("*").lte("days_until",7).order("due_date").order("due_time",{nullsFirst:false}).order("created_at");
   if(error){ if(!/does not exist|schema cache/i.test(error.message||"")) console.error("load the reminders due", error); box.style.display="none"; return; }
   const rows=data||[];
   if(!rows.length){ box.style.display="none"; return; }
   const esc=s=>String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
   const d2=v=>{ const m=String(v||"").match(/^(\d{4})-(\d{2})-(\d{2})/); return m?m[3]+"/"+m[2]:""; };
+  /* 26 Oct: a call-back at a set time shows its time, and goes purple once it is due */
+  const tm=t=>{ const m=/^(\d{1,2}):(\d{2})/.exec(String(t||"")); if(!m) return ""; let h=+m[1]; const ap=h>=12?"pm":"am"; h=h%12||12; return " "+h+":"+m[2]+ap; };
   const due=rows.filter(r=>r.status!=="upcoming"), soon=rows.filter(r=>r.status==="upcoming");
-  const pill=r=>r.status==="overdue"?`<span style="background:#fdecec;color:#b4342e;border-radius:6px;padding:2px 8px;font-size:12px;font-weight:700">Overdue ${d2(r.due_date)}</span>`
-            : r.status==="today"?`<span style="background:#fff4dc;color:#8a5b00;border-radius:6px;padding:2px 8px;font-size:12px;font-weight:700">Today</span>`
-            : `<span style="background:#eef2f7;color:#43536b;border-radius:6px;padding:2px 8px;font-size:12px;font-weight:700">${d2(r.due_date)}</span>`;
+  const pill=r=>r.call_due?`<span style="background:#5b2a86;color:#fff;border-radius:6px;padding:2px 8px;font-size:12px;font-weight:700">\u{1F4DE} Call now${tm(r.due_time)}</span>`
+            : r.status==="overdue"?`<span style="background:#fdecec;color:#b4342e;border-radius:6px;padding:2px 8px;font-size:12px;font-weight:700">Overdue ${d2(r.due_date)}${tm(r.due_time)}</span>`
+            : r.status==="today"?`<span style="background:#fff4dc;color:#8a5b00;border-radius:6px;padding:2px 8px;font-size:12px;font-weight:700">Today${tm(r.due_time)}</span>`
+            : `<span style="background:#eef2f7;color:#43536b;border-radius:6px;padding:2px 8px;font-size:12px;font-weight:700">${d2(r.due_date)}${tm(r.due_time)}</span>`;
   const row=r=>`<div style="display:flex;gap:10px;align-items:center;padding:7px 0;border-top:1px solid #eef1f5">
       <div style="min-width:96px">${pill(r)}</div>
       <div style="flex:1"><a href="customer-detail.html?cust=${r.customer_id}" style="font-weight:700;color:#122347;text-decoration:none">${esc(r.customer_name)}</a>
@@ -785,6 +788,7 @@ window.homeRemDone=async function(id){
   loadReminders();
 };
 loadReminders();
+setInterval(function(){ if(!document.hidden) loadReminders(); }, 60000);   /* 26 Oct: timed call-backs turn "Call now" without a refresh */
 
 loadAlerts();
 loadFulfil();

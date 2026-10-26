@@ -109,11 +109,11 @@
   document.addEventListener("click", function () { wakeAudio(); }, { once: true });
 
   var TITLE_TIMER = null;
-  function flashTitle(name) {
+  function flashTitle(name, label) {
     var original = document.title, on = true;
     clearTimeout(TITLE_TIMER);
     TITLE_TIMER = setInterval(function () {
-      document.title = on ? "\uD83D\uDD14 NEW ORDER \u2014 " + name : original;
+      document.title = on ? (label || "\uD83D\uDD14 NEW ORDER") + " \u2014 " + name : original;
       on = !on;
     }, 900);
     var stop = function () {
@@ -334,7 +334,87 @@
       })
       .catch(function (e) { report("read the orders waiting for a confirmation call", e); });
   }
-  function refreshStrips() { refreshInProgress(); refreshAwaiting(); }
+  function refreshStrips() { refreshInProgress(); refreshAwaiting(); refreshCallbacks(); }
+
+  /* ---------------------------------------------------------------
+     CALL-BACKS AT A SET TIME — 26 Oct 2026. [stated] Nigel: "we also
+     occasionaly get requests to call customers at a specific time. We need a
+     way to enter this in and then to remind the girls that a call is required
+     at that time." A reminder with a time (added on the customer page or the
+     confirmation card) pops up here, on every office screen, from 2 minutes
+     before its time until someone ticks Done or moves it. Chimes once per
+     call per screen; the strip itself stays until it is dealt with.
+     --------------------------------------------------------------- */
+  var CB = { rows: [], failed: false, chimed: {} };
+  function cbTime(t) {
+    var m = /^(\d{1,2}):(\d{2})/.exec(String(t || "")); if (!m) return "";
+    var h = +m[1], ap = h >= 12 ? "pm" : "am"; h = h % 12 || 12;
+    return h + ":" + m[2] + ap;
+  }
+  function renderCallbacks() {
+    var el = document.getElementById("simtecCallbacks");
+    var rows = CB.rows || [];
+    if (!rows.length) { if (el) el.remove(); tidyStack(); return; }
+    if (!el) { el = document.createElement("div"); el.id = "simtecCallbacks"; stripStack().insertBefore(el, stripStack().firstChild); }
+    el.style.cssText =
+      "position:relative;margin:0;box-sizing:border-box;width:100%;color:#fff;padding:9px 18px;background:#5b2a86;" +
+      "display:flex;flex-direction:column;gap:6px;box-shadow:0 3px 12px rgba(0,0,0,.25);" +
+      "font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:13px;line-height:1.35";
+    var btn = "font-family:inherit;font-size:12.5px;font-weight:700;line-height:1.2;margin:0 0 0 6px;width:auto;display:inline-block;" +
+              "box-sizing:border-box;white-space:nowrap;border-radius:7px;padding:5px 11px;cursor:pointer;text-decoration:none;";
+    el.innerHTML = '<div style="margin:0;font-weight:800;font-size:14px">\uD83D\uDCDE ' +
+      (rows.length === 1 ? "Call-back due now" : rows.length + " call-backs due now") + "</div>" +
+      rows.slice(0, 5).map(function (r) {
+        return '<div style="margin:0;display:flex;align-items:center;gap:6px;flex-wrap:wrap">' +
+          "<span style=\"flex:1;min-width:220px\"><b>" + esc(cbTime(r.due_time)) + (r.status === "overdue" ? " (" + esc(r.due_date) + ")" : "") +
+          " — " + esc(r.customer_name) + "</b>" + (r.mobile ? " · " + esc(r.mobile) : "") + " · " + esc(r.title) +
+          (r.detail ? ' <span style="opacity:.85">— ' + esc(r.detail) + "</span>" : "") + "</span>" +
+          '<a href="customer-detail.html?cust=' + encodeURIComponent(r.customer_id) + '" style="' + btn + 'background:#fff;color:#5b2a86;border:0">Open</a>' +
+          '<button type="button" data-cb-done="' + esc(r.id) + '" style="' + btn + 'background:#1c6b34;color:#fff;border:0">Done</button>' +
+          '<button type="button" data-cb-later="' + esc(r.id) + '" style="' + btn + 'background:transparent;color:#fff;border:1px solid #fff">In 15 min</button></div>';
+      }).join("") + (rows.length > 5 ? '<div style="margin:0">and ' + (rows.length - 5) + " more</div>" : "");
+    el.querySelectorAll("[data-cb-done]").forEach(function (b) { b.onclick = function () { cbDone(b.getAttribute("data-cb-done")); }; });
+    el.querySelectorAll("[data-cb-later]").forEach(function (b) { b.onclick = function () { cbLater(b.getAttribute("data-cb-later")); }; });
+  }
+  function cbDone(id) {
+    var sb = IP.client; if (!sb) return;
+    var note = prompt("Mark this call-back done.\n\nAnything to note? (optional)");
+    if (note === null) return;
+    sb.rpc("complete_reminder", { p_id: id, p_note: note.trim() || null }).then(function (r) {
+      if (r && r.error) { report("mark a call-back done", r.error); alert("Couldn't save: " + (r.error.message || r.error)); return; }
+      refreshCallbacks(); reload("callback done");
+    });
+  }
+  function cbLater(id) {
+    var sb = IP.client; if (!sb) return;
+    // 15 minutes from NOW, in New Zealand time — never the browser's own zone
+    var t = new Date(Date.now() + 15 * 60000);
+    var day = t.toLocaleDateString("en-CA", { timeZone: "Pacific/Auckland" });
+    var hm = t.toLocaleTimeString("en-GB", { timeZone: "Pacific/Auckland", hour: "2-digit", minute: "2-digit", hour12: false });
+    sb.rpc("snooze_reminder_at", { p_id: id, p_due: day, p_time: hm }).then(function (r) {
+      if (r && r.error) { report("move a call-back 15 minutes", r.error); alert("Couldn't save: " + (r.error.message || r.error)); return; }
+      delete CB.chimed[id]; refreshCallbacks();
+    });
+  }
+  function refreshCallbacks() {
+    var sb = IP.client;
+    if (!sb || CB.failed) return;
+    sb.from("v_reminders_due").select("id, customer_id, customer_name, mobile, title, detail, due_date, due_time, status")
+      .eq("call_due", true).order("due_date").order("due_time")
+      .then(function (r) {
+        if (r && r.error) {
+          // Pages used by people who are not office staff simply never show it.
+          if (!/permission|does not exist|schema cache|call_due/i.test(r.error.message || "")) report("read the call-backs due", r.error);
+          CB.failed = true; return;
+        }
+        CB.rows = (r && r.data) || [];
+        var fresh = CB.rows.filter(function (x) { return !CB.chimed[x.id]; });
+        fresh.forEach(function (x) { CB.chimed[x.id] = true; });
+        renderCallbacks();
+        if (fresh.length) { chime(); flashTitle(fresh[0].customer_name || "", "\uD83D\uDCDE CALL-BACK DUE"); }
+      })
+      .catch(function (e) { report("read the call-backs due", e); });
+  }
 
   function refreshInProgress() {
     var sb = IP.client;
@@ -363,6 +443,7 @@
     IP.client = sb;
     refreshStrips();
     setInterval(function () { if (!document.hidden) { refreshStrips(); pollAnnounce(); } }, 30000);   // minutes tick, and the poll safety net
+    setInterval(function () { if (document.hidden) refreshCallbacks(); }, 30000);   // 26 Oct: a call-back is due even on a hidden tab
 
     /* 15 Oct: THE CHIME MUST NOT DEPEND ON THE LIVE CONNECTION.
        The office screen's live link dropped ~15 times on 15 Oct. The list still
