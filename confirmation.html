@@ -7,7 +7,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.112.2"></script>
 <script>/* 5 Oct 2026: today's date as the person using this page sees it. NEVER use toISOString() for a date - it gives the UTC date, which is YESTERDAY in NZ every morning. */
 function localISO(d){d=d||new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}</script>
-<script>window.SIMTEC_BUILD="2026-10-22-01";</script>
+<script>window.SIMTEC_BUILD="2026-10-26-01";</script>
 <script src="client-errors.js?v=1"></script>
 <script src="auth.js?v=4" data-roles="admin,manager,office"></script>
 <script src="live.js?v=3" defer></script>
@@ -72,6 +72,10 @@ function localISO(d){d=d||new Date();return d.getFullYear()+'-'+String(d.getMont
   .btn2.warn:hover{background:var(--redbg)}
   .btn2.gold{background:var(--gold);border-color:var(--gold);color:var(--navy)}
   .rvnote{width:100%;border:1px solid var(--line);border-radius:10px;padding:11px;font:inherit;font-size:14px;resize:vertical;min-height:56px;margin-top:12px}
+  /* 26 Oct 2026: the call-notes box — big enough to type into while talking */
+  .callnote{min-height:110px;margin-top:4px;border-color:#c9d3e3;background:#fffef8}
+  .notesaved{font-size:12px;color:var(--sub);margin:4px 2px 10px;min-height:16px}
+  #list{overflow-anchor:auto}
   .stateline{font-size:12.5px;color:var(--sub);margin-top:10px}
   .badge{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:700;padding:3px 9px;border-radius:20px}
   .badge.g{background:var(--greenbg);color:var(--green)} .badge.n{background:#eef1f7;color:var(--sub)}
@@ -318,7 +322,7 @@ async function markCalled(id){
 
 async function loadAll(){
   await loadClaims();
-  document.getElementById('list').innerHTML='<div class="state">Loading orders…</div>';
+  if(!ORDERS.length) document.getElementById('list').innerHTML='<div class="state">Loading orders…</div>';   /* 26 Oct: never blank the list on a refresh */
   try{
     const {data:pend,error:e1}=await sb.from('sim_orders')
       .select('*, sim_customers(*), sim_order_items(product_name,quantity,unit_price,line_no)')
@@ -450,36 +454,38 @@ function summaryHTML(o){
 
 function pendingCard(o){
   const id=o.id;
+  const dr=draftGet(id);                    /* 26 Oct: ticks and notes survive every refresh */
+  const ck=f=>(dr.checks&&dr.checks[f])?' checked':'';
+  const dn=f=>(dr.checks&&dr.checks[f])?' done':'';
   const checks=CHECKS.map(([f,lbl])=>{
     if(f==='confirmed_direct_debit'){
       if(!needsDD(o)) return '<div class="chk" style="cursor:default;color:var(--sub);font-weight:500">Direct debit authority — not needed, no direct debit on this order</div>';
-      return '<label class="chk" id="lab_'+f+'_'+id+'" style="align-items:flex-start"><input type="checkbox" class="conf-chk" data-order="'+id+'" data-field="'+f+'" onchange="onCheck(\''+id+'\',this)">'
+      return '<label class="chk'+dn(f)+'" id="lab_'+f+'_'+id+'" style="align-items:flex-start"><input type="checkbox" class="conf-chk" data-order="'+id+'" data-field="'+f+'"'+ck(f)+' onchange="onCheck(\''+id+'\',this)">'
         +'<span>Direct debit authority<span style="display:block;font-weight:500;font-size:13px;margin-top:3px">'+ddReadBack(o)
         +'<br>Ask: <i>"Is that the right amount and day, and did you agree to the direct debit yourself?"</i></span></span></label>';
     }
-    return '<label class="chk" id="lab_'+f+'_'+id+'"><input type="checkbox" class="conf-chk" data-order="'+id+'" data-field="'+f+'" onchange="onCheck(\''+id+'\',this)">'+esc(lbl)+'</label>';
+    return '<label class="chk'+dn(f)+'" id="lab_'+f+'_'+id+'"><input type="checkbox" class="conf-chk" data-order="'+id+'" data-field="'+f+'"'+ck(f)+' onchange="onCheck(\''+id+'\',this)">'+esc(lbl)+'</label>';
   }).join('');
   const nChecks=CHECKS.filter(([f])=>f!=='confirmed_direct_debit'||needsDD(o)).length;
+  const allTicked=CHECKS.filter(([f])=>f!=='confirmed_direct_debit'||needsDD(o)).every(([f])=>dr.checks&&dr.checks[f]);
   const cl = CLAIMS[id];
   const mine = cl && cl.claimed_by === MYID;
-  const claimBar = cl
-    ? (mine
-        ? '<div class="claimbar mine">You are on this call \u00b7 <a href="#" onclick="letGo(\''+id+'\');return false">let it go</a></div>'
-        : '<div class="claimbar taken">\u260E\uFE0F '+esc(cl.claimed_name||'Someone')+' is calling this one now</div>')
-    : '<div class="claimbar free"><button class="btn2" onclick="takeCall(\''+id+'\')">I\'ll call this one</button></div>';
+  const claimBar = claimBarHTML(id);
 
   return '<div class="ocard'+(cl&&!mine?' dim':'')+'" id="card_'+id+'">'+claimBar
     +'<div class="ohead"><div><div class="who">'+esc(fullName(o))+'</div>'
       +'<div class="meta">'+(o.order_no?('Order '+esc(o.order_no)+' · '):'')+fmtDate(o.order_date)+' · '+esc(o.consultant_name||'')+'</div></div>'
       +'<div class="val">'+money(o.contract_value)+'<small>contract value</small></div></div>'
     +'<div class="obody">'+summaryHTML(o)
+    +'<div class="clh">Call notes</div>'
+    +'<textarea class="rvnote callnote" id="note_'+id+'" data-order="'+id+'" placeholder="Type as you talk. Kept as you type, even if the list refreshes, and saved with the order when you accept or send to review.">'+esc(dr.note||'')+'</textarea>'
+    +'<div class="notesaved" id="ns_'+id+'">'+(dr.note?'Kept on this computer — saved with the order when you finish.':'')+'</div>'
     +'<div class="clh">Confirmation call — tick each item as you confirm it</div>'
     +'<div class="checks">'+checks+'</div>'
     +'<div class="actions">'
-      +'<button class="bigtick" id="acc_'+id+'" disabled onclick="accept(\''+id+'\')"><span class="bx">✓</span> Accept order</button>'
+      +'<button class="bigtick" id="acc_'+id+'"'+(allTicked?'':' disabled')+' onclick="accept(\''+id+'\')"><span class="bx">✓</span> Accept order</button>'
       +'<button class="btn2 warn" onclick="toReview(\''+id+'\')">Not accepted — send to review</button>'
     +'</div>'
-    +'<textarea class="rvnote" id="note_'+id+'" placeholder="Optional note (reason to send to management review, or anything the reviewer should know)…"></textarea>'
     +'<div class="stateline" id="st_'+id+'">Tick all '+nChecks+' to enable Accept. If anything can\'t be confirmed, send it to management review instead.</div>'
     +'</div></div>';
 }
@@ -497,8 +503,9 @@ function reviewCard(o){
     +'<div class="review-banner">Sent to management review'+(conf.called_by?(' by '+esc(conf.called_by)):'')+'. Decide: accept or cancel.</div>'
     +summaryHTML(o)
     +'<div class="clh">Confirmation checklist</div><div style="margin-bottom:6px">'+ticked+'</div>'
+    +(conf.call_note?('<div class="stateline" style="white-space:pre-wrap"><b>Call notes:</b> '+esc(conf.call_note)+'</div>'):'')
     +(conf.review_note?('<div class="stateline"><b>Note:</b> '+esc(conf.review_note)+'</div>'):'')
-    +'<textarea class="rvnote" id="note_'+id+'" placeholder="Management decision note (optional)…">'+esc(conf.review_note||'')+'</textarea>'
+    +'<textarea class="rvnote" id="note_'+id+'" data-order="'+id+'" placeholder="Management decision note (optional)…">'+esc((draftGet(id).note!=null&&draftGet(id).note!=='')?draftGet(id).note:(conf.review_note||''))+'</textarea>'
     +'<div class="actions">'
       +'<button class="bigtick" onclick="reviewAccept(\''+id+'\')"><span class="bx">✓</span> Accept order</button>'
       +'<button class="btn2 warn" onclick="reviewCancel(\''+id+'\')">Cancel order</button>'
@@ -558,10 +565,76 @@ function render(){
     el.innerHTML='<div class="empty">'+msg+'</div>'; return;
   }
   const fn=TAB==='pending'?pendingCard:TAB==='review'?reviewCard:acceptedCard;
-  el.innerHTML=list.map(fn).join('');
+  /* ⚠ 26 Oct 2026 — THE SCREEN JUMPED UNDER THE PERSON ON THE CALL (Nigel: "it is hard for
+     them to make notes. The screen seems to often jump to a different section"). This used
+     to replace the WHOLE list every 20 seconds and on every live change, so the box being
+     typed in vanished, the ticks cleared and the page scrolled. Now: the card being typed in
+     is kept exactly as it is, every other card is rebuilt from the saved draft (so ticks and
+     notes come back), and the page is put back where it was. */
+  const active=document.activeElement;
+  const keepCard=(active && active.closest) ? active.closest('.ocard') : null;
+  let anchor=keepCard, anchorTop=null;
+  if(!anchor){ anchor=[...el.querySelectorAll('.ocard')].find(c=>c.getBoundingClientRect().bottom>0) || null; }
+  if(anchor) anchorTop=anchor.getBoundingClientRect().top;
+  const anchorId=anchor ? anchor.id : null;
+  const frag=document.createDocumentFragment();
+  list.forEach(o=>{
+    if(keepCard && keepCard.id==='card_'+o.id){ frag.appendChild(keepCard); return; }
+    const tmp=document.createElement('div'); tmp.innerHTML=fn(o);
+    if(tmp.firstElementChild) frag.appendChild(tmp.firstElementChild);
+  });
+  el.replaceChildren(frag);
+  if(keepCard && el.contains(keepCard)){ updateClaimBar(keepCard.id.replace('card_','')); if(document.activeElement!==active) try{ active.focus({preventScroll:true}); }catch(_e){} }
+  const again=anchorId ? document.getElementById(anchorId) : null;
+  if(again && anchorTop!=null){ const d=again.getBoundingClientRect().top-anchorTop; if(Math.abs(d)>1) window.scrollBy(0,d); }
 }
 
-window.onCheck=function(id){
+/* ---- 26 Oct 2026: call drafts — ticks and notes kept as they are typed ----
+   In memory, and on this computer (localStorage), so a refresh, a live update or even
+   closing the page does not lose what was typed mid-call. Cleared once the order is
+   accepted or sent to review. Old drafts are dropped after 3 days. */
+const DRAFT_KEY='simtec_confirm_draft_';
+const DRAFTS={};
+function draftGet(id){
+  if(DRAFTS[id]) return DRAFTS[id];
+  let d=null; try{ d=JSON.parse(localStorage.getItem(DRAFT_KEY+id)||'null'); }catch(_e){}
+  if(d && d.at && Date.now()-d.at>3*864e5){ d=null; try{ localStorage.removeItem(DRAFT_KEY+id); }catch(_e){} }
+  DRAFTS[id]=d||{checks:{},note:''};
+  return DRAFTS[id];
+}
+function draftSave(id){
+  const d=draftGet(id); d.at=Date.now();
+  try{ localStorage.setItem(DRAFT_KEY+id, JSON.stringify(d)); }catch(_e){ /* private window: kept in memory only */ }
+}
+function draftClear(id){ delete DRAFTS[id]; try{ localStorage.removeItem(DRAFT_KEY+id); }catch(_e){} }
+document.addEventListener('input', function(ev){
+  const t=ev.target; if(!t || !t.matches || !t.matches('textarea[data-order]')) return;
+  const id=t.dataset.order; draftGet(id).note=t.value; draftSave(id);
+  const ns=document.getElementById('ns_'+id); if(ns) ns.textContent = t.value ? 'Kept on this computer — saved with the order when you finish.' : '';
+});
+/* Only the claim bars change every 20 seconds — nothing else on the page moves. */
+function claimBarHTML(id){
+  const cl=CLAIMS[id]; const mine=cl && cl.claimed_by===MYID;
+  return cl
+    ? (mine
+        ? '<div class="claimbar mine">You are on this call \u00b7 <a href="#" onclick="letGo(\''+id+'\');return false">let it go</a></div>'
+        : '<div class="claimbar taken">\u260E\uFE0F '+esc(cl.claimed_name||'Someone')+' is calling this one now</div>')
+    : '<div class="claimbar free"><button class="btn2" onclick="takeCall(\''+id+'\')">I\'ll call this one</button></div>';
+}
+function updateClaimBar(id){
+  const card=document.getElementById('card_'+id); if(!card) return;
+  const bar=card.querySelector('.claimbar'); if(!bar) return;
+  const tmp=document.createElement('div'); tmp.innerHTML=claimBarHTML(id);
+  bar.replaceWith(tmp.firstElementChild);
+  const cl=CLAIMS[id]; card.classList.toggle('dim', !!(cl && cl.claimed_by!==MYID));
+}
+function refreshClaimBars(){
+  if(TAB!=='pending') return;
+  document.querySelectorAll('#list .ocard[id^="card_"]').forEach(c=>updateClaimBar(c.id.replace('card_','')));
+}
+
+window.onCheck=function(id,box){
+  if(box && box.dataset && box.dataset.field){ draftGet(id).checks[box.dataset.field]=box.checked; draftSave(id); }
   const card=document.getElementById('card_'+id);
   card.querySelectorAll('.conf-chk').forEach(c=>{ c.closest('label').classList.toggle('done',c.checked); });
   const all=[...card.querySelectorAll('.conf-chk')].every(c=>c.checked);
@@ -573,6 +646,17 @@ function gather(id){
   return o;
 }
 
+/* 26 Oct 2026: the call notes also go on the customer's contact history, where the office
+   looks later. A failure here is reported, never blocks the decision (which is already saved). */
+async function logCallNote(id, note, outcome){
+  if(!note) return;
+  const o=ORDERS.find(x=>x.id===id);
+  const { error } = await sb.from('sim_contacts').insert({
+    customer_id:o?o.customer_id:null, order_id:id, channel:'phone', direction:'outbound',
+    staff_name:me(), subject:'Confirmation call', body:note, outcome:outcome,
+    auto_source:'confirmation_call', auto_ref:id });
+  if(error) reportClientError('add the confirmation-call notes to the customer\'s history (they ARE saved on the confirmation)', error, id);
+}
 async function upsertConf(row){
   return sb.from('sim_order_confirmations').upsert(row,{onConflict:'order_id'});
 }
@@ -583,25 +667,30 @@ window.accept=async function(id){
   const boxes=[...document.querySelectorAll('#card_'+id+' .conf-chk')];
   if(!boxes.length || !boxes.every(c=>c.checked)){ setState(id,'Tick all '+boxes.length+' items before accepting.','#b4342e'); return; }
   setState(id,'Saving…');
-  const row={order_id:id,...checks,accepted:true,status:'accepted',called_by:me(),called_at:nowISO(),updated_at:nowISO()};
+  const note=((document.getElementById('note_'+id)||{}).value||'').trim()||null;
+  const row={order_id:id,...checks,accepted:true,status:'accepted',called_by:me(),called_at:nowISO(),call_note:note,updated_at:nowISO()};
   const {error}=await upsertConf(row);
   if(error){ reportClientError('save the confirmation checklist / decision', error, id); setState(id,'Couldn\'t save: '+error.message,'#b4342e'); return; }
   try{ await sb.rpc('release_confirmation_call',{p_order:id}); }catch(e){ reportClientError('release the call claim (it expires by itself in ten minutes)', e, id); }
   const {error:e2}=await sb.from('sim_orders').update({confirmation_status:'accepted'}).eq('id',id);
   if(e2){ reportClientError('set the order to accepted after the checklist saved', e2, id); setState(id,'Saved checklist, but status update failed: '+e2.message,'#b4342e'); return; }
+  await logCallNote(id, note, 'accepted');
+  draftClear(id);
   loadAll();
 };
 
 window.toReview=async function(id){
   const checks=gather(id);
-  const note=(document.getElementById('note_'+id)||{}).value||null;
+  const note=((document.getElementById('note_'+id)||{}).value||'').trim()||null;
   setState(id,'Sending to review…');
-  const row={order_id:id,...checks,accepted:false,status:'review',called_by:me(),called_at:nowISO(),review_note:note,updated_at:nowISO()};
+  const row={order_id:id,...checks,accepted:false,status:'review',called_by:me(),called_at:nowISO(),review_note:note,call_note:note,updated_at:nowISO()};
   const {error}=await upsertConf(row);
   if(error){ reportClientError('save the confirmation checklist / decision', error, id); setState(id,'Couldn\'t save: '+error.message,'#b4342e'); return; }
   try{ await sb.rpc('release_confirmation_call',{p_order:id}); }catch(e){ reportClientError('release the call claim (it expires by itself in ten minutes)', e, id); }
   const {error:e2}=await sb.from('sim_orders').update({confirmation_status:'review'}).eq('id',id);
   if(e2){ reportClientError('set the order\'s confirmation status after the decision saved', e2, id); setState(id,'Saved, but status update failed: '+e2.message,'#b4342e'); return; }
+  await logCallNote(id, note, 'sent to management review');
+  draftClear(id);
   loadAll();
 };
 
@@ -614,6 +703,7 @@ window.reviewAccept=async function(id){
   try{ await sb.rpc('release_confirmation_call',{p_order:id}); }catch(e){ reportClientError('release the call claim (it expires by itself in ten minutes)', e, id); }
   const {error:e2}=await sb.from('sim_orders').update({confirmation_status:'accepted'}).eq('id',id);
   if(e2){ reportClientError('set the order\'s confirmation status after the decision saved', e2, id); setState(id,'Saved, but status update failed: '+e2.message,'#b4342e'); return; }
+  draftClear(id);
   loadAll();
 };
 
@@ -631,6 +721,7 @@ window.reviewCancel=async function(id){
     cancellation_reason:'Confirmation call — not accepted (management cancelled)'
   }).eq('id',id);
   if(e2){ reportClientError('cancel the order after management declined it (decision saved, order NOT cancelled)', e2, id); setState(id,'Saved decision, but order update failed: '+e2.message,'#b4342e'); return; }
+  draftClear(id);
   loadAll();
 };
 
@@ -682,7 +773,7 @@ let TITLE_TIMER=null;
 
 // live.js?v=3 calls this on any relevant row change; we also listen for INSERTs
 window.SIMTEC_RELOAD = function(){ loadAll(); loadMissedCalls(); loadUnfinished(); };
-setInterval(async function(){ await loadClaims(); render(); }, 20000);
+setInterval(async function(){ await loadClaims(); refreshClaimBars(); }, 20000);   /* 26 Oct: claim bars only — nothing else moves */
 
 /* the new-order banner + chime now live in live.js?v=3, so every screen gets them */
 
