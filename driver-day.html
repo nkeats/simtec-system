@@ -16,7 +16,7 @@
 <meta name="apple-mobile-web-app-title" content="Simtec Delivery">
 <meta name="theme-color" content="#012B60">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.112.2"></script>
-<script>window.SIMTEC_BUILD="2026-09-04-04";</script>
+<script>window.SIMTEC_BUILD="2026-11-01-01";</script>
 <script src="update.js?v=2"></script>
 
 <style>
@@ -133,6 +133,18 @@ const JOB_LABEL = { pickup:"PICKUP", swap:"SWAP", other:"JOB" };
 const isJob   = s => (s.job_type||"delivery") !== "delivery";
 const jobTag  = s => isJob(s) ? `<span class="job">${JOB_LABEL[s.job_type]||"JOB"}</span> ` : "";
 const jobNote = s => (isJob(s) && s.job_note) ? `<div class="jobnote">${esc(s.job_note)}</div>` : "";
+// 1 Nov 2026: a "50% deposit, balance on delivery" order. balance_on_delivery comes
+// from v_driver_stops (null for every other kind of order).
+const balanceBanner = s => {
+  if (s.balance_on_delivery == null) return "";
+  const b = Number(s.balance_on_delivery);
+  const amt = "$" + b.toLocaleString("en-NZ", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return b > 0.005
+    ? `<div style="margin-top:10px;background:#fdecec;border:2px solid #b4342e;color:#7a1d18;border-radius:10px;padding:10px 12px;font-weight:800">
+         BALANCE OWING: ${amt}<div style="font-weight:600;margin-top:4px">50% deposit order. Ring the office to confirm the balance has been paid before handing anything over.</div></div>`
+    : `<div style="margin-top:10px;background:#e8f6ec;border:1px solid #9fd3ad;color:#1c6b34;border-radius:10px;padding:10px 12px;font-weight:700">
+         Deposit order — balance paid in full.</div>`;
+};
 function toastLike(msg){
   const e=document.getElementById("err");
   e.style.display="block"; e.style.background="#eef6f0"; e.style.borderColor="#bcdcc6"; e.style.color="#1c6b34";
@@ -642,6 +654,7 @@ function renderStop(){
       <a class="nav" href="${maps}" target="_blank" rel="noopener">Directions to this address</a>
       <a class="navalt" href="${amaps}" target="_blank" rel="noopener">or open in Apple Maps</a>
       ${s.delivery_note?`<div class="banner" style="margin-top:10px">${esc(s.delivery_note)}</div>`:""}
+      ${balanceBanner(s)}
       <div class="gps" style="margin-top:8px">
         ${s.notified_at?`Texted ${tm(s.notified_at)} · `:""}${s.arrived_at?`Arrived ${tm(s.arrived_at)} · `:""}
         ${s.departed_at?`Left ${tm(s.departed_at)}`:""}

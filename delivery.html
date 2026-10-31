@@ -10,7 +10,7 @@
 <script src="https://unpkg.com/@supabase/supabase-js@2.38.4/dist/umd/supabase.js"></script>
 <script>/* 5 Oct 2026: today's date as the person using this page sees it. NEVER use toISOString() for a date - it gives the UTC date, which is YESTERDAY in NZ every morning. */
 function localISO(d){d=d||new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}</script>
-<script>window.SIMTEC_BUILD="2026-10-22-01";</script>
+<script>window.SIMTEC_BUILD="2026-10-28-01";</script>
 <script src="client-errors.js?v=1"></script>
 <script src="live.js?v=4" defer></script>
 <script src="auth.js?v=3" data-roles="admin,manager,office"></script>
@@ -952,9 +952,10 @@ window.saveBooking=async()=>{
 function whoNow(){ return (window.SIMTEC_USER && (window.SIMTEC_USER.full_name||window.SIMTEC_USER.email)) || 'staff'; }
 const isMattress=n=>!/delivery fee|protector|pillow/i.test(n||'');
 async function applyDelivered(orderId, delivered){
-  const {data:its,error:e1}=await sb.from('sim_order_items').select('id,product_name').eq('order_id',orderId);
+  const {data:its,error:e1}=await sb.from('sim_order_items').select('id,product_name,cancelled').eq('order_id',orderId);
   if(e1) throw e1;
-  const ids=(its||[]).filter(i=>isMattress(i.product_name)).map(i=>i.id);
+  // 28 Oct: never tick a CANCELLED line as delivered — it did not go out.
+  const ids=(its||[]).filter(i=>!i.cancelled && isMattress(i.product_name)).map(i=>i.id);
   if(delivered){
     const todayD=localISO(new Date());
     if(ids.length){

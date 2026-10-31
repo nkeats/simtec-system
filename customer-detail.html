@@ -7,7 +7,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.112.2"></script>
 <script>/* 5 Oct 2026: today's date as the person using this page sees it. NEVER use toISOString() for a date - it gives the UTC date, which is YESTERDAY in NZ every morning. */
 function localISO(d){d=d||new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}</script>
-<script>window.SIMTEC_BUILD="2026-10-26-01";</script>
+<script>window.SIMTEC_BUILD="2026-11-01-01";</script>
 <script src="client-errors.js?v=1"></script>
 <script src="live.js?v=4" defer></script>
 <script src="auth.js?v=3" data-roles="admin,manager,office"></script>
@@ -193,6 +193,10 @@ function position(o){
     case "no schedule recorded":  cls="grey";  label=(o.delivery_status||"")==="delivered"
                                                      ? "Delivered, no schedule recorded"
                                                      : "No payment schedule recorded"; break;
+    // 1 Nov 2026: "50% deposit, balance on delivery" orders (no direct debit)
+    case "deposit not paid":      cls="amber"; label="50% deposit of "+fmt(v.deposit!=null?v.deposit:(o.deposit_amount||Number(o.contract_value||0)/2))+" not received yet"; break;
+    case "balance due on delivery": cls="green"; label="Deposit paid — balance of "+fmt(v.owed)+" due on delivery"; break;
+    case "balance owing after delivery": cls="red"; label="Delivered — balance of "+fmt(v.owed)+" still owing"; break;
     case "ahead":                 cls="green"; label="Ahead by "+fmt(aheadBy); break;
     case "on track":              cls="green"; label="On track"; break;
     case "behind":                cls=(o.delivery_status||"")==="delivered"?"red":"amber";
@@ -704,7 +708,10 @@ function orderSection(o, items, pays, open){
   const isCancelled = st==="cancelled", isHold = st==="on_hold";
   const badgeCls = isCancelled ? "grey" : (isHold ? "amber" : p.cls);
   const badgeLabel = isCancelled ? "Cancelled" : (isHold ? "On hold" : p.label);
-  const behindTxt = p.behindBy>1 ? `${fmt(p.behindBy)} behind (${p.periodsBehind.toFixed(0)} ${p.freq.word})` : (p.cls==="green"?"On track":"—");
+  // 1 Nov 2026: deposit-then-balance orders have no weekly schedule, so "N weekly behind" means nothing — say it in words.
+  const DEP_STATES=["deposit not paid","balance due on delivery","balance owing after delivery"];
+  const behindTxt = DEP_STATES.includes(p.state) ? p.label
+    : p.behindBy>1 ? `${fmt(p.behindBy)} behind (${p.periodsBehind.toFixed(0)} ${p.freq.word})` : (p.cls==="green"?"On track":"—");
 
   const actions = isStaff() ? `
     <button onclick="openDocs('${o.id}')" style="background:#fff;color:var(--navy);border:1px solid #cbd4df;border-radius:8px;padding:8px 14px;font-size:13.5px;font-weight:600;cursor:pointer;margin-right:6px">\u{1F4C4} Documents &amp; signatures</button>
@@ -782,7 +789,22 @@ function orderSection(o, items, pays, open){
   const payBtn = isStaff()
     ? `<button onclick="openPay('${o.id}')" style="background:#1c6b34;color:#fff;border:none;border-radius:7px;padding:4px 11px;font-size:11.5px;font-weight:700;cursor:pointer;margin-left:8px">+ Record payment</button>`
     : "";
-  const termsLine = (o.instalment_amount!=null)
+  // 1 Nov 2026: a "50% deposit, balance on delivery" sale has no weekly schedule —
+  // show its real terms instead of "no schedule recorded" and a set-up button.
+  const isDeposit50 = (o.payment_method==="deposit_50") && o.instalment_amount==null;
+  const dep50 = isDeposit50 ? Number(o.deposit_amount||0) || Math.round(Number(o.contract_value||0)/2*100)/100 : 0;
+  const paidNow = Number(o.amount_paid_to_date||0);
+  const delivered50 = (o.delivery_status||"")==="delivered";
+  const termsLine = isDeposit50
+    ? kv("Payment terms",`50% deposit, balance on delivery${schedBtn}`)
+      + kv("Deposit",`${money2(dep50)} — ${paidNow+0.005>=dep50
+            ? '<b style="color:var(--green)">received</b>'
+            : '<b style="color:var(--amber)">not received yet</b> <span class="muted">(record it with + Record payment when it arrives)</span>'}`)
+      + kv(delivered50?"Balance (was due on delivery)":"Balance due on delivery",
+           (p.balance!=null && p.balance<=0.005)
+             ? '<b style="color:var(--green)">paid</b>'
+             : `<b style="color:${delivered50?'var(--red)':'inherit'}">${money2(Math.min(Number(p.balance), Number(o.contract_value||0)-dep50))}</b>`)
+    : (o.instalment_amount!=null)
     ? kv("Payment",`${money2(o.instalment_amount)} per ${p.freq.word}${o.term_periods?` × ${o.term_periods}`:""}${schedBtn}`)
       + (o.schedule_start_date?kv("Schedule started",auDate(o.schedule_start_date)):"")
       + (o.next_payment_date?kv("Next payment",auDate(o.next_payment_date)):"")
@@ -1253,8 +1275,11 @@ async function markItem(itemId, oid, val){
                     : {delivered:false, delivered_date:null, delivered_by:null};
   const {error}=await sb.from("sim_order_items").update(patch).eq("id",itemId);
   if(error){ reportClientError("mark a product line "+(val?"delivered":"not delivered"), error, oid); alert("Couldn't update: "+error.message); return; }
-  const {data:its}=await sb.from("sim_order_items").select("product_name,delivered").eq("order_id",oid);
-  const mattresses=(its||[]).filter(i=>!/delivery fee|protector|pillow/i.test(i.product_name||""));
+  // ⚠ 28 Oct: CANCELLED lines must not count. A cancelled line can never be
+  // delivered, so counting it left a fully delivered customer "partial" — and
+  // on the ready-for-delivery list — for three months after everything went out.
+  const {data:its}=await sb.from("sim_order_items").select("product_name,delivered,cancelled").eq("order_id",oid);
+  const mattresses=(its||[]).filter(i=>!i.cancelled && !/delivery fee|protector|pillow/i.test(i.product_name||""));
   let status="pending";
   if(mattresses.length){
     const done=mattresses.filter(i=>i.delivered).length;
