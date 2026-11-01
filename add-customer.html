@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Simtec — Add Customer / Sale</title>
-<!-- SIMTEC_BUILD: add-customer 2026-10-27-01 (second applicant on paper sales) -->
+<!-- SIMTEC_BUILD: add-customer 2026-11-01-01 (regular payments start date when Ezidebit takes the deposit) -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.112.2"></script>
 <script src="auth.js?v=3" data-roles="admin,manager,office"></script>
 <style>
@@ -138,9 +138,15 @@
         <div class="hint">Needed for a direct debit sale. It must match the total below (or the total less the deposit).</div></div>
 
       <div class="req"><label for="contract">Total sale value ($)</label><input id="contract" type="number" min="0" step="0.01" readonly><div class="hint" id="totalHint">Calculated from the products below.</div></div>
-      <div><label for="deposit">Deposit amount ($)</label><input id="deposit" type="number" min="0" step="0.01" value="0"></div>
+      <div><label for="deposit">Deposit amount ($)</label><input id="deposit" type="number" min="0" step="0.01" value="0" oninput="toggleRegStart()"></div>
 
-      <div><label for="firstPay">First payment date</label><input id="firstPay" type="date" onchange="schedulePreview()"></div>
+      <div><label for="firstPay">First payment date</label><input id="firstPay" type="date" onchange="schedulePreview()">
+        <div class="hint" id="firstPayHint"></div></div>
+      <!-- 1 Nov 2026: when Ezidebit takes the deposit as its first debit, the regular
+           payments start later (Katharina Visser: $533 on 4/11, then $35 weekly from 11/11). -->
+      <div id="regStartWrap" style="display:none"><label for="regStart">Regular payments start <span style="font-weight:400">(only if different)</span></label>
+        <input id="regStart" type="date">
+        <div class="hint">If Ezidebit takes the deposit on the first payment date, put the date the regular payments begin. Leave blank if they start on the first payment date.</div></div>
       <div style="grid-column:1/-1"><div id="schedPreview" class="hint" style="padding:8px 10px;background:#f4f7fa;border:1px solid #d9e0ea;border-radius:8px"></div></div>
       <div><label for="delStatus">Delivery status</label>
         <select id="delStatus">
@@ -566,6 +572,14 @@ async function save(){
       +". They must agree — check the products, free protectors and discount, or the Ezidebit form.","err"); }
   }
 
+  // 1 Nov 2026: regular payments start must come after the first (deposit) debit.
+  const _reg=$("regStart").value, _first=$("firstPay").value;
+  if(_reg){
+    if(!(Number($("deposit").value)>0)) return show("'Regular payments start' is only for a deposit taken by Ezidebit. Enter the deposit, or clear that date.","err");
+    if(!_first) return show("Enter the first payment date (the deposit debit) as well as when the regular payments start.","err");
+    if(_reg<=_first) return show("Regular payments must start after the first payment date ("+_first+").","err");
+  }
+
   if(DUPES.length){
     const lines=DUPES.map(o=>"  \u2022 "+o.order_date+" \u2014 $"+Number(o.contract_value||0).toLocaleString()+" \u2014 "+(o.consultant_name||"?")).join("\n");
     if(!confirm("This mobile already has "+DUPES.length+" live order"+(DUPES.length>1?"s":"")+":\n\n"+lines
@@ -600,7 +614,8 @@ async function save(){
       deposit_amount:$("deposit").value===""?0:Number($("deposit").value),
       deposit_date:$("firstPay").value||null,
       ezidebit_payer_ref:($("payerRef").value.replace(/\D/g,"")||null),
-      first_payment_date:$("firstPay").value||null,
+      // first REGULAR payment: the later date when Ezidebit takes the deposit first
+      first_payment_date:($("regStart").value||$("firstPay").value||null),
       // The schedule, recorded at the point of sale so arrears is right from day one.
       // Store what the customer actually agreed — the typed amount, or the minimum.
       instalment_amount: schedInst>0 ? schedInst : null,
@@ -673,16 +688,23 @@ function addNoteLine(t){
   if(cur.indexOf(t)===-1) el.value = cur ? cur+"\n"+t : t;
   el.focus();
 }
+// 1 Nov 2026: the "regular payments start" box only appears when there is a deposit.
+function toggleRegStart(){
+  const dep=Number($("deposit").value)||0;
+  const w=$("regStartWrap"); if(w) w.style.display = dep>0 ? "" : "none";
+  const h=$("firstPayHint"); if(h) h.textContent = dep>0 ? "The first Ezidebit debit — the deposit, if Ezidebit is taking it." : "";
+  if(dep<=0 && $("regStart")) $("regStart").value="";
+}
 function clearForm(){
   // A clean slate after every save. Everything the operator can type or choose is
   // reset — no field is left carrying data from the last customer, which is how a
   // half-filled or duplicate order slips through.
   ["first","last","mobile","email","address","city","postcode","payerRef",
    "contract","firstPay","payAmount","deposit","pillow","delivery","delNote","discount","discountReason","eziTotal",
-   "a2first","a2last","a2mobile","a2email"].forEach(id=>{
+   "a2first","a2last","a2mobile","a2email","regStart"].forEach(id=>{
      const el=$(id); if(el) el.value="";
   });
-  $("deposit").value="0";
+  $("deposit").value="0"; toggleRegStart();
   $("freeProtTick").checked=false; toggleFreeProt();
   $("a2Tick").checked=false; toggleA2();
   const a2h=$("a2mobileHint"); if(a2h) a2h.textContent="";
