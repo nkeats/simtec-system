@@ -7,7 +7,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.112.2"></script>
 <script>/* 5 Oct 2026: today's date as the person using this page sees it. NEVER use toISOString() for a date - it gives the UTC date, which is YESTERDAY in NZ every morning. */
 function localISO(d){d=d||new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}</script>
-<script>window.SIMTEC_BUILD="2026-11-01-01";</script>
+<script>window.SIMTEC_BUILD="2026-11-01-02";</script>
 <script src="client-errors.js?v=1"></script>
 <script src="live.js?v=4" defer></script>
 <script src="auth.js?v=3" data-roles="admin,manager,office"></script>
@@ -1401,6 +1401,7 @@ window.saveSaleDate=async function(){
   const o=ORDERS[oid];
   if(!d){ err.style.display=""; err.textContent="Pick a date."; return; }
   if(d===(o.order_date||"").slice(0,10)){ closeSaleDate(); return; }
+  if(d>localISO(new Date())){ err.style.display=""; err.textContent="That date is in the future — a sale can't be dated after today."; return; }
   const btn=document.getElementById("sdSave"); btn.disabled=true; const orig=btn.textContent; btn.textContent="Saving…";
   try{
     const {data:cs}=await sb.from("commission_sales").select("id,paid_date").eq("sim_order_id",oid).maybeSingle();

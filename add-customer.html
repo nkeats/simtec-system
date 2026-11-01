@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Simtec — Add Customer / Sale</title>
-<!-- SIMTEC_BUILD: add-customer 2026-11-01-01 (regular payments start date when Ezidebit takes the deposit) -->
+<!-- SIMTEC_BUILD: add-customer 2026-11-01-02 (sale date cannot be in the future) -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.112.2"></script>
 <script src="auth.js?v=3" data-roles="admin,manager,office"></script>
 <style>
@@ -542,6 +542,9 @@ async function save(){
   if(flag==="missing" || flag==="check"){ return show("Enter a valid mobile number before saving.","err"); }
   if(!consultant){ return show("Choose or type the consultant for this sale.","err"); }
   if(!orderDate){ return show("Set the sale date.","err"); }
+  // 1 Nov 2026: a sale cannot have happened in the future. A 30/11 typed for 30/10 put
+  // Aaron Burke's sale a month ahead and into the wrong commission week.
+  if(orderDate > localISO(new Date())){ return show("The sale date ("+orderDate.split("-").reverse().join("/")+") is in the future. Check the day and month.","err"); }
   if(!contract || contract<=0){ return show("Add at least one product — the total is $0.","err"); }
   // 27 Oct: second applicant — if the box is ticked, the name is required and a
   // mobile, if given, must be a real number. Unticked = nobody, whatever was typed.
@@ -724,6 +727,7 @@ function clearForm(){
 
 // init
 $("orderDate").value = localISO(new Date());
+$("orderDate").max = localISO(new Date());   // the date picker won't offer future days
 loadConsultants();
 loadPrices();
 loadRecent();
