@@ -16,6 +16,14 @@
   header a{color:#cfe0f7;text-decoration:none;font-size:13px}
   header h1{margin:0;font-size:17px;font-weight:700;flex:1}
   .wrap{max-width:1240px;margin:0 auto;padding:16px}
+  .freshbox{border-radius:12px;padding:10px 13px;margin-bottom:12px;font-size:13px;border:1px solid}
+  .freshbox.ok{background:#f1f8f3;border-color:#b9dfc9}
+  .freshbox.bad{background:#fdf1f0;border-color:#efb9b4}
+  .freshbox .fh{font-weight:700;margin-bottom:5px}
+  .freshbox.bad .fh{color:#b3261e} .freshbox.ok .fh{color:#0f7b3f}
+  .freshbox .frs{display:flex;flex-wrap:wrap;gap:4px 16px}
+  .freshbox .fr.bad{color:#b3261e} .freshbox .fr.ok{color:#3c4a5c}
+  .freshbox a{color:inherit;font-weight:700}
   .kpis{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:14px}
   .kpi{flex:1 1 170px;background:#fff;border:1px solid var(--line);border-radius:12px;padding:13px}
   .kpi .n{font-size:23px;font-weight:800;line-height:1.1}
@@ -91,6 +99,10 @@ window.simtecClient = window.simtecClient || async function(){
 </header>
 
 <div class="wrap">
+  <!-- ⚠ 10 Nov 2026: HOW OLD ARE THE FIGURES? The balances sat 11 weeks out of
+       date and nothing on this page said so. Each source now shows when it was
+       last loaded and turns red when it is overdue. DO NOT REMOVE. -->
+  <div id="fresh"></div>
   <div class="kpis" id="kpis"></div>
 
   <div class="card">
@@ -249,7 +261,41 @@ async function load(){
   catch(e){ $('rows').innerHTML=''; $('empty').style.display='';
     $('empty').textContent='Could not load: '+(e.message||e); return; }
   ALL = res.rows||[];
-  drawKpis(); drawTabs(); draw();
+  drawFresh(res.fresh); drawKpis(); drawTabs(); draw();
+}
+
+/* ── how old is each source? ─────────────────────────────────────────────
+   Each file is loaded by hand, so nothing else notices when one stops.
+   `days` is how long before it counts as overdue: the monthly exports get
+   35 days, the daily report 4 (covers a weekend). */
+const FRESH = [
+  ['contracts',  'Balances owing',        'Ezidebit contract export', 'au-contracts-import.html', 35],
+  ['payers',     'Total paid per customer','Ezidebit Find Payers export', 'au-payers.html',        35],
+  ['paysmart',   'Paysmart balances',     'Paysmart balance file',    'au-paysmart-import.html', 35],
+  ['daily_fail', 'Failed payments',       'daily Ezidebit report',    'au-arrears.html',         4],
+  ['daily_paid', 'Successful payments',   'daily Ezidebit report',    'au-arrears.html',         4],
+];
+function drawFresh(f){
+  if(!f){ $('fresh').innerHTML=''; return; }
+  const now = Date.now();
+  let late = 0;
+  const items = FRESH.map(([k,label,src,page,days]) => {
+    const v = f[k];
+    if(!v){ late++; return `<div class="fr bad"><b>${esc(label)}</b>: never loaded &middot; <a href="${page}">load the ${esc(src)}</a></div>`; }
+    const t = new Date(String(v).length<=10 ? v+'T12:00:00' : v);
+    const ago = Math.floor((now - t.getTime())/86400000);
+    const when = t.toLocaleDateString('en-AU',{day:'numeric',month:'short'});
+    const bad = ago > days; if(bad) late++;
+    return `<div class="fr ${bad?'bad':'ok'}"><b>${esc(label)}</b>: ${when} (${ago===0?'today':ago+' day'+(ago===1?'':'s')+' ago'})`
+         + (bad ? ` &middot; <a href="${page}">load the ${esc(src)}</a>` : '') + `</div>`;
+  });
+  $('fresh').innerHTML =
+    `<div class="freshbox ${late?'bad':'ok'}">
+       <div class="fh">${late
+         ? `&#9888; ${late} source${late===1?' is':'s are'} out of date &mdash; the figures below may be wrong until ${late===1?'it is':'they are'} reloaded`
+         : '&#10003; All figures are up to date'}</div>
+       <div class="frs">${items.join('')}</div>
+     </div>`;
 }
 
 function drawKpis(){
