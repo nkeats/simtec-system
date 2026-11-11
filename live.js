@@ -208,12 +208,46 @@
       s.id = "simtecStrips";
       s.style.cssText = "position:fixed;top:0;left:0;right:0;z-index:9999;display:flex;flex-direction:column;margin:0;padding:0;";
       document.body.appendChild(s);
+      // The strips used to sit OVER the top of the page and hide whatever was
+      // there — the customer search box, the page header (12 Nov). Now the page
+      // is pushed down by exactly the strips' height, kept in step as they grow,
+      // shrink or go away, so nothing underneath is ever covered.
+      if (window.ResizeObserver) new ResizeObserver(function () { reserveSpace(); }).observe(s);
     }
+    reserveSpace();
     return s;
   }
   function tidyStack() {
     var s = document.getElementById("simtecStrips");
     if (s && !s.children.length) s.remove();
+    reserveSpace();
+  }
+  // ⚠ Do not remove: reserveSpace keeps the strips from covering the page.
+  var STICKY = null;   // page headers that stick to the top: they move down below the strips
+  function reserveSpace() {
+    var s = document.getElementById("simtecStrips");
+    var h = s ? Math.ceil(s.getBoundingClientRect().height) : 0;
+    var root = document.documentElement;
+    root.style.paddingTop = h ? h + "px" : "";
+    root.style.scrollPaddingTop = h ? h + "px" : "";
+    if (STICKY === null) {
+      if (!h) return;
+      STICKY = [];
+      var all = document.body.getElementsByTagName("*");
+      for (var i = 0; i < all.length; i++) {
+        var el = all[i];
+        if (el === s || (s && s.contains(el))) continue;
+        var cs = getComputedStyle(el);
+        if (cs.position === "sticky" && cs.top === "0px") {
+          STICKY.push({ el: el, tall: el.getBoundingClientRect().height >= window.innerHeight - 2,
+                        top: el.style.top, maxH: el.style.maxHeight });
+        }
+      }
+    }
+    STICKY.forEach(function (k) {
+      k.el.style.top = h ? h + "px" : k.top;
+      if (k.tall) k.el.style.maxHeight = h ? "calc(100vh - " + h + "px)" : k.maxH;
+    });
   }
 
   function renderInProgress() {

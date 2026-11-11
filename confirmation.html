@@ -7,10 +7,10 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.112.2"></script>
 <script>/* 5 Oct 2026: today's date as the person using this page sees it. NEVER use toISOString() for a date - it gives the UTC date, which is YESTERDAY in NZ every morning. */
 function localISO(d){d=d||new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}</script>
-<script>window.SIMTEC_BUILD="2026-10-26-02";</script>
+<script>window.SIMTEC_BUILD="2026-11-12-01";</script>
 <script src="client-errors.js?v=1"></script>
 <script src="auth.js?v=4" data-roles="admin,manager,office"></script>
-<script src="live.js?v=4" defer></script>
+<script src="live.js?v=5" defer></script>
 <style>
   :root{
     --navy:#111f3d; --navy2:#1a2c53; --gold:#c6a15b; --gold2:#d9be86;
@@ -789,11 +789,11 @@ let TITLE_TIMER=null;
 
 
 
-// live.js?v=3 calls this on any relevant row change; we also listen for INSERTs
+// live.js?v=5 calls this on any relevant row change; we also listen for INSERTs
 window.SIMTEC_RELOAD = function(){ loadAll(); loadMissedCalls(); loadUnfinished(); };
 setInterval(async function(){ await loadClaims(); refreshClaimBars(); }, 20000);   /* 26 Oct: claim bars only — nothing else moves */
 
-/* the new-order banner + chime now live in live.js?v=3, so every screen gets them */
+/* the new-order banner + chime now live in live.js?v=5, so every screen gets them */
 
 // Wait for auth.js to establish the session/client, then load.
 (function boot(){
