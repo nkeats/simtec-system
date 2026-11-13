@@ -283,7 +283,10 @@ function drawFresh(f){
     const v = f[k];
     if(!v){ late++; return `<div class="fr bad"><b>${esc(label)}</b>: never loaded &middot; <a href="${page}">load the ${esc(src)}</a></div>`; }
     const t = new Date(String(v).length<=10 ? v+'T12:00:00' : v);
-    const ago = Math.floor((now - t.getTime())/86400000);
+    // Count calendar days, not 24-hour blocks: a file loaded yesterday evening
+    // is "1 day ago", not "today" (12 Nov — it read "today" for yesterday's load).
+    const day0 = d => { const x = new Date(d); x.setHours(0,0,0,0); return x.getTime(); };
+    const ago = Math.round((day0(now) - day0(t))/86400000);
     const when = t.toLocaleDateString('en-AU',{day:'numeric',month:'short'});
     const bad = ago > days; if(bad) late++;
     return `<div class="fr ${bad?'bad':'ok'}"><b>${esc(label)}</b>: ${when} (${ago===0?'today':ago+' day'+(ago===1?'':'s')+' ago'})`

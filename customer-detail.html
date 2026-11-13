@@ -7,7 +7,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.112.2"></script>
 <script>/* 5 Oct 2026: today's date as the person using this page sees it. NEVER use toISOString() for a date - it gives the UTC date, which is YESTERDAY in NZ every morning. */
 function localISO(d){d=d||new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}</script>
-<script>window.SIMTEC_BUILD="2026-11-12-01";</script>
+<script>window.SIMTEC_BUILD="2026-11-13-01";</script>
 <script src="client-errors.js?v=1"></script>
 <script src="live.js?v=5" defer></script>
 <script src="auth.js?v=3" data-roles="admin,manager,office"></script>
@@ -467,7 +467,7 @@ async function run(quiet){
          so order_id is complete and references are never needed to find money. */
       const orderIds=Object.keys(ORDERS);
       const {data:pays,error:e4}= orderIds.length
-        ? await sb.from("sim_payments").select("payer_ref,order_id,payment_date,amount,source,method,notes")
+        ? await sb.from("sim_payments").select("payer_ref,order_id,payment_date,amount,source,method,notes,result")
             .in("order_id",orderIds).order("payment_date",{ascending:false})
         : {data:[],error:null};
       if(e4) throw new Error("Loading payments: "+e4.message);
@@ -2721,9 +2721,20 @@ window.printStatement=async function(oid){
       .select("product_name,quantity,unit_price,cancelled").eq("order_id",oid).order("line_no");
   const filters=[];
   filters.push(`order_id.eq.${oid}`);   /* 13 Oct: order id is the one complete key */
-  const {data:paysRaw}=await sb.from("sim_payments")
-      .select("payment_date,amount,source,method,notes,payer_ref,order_id").or(filters.join(","));
-  const pays=(paysRaw||[]).slice().sort((a,b)=>String(a.payment_date||"").localeCompare(String(b.payment_date||"")));
+  const {data:paysRaw,error:ep}=await sb.from("sim_payments")
+      .select("payment_date,amount,source,method,notes,payer_ref,order_id,result").or(filters.join(","));
+  /* ⚠ 13 Nov 2026 — THE STATEMENT NOW SHOWS WHAT THE SCREEN SHOWS: failed debits
+     too. It used to list only money received, so a customer with missed debits
+     got a statement that looked like an unbroken run of payments. A failed debit
+     is listed, struck through and marked NOT RECEIVED — it is never counted. */
+  const {data:disRaw,error:ed}=await sb.from("sim_dishonours")
+      .select("dishonour_date,amount,failed_reason").eq("order_id",oid);
+  if(ep||ed){ alert("Couldn't load the payment history for this statement: "+((ep||ed).message||"")); return; }
+  const pays=(paysRaw||[]).concat((disRaw||[]).map(d=>({payment_date:d.dishonour_date, amount:d.amount,
+        failed:true, failed_reason:d.failed_reason, source:"ezidebit"})))
+      .sort((a,b)=>String(a.payment_date||"").localeCompare(String(b.payment_date||"")) || (b.failed?1:0)-(a.failed?1:0));   // same day: the failed debit first, then what covered it
+  const isRefund=p=>String(p.result||"").toLowerCase()==="refund";
+  const isMoney =p=>!p.failed && ["","paid"].includes(String(p.result||"").toLowerCase());
 
   const cname=[c&&c.first_name,c&&c.last_name].filter(Boolean).join(" ")||"(no name)";
   const activeItems=(items||[]).filter(i=>!i.cancelled);
@@ -2761,13 +2772,22 @@ window.printStatement=async function(oid){
     const m=String(p.method||"").toLowerCase();
     const label=PAYWORD[m]||(m?m.charAt(0).toUpperCase()+m.slice(1):"Extra payment");
     return label+(p.notes?` — ${esc(p.notes)}`:""); };
-  const payRows=pays.length ? pays.map(p=>
-      `<tr><td>${auDate(p.payment_date)}</td><td>${payType(p)}</td><td class="r">${money(p.amount)}</td></tr>`).join("")
+  const payRows=pays.length ? pays.map(p=>{
+      if(p.failed) return `<tr class="fail"><td>${auDate(p.payment_date)}</td><td>Ezidebit direct debit — <b>FAILED, not received</b>${p.failed_reason?` (${esc(p.failed_reason)})`:""}</td><td class="r"><s>${money(p.amount)}</s></td></tr>`;
+      if(isRefund(p)) return `<tr class="ref"><td>${auDate(p.payment_date)}</td><td>Refund to you</td><td class="r">-${money(Math.abs(Number(p.amount||0)))}</td></tr>`;
+      return `<tr><td>${auDate(p.payment_date)}</td><td>${payType(p)}</td><td class="r">${money(p.amount)}</td></tr>`;
+    }).join("")
     : `<tr><td colspan="3" class="muted">No payments recorded yet.</td></tr>`;
+  const nFailed=pays.filter(p=>p.failed).length;
 
-  const totalPaid=pays.reduce((s,p)=>s+Number(p.amount||0),0);
+  /* ⚠ ONE DEFINITION OF PAID: order_paid_total(), the same number the rest of the
+     System uses. The rows are only a fallback if it cannot be read. */
+  let totalPaid=pays.reduce((s,p)=>s+(isMoney(p)?Number(p.amount||0):isRefund(p)?-Math.abs(Number(p.amount||0)):0),0);
+  { const {data:tp,error:et}=await sb.rpc("order_paid_total",{p_order:oid});
+    if(!et && tp!=null) totalPaid=Number(tp); }
   const balance=Number(o.contract_value||0)-totalPaid;
-  const lastPay=pays.length?pays[pays.length-1].payment_date:null;
+  const received=pays.filter(isMoney);
+  const lastPay=received.length?received[received.length-1].payment_date:null;
   const today=new Date().toLocaleDateString("en-NZ",{day:"2-digit",month:"long",year:"numeric"});
 
   const w=window.open("","_blank");
@@ -2795,6 +2815,7 @@ window.printStatement=async function(oid){
     .totals td.v{text-align:right;font-weight:bold}
     .totals tr.bal td{font-size:16px;color:#122347}
     .muted{color:#8593a4}
+    tr.fail td{color:#a3342c} tr.fail s{color:#8593a4} tr.ref td{color:#a3342c}
     .note{font-size:11.5px;color:#5a6779;margin-top:22px}
     @media print{body{padding:20px}}
   </style></head><body>
@@ -2819,7 +2840,7 @@ window.printStatement=async function(oid){
   <table><thead><tr><th>Product</th><th class="c">Qty</th><th class="r">Unit price</th><th class="r">Line total</th></tr></thead>
     <tbody>${prodRows}</tbody></table>
 
-  <h2>Payments received</h2>
+  <h2>Payment history${nFailed?` — includes ${nFailed} failed debit${nFailed===1?"":"s"}`:""}</h2>
   <table><thead><tr><th>Date</th><th>Type</th><th class="r">Amount</th></tr></thead>
     <tbody>${payRows}</tbody></table>
 
@@ -2829,7 +2850,7 @@ window.printStatement=async function(oid){
     <tr class="bal"><td class="l">Balance owing</td><td class="v">${money(balance)}</td></tr>
   </table>
 
-  <p class="note">Thank you. This statement lists every payment received to date, including any extra payments made on top of the scheduled Ezidebit debits. If anything here does not look right, please contact us on 09 886 9897.</p>
+  <p class="note">Thank you. This statement lists every payment received to date, including any extra payments made on top of the scheduled Ezidebit debits${nFailed?", and every direct debit that failed. A failed debit was not received and is not counted in the total paid":""}. If anything here does not look right, please contact us on 09 886 9897.</p>
   <script>window.onload=function(){window.print()}<\/script>
   </body></html>`);
   w.document.close();
