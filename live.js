@@ -526,13 +526,28 @@
         })
         .catch(function (e) { report("read the new order for the banner (shown without a name)", e); newOrderBanner({ sim_customers: {} }); });
     }
+    /* ⚠ Do not remove — 16 Nov 2026. Every changed order used to re-read all
+       three strips straight away, on every open screen. The 9am Ezidebit
+       reconcile updates hundreds of orders at once, so each screen fired three
+       queries per order: 683 a minute at 9:00 on 16 Nov, and the whole system
+       slowed for everyone. Now a burst of changes causes at most one re-read
+       every 2 seconds per screen. The new-order banner is NOT delayed:
+       maybeAnnounce still runs on every event. */
+    var stripsDue = false, stripsLast = 0;
+    function refreshStripsSoon() {
+      if (stripsDue) return;
+      stripsDue = true;
+      setTimeout(function () {
+        stripsDue = false; stripsLast = Date.now(); refreshStrips();
+      }, Math.max(0, 2000 - (Date.now() - stripsLast)));
+    }
     ch.on("postgres_changes", { event: "INSERT", schema: "public", table: "sim_orders" }, function (p) {
       maybeAnnounce(p && p.new);
-      refreshStrips();
+      refreshStripsSoon();
     });
     ch.on("postgres_changes", { event: "UPDATE", schema: "public", table: "sim_orders" }, function (p) {
       maybeAnnounce(p && p.new);
-      refreshStrips();
+      refreshStripsSoon();
     });
 
     TABLES.forEach(function (t) {

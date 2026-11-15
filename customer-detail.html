@@ -7,9 +7,9 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.112.2"></script>
 <script>/* 5 Oct 2026: today's date as the person using this page sees it. NEVER use toISOString() for a date - it gives the UTC date, which is YESTERDAY in NZ every morning. */
 function localISO(d){d=d||new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}</script>
-<script>window.SIMTEC_BUILD="2026-11-13-01";</script>
+<script>window.SIMTEC_BUILD="2026-11-16-01";</script>
 <script src="client-errors.js?v=1"></script>
-<script src="live.js?v=5" defer></script>
+<script src="live.js?v=6" defer></script>
 <script src="auth.js?v=3" data-roles="admin,manager,office"></script>
 <script src="doubtful.js?v=1"></script>
 <style>
@@ -1092,6 +1092,7 @@ function openTruckJob(orderId){
   const t=new Date(); t.setDate(t.getDate()+1);      // tomorrow, in the browser's local day
   document.getElementById("tjDate").value=`${t.getFullYear()}-${String(t.getMonth()+1).padStart(2,"0")}-${String(t.getDate()).padStart(2,"0")}`;
   document.getElementById("tjAddr").value="";
+  document.getElementById("tjTime").value="";
   document.getElementById("tjAddrOnFile").textContent=[CUST.address,CUST.suburb].filter(Boolean).join(", ")||"(no address on file)";
   document.getElementById("truckModal").style.display="flex";
   document.getElementById("tjNote").focus();
@@ -1104,10 +1105,12 @@ async function saveTruckJob(){
   const date=document.getElementById("tjDate").value;
   if(!note) return tjErr("Say what the driver should do — that is what they will read on the run.");
   if(!date) return tjErr("Pick the day the truck should go.");
+  const jobTime=document.getElementById("tjTime").value;
+  if(!jobTime) return tjErr("Pick Morning or Afternoon — whichever the customer was told.");
   const btn=document.getElementById("tjSave"); btn.disabled=true; btn.textContent="Booking…";
   const {data,error}=await sb.rpc("book_truck_job",{
     p_order:TJORD, p_job_type:document.getElementById("tjType").value,
-    p_job_note:note, p_date:date, p_job_address:document.getElementById("tjAddr").value.trim()||null });
+    p_job_note:note, p_date:date, p_job_address:document.getElementById("tjAddr").value.trim()||null, p_job_time:jobTime });
   btn.disabled=false; btn.textContent="Book it";
   if(error){ reportClientError("book a truck job", error, TJORD); return tjErr(error.message); }   // raised in the database (not authorised, order not found)
   if(!data||!data.ok){ if(!data||!data.error) reportClientError("book a truck job", "no reason was given back", TJORD);   // a refusal WITH a reason is the office's business, not a fault
@@ -3607,6 +3610,15 @@ async function saveEditCust(){
 
     <label class="ml" for="tjDate">Which day</label>
     <input id="tjDate" class="mi" type="date">
+
+    <label class="ml" for="tjTime">What time did you tell the customer?</label>
+    <!-- 13 Nov: the job joins this group on the run. It is its own time, not the
+         original delivery's. -->
+    <select id="tjTime" class="mi">
+      <option value="">— pick one —</option>
+      <option value="Morning">Morning (9–12)</option>
+      <option value="Afternoon">Afternoon (1–4)</option>
+    </select>
 
     <label class="ml" for="tjAddr">Different address <span class="muted" style="font-weight:400">(optional)</span></label>
     <input id="tjAddr" class="mi" type="text" placeholder="">

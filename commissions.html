@@ -7,7 +7,7 @@
 <script src="https://cdn.tailwindcss.com/3.4.17"></script>
 <script src="https://unpkg.com/@supabase/supabase-js@2.38.4/dist/umd/supabase.js"></script>
 <script src="auth.js?v=3" data-roles="admin,manager,office"></script>
-<script src="live.js?v=5" defer></script>
+<script src="live.js?v=6" defer></script>
 <style>
 body{font-family:system-ui,sans-serif}
 .inp{display:block;width:100%;padding:.5rem .75rem;background:#1e293b;border:1px solid #334155;border-radius:.5rem;color:#fff;font-size:.875rem;box-sizing:border-box}
@@ -910,6 +910,14 @@ window.delRun=async(id,weekEnding)=>{
   }catch(e){err(e);}
 };
 
+/* Run fn over list, at most n at a time. Same result as Promise.all over the
+   list, and it stops with the first error exactly as Promise.all did. */
+async function eachLimited(list,n,fn){
+  let i=0;
+  const worker=async()=>{while(i<list.length){const x=list[i++];await fn(x);}};
+  await Promise.all(Array.from({length:Math.min(n,list.length)},worker));
+}
+
 // ── Pay Run detail ─────────────────────────────────────────────────────────
 async function showRun(){
   const[{data:run,error:re},{data:ret}]=await Promise.all([
@@ -929,7 +937,13 @@ async function showRun(){
   const active=consultants.filter(c=>c.active);
 
   const sums={};
-  await Promise.all(active.map(async c=>{
+  /* ⚠ Do not remove — 16 Nov 2026. This used to load every consultant at once:
+     20 consultants x 7 requests = 140 at the same moment, including three
+     heavy pay-run calculations each (about 11 seconds of database work in
+     total). Opening a pay run at 11:05 on 16 Nov held the database for about
+     20 seconds and slowed every other screen in the office. Four at a time does
+     the same work without starving everyone else. */
+  await eachLimited(active,4,async c=>{
     const[{data:sl},{data:bo},{data:de}]=await Promise.all([
       sb.from('commission_sales').select('*,commission_sale_items(quantity,commission_products(*))').eq('pay_run_id',runId).eq('consultant_id',c.id),
       sb.from('commission_bonuses').select('*').eq('pay_run_id',runId).eq('consultant_id',c.id),
@@ -938,7 +952,7 @@ async function showRun(){
     const sales=(sl||[]).map(s=>({...s,items:(s.commission_sale_items||[]).map(i=>({...i,product:i.commission_products}))}));
     const ctx=await saleCtx(run,c.id,sales);
     sums[c.id]=calc(sales,bo||[],de||[],retMap[c.id]||0,c.pay_basis,srCtx(c,run),ctx);
-  }));
+  });
 
   $('app').innerHTML=`
     <div class="p-8 max-w-5xl mx-auto">
