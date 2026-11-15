@@ -196,8 +196,22 @@ const digits = s => String(s||'').replace(/\D/g,'');
 /* ⚠ THE EXPORT MIXES DATE FORMATS IN THE SAME COLUMN — "15/12/2025" on one row
    and a real date cell on the next. Read both, and return null rather than
    guessing: a wrong next-payment date would make a dead account look live. */
+/* ⚠⚠ 16 Nov 2026 — EXCEL TURNS SOME OF THESE DATES BACK TO FRONT. Ezidebit
+   writes dd/mm/yyyy. When the file is opened in an Excel set to American dates,
+   every date whose day is 12 or less ("07/12/2026", 7 December) is silently
+   converted into a REAL date the wrong way round (12 July), and every date it
+   cannot convert ("15/12/2025") is left as text. Cherelee's 16 Nov file had 16
+   December payments turned into March–November this way.
+   The tell: real date cells AND unconvertible dd/mm text in the same file. Then
+   every real date cell is a swapped one, and is swapped back. If a file holds
+   only real dates (Excel set to NZ/AU dates converted everything correctly),
+   they are trusted as they are. */
+let SWAP_DATE_CELLS = false;
 function isoOf(v){
-  if(v instanceof Date && !isNaN(v)) return localISO(v);
+  if(v instanceof Date && !isNaN(v)){
+    if(SWAP_DATE_CELLS) return v.getFullYear()+'-'+String(v.getDate()).padStart(2,'0')+'-'+String(v.getMonth()+1).padStart(2,'0');
+    return localISO(v);
+  }
   const s = String(v||'').trim();
   let m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);        if(m) return m[1]+'-'+m[2]+'-'+m[3];
   m = s.match(/^(\d{2})\/(\d{2})\/(\d{4})/);          if(m) return m[3]+'-'+m[2]+'-'+m[1];
@@ -220,11 +234,19 @@ function handle(file){
       for(const k of need){
         if(!(k in first)) throw new Error('This does not look like a Find Payers export — the column "'+k+'" is missing.');
       }
+      const dateCols = ['Next Payment','Date Added','Status Updated'];
+      const cells = raw.flatMap(r => dateCols.map(k => r[k]));
+      const hasCells = cells.some(v => v instanceof Date);
+      const hasText  = cells.some(v => typeof v === 'string' && /^(\d{2})\/(\d{2})\/\d{4}/.test(v.trim()) && Number(v.trim().slice(0,2)) > 12);
+      SWAP_DATE_CELLS = hasCells && hasText;
       ROWS = raw.map(r => ({
         ref:        digits(r['Ezidebit Payer Id']),
         name:       [r['Last Name'], r['First Name']].filter(Boolean).join(', '),
         status:     r['Status'] || null,
         total_paid: r['Total Paid'] == null ? null : Number(r['Total Paid']),
+        /* ⚠ 16 Nov: TOTAL PAYABLE IS THE WHOLE PLAN, not what is still owed.
+           The gateway stores it as the plan total and sets owed = plan − paid. */
+        payable:    r['Total Payable'] == null ? null : Number(r['Total Payable']),
         next:       isoOf(r['Next Payment']),
         cref:       r['Client Contract Ref'] || null,
         mobile:     r['Mobile Phone Number'] || null
@@ -316,7 +338,7 @@ async function save(){
   btn.disabled=true; out.textContent='Saving…';
   try{
     /* sent in batches so a big export cannot time out half way through */
-    let seen=0, matched=0, more=0, extra=0, hold=0, unknown=0;
+    let seen=0, matched=0, more=0, extra=0, hold=0, unknown=0, bal=0, owed=0;
     for(let i=0;i<ROWS.length;i+=250){
       const d = await auCall('payer_totals', { rows: ROWS.slice(i,i+250) });
       seen    += d.seen||0;      matched += d.matched||0;
@@ -324,15 +346,17 @@ async function save(){
       extra   += Number(d.extra_money_found||0);
       hold    += d.on_hold_at_ezidebit||0;
       unknown += d.not_on_our_book||0;
+      bal     += d.balances_updated||0;  owed += Number(d.owed_now||0);
       out.textContent = 'Saving… '+matched+' of '+ROWS.length;
     }
     out.innerHTML = '<b style="color:#1c6b34">Saved.</b> '+matched+' customer'+(matched===1?'':'s')+' updated'
       + (unknown? ' · '+unknown+' were not on our book' : '')
+      + (bal? '<br>Balances updated for '+bal+' customer'+(bal===1?'':'s')+' (plan total less what has been paid): <b>'+money(owed)+'</b> still owed to Ezidebit.' : '')
       + ' · <a href="au-collections.html">open the chase list</a>';
     btn.disabled=true;
   }catch(e){
     out.innerHTML = '<b style="color:#b3261e">Could not save:</b> '+String(e.message||e)
-      + '<br><span style="color:#6b7685">Nothing was changed. What is on screen is still correct.</span>';
+      + '<br><span style="color:#6b7685">Some customers may already have been saved before it stopped. Loading the same file again is safe — it only puts the same figures in again.</span>';
     btn.disabled=false;
   }
 }

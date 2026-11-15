@@ -181,6 +181,7 @@ function readFile(f){
   fr.readAsText(f);
 }
 
+let OLD_FILE = false;
 function build(rows){
   const head = rows[0].map(h => String(h).trim());
   const col = name => head.indexOf(name);
@@ -225,6 +226,16 @@ async function showPreview(out){
   const hold = live.filter(r => r.contract_status.startsWith('H'));
   const owed = live.reduce((a,b)=>a+(b.balance_owing||0),0);
 
+  /* ⚠ 15 Nov 2026 — HOW OLD IS THE INFORMATION IN THE FILE, not when was it
+     loaded. The August export was loaded again on 14 Nov: every balance came
+     back identical to the cent and the chase list said "up to date". In a fresh
+     export the next payment for an active contract is due within days, so the
+     middle next-payment date tells us the date the file was taken. */
+  const due = out.filter(r => r.contract_status==='A' && r.next_payment_date).map(r => r.next_payment_date).sort();
+  const mid = due.length ? due[Math.floor(due.length/2)] : null;
+  const ageDays = mid ? Math.round((Date.now() - new Date(mid+'T12:00:00').getTime())/86400000) : null;
+  OLD_FILE = ageDays !== null && ageDays > 14;
+
   // which of these does the system already know?
   let known = new Set();
   try{
@@ -236,7 +247,7 @@ async function showPreview(out){
 
   $('preview').innerHTML =
     '<table>'
-    + '<tr><th>What is in the file</th><th class="num">Contracts</th><th class="num">Still owed</th></tr>'
+    + '<tr><th>What is in the file</th><th class="num">Contracts</th><th class="num">Total of the payment plans</th></tr>'
     + `<tr><td><b>Live</b> (collecting or on hold)</td><td class="num">${live.length}</td><td class="num"><b>${money(owed)}</b></td></tr>`
     + `<tr><td>&nbsp;&nbsp;of which <b>on hold</b> — owed but not collecting</td><td class="num amber">${hold.length}</td><td class="num amber">${money(hold.reduce((a,b)=>a+(b.balance_owing||0),0))}</td></tr>`
     + `<tr><td>Cancelled</td><td class="num muted">${canc.length}</td><td class="num muted">${money(canc.reduce((a,b)=>a+(b.balance_owing||0),0))}</td></tr>`
@@ -247,7 +258,16 @@ async function showPreview(out){
     + `<tr><td><b>New — will be added</b></td><td class="num ok">${isNew.length}</td></tr>`
     + `<tr><td>&nbsp;&nbsp;of those, <b>live and currently unwatched</b></td><td class="num bad">${newLive.length}</td></tr>`
     + '</table>'
-    + `<p class="muted" style="margin-top:10px">${out.length} rows read from the file.</p>`;
+    + `<p class="muted" style="margin-top:10px">⚠ Ezidebit's "Total Payable" is the whole plan, not what is still owed. When saved, each customer's balance is worked out as the plan total less what Ezidebit says they have paid.</p>`
+    + `<p class="muted" style="margin-top:10px">${out.length} rows read from the file.`
+    + (mid ? ` Next payments in it are due around <b>${new Date(mid+'T12:00:00').toLocaleDateString('en-AU',{day:'numeric',month:'short',year:'numeric'})}</b>.` : '') + `</p>`
+    + (OLD_FILE ? `<div style="background:#fdecea;border:1px solid #f3b8b3;color:#b4342e;border-radius:9px;padding:12px 14px;margin-top:10px">
+        <b>&#9888; This is an OLD export.</b> The payments in it were due about ${ageDays} days ago, so the balances are out of date.
+        Loading it would put old balances back over newer ones. Download a fresh contract export from Ezidebit and drop that in instead.
+        <label style="display:block;margin-top:8px;font-weight:400"><input type="checkbox" id="oldOk"> I know it is old — load it anyway</label></div>` : '');
+  $('apply').disabled = OLD_FILE;
+  const ok = document.getElementById('oldOk');
+  if(ok) ok.onchange = () => { $('apply').disabled = !ok.checked; };
   $('previewCard').style.display='';
   $('log').style.display='none'; $('log').textContent='';
 }

@@ -288,9 +288,23 @@ function drawFresh(f){
     const day0 = d => { const x = new Date(d); x.setHours(0,0,0,0); return x.getTime(); };
     const ago = Math.round((day0(now) - day0(t))/86400000);
     const when = t.toLocaleDateString('en-AU',{day:'numeric',month:'short'});
-    const bad = ago > days; if(bad) late++;
-    return `<div class="fr ${bad?'bad':'ok'}"><b>${esc(label)}</b>: ${when} (${ago===0?'today':ago+' day'+(ago===1?'':'s')+' ago'})`
-         + (bad ? ` &middot; <a href="${page}">load the ${esc(src)}</a>` : '') + `</div>`;
+    let bad = ago > days, why = '';
+    /* ⚠ 15 Nov 2026 — a file loaded today can still be an OLD file. The August
+       contract export was re-loaded on 14 Nov and this box said "up to date".
+       For the contract file, also judge the information itself: in a fresh
+       export the middle next-payment date of an active contract is within days. */
+    if(k === 'contracts'){
+      const due = (ALL||[]).filter(r => r.contract_status==='A' && r.next_payment_date).map(r => String(r.next_payment_date).slice(0,10)).sort();
+      const mid = due.length ? due[Math.floor(due.length/2)] : null;
+      const dataAge = mid ? Math.round((day0(now) - day0(new Date(mid+'T12:00:00')))/86400000) : null;
+      if(dataAge !== null && dataAge > 14){
+        bad = true;
+        why = ` &middot; <b>but the file itself is old</b> &mdash; its payments were due around ${new Date(mid+'T12:00:00').toLocaleDateString('en-AU',{day:'numeric',month:'short'})}, so these balances are out of date`;
+      }
+    }
+    if(bad) late++;
+    return `<div class="fr ${bad?'bad':'ok'}"><b>${esc(label)}</b>: ${when} (${ago===0?'today':ago+' day'+(ago===1?'':'s')+' ago'})${why}`
+         + (bad ? ` &middot; <a href="${page}">load ${why?'a fresh':'the'} ${esc(src)}</a>` : '') + `</div>`;
   });
   $('fresh').innerHTML =
     `<div class="freshbox ${late?'bad':'ok'}">
