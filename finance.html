@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Simtec — Finance</title>
 <link rel="icon" href="icon-192.png">
-<script>window.SIMTEC_BUILD="2026-10-20-01";</script>
+<script>window.SIMTEC_BUILD="2026-11-17-02";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.112.2"></script>
 <script src="auth.js?v=3" data-roles="admin,manager,office"></script>
 <!-- ===========================================================================
@@ -95,10 +95,10 @@
       <div><label for="sAlert">Text the office after (minutes) with no answer</label><input id="sAlert" type="number" min="1" max="240"></div>
       <div><label for="sPaper">Paper form overdue after (days)</label><input id="sPaper" type="number" min="1" max="30"></div>
       <div><label for="sTerms">Terms shown on every iPad</label>
-        <select id="sTerms"><option value="1.1">Version 1.1 (current)</option><option value="1.2">Version 1.2 (finance)</option></select></div>
+        <select id="sTerms"><option value="1.1">Version 1.1 (current)</option><option value="1.2">Version 1.2 (covers finance)</option><option value="1.3">Version 1.3 (17 Nov 2026 — latest, no finance)</option></select></div>
     </div>
-    <p class="muted" style="margin:10px 0 0">Order to switch on: enter the application email and Save → switch on the consultants → switch the terms to version 1.2 and Save → Switch finance ON. Finance cannot be switched on while the terms are at version 1.1.</p>
-    <div class="warnbox" id="termsWarn" style="display:none">Switching to version 1.2 changes the terms on <b>every</b> iPad, finance or not, from the next sale. The v1.2 PDF must be in place first (<a href="terms-of-sale-v1.2.pdf" target="_blank">check it opens</a>).</div>
+    <p class="muted" style="margin:10px 0 0">Order to switch on: enter the application email and Save → switch on the consultants → switch the terms to version 1.2 and Save → Switch finance ON. Finance can only be switched on with the version 1.2 terms — they are the only terms that cover finance.</p>
+    <div class="warnbox" id="termsWarn" style="display:none">Switching the terms version changes the terms on <b>every</b> iPad, finance or not, from the next sale, and the terms emailed to every new customer. The PDF for that version and the updated iPad page must be on the website first — Save checks both.</div>
     <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:14px">
       <button id="btnSave" onclick="saveSettings()">Save settings</button>
       <button id="btnOn" class="green" onclick="setEnabled(true)">Switch finance ON</button>
@@ -164,8 +164,8 @@ async function loadView(){
   $('btnOn').style.display = s.enabled ? 'none' : ''; $('btnOff').style.display = s.enabled ? '' : 'none';
   $('setWho').textContent = can ? (s.updated_by ? 'Last changed by ' + s.updated_by + ', ' + when(s.updated_at) + '.' : '')
                                 : 'Only a manager or an administrator can change these.';
-  $('termsWarn').style.display = ($('sTerms').value === '1.2' && s.terms_version !== '1.2') ? 'block' : 'none';
-  $('sTerms').onchange = () => { $('termsWarn').style.display = ($('sTerms').value === '1.2' && s.terms_version !== '1.2') ? 'block' : 'none'; };
+  const tw = () => { const v = $('sTerms').value; $('termsWarn').style.display = (v !== '1.1' && v !== s.terms_version) ? 'block' : 'none'; };
+  tw(); $('sTerms').onchange = tw;
 
   const people = data.people || [];
   $('peState').style.display = people.length ? 'none' : 'block'; $('peState').textContent = 'No logins found.';
@@ -180,12 +180,22 @@ async function saveSettings(){
               dd_weekly:Number($('sWeekly').value), alert_minutes:Number($('sAlert').value), paper_days:Number($('sPaper').value),
               terms_version:$('sTerms').value };
   const cur = (VIEW && VIEW.settings) || {};
-  if (p.terms_version === '1.2' && cur.terms_version !== '1.2'){
-    const ok = await fetch('terms-of-sale-v1.2.pdf', { method:'HEAD', cache:'no-store' }).then((r) => r.ok && /pdf/.test(r.headers.get('content-type') || '')).catch(() => false);
-    if (!ok){ show('err', 'The version 1.2 terms PDF (terms-of-sale-v1.2.pdf) is not on the website yet. Upload it first, then switch the terms.'); return; }
-    if (!confirm('Switch EVERY iPad to the version 1.2 terms from the next sale?\n\nThe effective date printed on them will be today.')) return;
+  /* 17 Nov: any version after 1.1 is a file on the website PLUS a template in the iPad
+     page. Refuse the switch unless BOTH are live — an iPad that does not know the
+     version would quietly fall back to the v1.1 text. */
+  /* 17 Nov: v1.3 has no finance clauses. Finance customers must sign terms that cover finance, so only v1.2 while finance is on. */
+  if (cur.enabled && p.terms_version !== '1.2'){ show('err', 'Finance is on, and only the version 1.2 terms cover finance. Switch finance off first.'); return; }
+  if (p.terms_version !== '1.1' && p.terms_version !== cur.terms_version){
+    const v = p.terms_version;
+    const pdfOk = await fetch('terms-of-sale-v' + v + '.pdf', { method:'HEAD', cache:'no-store' }).then((r) => r.ok && /pdf/.test(r.headers.get('content-type') || '')).catch(() => false);
+    if (!pdfOk){ show('err', 'The version ' + v + ' terms PDF (terms-of-sale-v' + v + '.pdf) is not on the website yet. Push it first, then switch the terms.'); return; }
+    if (v !== '1.2'){
+      const appOk = await fetch('order-app.html', { cache:'no-store' }).then((r) => r.ok ? r.text() : '').then((t) => t.includes('id="tncV' + v.replace('.', '') + '"')).catch(() => false);
+      if (!appOk){ show('err', 'The iPad page on the website does not have the version ' + v + ' terms yet. Push order-app.html first, then switch the terms.'); return; }
+    }
+    if (!confirm('Switch EVERY iPad to the version ' + v + ' terms from the next sale?\n\nThe effective date printed on them will be today.')) return;
   }
-  if (p.terms_version === '1.1' && cur.terms_version === '1.2'){
+  if (p.terms_version === '1.1' && cur.terms_version !== '1.1'){
     if (cur.enabled){ show('err', 'Finance is on, so the terms must stay at version 1.2. Switch finance off first.'); return; }
     if (!confirm('Go back to the version 1.1 terms on every iPad?')) return;
   }
