@@ -10,7 +10,7 @@
 <script src="https://unpkg.com/@supabase/supabase-js@2.38.4/dist/umd/supabase.js"></script>
 <script>/* 5 Oct 2026: today's date as the person using this page sees it. NEVER use toISOString() for a date - it gives the UTC date, which is YESTERDAY in NZ every morning. */
 function localISO(d){d=d||new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}</script>
-<script>window.SIMTEC_BUILD="2026-11-12-01";</script>
+<script>window.SIMTEC_BUILD="2026-11-16-01";</script>
 <script src="client-errors.js?v=1"></script>
 <script src="live.js?v=6" defer></script>
 <script src="auth.js?v=3" data-roles="admin,manager,office"></script>
@@ -86,6 +86,25 @@ body{font-family:system-ui,sans-serif}
     <button class="btn flex-1" onclick="closeOv()">Cancel</button>
   </div>
   <p id="bkHint" class="k" style="margin-top:.6rem;color:#8a95a8">Tick both boxes above to enable booking.</p>
+</div></div>
+
+<!-- Move a truck job (16 Nov) -->
+<div class="ov" id="mjOv"><div class="modal">
+  <h3 class="font-semibold text-white mb-1">Move truck job</h3>
+  <p id="mjWho" class="text-slate-500 text-xs mb-4"></p>
+  <label class="k block mb-1">New day</label>
+  <input type="date" id="mjDate" class="inp mb-3">
+  <label class="k block mb-1">What time did you tell the customer?</label>
+  <select id="mjTime" class="inp mb-3">
+    <option value="">— pick one —</option>
+    <option value="Morning">Morning (9am – 12pm)</option>
+    <option value="Afternoon">Afternoon (1pm – 4pm)</option>
+  </select>
+  <p id="mjErr" class="text-xs mb-3" style="color:#f87171"></p>
+  <div class="flex gap-3">
+    <button class="btn gold flex-1" id="mjSave" onclick="saveMoveJob()">Move it</button>
+    <button class="btn flex-1" onclick="closeMoveJob()">Cancel</button>
+  </div>
 </div></div>
 
 <script>
@@ -212,6 +231,16 @@ function cleared(order,payAcct,pays,dishonours){
 }
 
 let rows=[], filter='ready', BOOKED=[], diaryWeekOffset=0;
+/* 16 Nov 2026 — Nigel: "I would like to see truck jobs everywhere that deliveries
+   shows up." Truck jobs (pickups, swaps) live on the runs, not on the order, so
+   they never appeared here. They come from ONE place, office_truck_jobs(), and are
+   shown beside the deliveries: today's banner, the Booked count and list, the
+   diary, the map and the run-sheet day buttons. If they cannot be read the page
+   SAYS so (JOBS_ERR) rather than quietly showing a board with them missing. */
+let JOBS=[], JOBS_ERR=null;
+const JOB_LABEL={pickup:'PICKUP',swap:'SWAP',other:'TRUCK JOB'};
+const jobTag=j=>`<span class="badge" style="background:#3b2a0a;color:#fbbf24;border:1px solid #c9a84c">🚚 ${JOB_LABEL[j.type]||'TRUCK JOB'}</span>`;
+const jobWord=n=>`${n} truck job${n===1?'':'s'}`;
 
 // ── Delivery forecast ────────────────────────────────────────────────────────
 // Projects, for a not-yet-cleared customer, WHICH future payment date would tip
@@ -299,6 +328,19 @@ async function load(quiet){
     .select('*, sim_customers(*), sim_order_items(product_name,quantity)')
     .eq('order_status','active');
   if(error){reportClientError('load the active orders for the delivery board', error);$('state').innerHTML=`<span class="text-red-400">${esc(error.message)}</span>`;return;}
+  // truck jobs from today on (16 Nov) — see JOBS above
+  {
+    const {data:jb,error:jErr}=await sb.rpc('office_truck_jobs',{p_from:todayStr});
+    if(jErr){ reportClientError('load the truck jobs for the delivery board', jErr); JOBS_ERR=jErr.message||String(jErr); JOBS=[]; }
+    else {
+      JOBS_ERR=null;
+      JOBS=(jb||[]).map(j=>({stopId:j.stop_id, orderId:j.order_id, custId:j.customer_id,
+        name:j.customer||'(no name)', phone:j.mobile||'', address:j.address||'',
+        deliveryDate:j.run_date, deliveryTime:j.job_time||'', type:j.job_type||'other', note:j.job_note||'',
+        started:j.status!=='pending',
+        lat:(j.lat!=null?Number(j.lat):null), lng:(j.lng!=null?Number(j.lng):null)}));
+    }
+  }
   // payer accounts for any third-party-paid orders
   const pvIds=[...new Set((orders||[]).map(o=>o.paid_via_order_id).filter(Boolean))];
   let payerMap={};
@@ -419,8 +461,9 @@ function render(){
 
   // Today's booked deliveries — a reminder banner at the very top
   const todaysDeliveries=booked.filter(r=>r.deliveryDate===todayStr);
+  const todaysJobs=JOBS.filter(j=>j.deliveryDate===todayStr);
   let todayBanner='';
-  if(todaysDeliveries.length){
+  if(todaysDeliveries.length||todaysJobs.length){
     const rows_=todaysDeliveries
       .sort((a,b)=>(a.deliveryTime||'').localeCompare(b.deliveryTime||'')||suburb(a.address).localeCompare(suburb(b.address)))
       .map(r=>`<div class="flex flex-wrap items-center justify-between gap-2" style="padding:6px 0;border-bottom:1px solid #2a2410">
@@ -429,25 +472,34 @@ function render(){
           ${r.address?`<a class="maplink" href="${mapLink(r.address)}" target="_blank">${esc(suburb(r.address))} ↗</a>`:'<span class="k">no address</span>'}
           <button class="btn gold noprint" style="padding:.35rem .7rem" onclick="markDelivered('${r.id}')">✓ Delivered</button>
         </div>
+      </div>`).join('')
+      + todaysJobs.map(j=>`<div class="flex flex-wrap items-center justify-between gap-2" style="padding:6px 0;border-bottom:1px solid #2a2410">
+        <div>${jobTag(j)} <span class="font-semibold text-white">${esc(j.name)}</span>${j.deliveryTime?`<span class="k"> · ${esc(winTxt(j.deliveryTime))}</span>`:''}<span class="k"> · ${esc(j.note)}</span></div>
+        <div class="flex items-center gap-2">
+          ${j.address?`<a class="maplink" href="${mapLink(j.address)}" target="_blank">${esc(suburb(j.address))} ↗</a>`:'<span class="k">no address</span>'}
+          <span class="k">${j.started?'driver has started it':'completed in the driver app'}</span>
+        </div>
       </div>`).join('');
+    const n=todaysDeliveries.length, m=todaysJobs.length;
     todayBanner=`<div class="card mb-4" style="border-color:#c9a84c;background:#211d0f">
       <div class="flex items-center justify-between mb-1">
         <div class="lbl" style="color:#e6c260">📦 Booked for today — ${today.toLocaleDateString('en-NZ',{weekday:'long',day:'2-digit',month:'short'})}</div>
-        <span class="text-xl font-bold text-amber-300">${todaysDeliveries.length}</span>
+        <span class="text-xl font-bold text-amber-300">${n}${m?`<span class="text-sm"> + ${jobWord(m)}</span>`:''}</span>
       </div>
       ${rows_}
-      <div class="flex flex-wrap gap-2 mt-3 noprint">
+      ${n?`<div class="flex flex-wrap gap-2 mt-3 noprint">
         <button class="btn gold" onclick="markDayDelivered('${todayStr}')">✓ Confirm all delivered</button>
         <button class="btn" onclick="window.open('docket.html?date='+encodeURIComponent('${todayStr}'),'_blank')">🖨 Print today's dockets</button>
-      </div>
+      </div>`:''}
     </div>`;
   }
+  const jobsWarn = JOBS_ERR ? `<div class="card mb-4" style="border-color:#f59e0b;background:#2a1f08;color:#fbbf24;font-size:13px">⚠ Truck jobs couldn't be loaded, so pickups and swaps are missing from this page. Check the driver runs page for them. (${esc(JOBS_ERR)})</div>` : '';
 
-  $('summary').innerHTML= todayBanner +
+  $('summary').innerHTML= todayBanner + jobsWarn +
     '<div class="grid grid-cols-2 md:grid-cols-4 gap-3">'+
     stat('Ready to book',readyToBook.length,'text-green-400')+
     stat('One payment away',nearReady.length,'text-amber-300')+
-    stat('Booked',booked.length,'text-sky-300')+
+    stat('Booked',booked.length+(JOBS.length?`<span class="text-sm"> + ${jobWord(JOBS.length)}</span>`:''),'text-sky-300')+
     stat('Delivered',delivered.length,'text-slate-200')+
     '</div>';
 
@@ -458,14 +510,14 @@ function render(){
   },0);
 
   const tab=(id,label,n)=>`<button class="btn ${filter===id?'on':''}" onclick="setFilter('${id}')">${label}${n?`<span class="pill" ${filter===id?'style="background:#1a2438;color:#c9a84c"':''}>${n}</span>`:''}</button>`;
-  $('tabs').innerHTML=tab('ready','Ready to book',readyToBook.length)+tab('near','One payment away',nearReady.length)+tab('diary','Diary',booked.length)+tab('forecast','Forecast',fcCount)+tab('booked','Booked',booked.length)+tab('delivered','Delivered',delivered.length);
+  $('tabs').innerHTML=tab('ready','Ready to book',readyToBook.length)+tab('near','One payment away',nearReady.length)+tab('diary','Diary',booked.length+JOBS.length)+tab('forecast','Forecast',fcCount)+tab('booked','Booked',booked.length+JOBS.length)+tab('delivered','Delivered',delivered.length);
 
   $('runhead').innerHTML='';
   if(filter==='ready')       { renderList(readyToBook,'ready'); }
   else if(filter==='near')   { renderNearSummary(nearReady); renderList(nearReady,'near'); }
   else if(filter==='diary')  { renderDiary(booked); }
   else if(filter==='forecast'){ renderForecast(); }
-  else if(filter==='booked') { renderBookedHead(booked); renderList(booked,'booked'); }
+  else if(filter==='booked') { renderBookedHead(booked); renderBooked(booked); }
   else                       { renderList(delivered,'delivered'); }
 }
 
@@ -526,10 +578,18 @@ function renderMap(booked){
     m.bindTooltip(label,{permanent:false,direction:'top',className:'pintag',offset:[0,-8]});
     m.bindPopup(`<b>${esc(r.name)}</b><br>${esc(fmtD(r.deliveryDate))}${r.deliveryTime?'<br>'+esc(winTxt(r.deliveryTime)):''}<br>${esc(r.address)}<br>${esc(r.product)}`);
   });
+  // truck jobs: an amber ring, so they read as "the truck goes here" but not a delivery (16 Nov)
+  const jobPins=JOBS.filter(j=>j.lat!=null && j.lng!=null);
+  jobPins.forEach(j=>{
+    const m=L.circleMarker([j.lat,j.lng],{radius:9,color:'#f59e0b',weight:3,fillColor:'#1a2438',fillOpacity:.9}).addTo(MAPLAYER);
+    m.bindTooltip(`🚚 ${esc(j.name)}${j.deliveryTime?' · '+esc(winTxt(j.deliveryTime)):''}`,{permanent:false,direction:'top',className:'pintag',offset:[0,-8]});
+    m.bindPopup(`<b>🚚 ${esc(JOB_LABEL[j.type]||'Truck job')} — ${esc(j.name)}</b><br>${esc(fmtD(j.deliveryDate))}${j.deliveryTime?'<br>'+esc(winTxt(j.deliveryTime)):''}<br>${esc(j.address)}<br>${esc(j.note)}`);
+  });
   // Fit to the pins only on the first draw. After that keep wherever the user
   // panned/zoomed to, so a background refresh doesn't snatch the map back.
-  if(withPins.length && !MAPVIEW){
-    const b=L.latLngBounds(withPins.map(r=>[r.lat,r.lng]));
+  const allPts=withPins.map(r=>[r.lat,r.lng]).concat(jobPins.map(j=>[j.lat,j.lng]));
+  if(allPts.length && !MAPVIEW){
+    const b=L.latLngBounds(allPts);
     MAP.fitBounds(b,{padding:[36,36],maxZoom:14});
   }
   const note=document.getElementById('mapnote');
@@ -537,7 +597,9 @@ function renderMap(booked){
     note.innerHTML = withPins.length
       ? `${withPins.length} booked deliver${withPins.length===1?'y':'ies'} pinned.` +
         (missing.length?` <span style="color:#fbbf24">${missing.length} couldn't be located \u2014 <button class="btn noprint" style="font-size:11px;padding:2px 8px" onclick="locateMissing()">Locate them</button></span>`:'')
-      : (missing.length?`<span style="color:#fbbf24">None of the ${missing.length} booked deliveries have been located yet \u2014 <button class="btn noprint" style="font-size:11px;padding:2px 8px" onclick="locateMissing()">Locate them</button></span>`:'Nothing booked to show.');
+      : (missing.length?`<span style="color:#fbbf24">None of the ${missing.length} booked deliveries have been located yet \u2014 <button class="btn noprint" style="font-size:11px;padding:2px 8px" onclick="locateMissing()">Locate them</button></span>`:(jobPins.length?'':'Nothing booked to show.'));
+    if(JOBS.length) note.innerHTML += ` ${jobPins.length} truck job${jobPins.length===1?'':'s'} shown as amber rings`
+      + (JOBS.length>jobPins.length?` (${JOBS.length-jobPins.length} at an address that can't be placed on the map)`:'') + '.';
   }
   setTimeout(()=>{ if(MAP) MAP.invalidateSize(); },80);
 }
@@ -564,7 +626,8 @@ function runSheetPicker(booked){
   for(let i=0;i<5;i++){
     const d=new Date(today.getTime()+i*DAY);
     const ds=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-    const n=booked.filter(r=>r.deliveryDate===ds).length;
+    // ⚠ 16 Nov: truck jobs count too — a day with only a swap on it still has a run sheet
+    const n=booked.filter(r=>r.deliveryDate===ds).length + JOBS.filter(j=>j.deliveryDate===ds).length;
     days.push({ds,d,n,label:i===0?'Today':d.toLocaleDateString('en-NZ',{weekday:'short',day:'2-digit',month:'short'})});
   }
   return `<div class="card mb-4" style="border-color:#c9a84c">
@@ -704,11 +767,12 @@ function renderDiary(booked){
 
   const weekLabel = `${mon.toLocaleDateString('en-NZ',{day:'2-digit',month:'short'})} – ${days[5].toLocaleDateString('en-NZ',{day:'2-digit',month:'short'})}`;
   const weekTotal = booked.filter(r=>days.some(d=>dstr(d)===r.deliveryDate)).length;
+  const weekJobs  = JOBS.filter(j=>days.some(d=>dstr(d)===j.deliveryDate)).length;
 
   let html=`<div class="card mb-4" style="border-color:#c9a84c">
     <div class="flex items-center justify-between flex-wrap gap-2">
       <div><div class="lbl">Delivery diary — week of ${weekLabel}</div>
-        <div class="text-xs text-slate-400 mt-1">${weekTotal} deliver${weekTotal===1?'y':'ies'} booked this week</div></div>
+        <div class="text-xs text-slate-400 mt-1">${weekTotal} deliver${weekTotal===1?'y':'ies'}${weekJobs?` and ${jobWord(weekJobs)}`:''} booked this week</div></div>
       <div class="flex gap-2 noprint">
         <button class="btn" onclick="diaryNav(-1)">‹ Prev</button>
         <button class="btn ${diaryWeekOffset===0?'on':''}" onclick="diaryWeekOffset=0;render()">This week</button>
@@ -726,12 +790,18 @@ function renderDiary(booked){
     const stops=list.map(r=>`<div style="padding:6px 8px;background:#0f1830;border:1px solid #26324a;border-radius:7px;margin-bottom:6px">
         <div class="text-sm font-semibold" style="color:${r.deliveryTime?'#e2e8f0':'#64748b'}">${r.deliveryTime?esc(winTxt(r.deliveryTime)):'no window set'}</div>
         <div class="text-xs text-slate-400">${esc(suburb(r.address))||'—'}</div>
-      </div>`).join('') || `<div class="text-xs text-slate-600 py-2 text-center">—</div>`;
+      </div>`).join('')
+      + JOBS.filter(j=>j.deliveryDate===ds).map(j=>`<div style="padding:6px 8px;background:#1f1708;border:1px solid #c9a84c;border-radius:7px;margin-bottom:6px">
+        <div class="text-sm font-semibold" style="color:#fbbf24">🚚 ${esc(JOB_LABEL[j.type]||'TRUCK JOB')}${j.deliveryTime?' · '+esc(winTxt(j.deliveryTime)):''}</div>
+        <div class="text-xs text-slate-400">${esc(suburb(j.address))||'—'}</div>
+      </div>`).join('')
+      || `<div class="text-xs text-slate-600 py-2 text-center">—</div>`;
+    const dayCount = list.length + JOBS.filter(j=>j.deliveryDate===ds).length;
     html+=`<div class="card" style="padding:.7rem .6rem;${isToday?'border-color:#c9a84c;background:#1a1f12':''}">
       <div class="flex items-center justify-between mb-2">
         <div><span class="font-bold" style="color:${isToday?'#e6c260':'#e2e8f0'}">${dayNames[i]}</span>
           <span class="k"> ${d.getDate()}/${d.getMonth()+1}</span></div>
-        <span class="text-sm font-bold ${list.length?'text-sky-300':'text-slate-600'}">${list.length||''}</span>
+        <span class="text-sm font-bold ${dayCount?'text-sky-300':'text-slate-600'}">${dayCount||''}</span>
       </div>${stops}</div>`;
   });
   html+=`</div>`;
@@ -875,6 +945,73 @@ function renderRows(view,mode){
     </div>`;
   }).join('');
 }
+
+/* The Booked tab: deliveries and truck jobs in one list, by day (16 Nov). A
+   delivery card is drawn exactly as before; a truck job gets its own card with
+   Move and Cancel, which go through move_truck_job() / cancel_truck_job(). */
+function renderBooked(booked){
+  const items=booked.map(r=>({k:'d',date:r.deliveryDate||'',sub:suburb(r.address),r}))
+    .concat(JOBS.map(j=>({k:'j',date:j.deliveryDate||'',sub:suburb(j.address),j})))
+    .sort((a,b)=>a.date.localeCompare(b.date)||a.sub.localeCompare(b.sub));
+  if(!items.length){$('list').innerHTML=`<div class="text-center text-slate-500 py-16">Nothing here right now.</div>`;return;}
+  $('list').innerHTML=items.map(x=>x.k==='d'?renderRows([x.r],'booked'):jobCard(x.j)).join('');
+}
+function jobCard(j){
+  const maps=j.address?`<a class="maplink" href="${mapLink(j.address)}" target="_blank" onclick="event.stopPropagation()">Open in Maps ↗</a>`:'';
+  const nm=esc(j.name).replace(/'/g,"\\'");
+  const acts = j.started
+    ? `<div class="k mt-2">The driver has started this job</div>`
+    : `<button class="btn noprint mt-2" onclick="event.stopPropagation();openMoveJob('${j.stopId}')">Move</button>
+       <button class="btn noprint mt-2" onclick="event.stopPropagation();cancelJob('${j.stopId}','${nm}')">Cancel job</button>`;
+  return `<div class="card dl mb-3" style="cursor:pointer;border-color:#c9a84c" ${j.custId?`onclick="location.href='customer-detail.html?cust=${j.custId}'" title="Open ${esc(j.name)}'s details"`:''}>
+    <div class="flex flex-wrap items-start gap-4">
+      <div class="flex-1 min-w-[220px]">
+        <div class="flex items-center gap-2 mb-1 flex-wrap">${jobTag(j)}<span class="font-semibold text-white">${esc(j.name)}</span></div>
+        <div class="text-base text-slate-100 mt-1">${esc(j.address)||'<span class="text-slate-500">No address on file</span>'}</div>
+        <div class="mt-1">${maps}</div>
+        <div class="mt-2" style="background:#211d0f;border:1px solid #c9a84c;border-radius:8px;padding:8px 10px;color:#e6c260;font-size:12.5px">🚚 <b>For the driver:</b> ${esc(j.note)||'<i>no instructions written</i>'}</div>
+        ${j.phone?`<div class="text-xs text-slate-400 mt-2">${esc(j.phone)}</div>`:''}
+      </div>
+      <div class="min-w-[120px] flex justify-end"><div class="text-right">
+        <div class="text-sm font-semibold text-slate-200">${fmtD(j.deliveryDate)}</div>${j.deliveryTime?`<div class="k">${esc(winTxt(j.deliveryTime))}</div>`:''}
+        ${acts}
+      </div></div>
+    </div>
+  </div>`;
+}
+let moveStop=null;
+window.openMoveJob=id=>{
+  const j=JOBS.find(x=>x.stopId===id); if(!j) return;
+  moveStop=id;
+  $('mjWho').textContent=`${JOB_LABEL[j.type]||'Truck job'} — ${j.name}`;
+  $('mjDate').value=j.deliveryDate||todayStr; $('mjDate').min=todayStr;
+  $('mjTime').value=(j.deliveryTime==='Morning'||j.deliveryTime==='Afternoon')?j.deliveryTime:'';
+  $('mjErr').textContent='';
+  $('mjOv').classList.add('show');
+};
+window.closeMoveJob=()=>{$('mjOv').classList.remove('show');moveStop=null;};
+window.saveMoveJob=async()=>{
+  if(!moveStop) return;
+  const d=$('mjDate').value, t=$('mjTime').value;
+  if(!d){ $('mjErr').textContent='Pick the day the truck should go.'; return; }
+  if(!t){ $('mjErr').textContent='Pick Morning or Afternoon — whichever the customer was told.'; return; }
+  const btn=$('mjSave'); btn.disabled=true;
+  const {data,error}=await sb.rpc('move_truck_job',{p_stop:moveStop,p_date:d,p_job_time:t});
+  btn.disabled=false;
+  if(error){ reportClientError('move a truck job', error, moveStop); $('mjErr').textContent=error.message; return; }
+  if(!data||!data.ok){ $('mjErr').textContent=(data&&data.error)||'Couldn’t move it — no reason was given back.'; return; }
+  closeMoveJob(); alert(data.message); await load();
+};
+// Cancelling asks why, exactly as cancelling a delivery does; the reason goes on the customer's record.
+window.cancelJob=async(id,name)=>{
+  const reason=prompt('Cancel the truck job for '+(name||'this customer')+'?\n\nWhy is it being cancelled? (goes on the record)');
+  if(reason===null) return;
+  const {data,error}=await sb.rpc('cancel_truck_job',{p_stop:id,p_reason:reason.trim()});
+  if(error){ reportClientError('cancel a truck job', error, id); alert(error.message); }
+  else if(!data||!data.ok) alert((data&&data.error)||'Couldn’t cancel — no reason was given back.');
+  else alert(data.message);
+  await load();
+};
 
 window.setFilter=f=>{filter=f;render();};
 

@@ -1,4 +1,5 @@
-a96d5f9936d9a2c598dd46a4d0f5914c  order-app.html
-43630a3914ceafc33b3da5b9fe4eb5e2  order-app-test.html
-6c63613d2637e381beb8ad5bd893d1e2  finance.html
-d29fdc29d6567656344dc1cf3ceb020a  terms-of-sale-v1.3.pdf
+28c5b8cbed9b0563382b117b2ed2b0e8  add-customer.html
+f77cafe41d6b2fa603709e5a625c0822  delivery.html
+ca986d47682ff21b6aa9e8e929d4c060  home.html
+7a910a9689af059484f8f3f8ca8bb1ca  order-app-test.html
+46e3475d18856b9d6564c9133d2c99d0  order-app.html

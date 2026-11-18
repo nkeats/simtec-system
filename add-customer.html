@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Simtec — Add Customer / Sale</title>
-<!-- SIMTEC_BUILD: add-customer 2026-11-01-02 (sale date cannot be in the future) -->
+<!-- SIMTEC_BUILD: add-customer 2026-11-19-01 (paper orders: existing-customer check matches the iPad) -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.112.2"></script>
 <script src="auth.js?v=3" data-roles="admin,manager,office"></script>
 <style>
@@ -71,9 +71,12 @@
     <div style="font-size:12.5px;color:#4a6b8f;margin-top:6px">Fine if the consultant is buying a mattress themselves. But if this sale is for <b>someone else</b>, put the <b>customer's own</b> number here — otherwise every arrears text and delivery call about this account goes to the consultant, not the customer.</div>
   </div>
   <div id="dupeWarn" style="display:none;background:#fff4e5;border:1px solid #e0b877;border-left:5px solid #c07a00;border-radius:9px;padding:12px 14px;margin-bottom:14px">
-    <div style="font-weight:700;color:#8a5a12;font-size:14px">⚠ This customer already has a live order</div>
+    <div id="dupeTitle" style="font-weight:700;color:#8a5a12;font-size:14px">⚠ This mobile already belongs to an existing customer</div>
     <div id="dupeBody" style="font-size:13px;color:#6b5a2a;margin-top:5px"></div>
-    <div style="font-size:12.5px;color:#8a6d00;margin-top:6px">If this is the same sale being entered again, <b>stop</b> — amend the existing order instead. Entering it twice creates a second Ezidebit debit, a second delivery and a second lot of GST.</div>
+    <div id="dupeLive" style="font-size:12.5px;color:#8a6d00;margin-top:6px">If this is the same sale being entered again, <b>stop</b> — amend the existing order instead. Entering it twice creates a second Ezidebit debit, a second delivery and a second lot of GST.
+      <div style="margin:10px 0 4px;font-weight:700">Check with the consultant or customer, then choose one:</div>
+      <div id="dupeChoices"></div>
+    </div>
   </div>
 
   <div class="card">
@@ -443,38 +446,83 @@ $("mobile").addEventListener("input", ()=>{
    which means the customer can end up being debited twice. Matching on the
    normalised E.164 mobile catches it regardless of how the name was typed.
    It only warns; it never blocks (a customer can legitimately buy twice). */
-let DUPES=[], dupeTimer=null;
-function hideDupe(){ DUPES=[]; const w=$("dupeWarn"); if(w) w.style.display="none"; const c=$("conWarn"); if(c) c.style.display="none"; }
+/* 19 Nov 2026 — PAPER ORDERS NOW GET THE SAME EXISTING-CUSTOMER CHECK AS THE iPAD.
+   ⚠ DO NOT go back to .eq("mobile",e164): about 80 customers are stored as 021…
+   rather than +6421…, and an exact match walked straight past every one of them.
+   staff_existing_customer() matches on the last 8 digits — the one rule the iPad
+   uses (checkExisting in order-app.html). It also shows PAST customers (cancelled
+   orders only), which the old check ignored. When there is a LIVE order the office
+   must say which this is, and the answer is saved on the order as
+   existing_customer_match — so a "replaces" lands on the Health check's
+   cancel-earlier list exactly as an iPad sale does. Fails OPEN: if the check
+   cannot run, the sale can still be saved, and the page says the check failed. */
+const EXIST_CHOICES={replaces:'It REPLACES their earlier order (an upgrade or change)',
+                     additional:'It is an EXTRA purchase — they keep the earlier order too',
+                     different_person:'It is a DIFFERENT person who uses the same phone'};
+let DUPES=[], dupeTimer=null, EXIST_NEED=false, EXIST_CHOICE=null, dupeSeq=0;
+function hideDupe(){ DUPES=[]; EXIST_NEED=false; EXIST_CHOICE=null; const w=$("dupeWarn"); if(w) w.style.display="none"; const c=$("conWarn"); if(c) c.style.display="none"; }
+function chooseExisting(k){
+  if(!EXIST_CHOICES[k]) return;
+  EXIST_CHOICE=k;
+  document.querySelectorAll('#dupeChoices [data-ex]').forEach(b=>{ const on=b.dataset.ex===k;
+    b.style.background=on?'#8a5a12':'#fff'; b.style.color=on?'#fff':'#8a5a12';
+    b.textContent=(on?'✓ ':'')+EXIST_CHOICES[b.dataset.ex]; });
+}
 function scheduleDupeCheck(e164, flag){
   clearTimeout(dupeTimer);
   if(flag!=="ok"){ hideDupe(); return; }
   dupeTimer=setTimeout(()=>checkDupe(e164), 450);   // wait until they stop typing
 }
 async function checkDupe(e164){
+  const seq=++dupeSeq;
+  // Is this number already on file for someone who IS a consultant? Their own
+  // mobile lives on their own customer record (staff buy mattresses too), so a
+  // name match against the active consultant list is what we have to go on —
+  // consultants have no phone number stored anywhere else.
   try{
     const {data:cs}=await sb.from("sim_customers").select("id,first_name,last_name").eq("mobile",e164);
-    if(!cs||!cs.length){ hideDupe(); return; }
-    const {data:os}=await sb.from("sim_orders")
-      .select("id,order_date,contract_value,consultant_name,order_status,delivery_status")
-      .in("customer_id",cs.map(c=>c.id)).eq("order_status","active");
-    // Is this number already on file for someone who IS a consultant? Their own
-    // mobile lives on their own customer record (staff buy mattresses too), so a
-    // name match against the active consultant list is what we have to go on —
-    // consultants have no phone number stored anywhere else.
-    const conHit=cs.filter(c=>CONSULTANT_NAMES.some(n=>normName(n)===normName([c.first_name,c.last_name].filter(Boolean).join(" "))));
+    if(seq!==dupeSeq) return;
+    const conHit=(cs||[]).filter(c=>CONSULTANT_NAMES.some(n=>normName(n)===normName([c.first_name,c.last_name].filter(Boolean).join(" "))));
     if(conHit.length){
       $("conBody").innerHTML="This number is on file for <b>"+conHit.map(c=>esc([c.first_name,c.last_name].filter(Boolean).join(" "))).join(", ")+"</b>, who "+(conHit.length>1?"are consultants":"is a consultant")+".";
       $("conWarn").style.display="block";
     } else { const cw=$("conWarn"); if(cw) cw.style.display="none"; }
+  }catch(e){ /* the consultant note is advice only */ }
 
-    if(!os||!os.length){ DUPES=[]; const w=$("dupeWarn"); if(w) w.style.display="none"; return; }
-    DUPES=os;
-    const nm=cs.map(c=>[c.first_name,c.last_name].filter(Boolean).join(" ")).filter(Boolean);
-    $("dupeBody").innerHTML =
-      `<b>${nm.join(" / ")}</b> already has ${os.length} live order${os.length>1?"s":""} on this mobile:<br>`
-      + os.map(o=>`&nbsp;&nbsp;• ${o.order_date} — $${Number(o.contract_value||0).toLocaleString()} — ${o.consultant_name||"?"}${o.delivery_status&&o.delivery_status!=="pending"?" — "+o.delivery_status:""}`).join("<br>");
-    $("dupeWarn").style.display="block";
-  }catch(e){ /* never block the sale on a failed check */ }
+  // Existing customer — the same check, and the same answer, as the iPad.
+  EXIST_NEED=false; EXIST_CHOICE=null; DUPES=[];
+  const w=$("dupeWarn");
+  try{
+    const {data,error}=await sb.rpc("staff_existing_customer",{p_mobile:e164});
+    if(seq!==dupeSeq) return;
+    if(error) throw error;
+    const d=data||{};
+    if(d.error) throw new Error(d.error);
+    if(!d.found){ w.style.display="none"; return; }
+    const live=Number(d.live_orders)>0;
+    const fmtD=x=>x?String(x).slice(0,10).split('-').reverse().join('/'):'';
+    $("dupeBody").innerHTML=(d.customers||[]).map(c=>'<div style="margin-top:4px"><b>'+esc(c.name||'A customer')+'</b>'+
+      ((c.orders||[]).length ? (c.orders||[]).map(o=>'<div style="margin-left:10px">• '+esc(fmtD(o.date))+' · '+esc(o.product||'order')+
+        (o.consultant?' · sold by '+esc(o.consultant):'')+' · '+(o.status==='cancelled'?'cancelled':'<b>live</b>')+'</div>').join('')
+        : '<div style="margin-left:10px">• no orders on file</div>')+'</div>').join('');
+    if(live){
+      EXIST_NEED=true; DUPES=[1];
+      $("dupeTitle").textContent="⚠ This customer already has a live order";
+      $("dupeChoices").innerHTML=Object.keys(EXIST_CHOICES).map(k=>'<button type="button" data-ex="'+k+'" onclick="chooseExisting(\''+k+'\')" style="display:block;width:100%;text-align:left;margin:6px 0;padding:8px 10px;border-radius:7px;background:#fff;color:#8a5a12;border:1px solid #e0b877;font:inherit;cursor:pointer">'+esc(EXIST_CHOICES[k])+'</button>').join('');
+      $("dupeLive").style.display="block";
+    } else {
+      $("dupeTitle").textContent="ℹ Returning customer — this mobile is on file from an earlier (cancelled) order";
+      $("dupeChoices").innerHTML=""; $("dupeLive").style.display="none";
+    }
+    w.style.display="block";
+  }catch(e){
+    if(seq!==dupeSeq) return;
+    // fail open — never block a paper sale on this — but say the check did not run
+    $("dupeTitle").textContent="⚠ Could not check whether this is an existing customer";
+    $("dupeBody").textContent="Search the customer list for this mobile before saving. ("+(e.message||e)+")";
+    $("dupeChoices").innerHTML=""; $("dupeLive").style.display="none";
+    w.style.display="block";
+  }
 }
 
 // auto-fill frequency from method
@@ -583,10 +631,8 @@ async function save(){
     if(_reg<=_first) return show("Regular payments must start after the first payment date ("+_first+").","err");
   }
 
-  if(DUPES.length){
-    const lines=DUPES.map(o=>"  \u2022 "+o.order_date+" \u2014 $"+Number(o.contract_value||0).toLocaleString()+" \u2014 "+(o.consultant_name||"?")).join("\n");
-    if(!confirm("This mobile already has "+DUPES.length+" live order"+(DUPES.length>1?"s":"")+":\n\n"+lines
-      +"\n\nIf this is the same sale again, cancel and amend the existing order instead.\n\nSave anyway as a NEW order?")) return;
+  if(EXIST_NEED && !EXIST_CHOICE){
+    return show("This mobile already has a live order. In the orange box at the top, choose whether this sale replaces it, is an extra purchase, or is a different person \u2014 or, if it is the same sale entered twice, don't save it.","err");
   }
   const btn=$("save"); btn.disabled=true; const original=btn.textContent; btn.textContent="Saving…";
   try{
@@ -635,7 +681,9 @@ async function save(){
       joint_purchase:       a2on,
       second_customer_name: a2on ? (a2first+" "+a2last).trim() : null,
       second_mobile:        a2on ? (a2mob||null) : null,
-      second_email:         a2on ? (a2mail||null) : null
+      second_email:         a2on ? (a2mail||null) : null,
+      // 19 Nov: the same answer the iPad saves (see checkDupe)
+      existing_customer_match: (EXIST_NEED && EXIST_CHOICES[EXIST_CHOICE]) ? EXIST_CHOICE : null
     };
     const {data:ord,error:e2} = await sb.from("sim_orders").insert(order).select("id").single();
     if(e2) throw new Error("Saving sale: "+e2.message);

@@ -18,7 +18,7 @@
 <!-- data-one-consultant: this iPad belongs to the first consultant who signs in on it.
      Orders are written from here, so this is the only page that asks for the binding. -->
 <script src="auth.js?v=5" data-roles="admin,manager,office,consultant" data-one-consultant></script>
-<script>window.SIMTEC_BUILD="2026-11-17-02";</script>
+<script>window.SIMTEC_BUILD="2026-11-18-01";</script>
 <script>
 /* 21 Oct 2026 — TRAINING MODE (?training=1) IS THE WALKTHROUGH PLUS A TRAINER PANEL.
    It is the REAL app, so every page, field and button is exactly what the
@@ -4191,6 +4191,16 @@ function buildEddrUrl(watchCb){
        authority back to Ongoing on Ezidebit's form. 2 = Total Amount, 4 = Total
        Payments; 2+4 = 6 shows both and hides Ongoing. */
     q.set('aDur','6');
+    /* ⚠⚠ HARDWIRED 18 Nov 2026 — Nigel: "make sure the selection on an ezidebit
+       failure is to add it to the end of the term NOT to retry in 3 days".
+       dishonAction presets the plan's dishonour action on submission (Ezidebit
+       eDDR spec). APPEND = the contract is extended by one payment, i.e. a failed
+       payment is added to the END of the schedule ("Reschedule after last
+       payment" in EziOnline). The customer never sees or changes it on the form,
+       so ed=1 does not unlock it. Ezidebit only allows APPEND on a TOTAL AMOUNT
+       (dur=2) or FIXED NUMBER (dur=4) plan — every normal sale is one of those.
+       ⚠ DO NOT REMOVE, and never set RESCHEDULE (that is the 3-day retry). */
+    if(q.get('dur')==='2' || q.get('dur')==='4') q.set('dishonAction','APPEND');
   }
 
   /* ⚠⚠ TELL THE FORM WHICH SECTIONS TO SHOW. Ezidebit's spec: NOT providing

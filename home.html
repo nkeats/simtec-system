@@ -443,8 +443,17 @@ async function loadUrgent(){
 
     // ── status strip: deliveries booked for today ──
     const delivToday=(orders||[]).filter(o=>o.delivery_date===todayStr && o.delivery_status!=="delivered");
+    /* 16 Nov 2026: truck jobs (pickups, swaps) are on the truck today too — from the
+       same office_truck_jobs() the delivery page uses. If they can't be read the tile
+       says so instead of showing a number that leaves them out. */
+    const {data:jobsToday,error:jobsErr}=await sb.rpc("office_truck_jobs",{p_from:todayStr,p_to:todayStr});
+    if(jobsErr){ console.error("truck jobs", jobsErr); if(typeof reportClientError==="function") reportClientError("count today's truck jobs for the home page", jobsErr); }
+    const nj=jobsErr?0:(jobsToday||[]).length;
     document.getElementById("sDeliv").textContent=delivToday.length;
-    document.getElementById("sDelivSub").textContent=delivToday.length?"booked for today":"none booked today";
+    document.getElementById("sDelivSub").textContent=
+      (delivToday.length?"booked for today":"none booked today")
+      + (nj?` + ${nj} truck job${nj===1?"":"s"}`:"")
+      + (jobsErr?" (truck jobs couldn't be checked)":"");
 
     // dishonours since contact (for the watch buckets)
     /* 13 Oct 2026: by ORDER ID — the database stamps every failure with its order,
