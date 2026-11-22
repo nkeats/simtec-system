@@ -332,7 +332,7 @@ const fmtDay=d=>d?new Date(d+'T12:00:00').toLocaleDateString('en-NZ',{weekday:'s
    bonus row written at finalise. */
 function incDesc(x){
   let t=`${x.name} — ${fmtDay(x.day)}`;
-  if(x.rule==='per_unit'||x.rule==='per_unit_after_time'||x.rule==='per_unit_between_times')t+=` (${x.units} mattress${x.units===1?'':'es'})`;
+  if(x.rule==='per_unit'||x.rule==='per_unit_after_time'||x.rule==='per_unit_between_times'||x.rule==='weekly_goal')t+=` (${x.units} mattress${x.units===1?'':'es'})`;
   if(+x.paid>0)t+=' — balance';
   return t;
 }
@@ -735,9 +735,11 @@ async function showRuns(){
    in the database). Counting is per MATTRESS; time-based offers use the iPad
    signing time or the time the office types for a paper order; a sale cancelled
    before delivery does not count. */
-const INC_RULES={sale_before_time:'Sale before a time',units_on_day:'Mattresses in a day',per_unit:'Per mattress sold',per_unit_after_time:'Per mattress from a time',per_unit_between_times:'Per mattress between two times'};
+const INC_RULES={sale_before_time:'Sale before a time',units_on_day:'Mattresses in a day',per_unit:'Per mattress sold',per_unit_after_time:'Per mattress from a time',per_unit_between_times:'Per mattress between two times',weekly_goal:'Weekly sales goal (all or nothing)'};
 function incRuleText(i){
   if(i.rule==='sale_before_time')return `a sale before ${String(i.cutoff_time||'').slice(0,5)} → ${fmt(i.amount)}`;
+  /* 23 Nov 2026: each consultant has their own goal (commission_incentive_goals); set up in the database */
+  if(i.rule==='weekly_goal')return `${fmt(i.amount)} per mattress for each consultant who reaches their own goal (all or nothing)`;
   if(i.rule==='units_on_day')return `${i.min_units} or more mattresses in a day → ${fmt(i.amount)}`;
   if(i.rule==='per_unit_between_times')return `${fmt(i.amount)} per mattress sold between ${String(i.cutoff_time||'').slice(0,5)} and ${String(i.end_time||'').slice(0,5)}`;
   if(i.rule==='per_unit_after_time')return `${fmt(i.amount)} per mattress sold from ${String(i.cutoff_time||'').slice(0,5)} for the rest of the day`;

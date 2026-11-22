@@ -164,11 +164,11 @@ window.openKit=(id)=>{
   if(tr.style.display!=="none"){ tr.style.display="none"; return; }
   const rows=outstanding(KIT[id]);
   cell.innerHTML=`<div class="kitbox">
-    <div class="muted" style="font-size:12px;margin-bottom:10px">Record what came back. A reason is required for anything not returned in reasonable condition.</div>
+    <div class="muted" style="font-size:12px;margin-bottom:10px">Tick everything that came back, check the dates, then press Save once. A reason is required for anything not returned in reasonable condition.</div>
     ${rows.map(r=>`<div class="kitrow" data-row="${r.id}">
-      <div><label>${esc(r.item)}${r.qty>1?" (x"+r.qty+")":""}</label>
+      <div><label><input type="checkbox" class="k-tick" data-id="${r.id}" onchange="kitTicked(this)" style="width:auto;margin:0 6px 0 0;vertical-align:-2px">${esc(r.item)}${r.qty>1?" (x"+r.qty+")":""}</label>
         <div class="muted" style="font-size:11.5px">issued ${esc(r.issued_on||"—")}</div></div>
-      <div><label>Date back</label><input type="date" class="k-date" max="${localISO(new Date())}"></div>
+      <div><label>Date back</label><input type="date" class="k-date" max="${localISO(new Date())}" oninput="kitAutoTick(this)"></div>
       <div><label>How many</label><input type="number" class="k-qty" min="0" max="${r.qty}" value="${r.qty}"></div>
       <div><label>Condition</label><select class="k-cond">
         <option value="reasonable">Reasonable condition</option>
@@ -176,29 +176,45 @@ window.openKit=(id)=>{
         <option value="not_returned">Not returned</option></select>
         <input class="k-note" placeholder="Reason — required unless reasonable" style="margin-top:6px">
       </div>
-      <div><button class="mini" onclick="saveKit('${id}',${r.id},this)">Save</button></div>
+      <div></div>
     </div>`).join("")}
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:6px;border-top:1px solid var(--line);padding-top:10px">
+      <button class="mini" onclick="saveKitAll('${id}',this)">Save ticked items</button>
+      <button class="mini ghost" onclick="kitTickAll(this)">Tick everything</button>
+      <span class="muted" style="font-size:11.5px">Tick what came back, check the date, then save once.</span></div>
   </div>`;
   tr.style.display="";
 };
 
-window.saveKit=async(cid,rowId,btn)=>{
-  const box=btn.closest(".kitrow");
-  const date=box.querySelector(".k-date").value;
-  const qty =box.querySelector(".k-qty").value;
-  const cond=box.querySelector(".k-cond").value;
-  const note=box.querySelector(".k-note").value.trim();
-  if(!date){ show("Put in the date it came back.",false); return; }
-  if(cond!=="reasonable" && !note){ show("A reason is required for anything not returned in reasonable condition.",false); return; }
+/* 23 Nov 2026 — [stated] Nigel: "when a consultant returns their kit, it would be easier to
+   tick boxes and enter dates and then just have one save button, instead of doing it one at a
+   time". Tick each item that came back, check its date, save once. Everything ticked is saved
+   by record_kit_returns() in ONE transaction: all of it lands or none of it does. */
+const kitNote=row=>row.querySelector(".k-note")||(row.nextElementSibling&&row.nextElementSibling.matches("[data-note]")?row.nextElementSibling.querySelector(".k-note"):null);
+// ticking an item fills today's date if none is set; typing a date ticks it
+window.kitTicked=cb=>{ const d=cb.closest(".kitrow").querySelector(".k-date");
+  if(cb.checked&&d&&!d.value) d.value=localISO(new Date()); };
+window.kitAutoTick=inp=>{ const cb=inp.closest(".kitrow").querySelector(".k-tick");
+  if(cb&&inp.value&&!cb.checked){ cb.checked=true; } };
+window.kitTickAll=btn=>{ const box=btn.closest(".kitbox");
+  box.querySelectorAll(".k-tick").forEach(cb=>{ if(!cb.checked){ cb.checked=true; kitTicked(cb); } }); };
+window.saveKitAll=async(cid,btn)=>{
+  const box=btn.closest(".kitbox"), out=[];
+  for(const cb of box.querySelectorAll(".k-tick:checked")){
+    const row=cb.closest(".kitrow"), item=row.querySelector("label").textContent.trim();
+    const date=row.querySelector(".k-date").value, qty=row.querySelector(".k-qty").value;
+    const cond=row.querySelector(".k-cond").value, noteEl=kitNote(row), note=noteEl?noteEl.value.trim():"";
+    if(!date){ show(`Put in the date the ${item} came back.`,false); return; }
+    if(cond!=="reasonable"&&!note){ show(`A reason is required for the ${item} — it isn't marked as back in reasonable condition.`,false); return; }
+    out.push({id:Number(cb.dataset.id),returned_on:date,returned_qty:qty,condition:cond,note});
+  }
+  if(!out.length){ show("Tick the items that came back first.",false); return; }
   btn.disabled=true; btn.textContent="Saving…";
-  const { error } = await sb.from("consultant_kit")
-    .update({ returned_on:date, returned_qty:qty===""?null:Number(qty), condition:cond,
-              note:note||null, updated_at:new Date().toISOString() })
-    .eq("id", rowId);
-  btn.disabled=false; btn.textContent="Save";
-  if(error){ show("Couldn't save: "+error.message,false); return; }
-  show("Recorded. If everything issued is now back in reasonable condition, the $250 equipment hold-back is raised automatically.",true);
-  await load();
+  const { data, error } = await sb.rpc("record_kit_returns",{p_rows:out});
+  btn.disabled=false; btn.textContent="Save ticked items";
+  if(error){ show("Nothing was saved: "+error.message,false); return; }
+  show(`Recorded ${data} item${data===1?"":"s"}. If everything issued is now back in reasonable condition, the $250 equipment hold-back is raised automatically.`,true);
+  await load(); if(typeof KEEP_OPEN!=="undefined"&&KEEP_OPEN) openKit(cid);
 };
 
 // Reactivate — the only action available here. Making someone inactive happens
