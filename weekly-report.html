@@ -175,6 +175,30 @@ function mattressTable(soldRows, delivRows, awaitRows){
         <td class="num"><b>${t("deliv")}</b></td><td class="num"><b>${t("wait")}</b></td></tr></table>`;
 }
 
+/* 24 Nov — [stated] Nigel: "yes seperate the payments. We need to keep particular
+   track of the ezidebit payments so we can chase the non payers."
+   `payments` and `received` are now EZIDEBIT ONLY (until 24 Nov they also held bank
+   transfers and cash, and missed Stripe). Everything else is in otherMoneyTable(). */
+function otherMoneyTable(rows){
+  if(!rows || !rows.length) return `<p class="note">No payments recorded.</p>`;
+  const k = ["bank_transfer","card","cash","eftpos","other"];
+  const show = k.filter(f => rows.some(r => Number(r[f]||0) !== 0));
+  const label = {bank_transfer:"Bank transfer",card:"Card (Stripe)",cash:"Cash",eftpos:"EFTPOS",other:"Other"};
+  const tot = f => rows.reduce((a,r)=>a+Number(r[f]||0),0);
+  const outside = r => k.reduce((a,f)=>a+Number(r[f]||0),0);
+  return `<table><tr><th>Week</th>${show.map(f=>`<th class="num">${label[f]}</th>`).join("")}
+      <th class="num">Outside Ezidebit</th><th class="num">Ezidebit</th><th class="num">All money in</th></tr>`
+    + rows.map(r=>`<tr><td>${nzDate(r.week_start)} &ndash; ${nzDate(r.week_end)}</td>
+        ${show.map(f=>`<td class="num">${money2(r[f])}</td>`).join("")}
+        <td class="num"><b>${money2(outside(r))}</b></td>
+        <td class="num">${money2(r.received)}</td>
+        <td class="num"><b>${money2(r.all_money)}</b></td></tr>`).join("")
+    + `<tr><td><b>4 weeks</b></td>${show.map(f=>`<td class="num"><b>${money2(tot(f))}</b></td>`).join("")}
+        <td class="num"><b>${money2(rows.reduce((a,r)=>a+outside(r),0))}</b></td>
+        <td class="num"><b>${money2(tot("received"))}</b></td>
+        <td class="num"><b>${money2(tot("all_money"))}</b></td></tr></table>`;
+}
+
 function eziTable(rows){
   if(!rows || !rows.length) return `<p class="note">No settled payments recorded.</p>`;
   const totIn  = rows.reduce((a,r)=>a+Number(r.received||0),0);
@@ -182,7 +206,7 @@ function eziTable(rows){
   const totN   = rows.reduce((a,r)=>a+Number(r.payments||0),0);
   const totB   = rows.reduce((a,r)=>a+Number(r.bounced||0),0);
   const best   = Math.max(...rows.map(r=>Number(r.received||0)), 1);
-  return `<table><tr><th>Week</th><th class="num">Payments</th><th class="num">Received</th>
+  return `<table><tr><th>Week</th><th class="num">Ezidebit payments</th><th class="num">Ezidebit received</th>
       <th class="num">Bounced</th><th class="num">Value bounced</th><th style="width:120px"></th></tr>`
     + rows.map(r=>{
         const inn=Number(r.received||0), w=(inn/best*100).toFixed(1);
@@ -371,10 +395,16 @@ async function load(){
     ${bandTable(o.loan_book_by_misses)}
 
     <h3>Ezidebit received — last 4 complete weeks</h3>
-    <p class="note">Counted on the day the money settled, refunds taken off.
+    <p class="note">Direct debits only &mdash; bank transfers, cash and card payments are in the
+      next table. Counted on the day the money settled, refunds taken off.
       Only finished Monday&ndash;Sunday weeks are shown, so a week still running never appears.
       A bounce rate of a quarter or more is marked in red.</p>
     ${eziTable(x.ezidebit_weeks)}
+
+    <h3>Money in outside Ezidebit — same 4 weeks</h3>
+    <p class="note">Bank transfers, cash and card payments, by the day they settled (card
+      payments by the day they were paid). These are not part of what Ezidebit is asked to collect.</p>
+    ${otherMoneyTable(x.ezidebit_weeks)}
 
     <h3>Bed bases sold this week</h3>
     ${mixTable(x.bases_by_type||[],"Bed base")}
