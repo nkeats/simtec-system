@@ -7,7 +7,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.112.2"></script>
 <script>/* 5 Oct 2026: today's date as the person using this page sees it. NEVER use toISOString() for a date - it gives the UTC date, which is YESTERDAY in NZ every morning. */
 function localISO(d){d=d||new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}</script>
-<script>window.SIMTEC_BUILD="2026-11-16-01";</script>
+<script>window.SIMTEC_BUILD="2026-11-24-01";</script>
 <script src="client-errors.js?v=1"></script>
 <script src="live.js?v=6" defer></script>
 <script src="auth.js?v=3" data-roles="admin,manager,office"></script>
@@ -105,6 +105,7 @@ let customerId = params.get("cust");
 const linkedOrderId = params.get("id");
 
 let ORDERS={}, ITEMSBY={}, CUST={};
+let OPBY={};   // regular payments outside Ezidebit, by order (v_offline_payers)
 let ARRBY={}, ARR_EDIT=null;   // agreed payments per order (sim_payment_arrangements); the row being edited
 
 const fmt=n=>(n==null||n==="")?"—":"$"+Number(n).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
@@ -447,6 +448,13 @@ async function run(quiet){
         .in("order_id",ids).order("due_date",{ascending:true,nullsFirst:false}).order("created_at");
       if(e3b) throw new Error("Loading agreed payments: "+e3b.message);
       (arrs||[]).forEach(a=>{ (ARRBY[a.order_id]=ARRBY[a.order_id]||[]).push(a); });
+    }
+    // regular payments outside Ezidebit (24 Nov) — office only; others simply see nothing
+    OPBY={};
+    if(ids.length && isOffice()){
+      const {data:ops,error:e3c}=await sb.from("v_offline_payers").select("*").in("order_id",ids);
+      if(e3c) throw new Error("Loading regular payments outside Ezidebit: "+e3c.message);
+      (ops||[]).forEach(p=>{ OPBY[p.order_id]=p; });
     }
 
     // payments, grouped by order (and by each Ezidebit number on the order)
@@ -989,6 +997,68 @@ const CM_LABEL = { ezidebit:"Ezidebit", other:"Other" };
 const inputStyle = "padding:6px 8px;border:1px solid #cbd4df;border-radius:7px;font-size:13px;font-family:inherit";
 const smallBtn = (label, onclick, colour) =>
   `<button onclick="${onclick}" style="background:${colour||"#fff"};color:${colour?"#fff":"var(--navy)"};border:1px solid ${colour||"#cbd4df"};border-radius:6px;padding:3px 9px;font-size:11.5px;font-weight:600;cursor:pointer">${label}</button>`;
+/* ===== Regular payments outside Ezidebit (24 Nov 2026) =======================
+   [stated] Nigel: customers who have stopped paying by Ezidebit "but want to make regular
+   payments over stripe or direct debit". The office takes each card payment by hand (the card /
+   link buttons on this page) or records the customer's own bank automatic payment when it lands.
+   sim_offline_plans holds ONE active plan per order; offline_plan_set() ends the old one and marks
+   the order collected "other". Where it stands comes from v_offline_payers (paid = sim_payments). */
+const OP_METHOD = { card:"Card (office takes it)", bank_ap:"Bank automatic payment" };
+const OP_FREQ = { weekly:"weekly", fortnightly:"fortnightly", monthly:"monthly" };
+let OP_EDIT = null;
+function offlinePlanBlock(o){
+  const p = OPBY[o.id];
+  if(OP_EDIT === o.id){
+    const v = p || {};
+    const opt = (m,cur)=>Object.keys(m).map(k=>`<option value="${k}"${k===cur?" selected":""}>${m[k]}</option>`).join("");
+    return `<div style="margin-top:10px;border:1px solid var(--line);border-radius:10px;padding:10px 12px">
+      <div style="font-size:12px;font-weight:700;color:var(--navy);margin-bottom:8px">Regular payments outside Ezidebit</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+        <select id="opM_${o.id}" style="${inputStyle}">${opt(OP_METHOD, v.method||"card")}</select>
+        <span style="font-size:12.5px">$</span><input type="number" step="0.01" min="0.01" id="opA_${o.id}" value="${v.amount?Number(v.amount):(o.instalment_amount||"")}" style="${inputStyle};width:90px">
+        <select id="opF_${o.id}" style="${inputStyle}">${opt(OP_FREQ, v.frequency||o.payment_frequency||"weekly")}</select>
+        <span style="font-size:12.5px">first due</span><input type="date" id="opD_${o.id}" value="${esc(v.first_due||localISO(new Date()))}" style="${inputStyle}">
+      </div>
+      <input type="text" id="opN_${o.id}" value="${esc(v.note||"")}" placeholder="note (optional), e.g. pays every Friday after payday" style="${inputStyle};width:100%;margin-top:6px">
+      <div style="margin-top:8px">${smallBtn("Save",`opSave('${o.id}')`,"#1c6b34")} ${smallBtn("Cancel",`opCancel()`)}</div>
+    </div>`;
+  }
+  if(!p) return `<div style="margin-top:8px">${smallBtn("+ Set up regular payments outside Ezidebit",`opEdit('${o.id}')`)}</div>`;
+  const today = localISO(new Date());
+  let state;
+  if(Number(p.balance)<=0)                                   state = `<span style="color:var(--green);font-weight:700">paid off</span>`;
+  else if(p.due_today && Number(p.behind) <= Number(p.amount)) state = `<span style="color:#b26a00;font-weight:700">due today</span>`;
+  else if(Number(p.behind) > 0)                               state = `<span style="color:var(--red);font-weight:700">${fmt(p.behind)} behind</span>`;
+  else                                                        state = `<span style="color:var(--green);font-weight:700">up to date</span>`;
+  return `<div style="margin-top:10px;border:1px solid var(--line);border-radius:10px;padding:10px 12px">
+    <div style="font-size:12px;font-weight:700;color:var(--navy);margin-bottom:6px">Regular payments outside Ezidebit</div>
+    <div style="font-size:13px"><b>${fmt(p.amount)} ${OP_FREQ[p.frequency]||esc(p.frequency)}</b> · ${OP_METHOD[p.method]||esc(p.method)} · from ${auDate(p.first_due)}</div>
+    <div style="font-size:12.5px;margin-top:4px">Next due <b>${p.next_due?auDate(p.next_due):"—"}</b> · ${state}
+      · paid ${fmt(p.paid_since)} of ${fmt(p.expected)} due so far${p.last_paid_on?` · last payment ${auDate(p.last_paid_on)} (${esc(p.last_paid_how||"")})`:""}</div>
+    ${p.note?`<div class="muted" style="font-size:12px;margin-top:4px">${esc(p.note)}</div>`:""}
+    <div style="margin-top:8px">${smallBtn("Change",`opEdit('${o.id}')`)} ${smallBtn("End this arrangement",`opEnd('${o.id}')`)}</div>
+  </div>`;
+}
+function opEdit(oid){ OP_EDIT=oid; run(true); }
+function opCancel(){ OP_EDIT=null; run(true); }
+async function opSave(oid){
+  const g=id=>(document.getElementById(id)||{}).value;
+  const amt=parseFloat(g("opA_"+oid));
+  if(!(amt>0)) return alert("Enter the regular amount (more than $0).");
+  if(!g("opD_"+oid)) return alert("Enter the date the first payment is due.");
+  const {error}=await sb.rpc("offline_plan_set",{p_order:oid,p_method:g("opM_"+oid),p_amount:amt,
+    p_frequency:g("opF_"+oid),p_first_due:g("opD_"+oid),p_note:(g("opN_"+oid)||"").trim()||null});
+  if(error){ reportClientError("set regular payments outside Ezidebit", error, oid); alert("Couldn't save it: "+error.message); return; }
+  OP_EDIT=null; run(true);
+}
+async function opEnd(oid){
+  const why=prompt("End this arrangement? It stays on record.\n\nReason (optional), e.g. back on Ezidebit, paid off:");
+  if(why===null) return;
+  const {error}=await sb.rpc("offline_plan_end",{p_order:oid,p_reason:why||null});
+  if(error){ reportClientError("end regular payments outside Ezidebit", error, oid); alert("Couldn't end it: "+error.message); return; }
+  run(true);
+}
+
 function collectionBlock(o){
   const cm = o.collection_method || "ezidebit";
   if(!isOffice()) return kv("Collected by", CM_LABEL[cm] || esc(cm));
@@ -996,7 +1066,7 @@ function collectionBlock(o){
       <option value="ezidebit"${cm==="ezidebit"?" selected":""}>Ezidebit</option>
       <option value="other"${cm==="other"?" selected":""}>Other — agreed payments</option>
     </select>`;
-  let html = kv("How this order is collected", sel);
+  let html = kv("How this order is collected", sel) + offlinePlanBlock(o);
   if(cm !== "other") return html;
 
   const rows = ARRBY[o.id] || [];

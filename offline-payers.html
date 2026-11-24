@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Simtec — Paying outside Ezidebit</title>
+<script>window.SIMTEC_BUILD="2026-11-24-01";</script>
+<script src="https://cdn.tailwindcss.com/3.4.17"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.112.2"></script>
+<script src="live.js?v=6" defer></script>
+<script src="auth.js?v=3" data-roles="admin,manager,office"></script>
+<style>
+  body{background:#0b1220;color:#e2e8f0}
+  .card{background:#111c33;border:1px solid #1e2d4a;border-radius:14px}
+  .btn{background:#1a2942;color:#dbe4f2;border:1px solid #26324a;border-radius:8px;padding:6px 11px;font-size:13px;font-weight:600;cursor:pointer;text-decoration:none;display:inline-block}
+  .btn.on{background:#c6a15b;color:#14203a;border-color:#c6a15b}
+  table{width:100%;border-collapse:collapse}
+  th,td{padding:8px 10px;text-align:left;font-size:13px;border-bottom:1px solid #16233c;vertical-align:top}
+  th{color:#7c8aa5;font-size:10.5px;text-transform:uppercase}
+  td.num,th.num{text-align:right}
+  .pill{display:inline-block;border-radius:999px;padding:2px 9px;font-size:11.5px;font-weight:700}
+  .p-due{background:#4a3410;color:#ffd58a} .p-behind{background:#4a1714;color:#ffb4ad}
+  .p-ok{background:#123a24;color:#9be3b6} .p-off{background:#1e2d4a;color:#9fb0cc}
+  .muted{color:#7c8aa5}
+</style>
+</head>
+<body class="min-h-screen">
+<nav class="border-b border-slate-800 px-6 py-3 flex items-center gap-3" style="background:#0d1728">
+  <a href="home.html" style="color:#cbd5e1;text-decoration:none;font-size:.85rem;margin-right:8px">‹ Home</a>
+  <span class="font-bold tracking-wide text-lg">SIMTEC</span>
+  <span class="text-slate-400 text-sm">Paying outside Ezidebit</span>
+</nav>
+
+<div class="max-w-6xl mx-auto px-5 py-7">
+  <div class="card p-5 mb-5 text-sm text-slate-300">
+    Customers who now pay regularly by <b>card</b> (the office takes each payment) or by their own
+    <b>bank automatic payment</b>. To add someone, open their customer page and use
+    <b>Set up regular payments outside Ezidebit</b> under "How this order is collected".
+    To take or record a payment, press <b>Open</b> — the card, payment-link and record-payment buttons are on that page.
+  </div>
+
+  <div class="flex flex-wrap gap-2 mb-4" id="tabs"></div>
+  <div id="state" class="text-slate-400 text-sm py-4">Loading…</div>
+  <div class="card" id="wrap" style="display:none;overflow-x:auto"><table id="tbl"></table></div>
+  <p class="muted text-xs mt-3">Behind = what was due from the first due date to today, less every payment received on the order since then (any method).
+    Due today shows once that day's payment is the only one outstanding.</p>
+</div>
+
+<script>
+function localISO(d){d=d||new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
+const sb = supabase.createClient("https://jvqjoenaungubpoegyvf.supabase.co","sb_publishable_J4MYTdJJyEaWe-GadpwdYA_upPT2rKw");
+const $=id=>document.getElementById(id);
+const fmt=n=>"$"+Number(n||0).toLocaleString("en-NZ",{minimumFractionDigits:2,maximumFractionDigits:2});
+const esc=s=>(s??"").toString().replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const dmy=v=>{if(!v)return"—";const m=String(v).match(/^(\d{4})-(\d{2})-(\d{2})/);return m?m[3]+"/"+m[2]+"/"+m[1]:v;};
+const METHOD={card:"Card",bank_ap:"Bank automatic payment"};
+
+let ROWS=[], TAB="due";
+function stateOf(r){
+  if(Number(r.balance)<=0) return "off";
+  if(r.due_today && Number(r.behind)<=Number(r.amount)) return "due";
+  if(Number(r.behind)>0) return "behind";
+  return "ok";
+}
+const PILL={due:'<span class="pill p-due">Due today</span>',behind:r=>`<span class="pill p-behind">${fmt(r.behind)} behind</span>`,
+            ok:'<span class="pill p-ok">Up to date</span>',off:'<span class="pill p-off">Paid off</span>'};
+function tabs(){
+  const n=k=>ROWS.filter(r=>k==="all"||(k==="due"?["due","behind"].includes(stateOf(r)):stateOf(r)===k)).length;
+  const T=[["due","To collect today",n("due")],["behind","Behind",n("behind")],["all","Everyone",n("all")]];
+  $("tabs").innerHTML=T.map(([k,l,c])=>`<button class="btn${TAB===k?" on":""}" onclick="TAB='${k}';draw()">${l} (${c})</button>`).join("");
+}
+function draw(){
+  tabs();
+  const order={behind:0,due:1,ok:2,off:3};
+  let rows=ROWS.filter(r=>TAB==="all"||(TAB==="due"?["due","behind"].includes(stateOf(r)):stateOf(r)===TAB))
+               .sort((a,b)=>order[stateOf(a)]-order[stateOf(b)]||Number(b.behind)-Number(a.behind)||String(a.last_name).localeCompare(String(b.last_name)));
+  if(!rows.length){ $("wrap").style.display="none"; $("state").style.display=""; $("state").textContent= ROWS.length?"Nobody in this list right now.":"Nobody has been set up yet — add them from the customer page."; return; }
+  $("state").style.display="none"; $("wrap").style.display="";
+  $("tbl").innerHTML=`<thead><tr><th>Customer</th><th>How</th><th class="num">Amount</th><th>Next due</th><th>Status</th><th>Last payment</th><th class="num">Balance</th><th></th></tr></thead><tbody>`+
+    rows.map(r=>{ const s=stateOf(r); return `<tr>
+      <td><b>${esc(r.first_name)} ${esc(r.last_name)}</b><div class="muted text-xs">${esc(r.mobile||"")}${r.suburb?" · "+esc(r.suburb):""}</div>${r.note?`<div class="muted text-xs">${esc(r.note)}</div>`:""}</td>
+      <td>${METHOD[r.method]||esc(r.method)}</td>
+      <td class="num">${fmt(r.amount)}<div class="muted text-xs">${esc(r.frequency)}</div></td>
+      <td>${dmy(r.next_due)}</td>
+      <td>${s==="behind"?PILL.behind(r):PILL[s]}</td>
+      <td>${r.last_paid_on?dmy(r.last_paid_on)+`<div class="muted text-xs">${fmt(r.last_paid_amt)} · ${esc(r.last_paid_how||"")}</div>`:'<span class="muted">none yet</span>'}</td>
+      <td class="num">${fmt(r.balance)}</td>
+      <td><a class="btn" href="customer-detail.html?id=${r.order_id}">Open</a></td></tr>`;}).join("")+`</tbody>`;
+}
+async function load(){
+  const {data,error}=await sb.from("v_offline_payers").select("*");
+  if(error){ $("state").textContent="Couldn't load the list: "+error.message; return; }
+  ROWS=data||[]; draw();
+}
+// live.js refreshes the list when the database changes, when the tab regains focus, and once a minute.
+window.SIMTEC_RELOAD = function(){ load(); };
+(async()=>{ for(let i=0;i<50 && !window.SIMTEC_USER;i++) await new Promise(r=>setTimeout(r,100)); load(); })();
+</script>
+</body>
+</html>
