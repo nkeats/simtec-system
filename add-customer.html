@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Simtec — Add Customer / Sale</title>
-<!-- SIMTEC_BUILD: add-customer 2026-11-19-01 (paper orders: existing-customer check matches the iPad) -->
+<!-- SIMTEC_BUILD: add-customer 2026-11-26-01 (+ Free pillow button: a $0 Pillow line, as the iPad does) -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.112.2"></script>
 <script src="auth.js?v=3" data-roles="admin,manager,office"></script>
 <style>
@@ -198,6 +198,7 @@
       <label for="delNote">Delivery note <span style="font-weight:400;color:#6b7685">— free items, access, anything the driver needs</span></label>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin:6px 0">
         <button type="button" class="ghost" onclick="addNoteLine('FREE mattress protector — include with the delivery (not charged).')">+ Free protector</button>
+        <button type="button" class="ghost" onclick="addNoteLine(FREE_PILLOW_NOTE)">+ Free pillow</button>
       </div>
       <textarea id="delNote" rows="2" maxlength="500" style="width:100%;box-sizing:border-box;font:inherit;padding:8px;border:1px solid #cbd4df;border-radius:8px" placeholder="e.g. FREE Queen protector — not charged"></textarea>
     </div>
@@ -705,6 +706,8 @@ async function save(){
     // free protectors: same product name (stock and the truck count them), price $0
     freeLines.forEach(fl=>{ items.push({order_id:ord.id, line_no:++ln, product_name:fl.name, quantity:fl.qty, unit_price:0}); });
     addLine("Pillow","pillow",parseInt($("pillow").value,10));
+    if(($("delNote").value||"").indexOf(FREE_PILLOW_NOTE)!==-1)
+      items.push({order_id:ord.id, line_no:++ln, product_name:"Pillow", quantity:1, unit_price:0});
     addLine("Delivery fee","delivery",parseInt($("delivery").value,10));
     if(items.length){
       const {error:e3} = await sb.from("sim_order_items").insert(items);
@@ -733,6 +736,13 @@ $("a2mobile").addEventListener("input", ()=>{
   else if(flag==="landline"){ el.textContent="Looks like a landline ("+e164+") — texts won't reach it"; el.style.color="#8a6d00"; }
   else { el.textContent="Doesn't look like a valid NZ number"; el.style.color="#a02020"; }
 });
+/* 26 Nov 2026 — [stated] Nigel: a "+ Free pillow" button next to "+ Free protector".
+   Unlike the protector note, the free pillow ALSO goes on the order as a $0 "Pillow" line,
+   exactly as the iPad's free-pillow button does (order_free_pillow_set). That line is what
+   stock counts, what the truck loads, and what raises the consultant's pillow charge
+   (commission_settings.pillow_charge) when the order is delivered — no charge if it never
+   delivers. Delete the note line before saving and no pillow line is added. */
+const FREE_PILLOW_NOTE='FREE pillow — include with the delivery (not charged).';
 function addNoteLine(t){
   const el=$("delNote"); if(!el) return;
   const cur=el.value.trim();
