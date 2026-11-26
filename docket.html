@@ -223,7 +223,9 @@ function timeTxt(t){
 }
 async function dataForOrder(o){
   let c={}; if(o.customer_id){ const {data}=await sb.from("sim_customers").select("*").eq("id",o.customer_id).single(); c=data||{}; }
-  const {data:items}=await sb.from("sim_order_items").select("product_name,quantity,line_no").eq("order_id",o.id).order("line_no");
+  /* 26 Nov 2026: a line held back from delivery (partial delivery — sim_order_items.hold_from_delivery)
+     is not going on this truck, so it is not on the docket the customer signs. */
+  const {data:items}=await sb.from("sim_order_items").select("product_name,quantity,line_no,hold_from_delivery").eq("order_id",o.id).eq("hold_from_delivery",false).order("line_no");
   return {
     id:o.id,
     note:o.delivery_note||"",
