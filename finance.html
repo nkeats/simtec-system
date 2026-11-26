@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Simtec — Finance</title>
 <link rel="icon" href="icon-192.png">
-<script>window.SIMTEC_BUILD="2026-11-25-01";</script>
+<script>window.SIMTEC_BUILD="2026-11-27-01";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.112.2"></script>
 <script src="auth.js?v=3" data-roles="admin,manager,office"></script>
 <!-- ===========================================================================
@@ -95,7 +95,7 @@
       <div><label for="sAlert">Text the office after (minutes) with no answer</label><input id="sAlert" type="number" min="1" max="240"></div>
       <div><label for="sPaper">Paper form overdue after (days)</label><input id="sPaper" type="number" min="1" max="30"></div>
       <div><label for="sTerms">Terms shown on every iPad</label>
-        <select id="sTerms"><option value="1.1">Version 1.1 (current)</option><option value="1.2">Version 1.2 (covers finance)</option><option value="1.3">Version 1.3 (17 Nov 2026, no finance)</option><option value="1.4">Version 1.4 (25 Nov 2026 — latest, no finance)</option></select></div>
+        <select id="sTerms"><option value="1.1">Version 1.1 (current)</option><option value="1.2">Version 1.2 (covers finance)</option><option value="1.3">Version 1.3 (17 Nov 2026, no finance)</option><option value="1.4">Version 1.4 (25 Nov 2026, no finance)</option><option value="1.5">Version 1.5 (27 Nov 2026 — latest, no finance)</option></select></div>
     </div>
     <p class="muted" style="margin:10px 0 0">Order to switch on: enter the application email and Save → switch on the consultants → switch the terms to version 1.2 and Save → Switch finance ON. Finance can only be switched on with the version 1.2 terms — they are the only terms that cover finance.</p>
     <div class="warnbox" id="termsWarn" style="display:none">Switching the terms version changes the terms on <b>every</b> iPad, finance or not, from the next sale, and the terms emailed to every new customer. The PDF for that version and the updated iPad page must be on the website first — Save checks both.</div>
@@ -183,7 +183,7 @@ async function saveSettings(){
   /* 17 Nov: any version after 1.1 is a file on the website PLUS a template in the iPad
      page. Refuse the switch unless BOTH are live — an iPad that does not know the
      version would quietly fall back to the v1.1 text. */
-  /* 17 Nov: v1.3 (and v1.4, 25 Nov) has no finance clauses. Finance customers must sign terms that cover finance, so only v1.2 while finance is on. */
+  /* 17 Nov: v1.3 (and v1.4, 25 Nov, and v1.5, 27 Nov) has no finance clauses. Finance customers must sign terms that cover finance, so only v1.2 while finance is on. */
   if (cur.enabled && p.terms_version !== '1.2'){ show('err', 'Finance is on, and only the version 1.2 terms cover finance. Switch finance off first.'); return; }
   if (p.terms_version !== '1.1' && p.terms_version !== cur.terms_version){
     const v = p.terms_version;
