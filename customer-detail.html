@@ -7,7 +7,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.112.2"></script>
 <script>/* 5 Oct 2026: today's date as the person using this page sees it. NEVER use toISOString() for a date - it gives the UTC date, which is YESTERDAY in NZ every morning. */
 function localISO(d){d=d||new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}</script>
-<script>window.SIMTEC_BUILD="2026-11-26-01";</script>
+<script>window.SIMTEC_BUILD="2026-11-28-01";</script>
 <script src="client-errors.js?v=1"></script>
 <script src="live.js?v=6" defer></script>
 <script src="auth.js?v=3" data-roles="admin,manager,office"></script>
@@ -3514,12 +3514,19 @@ async function rebuildPaid(o){
   <div class="modal" style="max-width:720px">
     <h3 style="margin:0 0 4px">Order documents</h3>
     <p class="muted" style="font-size:12.5px;margin:0 0 14px">
-      Everything the customer signed on the iPad, kept against this order. Links last five minutes.
+      Everything the customer signed on the iPad, plus anything the office has added, kept against this order. Links last five minutes.
     </p>
     <div id="docsErr" style="display:none;background:#fdecec;border:1px solid #e0b4b0;color:#b4342e;border-radius:9px;padding:11px 13px;font-size:13.5px;margin-bottom:12px"></div>
     <div id="docsHold" style="display:none;background:#fff5e0;border:1px solid #e8d9a0;color:#8a5b00;border-radius:9px;padding:11px 13px;font-size:13.5px;margin-bottom:12px"></div>
     <div id="docsBody" class="muted">Loading…</div>
+    <!-- 28 Nov 2026: the office can add a document to an order (an invoice, a letter, a
+         photo of a paper form, an email saved as PDF). Stored in the same private
+         order-documents bucket under <order>/added/, so the same rules apply: staff can
+         add, only managers and admins can open. Nothing is ever overwritten. -->
+    <input type="file" id="docsFile" multiple accept=".pdf,.jpg,.jpeg,.png,.heic,.doc,.docx,.xls,.xlsx,.txt,.eml,.msg,image/*,application/pdf" style="display:none" onchange="addDocs(this)">
+    <div id="docsAddMsg" style="display:none;border-radius:9px;padding:10px 13px;font-size:13.5px;margin-top:12px"></div>
     <div style="margin-top:16px;display:flex;gap:8px;flex-wrap:wrap">
+      <button id="docsAdd" onclick="document.getElementById('docsFile').click()" style="background:#1c6b34;color:#fff;border:none;border-radius:8px;padding:9px 14px;font-size:13.5px;font-weight:700;cursor:pointer">&#43; Add a document</button>
       <button id="docsRegen" onclick="regenSummary()" style="background:#fff;color:var(--navy);border:1px solid #cbd4df;border-radius:8px;padding:9px 14px;font-size:13.5px;font-weight:600;cursor:pointer">&#8635; Regenerate order summary</button>
       <button id="docsPrint" onclick="printPack()" style="background:#122347;color:#fff;border:none;border-radius:8px;padding:9px 16px;font-size:13.5px;font-weight:700;cursor:pointer">&#128424;&#65039; Print the pack</button>
       <button onclick="document.getElementById('docsModal').style.display='none'" style="margin-left:auto;background:#fff;color:var(--navy);border:1px solid #cbd4df;border-radius:8px;padding:9px 14px;font-size:13.5px;font-weight:600;cursor:pointer">Close</button>
@@ -3845,6 +3852,7 @@ const DOC_LABELS = {
 };
 function docLabel(n){
   if(DOC_LABELS[n]) return DOC_LABELS[n];
+  if(n.indexOf('added/')===0) return 'Added: '+n.slice(6);
   if(n.indexOf('id-applicant1')===0) return 'ID photo \u2014 applicant 1';
   if(n.indexOf('id-applicant2')===0) return 'ID photo \u2014 applicant 2';
   return n;
@@ -3955,6 +3963,8 @@ async function openDocs(orderId){
   DOCS = { orderId:orderId, files:[], urls:{} };
   document.getElementById('docsErr').style.display='none';
   document.getElementById('docsRegen').style.display = isStaff() ? '' : 'none';
+  document.getElementById('docsAdd').style.display = isStaff() ? '' : 'none';
+  document.getElementById('docsAddMsg').style.display='none';
   showWelcomeHold(orderId);
   document.getElementById('docsBody').innerHTML='Loading\u2026';
   document.getElementById('docsModal').style.display='flex';
@@ -3981,7 +3991,10 @@ async function openDocs(orderId){
         '<div style="background:#fff5e0;border:1px solid #e8d9a0;border-radius:9px;padding:12px 14px;color:#8a5b00">'+
         '<b>No documents were saved against this order.</b><br>'+
         'That means it was not completed through to the Done step on the iPad, or the upload failed. '+
-        'Orders keyed in by the office by hand never have documents \u2014 that is normal.</div>';
+        'Orders keyed in by the office by hand never have documents \u2014 that is normal. '+
+        'You can add one with <b>+ Add a document</b> below.'+
+        (isMgr() ? '' : '<br><br>Only a manager or admin can open documents, so if this order should have some, ask one of them to look.')+
+        '</div>';
       document.getElementById('docsPrint').style.display='none';
       return;
     }
@@ -3993,7 +4006,13 @@ async function openDocs(orderId){
 
     const imgs = DOCS.files.filter(function(n){ return /\.(png|jpe?g)$/i.test(n); });
     const pdfs = DOCS.files.filter(function(n){ return /\.pdf$/i.test(n); });
+    // anything else the office added (Word, Excel, email files) — a plain link to open or download it
+    const others = DOCS.files.filter(function(n){ return !/\.(png|jpe?g|pdf)$/i.test(n); });
     document.getElementById('docsBody').innerHTML =
+      (others.length ? '<div style="margin-bottom:14px">'+others.map(function(n){
+        return '<a href="'+(DOCS.urls[n]||'#')+'" target="_blank" style="display:inline-block;background:#fff;'+
+          'color:#122347;border:1px solid #cbd4df;border-radius:8px;padding:9px 15px;font-size:13.5px;font-weight:600;text-decoration:none;'+
+          'margin:0 8px 8px 0">\uD83D\uDCCE '+esc(docLabel(n))+'</a>'; }).join('')+'</div>' : '') +
       (pdfs.length ? '<div style="margin-bottom:14px">'+pdfs.map(function(n){
         return '<a href="'+(DOCS.urls[n]||'#')+'" target="_blank" style="display:inline-block;background:#122347;'+
           'color:#fff;border-radius:8px;padding:9px 15px;font-size:13.5px;font-weight:700;text-decoration:none;'+
@@ -4013,12 +4032,50 @@ async function openDocs(orderId){
   }
 }
 
+/* ---------------- add a document to an order (28 Nov 2026) ----------------
+   [stated] Nigel 28 Nov: "how can I add a document to individual customer files".
+   Files go to order-documents/<order>/added/<NZ date> <name>. upsert is OFF so an
+   existing file can never be replaced; a clash gets the time added to the name.
+   Every file is reported by name — a file that did not go in says so. */
+const DOC_MAX_MB = 25;
+async function addDocs(input){
+  const files = Array.from(input.files||[]); input.value='';
+  if(!files.length || !DOCS || !DOCS.orderId) return;
+  const msg = document.getElementById('docsAddMsg');
+  const show = function(html, ok){ msg.style.display='block'; msg.innerHTML=html;
+    msg.style.background = ok ? '#eef7f0' : '#fdecec'; msg.style.border = '1px solid '+(ok?'#b9dcc3':'#e0b4b0');
+    msg.style.color = ok ? '#1c6b34' : '#b4342e'; };
+  const btn = document.getElementById('docsAdd'); btn.disabled = true; btn.textContent = 'Adding\u2026';
+  const nz = new Date().toLocaleDateString('en-CA', { timeZone:'Pacific/Auckland' });           // YYYY-MM-DD
+  const tm = new Date().toLocaleTimeString('en-GB', { timeZone:'Pacific/Auckland', hour:'2-digit', minute:'2-digit' }).replace(':','');
+  const done = [], failed = [];
+  for(const f of files){
+    if(f.size > DOC_MAX_MB*1024*1024){ failed.push(esc(f.name)+' \u2014 too big (over '+DOC_MAX_MB+' MB)'); continue; }
+    if(!f.size){ failed.push(esc(f.name)+' \u2014 the file is empty'); continue; }
+    const safe = String(f.name).normalize('NFKD').replace(/[^A-Za-z0-9._ ()-]+/g,'-').replace(/\s+/g,' ').trim().slice(-120) || 'document';
+    let path = DOCS.orderId+'/added/'+nz+' '+safe;
+    let res = await sb.storage.from('order-documents').upload(path, f, { upsert:false, contentType: f.type || undefined });
+    if(res.error && /exist|duplicate/i.test(res.error.message||'')){
+      path = DOCS.orderId+'/added/'+nz+' '+tm+' '+safe;
+      res = await sb.storage.from('order-documents').upload(path, f, { upsert:false, contentType: f.type || undefined });
+    }
+    if(res.error){ failed.push(esc(f.name)+' \u2014 '+esc(res.error.message||res.error)); reportClientError('add a document to an order', res.error, DOCS.orderId); }
+    else done.push(esc(f.name));
+  }
+  btn.disabled = false; btn.innerHTML = '&#43; Add a document';
+  const orderId = DOCS.orderId;
+  await openDocs(orderId);          // refresh the list (this also hides the message box)
+  if(failed.length) show((done.length?'<b>Added:</b> '+done.join(', ')+'<br>':'')+'<b>NOT added:</b><br>'+failed.join('<br>'), false);
+  else show('<b>Added to this order:</b> '+done.join(', ')+
+            (isMgr() ? '' : '<br>Only a manager or admin can open it.'), true);
+}
+
 function printPack(){
   const o = ORDERS[DOCS.orderId] || {};
   const items = (ITEMSBY[DOCS.orderId]||[]).map(function(i){
     return '<tr><td>'+esc(i.product_name||'')+'</td><td style="text-align:right">'+(i.quantity||1)+
       '</td><td style="text-align:right">'+(i.unit_price!=null?fmt(i.unit_price):'')+'</td></tr>'; }).join('');
-  const sigs = DOCS.files.filter(function(n){ return /\.(png|jpe?g)$/i.test(n) && n.indexOf('id-')!==0; });
+  const sigs = DOCS.files.filter(function(n){ return /\.(png|jpe?g)$/i.test(n) && n.indexOf('id-')!==0 && n.indexOf('added/')!==0; });
   const ids  = DOCS.files.filter(function(n){ return n.indexOf('id-')===0; });
   const name = [CUST.first_name,CUST.last_name].filter(Boolean).join(' ');
   const win = window.open('', '_blank');
